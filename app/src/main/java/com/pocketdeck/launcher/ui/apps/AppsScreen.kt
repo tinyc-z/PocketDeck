@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import com.pocketdeck.launcher.ui.components.BrandTileIcon
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -626,83 +627,12 @@ fun AppsScreen(
     }
 }
 
-/** 「游戏快传」统一色系图标：明亮玫瑰珊瑚缎面 + 纯白双翼折纸飞机 + 无线传输波弧。 */
+/** 「游戏快传」品牌图标：带闪电标签与金手指的游戏卡带 + 速度线，与 App 主图标、游戏库同一风格。 */
 @Composable
 fun QuickShareAppIcon(
     size: Dp = 54.dp,
     modifier: Modifier = Modifier,
-) {
-    val corner = size * 0.24f
-    Canvas(
-        modifier
-            .size(size)
-            .clip(RoundedCornerShape(corner)),
-    ) {
-        val w = this.size.width
-        val h = this.size.height
-        // 明亮玫瑰珊瑚缎面底板（与 PocketDeck 主图标、游戏库同属亮色珊瑚家族）
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFF6B8B), Color(0xFFE53864), Color(0xFFC4224E)),
-                start = Offset(0f, 0f),
-                end = Offset(w, h),
-            ),
-        )
-        // 左上柔和珍珠高光
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.26f), Color.Transparent),
-                center = Offset(w * 0.24f, h * 0.18f),
-                radius = w * 0.62f,
-            ),
-            radius = w * 0.62f,
-            center = Offset(w * 0.24f, h * 0.18f),
-        )
-        // 左下两条轻盈无线传输弧线
-        val arcSw = (w * 0.038f).coerceAtLeast(1.4f)
-        val trailOuter = Path().apply {
-            moveTo(w * 0.18f, h * 0.72f)
-            quadraticTo(w * 0.27f, h * 0.65f, w * 0.34f, h * 0.62f)
-        }
-        drawPath(
-            trailOuter,
-            color = Color.White.copy(alpha = 0.55f),
-            style = Stroke(width = arcSw, cap = StrokeCap.Round),
-        )
-        val trailInner = Path().apply {
-            moveTo(w * 0.25f, h * 0.79f)
-            quadraticTo(w * 0.33f, h * 0.73f, w * 0.39f, h * 0.70f)
-        }
-        drawPath(
-            trailInner,
-            color = Color.White.copy(alpha = 0.35f),
-            style = Stroke(width = arcSw * 0.85f, cap = StrokeCap.Round),
-        )
-        // 主翼（纯白陶瓷质感折纸飞机上翼）
-        val upperWing = Path().apply {
-            moveTo(w * 0.80f, h * 0.21f)
-            lineTo(w * 0.19f, h * 0.46f)
-            lineTo(w * 0.48f, h * 0.54f)
-            close()
-        }
-        drawPath(upperWing, color = Color(0xFFFFFFFF))
-        // 次翼（柔和珍珠粉白下翼，形成清晰立体折痕）
-        val lowerWing = Path().apply {
-            moveTo(w * 0.80f, h * 0.21f)
-            lineTo(w * 0.48f, h * 0.54f)
-            lineTo(w * 0.57f, h * 0.79f)
-            close()
-        }
-        drawPath(
-            lowerWing,
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFFD8E3), Color(0xFFFFB5C9)),
-                start = Offset(w * 0.48f, h * 0.28f),
-                end = Offset(w * 0.60f, h * 0.79f),
-            ),
-        )
-    }
-}
+) = BrandTileIcon(R.drawable.ic_tile_quick_share, size, modifier)
 
 internal fun DrawScope.drawBackArrow(color: Color) {
     val sw = 2.dp.toPx()

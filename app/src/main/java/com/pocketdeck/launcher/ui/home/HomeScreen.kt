@@ -296,17 +296,17 @@ fun HomeScreen(
     if (!isFastScrolling || settledFocusGame == null) {
         settledFocusGame = focusedGame
     }
-    val coverIndexVer = if (state.backgroundStyle == BackgroundStyle.CoverBlur) {
+    val coverIndexVer = if (state.backgroundStyle == BackgroundStyle.CoverGlow) {
         vm.covers.indexVersion.collectAsState().value
     } else {
         0
     }
-    val blurOfficialName = if (state.backgroundStyle == BackgroundStyle.CoverBlur) {
+    val blurOfficialName = if (state.backgroundStyle == BackgroundStyle.CoverGlow) {
         settledFocusGame?.let { state.officialNames[it.id] }
     } else {
         null
     }
-    val blurResolvedSource = if (state.backgroundStyle == BackgroundStyle.CoverBlur) {
+    val blurResolvedSource = if (state.backgroundStyle == BackgroundStyle.CoverGlow) {
         val map by vm.coverResolutionMap.collectAsState()
         settledFocusGame?.let { map[it.id]?.source }
     } else {
@@ -322,7 +322,7 @@ fun HomeScreen(
         coverIndexVer,
     ) {
         val g = settledFocusGame
-        if (g == null || state.backgroundStyle != BackgroundStyle.CoverBlur) emptyList()
+        if (g == null || state.backgroundStyle != BackgroundStyle.CoverGlow) emptyList()
         else vm.covers.candidates(
             g,
             state.platformFor(g),
@@ -337,13 +337,13 @@ fun HomeScreen(
         coverIndexVer,
     ) {
         val g = settledFocusGame
-        if (g == null || state.backgroundStyle != BackgroundStyle.CoverBlur) null
+        if (g == null || state.backgroundStyle != BackgroundStyle.CoverGlow) null
         else if (g.customCover != null) 0
         else vm.covers.knownIndex(g.id, state.platformFor(g))
     }
     val blurApkPackage = remember(settledFocusGame?.id, state.backgroundStyle) {
         val g = settledFocusGame
-        if (g == null || state.backgroundStyle != BackgroundStyle.CoverBlur) null
+        if (g == null || state.backgroundStyle != BackgroundStyle.CoverGlow) null
         else if (g.id.startsWith(GameLauncher.APK_PREFIX)) {
             g.id.removePrefix(GameLauncher.APK_PREFIX)
         } else {

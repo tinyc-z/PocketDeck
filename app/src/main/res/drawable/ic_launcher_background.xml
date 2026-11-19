@@ -1,34 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- PocketDeck 统一亮色珊瑚绯红缎面底板：明亮通透、与游戏库/快传同属一套品牌色系 -->
+<!-- Shared brand plate: sunset orange -> coral -> hot pink, used by app icon, Game Library and Quick Share.
+     Generated from the PocketDeck icon system (108dp adaptive grid, 66dp safe zone). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <path android:pathData="M0,0 H108 V108 H0 Z">
+    <path android:pathData="M0,0 h108 v108 h-108 Z">
         <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="12" android:startY="8"
-                android:endX="96" android:endY="100"
-                android:startColor="#FF6B72"
-                android:centerColor="#E5394B"
-                android:endColor="#C4243A" />
+          <gradient android:type="linear" android:startX="10" android:startY="4" android:endX="98" android:endY="104">
+            <item android:offset="0" android:color="#FFFFB547"/>
+            <item android:offset=".48" android:color="#FFFF5A5F"/>
+            <item android:offset="1" android:color="#FFE9327A"/>
+          </gradient>
         </aapt:attr>
     </path>
-
-    <!-- 左上柔和珍珠高光 -->
-    <path android:pathData="M0,0 H108 V108 H0 Z">
+    <path android:pathData="M0,0 h108 v108 h-108 Z">
         <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="radial"
-                android:centerX="28" android:centerY="22"
-                android:gradientRadius="62"
-                android:startColor="#3DFFFFFF"
-                android:centerColor="#14FFFFFF"
-                android:endColor="#00FFFFFF" />
+          <gradient android:type="radial" android:centerX="30" android:centerY="20" android:gradientRadius="60">
+            <item android:offset="0" android:color="#4CFFFFFF"/>
+            <item android:offset="1" android:color="#00FFFFFF"/>
+          </gradient>
         </aapt:attr>
     </path>
 </vector>

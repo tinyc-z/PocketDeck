@@ -70,7 +70,7 @@ import kotlin.random.Random
 @Composable
 fun WaveBackground(
     modifier: Modifier = Modifier,
-    style: BackgroundStyle = BackgroundStyle.Waves,
+    style: BackgroundStyle = BackgroundStyle.SunsetFlow,
     coverCandidates: List<Any> = emptyList(),
     knownCoverIndex: Int? = null,
     apkPackage: String? = null,
@@ -79,14 +79,12 @@ fun WaveBackground(
 ) {
     when (style) {
         BackgroundStyle.None -> { /* 纯色背景，由外层 Box 提供 */ }
-        BackgroundStyle.Waves -> WavesEffect(modifier, animated = true, paused = paused)
-        BackgroundStyle.Static -> WavesEffect(modifier, animated = false, paused = true)
-        BackgroundStyle.Gradient -> GradientEffect(modifier, paused = paused)
-        BackgroundStyle.Particles -> ParticlesEffect(modifier, paused = paused)
+        // TODO(redesign): 临时映射，由背景动画重写替换
+        BackgroundStyle.SunsetFlow -> GradientEffect(modifier, paused = paused)
+        BackgroundStyle.PixelDrift -> ParticlesEffect(modifier, paused = paused)
+        BackgroundStyle.RetroGrid -> TopoEffect(modifier, paused = paused)
         BackgroundStyle.Aurora -> AuroraEffect(modifier, paused = paused)
-        BackgroundStyle.Topo -> TopoEffect(modifier, paused = paused)
-        BackgroundStyle.DotMatrix -> DotMatrixEffect(modifier, paused = paused)
-        BackgroundStyle.CoverBlur -> CoverBlurEffect(
+        BackgroundStyle.CoverGlow -> CoverBlurEffect(
             modifier = modifier,
             coverCandidates = coverCandidates,
             knownCoverIndex = knownCoverIndex,

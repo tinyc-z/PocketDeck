@@ -74,7 +74,7 @@ data class WebClientInfo(
 
 data class WebThemeConfig(
     val isDark: Boolean = false,
-    val accent: ThemeAccent = ThemeAccent.Ruby,
+    val accent: ThemeAccent = ThemeAccent.Sunset,
 ) {
     fun toJson(): JSONObject {
         val pal = deckPalette(accent, isDark)

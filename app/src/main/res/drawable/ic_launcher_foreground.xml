@@ -1,44 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  PocketDeck 掌机启动器主图标前景：
-  极简纯白横屏掌机轮廓（中央屏幕 + 左侧十字方向键 D-Pad + 右侧斜排 A/B 键 + 底部微胶囊）。
-  所有顶点严格位于 Adaptive Icon 安全圆 66dp (21..87) 内，小尺寸依然一眼识别为游戏掌机。
--->
+<!-- App icon glyph: portrait pocket handheld (screen with pixel invader, D-pad, A/B, Start/Select).
+     Generated from the PocketDeck icon system (108dp adaptive grid, 66dp safe zone). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- 柔和机身投影 -->
-    <path
-        android:fillColor="#268A1022"
-        android:pathData="M 38,34 H 70 A 15,15 0 0,1 85,49 V 63 A 15,15 0 0,1 70,78 H 38 A 15,15 0 0,1 23,63 V 49 A 15,15 0 0,1 38,34 Z" />
-
-    <!-- 纯白陶瓷质感掌机机身（镂空屏幕、十字键、A/B 键） -->
-    <path
-        android:fillType="evenOdd"
-        android:pathData="
-            M 38,32 H 70 A 15,15 0 0,1 85,47 V 61 A 15,15 0 0,1 70,76 H 38 A 15,15 0 0,1 23,61 V 47 A 15,15 0 0,1 38,32 Z
-            M 45.5,41 H 62.5 A 3.5,3.5 0 0,1 66,44.5 V 57.5 A 3.5,3.5 0 0,1 62.5,61 H 45.5 A 3.5,3.5 0 0,1 42,57.5 V 44.5 A 3.5,3.5 0 0,1 45.5,41 Z
-            M 32,48 H 35 V 52 H 39 V 55 H 35 V 59 H 32 V 55 H 28 V 52 H 32 Z
-            M 76.5,49.5 A 2.8,2.8 0 1,1 76.49,49.5 Z
-            M 71.2,55.5 A 2.8,2.8 0 1,1 71.19,55.5 Z
-            M 50.5,66 H 57.5 A 1.4,1.4 0 0,1 58.9,67.4 A 1.4,1.4 0 0,1 57.5,68.8 H 50.5 A 1.4,1.4 0 0,1 49.1,67.4 A 1.4,1.4 0 0,1 50.5,66 Z
-        ">
+    <path android:fillColor="#FF9E1F4F" android:fillAlpha="0.22" android:pathData="M38,30 H70 A5,5 0 0 1 75,35 V73 A12,12 0 0 1 63,85 H38 A5,5 0 0 1 33,80 V35 A5,5 0 0 1 38,30 Z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M38,27 H70 A5,5 0 0 1 75,32 V70 A12,12 0 0 1 63,82 H38 A5,5 0 0 1 33,77 V32 A5,5 0 0 1 38,27 Z"/>
+    <path android:pathData="M41,32 H67 A2.5,2.5 0 0 1 69.5,34.5 V52.5 A2.5,2.5 0 0 1 67,55 H41 A2.5,2.5 0 0 1 38.5,52.5 V34.5 A2.5,2.5 0 0 1 41,32 Z">
         <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="23" android:startY="32"
-                android:endX="85" android:endY="76"
-                android:startColor="#FFFFFF"
-                android:endColor="#FCEFF1" />
+          <gradient android:type="linear" android:startX="40" android:startY="33" android:endX="68" android:endY="54">
+            <item android:offset="0" android:color="#FF5B2A86"/>
+            <item android:offset="1" android:color="#FF341A5C"/>
+          </gradient>
         </aapt:attr>
     </path>
-
-    <!-- 屏幕内左上微弱反光斜条，增加精致掌机屏幕玻璃质感 -->
-    <path
-        android:fillColor="#4DFFFFFF"
-        android:pathData="M 45.2,44.2 L 51.8,44.2 L 45.2,50.8 Z" />
+    <path android:fillColor="#FFFFD84D" android:pathData="M48.40,37.10 h1.60 v1.60 h-1.60 Z M58.00,37.10 h1.60 v1.60 h-1.60 Z M50.00,38.70 h1.60 v1.60 h-1.60 Z M56.40,38.70 h1.60 v1.60 h-1.60 Z M48.40,40.30 h11.20 v1.60 h-11.20 Z M46.80,41.90 h3.20 v1.60 h-3.20 Z M51.60,41.90 h4.80 v1.60 h-4.80 Z M58.00,41.90 h3.20 v1.60 h-3.20 Z M45.20,43.50 h17.60 v1.60 h-17.60 Z M45.20,45.10 h1.60 v1.60 h-1.60 Z M48.40,45.10 h11.20 v1.60 h-11.20 Z M61.20,45.10 h1.60 v1.60 h-1.60 Z M45.20,46.70 h1.60 v1.60 h-1.60 Z M48.40,46.70 h1.60 v1.60 h-1.60 Z M58.00,46.70 h1.60 v1.60 h-1.60 Z M61.20,46.70 h1.60 v1.60 h-1.60 Z M50.00,48.30 h3.20 v1.60 h-3.20 Z M54.80,48.30 h3.20 v1.60 h-3.20 Z"/>
+    <path android:fillColor="#FF3B1D5E" android:pathData="M43,60 h3.6 v4.2 h4.2 v3.6 h-4.2 v4.2 h-3.6 v-4.2 h-4.2 v-3.6 h4.2 Z"/>
+    <path android:fillColor="#FFFF4F7B" android:pathData="M63,62.6 A3,3 0 1 1 69,62.6 A3,3 0 1 1 63,62.6 Z"/>
+    <path android:fillColor="#FFFFB547" android:pathData="M57,67.4 A3,3 0 1 1 63,67.4 A3,3 0 1 1 57,67.4 Z"/>
+    <path android:fillColor="#FFC9B8D8" android:pathData="M47,75 H50 A1,1 0 0 1 51,76 V76 A1,1 0 0 1 50,77 H47 A1,1 0 0 1 46,76 V76 A1,1 0 0 1 47,75 Z"/>
+    <path android:fillColor="#FFC9B8D8" android:pathData="M54.5,75 H57.5 A1,1 0 0 1 58.5,76 V76 A1,1 0 0 1 57.5,77 H54.5 A1,1 0 0 1 53.5,76 V76 A1,1 0 0 1 54.5,75 Z"/>
 </vector>

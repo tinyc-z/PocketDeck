@@ -1,20 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 13+ 单色主题图标：与主图标一致的掌机镂空剪影 -->
+<!-- Android 13+ themed icon: handheld silhouette.
+     Generated from the PocketDeck icon system (108dp adaptive grid, 66dp safe zone). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillType="evenOdd"
-        android:pathData="
-            M 38,32 H 70 A 15,15 0 0,1 85,47 V 61 A 15,15 0 0,1 70,76 H 38 A 15,15 0 0,1 23,61 V 47 A 15,15 0 0,1 38,32 Z
-            M 45.5,41 H 62.5 A 3.5,3.5 0 0,1 66,44.5 V 57.5 A 3.5,3.5 0 0,1 62.5,61 H 45.5 A 3.5,3.5 0 0,1 42,57.5 V 44.5 A 3.5,3.5 0 0,1 45.5,41 Z
-            M 32,48 H 35 V 52 H 39 V 55 H 35 V 59 H 32 V 55 H 28 V 52 H 32 Z
-            M 76.5,49.5 A 2.8,2.8 0 1,1 76.49,49.5 Z
-            M 71.2,55.5 A 2.8,2.8 0 1,1 71.19,55.5 Z
-            M 50.5,66 H 57.5 A 1.4,1.4 0 0,1 58.9,67.4 A 1.4,1.4 0 0,1 57.5,68.8 H 50.5 A 1.4,1.4 0 0,1 49.1,67.4 A 1.4,1.4 0 0,1 50.5,66 Z
-        " />
+    <path android:fillColor="#FFFFFF" android:fillType="evenOdd" android:pathData="M38,27 H70 A5,5 0 0 1 75,32 V70 A12,12 0 0 1 63,82 H38 A5,5 0 0 1 33,77 V32 A5,5 0 0 1 38,27 Z M41,32 H67 A2.5,2.5 0 0 1 69.5,34.5 V52.5 A2.5,2.5 0 0 1 67,55 H41 A2.5,2.5 0 0 1 38.5,52.5 V34.5 A2.5,2.5 0 0 1 41,32 Z M43,60 h3.6 v4.2 h4.2 v3.6 h-4.2 v4.2 h-3.6 v-4.2 h-4.2 v-3.6 h4.2 Z M63,62.6 A3,3 0 1 1 69,62.6 A3,3 0 1 1 63,62.6 Z M57,67.4 A3,3 0 1 1 63,67.4 A3,3 0 1 1 57,67.4 Z M47,75 H50 A1,1 0 0 1 51,76 V76 A1,1 0 0 1 50,77 H47 A1,1 0 0 1 46,76 V76 A1,1 0 0 1 47,75 Z M54.5,75 H57.5 A1,1 0 0 1 58.5,76 V76 A1,1 0 0 1 57.5,77 H54.5 A1,1 0 0 1 53.5,76 V76 A1,1 0 0 1 54.5,75 Z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M48.40,37.10 h1.60 v1.60 h-1.60 Z M58.00,37.10 h1.60 v1.60 h-1.60 Z M50.00,38.70 h1.60 v1.60 h-1.60 Z M56.40,38.70 h1.60 v1.60 h-1.60 Z M48.40,40.30 h11.20 v1.60 h-11.20 Z M46.80,41.90 h3.20 v1.60 h-3.20 Z M51.60,41.90 h4.80 v1.60 h-4.80 Z M58.00,41.90 h3.20 v1.60 h-3.20 Z M45.20,43.50 h17.60 v1.60 h-17.60 Z M45.20,45.10 h1.60 v1.60 h-1.60 Z M48.40,45.10 h11.20 v1.60 h-11.20 Z M61.20,45.10 h1.60 v1.60 h-1.60 Z M45.20,46.70 h1.60 v1.60 h-1.60 Z M48.40,46.70 h1.60 v1.60 h-1.60 Z M58.00,46.70 h1.60 v1.60 h-1.60 Z M61.20,46.70 h1.60 v1.60 h-1.60 Z M50.00,48.30 h3.20 v1.60 h-3.20 Z M54.80,48.30 h3.20 v1.60 h-3.20 Z "/>
 </vector>

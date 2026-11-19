@@ -348,18 +348,10 @@
 
     <!-- Theme Accent -->
     <string name="settings_theme_accent">主题色</string>
-    <string name="accent_ruby">宝石红</string>
-    <string name="accent_ocean">深海蓝</string>
-    <string name="accent_emerald">翡翠绿</string>
-    <string name="accent_violet">星辰紫</string>
-    <string name="accent_sunset">落日橙</string>
-    <string name="accent_sakura">樱花粉</string>
-    <string name="accent_cyan">赛博青</string>
-    <string name="accent_gold">流光金</string>
-    <string name="accent_sage">鼠尾草绿</string>
-    <string name="accent_slate">雾霾靛蓝</string>
-    <string name="accent_terracotta">暖陶土</string>
-    <string name="accent_graphite">极简石墨</string>
+    <string name="accent_ocean">海洋</string>
+    <string name="accent_sunset">日落</string>
+    <string name="accent_sakura">樱花</string>
+    <string name="accent_graphite">石墨</string>
 
     <!-- Reorganized Settings Sections -->
     <string name="settings_sec_appearance">外观</string>
@@ -423,26 +415,12 @@
     <string name="keybind_reset_confirm_title">恢复默认按键</string>
     <string name="keybind_reset_confirm_desc">确定要将所有快捷键恢复为默认绑定吗？当前的自定义按键设置将被清除。</string>
     <string name="keybind_reset_confirm_yes">确认恢复</string>
-    <string name="bg_style_waves">波浪动画</string>
-    <string name="bg_style_waves_desc">动态流动的柔和波浪曲线</string>
-    <string name="bg_style_gradient">渐变流动</string>
-    <string name="bg_style_gradient_desc">随主题色缓慢呼吸的极光渐变</string>
-    <string name="bg_style_particles">粒子飘散</string>
-    <string name="bg_style_particles_desc">轻盈上浮并闪烁的主题光斑气泡</string>
-    <string name="bg_style_aurora">极光丝带</string>
-    <string name="bg_style_aurora_desc">斜向流动的多层柔和极光光带</string>
-    <string name="bg_style_topo">等高线地形</string>
-    <string name="bg_style_topo_desc">极细动态等高线波纹，简洁工业质感</string>
-    <string name="bg_style_dot_matrix">微光点阵</string>
-    <string name="bg_style_dot_matrix_desc">克制柔和的呼吸微点光波矩阵</string>
-    <string name="bg_style_cover_blur">封面毛玻璃</string>
-    <string name="bg_style_cover_blur_desc">以当前选中游戏封面为底色的虚化背景</string>
-    <string name="bg_style_static">静态波浪</string>
-    <string name="bg_style_static_desc">静止的波浪轮廓，更省电简洁</string>
-    <string name="bg_style_image">自定义图片</string>
-    <string name="bg_style_image_desc">使用本地相册或存储中的图片作为背景</string>
-    <string name="bg_style_none">纯色背景</string>
-    <string name="bg_style_none_desc">仅显示主题纯色底面，无额外特效</string>
+    <string name="bg_style_aurora">极光</string>
+    <string name="bg_style_aurora_desc">柔和光带</string>
+    <string name="bg_style_image">图片</string>
+    <string name="bg_style_image_desc">自定义图片</string>
+    <string name="bg_style_none">纯色</string>
+    <string name="bg_style_none_desc">无动画</string>
 
     <!-- Offline Messages -->
     <string name="scrape_offline">当前无网络连接，请连网后重试或使用本地图片</string>
@@ -701,4 +679,16 @@
     <string name="lan_web_dir_upload">上传</string>
     <string name="lan_web_dir_download">下载</string>
     <string name="lan_web_tx_failed">中断</string>
+    <string name="accent_berry">莓果</string>
+    <string name="accent_mint">薄荷</string>
+    <string name="accent_lemon">柠檬</string>
+    <string name="accent_grape">葡萄</string>
+    <string name="bg_style_sunset_flow">日落流光</string>
+    <string name="bg_style_sunset_flow_desc">柔和流动的色彩</string>
+    <string name="bg_style_pixel_drift">像素漂浮</string>
+    <string name="bg_style_pixel_drift_desc">复古像素缓缓飘起</string>
+    <string name="bg_style_retro_grid">复古网格</string>
+    <string name="bg_style_retro_grid_desc">合成波地平线</string>
+    <string name="bg_style_cover_glow">封面氛围光</string>
+    <string name="bg_style_cover_glow_desc">取自当前游戏封面</string>
 </resources>

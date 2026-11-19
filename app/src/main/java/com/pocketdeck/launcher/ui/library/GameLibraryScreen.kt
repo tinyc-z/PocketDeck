@@ -6,6 +6,7 @@ import android.os.Environment
 import android.os.storage.StorageManager
 import android.widget.Toast
 import com.pocketdeck.launcher.lan.TransferPhase
+import com.pocketdeck.launcher.ui.components.BrandTileIcon
 import com.pocketdeck.launcher.ui.components.FavoriteHeartIcon
 import com.pocketdeck.launcher.ui.components.soundClickable
 import androidx.compose.foundation.Canvas
@@ -291,145 +292,12 @@ private sealed interface MoveTarget {
     }
 }
 
-/**
- * 「游戏库」统一色系图标：明亮暖橘珊瑚缎面 + 经典切角复古游戏卡带（带顶槽握纹与手柄标签窗）。
- * 与 PocketDeck 主图标、游戏快传保持同一套亮色珊瑚绯红家族视觉语言。
- */
+/** 「游戏库」品牌图标：手柄 + 扇形叠放的游戏封面，与 App 主图标、游戏快传共用同一底板与风格。 */
 @Composable
 fun GameLibraryAppIcon(
     size: Dp = 54.dp,
     modifier: Modifier = Modifier,
-) {
-    val corner = size * 0.24f
-    Canvas(
-        modifier
-            .size(size)
-            .clip(RoundedCornerShape(corner)),
-    ) {
-        val w = this.size.width
-        val h = this.size.height
-
-        // 明亮暖橘珊瑚缎面底板（与主图标同色系）
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFF8066), Color(0xFFE84743), Color(0xFFCC2E3B)),
-                start = Offset(0f, 0f),
-                end = Offset(w, h),
-            ),
-        )
-        // 左上柔和珍珠高光
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.26f), Color.Transparent),
-                center = Offset(w * 0.24f, h * 0.18f),
-                radius = w * 0.62f,
-            ),
-            radius = w * 0.62f,
-            center = Offset(w * 0.24f, h * 0.18f),
-        )
-
-        // 后层半透明卡带边缘（右上微错位，体现“游戏库合集”概念）
-        val backCart = Path().apply {
-            val l = w * 0.30f; val t = h * 0.16f; val r = w * 0.78f; val b = h * 0.72f
-            val notch = w * 0.10f
-            moveTo(l + w * 0.06f, t)
-            lineTo(r - notch, t)
-            lineTo(r, t + notch)
-            lineTo(r, b - w * 0.06f)
-            quadraticTo(r, b, r - w * 0.06f, b)
-            lineTo(l + w * 0.06f, b)
-            quadraticTo(l, b, l, b - w * 0.06f)
-            lineTo(l, t + w * 0.06f)
-            quadraticTo(l, t, l + w * 0.06f, t)
-            close()
-        }
-        drawPath(backCart, color = Color.White.copy(alpha = 0.38f))
-
-        // 主卡带主体（经典掌机切角卡带轮廓，纯白陶瓷质感）
-        val l = w * 0.22f
-        val t = h * 0.24f
-        val r = w * 0.72f
-        val b = h * 0.84f
-        val notch = w * 0.11f
-        val rad = w * 0.06f
-        val frontCart = Path().apply {
-            moveTo(l + rad, t)
-            lineTo(r - notch, t)
-            lineTo(r, t + notch)
-            lineTo(r, b - rad)
-            quadraticTo(r, b, r - rad, b)
-            lineTo(l + rad, b)
-            quadraticTo(l, b, l, b - rad)
-            lineTo(l, t + rad)
-            quadraticTo(l, t, l + rad, t)
-            close()
-        }
-        drawPath(
-            frontCart,
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFFFFFF), Color(0xFFFCEEEB)),
-                start = Offset(l, t),
-                end = Offset(r, b),
-            ),
-        )
-
-        // 卡带顶部 2 条精致防滑握槽
-        val grooveColor = Color(0xFFE84743).copy(alpha = 0.34f)
-        val grooveStroke = (w * 0.028f).coerceAtLeast(1.1f)
-        drawLine(
-            color = grooveColor,
-            start = Offset(l + w * 0.08f, t + h * 0.075f),
-            end = Offset(r - notch - w * 0.02f, t + h * 0.075f),
-            strokeWidth = grooveStroke,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = grooveColor,
-            start = Offset(l + w * 0.08f, t + h * 0.135f),
-            end = Offset(r - w * 0.07f, t + h * 0.135f),
-            strokeWidth = grooveStroke,
-            cap = StrokeCap.Round,
-        )
-
-        // 卡带封面标签贴纸窗（暖珊瑚红底色）
-        val lblL = l + w * 0.07f
-        val lblT = t + h * 0.21f
-        val lblW = (r - l) - w * 0.14f
-        val lblH = h * 0.29f
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFF6D5A), Color(0xFFD9323B)),
-                start = Offset(lblL, lblT),
-                end = Offset(lblL + lblW, lblT + lblH),
-            ),
-            topLeft = Offset(lblL, lblT),
-            size = Size(lblW, lblH),
-            cornerRadius = CornerRadius(w * 0.045f, w * 0.045f),
-        )
-
-        // 标签窗内迷你十字方向键 + A/B 键（纯白，强化游戏属性）
-        val cx = lblL + lblW * 0.31f
-        val cy = lblT + lblH * 0.50f
-        val arm = w * 0.055f
-        val dpadSw = (w * 0.036f).coerceAtLeast(1.4f)
-        drawLine(Color.White, Offset(cx - arm, cy), Offset(cx + arm, cy), dpadSw, cap = StrokeCap.Round)
-        drawLine(Color.White, Offset(cx, cy - arm), Offset(cx, cy + arm), dpadSw, cap = StrokeCap.Round)
-        val dotR = (w * 0.026f).coerceAtLeast(1.2f)
-        drawCircle(Color.White, dotR, Offset(lblL + lblW * 0.74f, lblT + lblH * 0.38f))
-        drawCircle(Color.White, dotR, Offset(lblL + lblW * 0.62f, lblT + lblH * 0.64f))
-
-        // 卡带底部金手指导向小三角提示
-        val arrowY = b - h * 0.065f
-        val midX = (l + r) * 0.5f
-        val tri = Path().apply {
-            moveTo(midX - w * 0.045f, arrowY - h * 0.032f)
-            lineTo(midX + w * 0.045f, arrowY - h * 0.032f)
-            lineTo(midX, arrowY + h * 0.022f)
-            close()
-        }
-        drawPath(tri, color = Color(0xFFE84743).copy(alpha = 0.45f))
-    }
-}
+) = BrandTileIcon(R.drawable.ic_tile_game_library, size, modifier)
 
 /**
  * 游戏库管理器：

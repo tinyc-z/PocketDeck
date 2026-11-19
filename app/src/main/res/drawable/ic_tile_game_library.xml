@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Game Library glyph: gamepad in front of a fanned stack of game covers.
+     Generated from the PocketDeck icon system (108dp adaptive grid, 66dp safe zone). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:rotation="-14" android:pivotX="54" android:pivotY="50">
+        <path android:fillColor="#FFFFD84D" android:pathData="M38.5,24 H59.5 A4.5,4.5 0 0 1 64,28.5 V57.5 A4.5,4.5 0 0 1 59.5,62 H38.5 A4.5,4.5 0 0 1 34,57.5 V28.5 A4.5,4.5 0 0 1 38.5,24 Z"/>
+        <path android:fillColor="#FFFF9F43" android:pathData="M39.5,27 H58.5 A2.5,2.5 0 0 1 61,29.5 V44.5 A2.5,2.5 0 0 1 58.5,47 H39.5 A2.5,2.5 0 0 1 37,44.5 V29.5 A2.5,2.5 0 0 1 39.5,27 Z"/>
+    </group>
+    <group android:rotation="10" android:pivotX="54" android:pivotY="50">
+        <path android:fillColor="#FF6B3FB8" android:pathData="M48.5,23 H69.5 A4.5,4.5 0 0 1 74,27.5 V56.5 A4.5,4.5 0 0 1 69.5,61 H48.5 A4.5,4.5 0 0 1 44,56.5 V27.5 A4.5,4.5 0 0 1 48.5,23 Z"/>
+        <path android:fillColor="#FF8E63E0" android:pathData="M49.5,26 H68.5 A2.5,2.5 0 0 1 71,28.5 V43.5 A2.5,2.5 0 0 1 68.5,46 H49.5 A2.5,2.5 0 0 1 47,43.5 V28.5 A2.5,2.5 0 0 1 49.5,26 Z"/>
+    </group>
+    <path android:fillColor="#FF9E1F4F" android:fillAlpha="0.22" android:pathData="M36,54 H72 C79,54 83,60 84,68 C85,76 81,82 76,82 C72,82 70,79 67,76 H41 C38,79 36,82 32,82 C27,82 23,76 24,68 C25,60 29,54 36,54 Z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M36,51 H72 C79,51 83,57 84,65 C85,73 81,79 76,79 C72,79 70,76 67,73 H41 C38,76 36,79 32,79 C27,79 23,73 24,65 C25,57 29,51 36,51 Z"/>
+    <path android:fillColor="#FF3B1D5E" android:pathData="M35,58 h3.6 v4.2 h4.2 v3.6 h-4.2 v4.2 h-3.6 v-4.2 h-4.2 v-3.6 h4.2 Z"/>
+    <path android:fillColor="#FFFFB547" android:pathData="M69.8,60 A2.7,2.7 0 1 1 75.2,60 A2.7,2.7 0 1 1 69.8,60 Z"/>
+    <path android:fillColor="#FFFF4F7B" android:pathData="M74.8,64.5 A2.7,2.7 0 1 1 80.2,64.5 A2.7,2.7 0 1 1 74.8,64.5 Z"/>
+    <path android:fillColor="#FF3B1D5E" android:pathData="M64.8,64.5 A2.7,2.7 0 1 1 70.2,64.5 A2.7,2.7 0 1 1 64.8,64.5 Z"/>
+    <path android:fillColor="#FF7C4DCC" android:pathData="M69.8,69 A2.7,2.7 0 1 1 75.2,69 A2.7,2.7 0 1 1 69.8,69 Z"/>
+    <path android:fillColor="#FFC9B8D8" android:pathData="M49.5,62 H52 A1,1 0 0 1 53,63 V63 A1,1 0 0 1 52,64 H49.5 A1,1 0 0 1 48.5,63 V63 A1,1 0 0 1 49.5,62 Z"/>
+    <path android:fillColor="#FFC9B8D8" android:pathData="M56,62 H58.5 A1,1 0 0 1 59.5,63 V63 A1,1 0 0 1 58.5,64 H56 A1,1 0 0 1 55,63 V63 A1,1 0 0 1 56,62 Z"/>
+</vector>

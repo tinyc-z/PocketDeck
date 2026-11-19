@@ -110,6 +110,7 @@ import com.pocketdeck.launcher.input.KeySound
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.components.ButtonBadge
+import com.pocketdeck.launcher.ui.components.PocketDeckAppIcon
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.ui.components.drawViewModeIcon
@@ -172,7 +173,7 @@ data class SettingsState(
     val showAndroidGames: Boolean = true,
     val keyBindings: Map<KeyAction, Int> = emptyMap(),
     val keySoundEnabled: Boolean = true,
-    val themeAccent: ThemeAccent = ThemeAccent.Ruby,
+    val themeAccent: ThemeAccent = ThemeAccent.Sunset,
     val fontId: String = SystemFonts.DEFAULT_ID,
     val platformAspects: Map<String, Float> = emptyMap(),
     val customLaunchers: List<CustomLauncherPreset> = emptyList(),
@@ -2102,44 +2103,34 @@ private fun DisplaySection(
 
 @Composable
 private fun themeAccentLabel(accent: ThemeAccent): String = when (accent) {
-    ThemeAccent.Ruby -> stringResource(R.string.accent_ruby)
-    ThemeAccent.Ocean -> stringResource(R.string.accent_ocean)
-    ThemeAccent.Emerald -> stringResource(R.string.accent_emerald)
-    ThemeAccent.Violet -> stringResource(R.string.accent_violet)
     ThemeAccent.Sunset -> stringResource(R.string.accent_sunset)
+    ThemeAccent.Berry -> stringResource(R.string.accent_berry)
+    ThemeAccent.Ocean -> stringResource(R.string.accent_ocean)
+    ThemeAccent.Mint -> stringResource(R.string.accent_mint)
+    ThemeAccent.Lemon -> stringResource(R.string.accent_lemon)
     ThemeAccent.Sakura -> stringResource(R.string.accent_sakura)
-    ThemeAccent.Cyan -> stringResource(R.string.accent_cyan)
-    ThemeAccent.Gold -> stringResource(R.string.accent_gold)
-    ThemeAccent.Sage -> stringResource(R.string.accent_sage)
-    ThemeAccent.Slate -> stringResource(R.string.accent_slate)
-    ThemeAccent.Terracotta -> stringResource(R.string.accent_terracotta)
+    ThemeAccent.Grape -> stringResource(R.string.accent_grape)
     ThemeAccent.Graphite -> stringResource(R.string.accent_graphite)
 }
 
 @Composable
 private fun bgStyleLabel(style: BackgroundStyle): String = when (style) {
-    BackgroundStyle.Waves -> stringResource(R.string.bg_style_waves)
-    BackgroundStyle.Gradient -> stringResource(R.string.bg_style_gradient)
-    BackgroundStyle.Particles -> stringResource(R.string.bg_style_particles)
+    BackgroundStyle.SunsetFlow -> stringResource(R.string.bg_style_sunset_flow)
+    BackgroundStyle.PixelDrift -> stringResource(R.string.bg_style_pixel_drift)
+    BackgroundStyle.RetroGrid -> stringResource(R.string.bg_style_retro_grid)
+    BackgroundStyle.CoverGlow -> stringResource(R.string.bg_style_cover_glow)
     BackgroundStyle.Aurora -> stringResource(R.string.bg_style_aurora)
-    BackgroundStyle.Topo -> stringResource(R.string.bg_style_topo)
-    BackgroundStyle.DotMatrix -> stringResource(R.string.bg_style_dot_matrix)
-    BackgroundStyle.CoverBlur -> stringResource(R.string.bg_style_cover_blur)
-    BackgroundStyle.Static -> stringResource(R.string.bg_style_static)
     BackgroundStyle.Image -> stringResource(R.string.bg_style_image)
     BackgroundStyle.None -> stringResource(R.string.bg_style_none)
 }
 
 @Composable
 private fun bgStyleDesc(style: BackgroundStyle): String = when (style) {
-    BackgroundStyle.Waves -> stringResource(R.string.bg_style_waves_desc)
-    BackgroundStyle.Gradient -> stringResource(R.string.bg_style_gradient_desc)
-    BackgroundStyle.Particles -> stringResource(R.string.bg_style_particles_desc)
+    BackgroundStyle.SunsetFlow -> stringResource(R.string.bg_style_sunset_flow_desc)
+    BackgroundStyle.PixelDrift -> stringResource(R.string.bg_style_pixel_drift_desc)
+    BackgroundStyle.RetroGrid -> stringResource(R.string.bg_style_retro_grid_desc)
+    BackgroundStyle.CoverGlow -> stringResource(R.string.bg_style_cover_glow_desc)
     BackgroundStyle.Aurora -> stringResource(R.string.bg_style_aurora_desc)
-    BackgroundStyle.Topo -> stringResource(R.string.bg_style_topo_desc)
-    BackgroundStyle.DotMatrix -> stringResource(R.string.bg_style_dot_matrix_desc)
-    BackgroundStyle.CoverBlur -> stringResource(R.string.bg_style_cover_blur_desc)
-    BackgroundStyle.Static -> stringResource(R.string.bg_style_static_desc)
     BackgroundStyle.Image -> stringResource(R.string.bg_style_image_desc)
     BackgroundStyle.None -> stringResource(R.string.bg_style_none_desc)
 }
@@ -3409,67 +3400,12 @@ private fun AboutInfoRow(
     }
 }
 
-/** 与 PocketDeck 应用主图标一致的亮色珊瑚绯红掌机品牌徽章。 */
+/** 与桌面 App 图标完全一致的品牌徽章。 */
 @Composable
 private fun PocketDeckBrandBadge(
     size: Dp = 46.dp,
     modifier: Modifier = Modifier,
-) {
-    val corner = size * 0.24f
-    Canvas(
-        modifier
-            .size(size)
-            .clip(RoundedCornerShape(corner)),
-    ) {
-        val w = this.size.width
-        val h = this.size.height
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFF6B72), Color(0xFFE5394B), Color(0xFFC4243A)),
-                start = Offset(0f, 0f),
-                end = Offset(w, h),
-            ),
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.26f), Color.Transparent),
-                center = Offset(w * 0.26f, h * 0.20f),
-                radius = w * 0.58f,
-            ),
-            radius = w * 0.58f,
-            center = Offset(w * 0.26f, h * 0.20f),
-        )
-        // 纯白掌机机身
-        val bodyL = w * 0.14f
-        val bodyT = h * 0.27f
-        val bodyW = w * 0.72f
-        val bodyH = h * 0.46f
-        drawRoundRect(
-            color = Color.White,
-            topLeft = Offset(bodyL, bodyT),
-            size = Size(bodyW, bodyH),
-            cornerRadius = CornerRadius(w * 0.16f, w * 0.16f),
-        )
-        // 中央凹陷屏幕
-        drawRoundRect(
-            color = Color(0xFFE5394B),
-            topLeft = Offset(w * 0.36f, h * 0.36f),
-            size = Size(w * 0.28f, h * 0.23f),
-            cornerRadius = CornerRadius(w * 0.04f, w * 0.04f),
-        )
-        // 左侧十字方向键
-        val cx = w * 0.255f
-        val cy = h * 0.495f
-        val arm = w * 0.055f
-        val sw = (w * 0.036f).coerceAtLeast(1.4f)
-        drawLine(Color(0xFFE5394B), Offset(cx - arm, cy), Offset(cx + arm, cy), sw, cap = StrokeCap.Round)
-        drawLine(Color(0xFFE5394B), Offset(cx, cy - arm), Offset(cx, cy + arm), sw, cap = StrokeCap.Round)
-        // 右侧斜排 A/B 键
-        val r = (w * 0.028f).coerceAtLeast(1.3f)
-        drawCircle(Color(0xFFE5394B), r, Offset(w * 0.775f, h * 0.465f))
-        drawCircle(Color(0xFFE5394B), r, Offset(w * 0.715f, h * 0.535f))
-    }
-}
+) = PocketDeckAppIcon(size, modifier)
 
 private fun computeScrapeCacheBytes(cacheDir: File): Long {
     val dirs = listOf("covers", "web_covers", "boxart_index", "metadata")

@@ -46,16 +46,24 @@ enum class ViewMode { Gallery, List, Grid, Bubbles }
 enum class GalleryAlign { Top, Center, Bottom }
 
 enum class BackgroundStyle {
-    Waves,       // 波浪动画
-    Gradient,    // 渐变流动
-    Particles,   // 粒子飘散
+    SunsetFlow,  // 品牌渐变流光（默认）
+    PixelDrift,  // 像素游戏元素漂浮
+    RetroGrid,   // 合成波透视网格
+    CoverGlow,   // 焦点封面氛围光
     Aurora,      // 极光丝带
-    Topo,        // 等高线地形
-    DotMatrix,   // 微光点阵
-    CoverBlur,   // 选中封面毛玻璃
-    Static,      // 静态波浪
     Image,       // 自定义静态图片
-    None,        // 纯色
+    None;        // 纯色
+
+    companion object {
+        /** 兼容旧版本存储的背景名，自动迁移到最接近的新背景。 */
+        fun fromName(name: String?): BackgroundStyle = when (name) {
+            null -> SunsetFlow
+            "Waves", "Gradient", "Static", "Topo" -> SunsetFlow
+            "Particles", "DotMatrix" -> PixelDrift
+            "CoverBlur" -> CoverGlow
+            else -> entries.firstOrNull { it.name == name } ?: SunsetFlow
+        }
+    }
 }
 
 /**
@@ -82,26 +90,37 @@ data class CustomLauncherPreset(
 /**
  * 12 种低疲劳主题色（覆盖标题、选中态、波浪/极光/等高线/点阵背景等全链路视觉）。
  */
+/**
+ * 8 套双色渐变主题。gradStart→gradMid→gradEnd 为品牌渐变（选中态、主按钮、开关、焦点环），
+ * lightPrimary / darkPrimary 为对比度足够的文字强调色。
+ */
 enum class ThemeAccent(
+    val gradStart: Long,
+    val gradMid: Long,
+    val gradEnd: Long,
     val lightPrimary: Long,
     val darkPrimary: Long,
-    val lightGlow: Long,
-    val darkGlow: Long,
-    val lightTertiary: Long,
-    val darkTertiary: Long,
 ) {
-    Ruby(0xFFB52B33, 0xFFEA6B70, 0xFFD9643A, 0xFFF28B66, 0xFFE07A48, 0xFFF5B278),
-    Ocean(0xFF1E5FA8, 0xFF5CA4EC, 0xFF198296, 0xFF4CC3D8, 0xFF4258A8, 0xFF8395D9),
-    Emerald(0xFF157A6E, 0xFF44B3A4, 0xFF2D8659, 0xFF6BC28F, 0xFF1D8490, 0xFF62C5D3),
-    Violet(0xFF6B429E, 0xFFAF84DF, 0xFF5244A6, 0xFF9387DB, 0xFFA84274, 0xFFE07FA9),
-    Sunset(0xFFC4522D, 0xFFF0906C, 0xFFDC7830, 0xFFF4B374, 0xFFB83E44, 0xFFE87276),
-    Sakura(0xFFB0346A, 0xFFE97CA6, 0xFF8E48A8, 0xFFC792DF, 0xFFD46A50, 0xFFF2A48E),
-    Cyan(0xFF0E7C8B, 0xFF45C2D1, 0xFF1D74AB, 0xFF63BAE8, 0xFF147569, 0xFF72C4B8),
-    Gold(0xFF966B18, 0xFFE8BC58, 0xFFC46A32, 0xFFE89B6B, 0xFF785A3A, 0xFFDFC88A),
-    Sage(0xFF4A7C59, 0xFF81B29A, 0xFF5A8F7B, 0xFF9ACBB2, 0xFF396D6E, 0xFF72AFAF),
-    Slate(0xFF43618C, 0xFF7AA2D4, 0xFF5674A6, 0xFF98B6E4, 0xFF497A8A, 0xFF7FB3C4),
-    Terracotta(0xFFB55D3C, 0xFFE09172, 0xFFC87848, 0xFFECB082, 0xFF944E43, 0xFFCD8579),
-    Graphite(0xFF3F444E, 0xFFB4BCC8, 0xFF5F6775, 0xFF949DAA, 0xFF525A66, 0xFFCFD6E0),
+    Sunset(0xFFFF9F43, 0xFFFF5A5F, 0xFFE9327A, 0xFFE03A66, 0xFFFF6F91),
+    Berry(0xFFFF6FA5, 0xFFC94FD8, 0xFF8B5CF6, 0xFFB0358A, 0xFFF07CC8),
+    Ocean(0xFF38BDF8, 0xFF3B82F6, 0xFF6366F1, 0xFF2563EB, 0xFF6FA8FF),
+    Mint(0xFF34D399, 0xFF14B8A6, 0xFF0E9AA7, 0xFF0F8579, 0xFF4FD6BE),
+    Lemon(0xFFFFD84D, 0xFFFFA62B, 0xFFF97316, 0xFFC2570A, 0xFFFFB547),
+    Sakura(0xFFFFB3C7, 0xFFFF7AA8, 0xFFF0568C, 0xFFD43A72, 0xFFFF8DB4),
+    Grape(0xFFA78BFA, 0xFF8B5CF6, 0xFF6D28D9, 0xFF6F3CD6, 0xFFB497FF),
+    Graphite(0xFF9AA3B2, 0xFF6B7280, 0xFF3F4652, 0xFF4A5160, 0xFFC4CBD6);
+
+    companion object {
+        /** 兼容旧版 12 色主题名。 */
+        fun fromName(name: String?): ThemeAccent = when (name) {
+            null, "Ruby", "Terracotta" -> Sunset
+            "Violet" -> Grape
+            "Emerald", "Sage", "Cyan" -> Mint
+            "Slate" -> Ocean
+            "Gold" -> Lemon
+            else -> entries.firstOrNull { it.name == name } ?: Sunset
+        }
+    }
 }
 
 object DefaultCategories {
@@ -130,7 +149,7 @@ data class UserData(
     val covers: Map<String, String> = emptyMap(),
     val hidden: Set<String> = emptySet(),
     val viewMode: ViewMode = ViewMode.Gallery,
-    val backgroundStyle: BackgroundStyle = BackgroundStyle.Waves,
+    val backgroundStyle: BackgroundStyle = BackgroundStyle.SunsetFlow,
     val showMetadata: Boolean = true,
     val bottomBar: Boolean = true,
     val nowTab: Boolean = true,
@@ -182,7 +201,7 @@ data class UserData(
     /** 按键音开关（默认开启）。 */
     val keySoundEnabled: Boolean = true,
     /** 主题色（8 种预设）。 */
-    val themeAccent: ThemeAccent = ThemeAccent.Ruby,
+    val themeAccent: ThemeAccent = ThemeAccent.Sunset,
     /** 字体 ID（"default" / "system_sans" / "system_serif" / "system_mono" / "file:<path>"）。 */
     val fontId: String = "default",
     /** 每平台封面比例覆盖（platformId → aspect）。 */
@@ -435,7 +454,7 @@ class UserStore(private val context: Context) {
             covers = decodeMap(this[K.covers]),
             hidden = this[K.hidden].orEmpty(),
             viewMode = enumOf(this[K.viewMode], ViewMode.Gallery),
-            backgroundStyle = enumOf(this[K.background], BackgroundStyle.Waves),
+            backgroundStyle = BackgroundStyle.fromName(this[K.background]),
             showMetadata = this[K.showMetadata] ?: true,
             bottomBar = this[K.bottomBar] ?: true,
             nowTab = this[K.nowTab] ?: true,
@@ -475,7 +494,7 @@ class UserStore(private val context: Context) {
             customBackground = this[K.customBackground],
             keyBindings = decodeKeyBindings(this[K.keyBindings]),
             keySoundEnabled = this[K.keySoundEnabled] ?: true,
-            themeAccent = enumOf(this[K.themeAccent], ThemeAccent.Ruby),
+            themeAccent = ThemeAccent.fromName(this[K.themeAccent]),
             fontId = this[K.fontId] ?: "default",
             platformAspects = decodeFloatMap(this[K.platformAspects]),
             customLaunchers = decodeCustomLaunchers(this[K.customLaunchers]),

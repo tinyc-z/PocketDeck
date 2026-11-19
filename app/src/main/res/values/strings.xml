@@ -349,17 +349,9 @@
 
     <!-- Theme Accent -->
     <string name="settings_theme_accent">Theme color</string>
-    <string name="accent_ruby">Ruby Red</string>
-    <string name="accent_ocean">Ocean Blue</string>
-    <string name="accent_emerald">Emerald</string>
-    <string name="accent_violet">Twilight Violet</string>
-    <string name="accent_sunset">Sunset Amber</string>
-    <string name="accent_sakura">Sakura Rose</string>
-    <string name="accent_cyan">Cyber Cyan</string>
-    <string name="accent_gold">Royal Gold</string>
-    <string name="accent_sage">Sage Green</string>
-    <string name="accent_slate">Slate Blue</string>
-    <string name="accent_terracotta">Terracotta</string>
+    <string name="accent_ocean">Ocean</string>
+    <string name="accent_sunset">Sunset</string>
+    <string name="accent_sakura">Sakura</string>
     <string name="accent_graphite">Graphite</string>
 
     <!-- Reorganized Settings Sections -->
@@ -424,26 +416,12 @@
     <string name="keybind_reset_confirm_title">Reset key bindings?</string>
     <string name="keybind_reset_confirm_desc">Restore all shortcut actions to their default gamepad keys? Your custom bindings will be cleared.</string>
     <string name="keybind_reset_confirm_yes">Reset to defaults</string>
-    <string name="bg_style_waves">Waves</string>
-    <string name="bg_style_waves_desc">Smooth animated flowing wave curves</string>
-    <string name="bg_style_gradient">Gradient</string>
-    <string name="bg_style_gradient_desc">Slowly breathing aurora theme gradient</string>
-    <string name="bg_style_particles">Particles</string>
-    <string name="bg_style_particles_desc">Floating translucent bokeh bubbles</string>
-    <string name="bg_style_aurora">Aurora Ribbons</string>
-    <string name="bg_style_aurora_desc">Soft diagonal silk aurora bands</string>
-    <string name="bg_style_topo">Topographic</string>
-    <string name="bg_style_topo_desc">Minimal animated 1dp contour lines</string>
-    <string name="bg_style_dot_matrix">Dot Matrix</string>
-    <string name="bg_style_dot_matrix_desc">Subtle breathing ambient dot grid</string>
-    <string name="bg_style_cover_blur">Cover Blur</string>
-    <string name="bg_style_cover_blur_desc">Blurred backdrop from focused game cover</string>
-    <string name="bg_style_static">Static Waves</string>
-    <string name="bg_style_static_desc">Still wave silhouette, clean and power-saving</string>
-    <string name="bg_style_image">Custom Image</string>
-    <string name="bg_style_image_desc">Use a local image file as wallpaper</string>
-    <string name="bg_style_none">Solid Color</string>
-    <string name="bg_style_none_desc">Plain theme background with no effects</string>
+    <string name="bg_style_aurora">Aurora</string>
+    <string name="bg_style_aurora_desc">Soft light ribbons</string>
+    <string name="bg_style_image">Image</string>
+    <string name="bg_style_image_desc">Your own picture</string>
+    <string name="bg_style_none">Solid</string>
+    <string name="bg_style_none_desc">No effects</string>
 
     <!-- Offline Messages -->
     <string name="scrape_offline">No internet connection. Connect to Wi-Fi or pick a local image.</string>
@@ -702,4 +680,16 @@
     <string name="lan_web_dir_upload">Upload</string>
     <string name="lan_web_dir_download">Download</string>
     <string name="lan_web_tx_failed">Interrupted</string>
+    <string name="accent_berry">Berry</string>
+    <string name="accent_mint">Mint</string>
+    <string name="accent_lemon">Lemon</string>
+    <string name="accent_grape">Grape</string>
+    <string name="bg_style_sunset_flow">Sunset Flow</string>
+    <string name="bg_style_sunset_flow_desc">Soft drifting color</string>
+    <string name="bg_style_pixel_drift">Pixel Drift</string>
+    <string name="bg_style_pixel_drift_desc">Floating retro sprites</string>
+    <string name="bg_style_retro_grid">Retro Grid</string>
+    <string name="bg_style_retro_grid_desc">Synthwave horizon</string>
+    <string name="bg_style_cover_glow">Cover Glow</string>
+    <string name="bg_style_cover_glow_desc">Colors from the selected game</string>
 </resources>

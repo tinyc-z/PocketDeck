@@ -1900,7 +1900,7 @@ async function openGameDetail(id) {
       '<div class="detail-info">' +
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
           '<span class="chip">' + esc(g.platformName) + ' · ' + esc(g.platformFullName || '') + '</span>' +
-          (g.favorite ? '<span class="chip ok">' + esc(tr('fav_on')) + '</span>' : '') +
+          (g.favorite ? '<span class="chip">' + esc(tr('fav_on')) + '</span>' : '') +
           (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
         '</div>' +
         '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +

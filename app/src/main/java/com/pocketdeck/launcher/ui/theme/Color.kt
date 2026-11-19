@@ -31,72 +31,108 @@ data class DeckPalette(
     val favSelected: Color,
     val dialogBg: Color,
     val dialogBorder: Color,
+    // ── Sunset Arcade 设计令牌 ──
+    /** 品牌渐变三色（选中 Tab、A 键、开关、主按钮、焦点环）。 */
+    val brandStart: Color,
+    val brandMid: Color,
+    val brandEnd: Color,
+    /** 次级表面：输入框、Chip、分组内嵌块。 */
+    val surfaceAlt: Color,
+    /** 发丝分割线 / 中性描边。 */
+    val line: Color,
+    /** 柔和强调底色（选中行、Tag 背景）。 */
+    val accentSoft: Color,
+    /** 背景流光的三个色块（随主题变化）。 */
+    val flowA: Color,
+    val flowB: Color,
+    val flowC: Color,
 )
 
 fun deckPalette(accent: ThemeAccent, isDark: Boolean): DeckPalette {
     val primary = Color(if (isDark) accent.darkPrimary else accent.lightPrimary)
-    val glow = Color(if (isDark) accent.darkGlow else accent.lightGlow)
-    val tertiary = Color(if (isDark) accent.darkTertiary else accent.lightTertiary)
+    val gStart = Color(accent.gradStart)
+    val gMid = Color(accent.gradMid)
+    val gEnd = Color(accent.gradEnd)
     val lightAccent = lerp(primary, Color.White, if (isDark) 0.34f else 0.38f)
     val borderAccent = lerp(primary, Color.White, if (isDark) 0.26f else 0.42f)
+    // 流光色块：浅色模式取渐变色与白色混合的粉彩，深色模式取低明度饱和色
+    val violet = Color(0xFF7C4DCC)
 
     return if (isDark) {
         DeckPalette(
             isDark = true,
             ruby = primary,
             rubyLight = lightAccent,
-            rubyFaded = primary.copy(alpha = 0.22f),
-            accentGlow = glow,
-            accentTertiary = tertiary,
-            background = Color(0xFF121215),
-            surface = Color(0xFF1E1E24),
+            rubyFaded = primary.copy(alpha = 0.20f),
+            accentGlow = gStart,
+            accentTertiary = gEnd,
+            background = Color(0xFF17111F),
+            surface = Color(0xFF231A2E),
             cardBorder = borderAccent,
             cardShadow = Color(0x99000000),
-            textPrimary = Color(0xFFF2F2F6),
-            textSecondary = Color(0xFFA0A0AA),
-            textLabel = Color(0xFF7E7E8A),
-            textMeta = Color(0xFFC4C4CE),
+            textPrimary = Color(0xFFF7F0FA),
+            textSecondary = Color(0xFFB7A9C2),
+            textLabel = Color(0xFF7E7090),
+            textMeta = Color(0xFFD3C7DC),
             pillSelected = primary.copy(alpha = 0.22f),
             pillText = primary,
-            pillTextInactive = Color(0xFF888894),
+            pillTextInactive = Color(0xFF8E80A0),
             bottomBarBg = Color(0x00000000),
-            buttonBadge = Color(0xFFE6E6EC),
-            buttonBadgeText = Color(0xFF141418),
-            favSelected = primary,
-            dialogBg = Color(0xFF1A1A20),
-            dialogBorder = Color(0xFF2E2E37),
+            buttonBadge = Color(0xFFF7F0FA),
+            buttonBadgeText = Color(0xFF17111F),
+            favSelected = gMid,
+            dialogBg = Color(0xFF211929),
+            dialogBorder = Color(0xFF3A2D48),
+            brandStart = gStart,
+            brandMid = gMid,
+            brandEnd = gEnd,
+            surfaceAlt = Color(0xFF2B2138),
+            line = Color(0xFF3A2D48),
+            accentSoft = primary.copy(alpha = 0.16f),
+            flowA = gStart.copy(alpha = 0.42f),
+            flowB = gEnd.copy(alpha = 0.40f),
+            flowC = violet.copy(alpha = 0.50f),
         )
     } else {
         DeckPalette(
             isDark = false,
             ruby = primary,
             rubyLight = lightAccent,
-            rubyFaded = primary.copy(alpha = 0.18f),
-            accentGlow = glow,
-            accentTertiary = tertiary,
-            background = Color(0xFFFFFFFF),
-            surface = Color(0xFFF4F4F4),
+            rubyFaded = primary.copy(alpha = 0.14f),
+            accentGlow = gStart,
+            accentTertiary = gEnd,
+            background = Color(0xFFFFF8F4),
+            surface = Color(0xFFFFFFFF),
             cardBorder = borderAccent,
-            cardShadow = Color(0x40000000),
-            textPrimary = Color(0xFF1A1A1A),
-            textSecondary = Color(0xFF757575),
-            textLabel = Color(0xFFB0B0B0),
-            textMeta = Color(0xFF606060),
-            pillSelected = primary.copy(alpha = 0.13f),
+            cardShadow = Color(0x33782846),
+            textPrimary = Color(0xFF24172F),
+            textSecondary = Color(0xFF6E6176),
+            textLabel = Color(0xFFA89CAE),
+            textMeta = Color(0xFF5A4D63),
+            pillSelected = primary.copy(alpha = 0.12f),
             pillText = primary,
-            pillTextInactive = Color(0xFF8C8C94),
+            pillTextInactive = Color(0xFF9A8EA2),
             bottomBarBg = Color(0x00000000),
-            buttonBadge = Color(0xFF1A1A1A),
+            buttonBadge = Color(0xFF24172F),
             buttonBadgeText = Color.White,
-            favSelected = primary,
-            dialogBg = Color(0xFFFAFAFA),
-            dialogBorder = Color(0xFFE0E0E0),
+            favSelected = gMid,
+            dialogBg = Color(0xFFFFFCFA),
+            dialogBorder = Color(0xFFF1E3DE),
+            brandStart = gStart,
+            brandMid = gMid,
+            brandEnd = gEnd,
+            surfaceAlt = Color(0xFFFBF1EE),
+            line = Color(0xFFF1E3DE),
+            accentSoft = primary.copy(alpha = 0.10f),
+            flowA = lerp(gStart, Color.White, 0.35f).copy(alpha = 0.60f),
+            flowB = lerp(gEnd, Color.White, 0.45f).copy(alpha = 0.55f),
+            flowC = lerp(violet, Color.White, 0.55f).copy(alpha = 0.45f),
         )
     }
 }
 
-val LightDeckPalette = deckPalette(ThemeAccent.Ruby, isDark = false)
-val DarkDeckPalette = deckPalette(ThemeAccent.Ruby, isDark = true)
+val LightDeckPalette = deckPalette(ThemeAccent.Sunset, isDark = false)
+val DarkDeckPalette = deckPalette(ThemeAccent.Sunset, isDark = true)
 
 val LocalDeckColors = staticCompositionLocalOf { LightDeckPalette }
 
@@ -170,4 +206,22 @@ object DeckColors {
 
     val DialogBorder: Color
         @Composable @ReadOnlyComposable get() = LocalDeckColors.current.dialogBorder
+
+    val BrandStart: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.brandStart
+
+    val BrandMid: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.brandMid
+
+    val BrandEnd: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.brandEnd
+
+    val SurfaceAlt: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.surfaceAlt
+
+    val Line: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.line
+
+    val AccentSoft: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.accentSoft
 }
