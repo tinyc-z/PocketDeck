@@ -682,7 +682,8 @@ class WebManagerServer(
 
         when {
             req.method == "GET" && req.path == "/api/info" -> handleInfo(res)
-            req.method == "GET" && req.path == "/api/games" -> handleGames(res)
+            req.method == "GET" && req.path == "/api/games" -> handleGames(req, res)
+            req.method == "GET" && req.path == "/api/games/item" -> handleGameItem(req, res)
             req.method == "GET" && req.path == "/api/cover" -> handleCover(req, res)
             req.method == "GET" && req.path == "/api/cover-candidate" -> handleCoverCandidate(req, res)
             req.method == "POST" && req.path == "/api/games/rename" -> handleGameRename(req, res)
@@ -993,16 +994,125 @@ class WebManagerServer(
         }
     }
 
-    private fun handleGames(res: HttpResponseWriter) {
+    private fun buildGamesStatsJson(
+        allGamesOverride: List<com.pocketdeck.launcher.data.model.Game>? = null,
+    ): JSONObject {
         val lib = repo.fullLibrary.value
-        val allGames = lib?.games?.values?.flatten().orEmpty().sortedBy { it.title.lowercase() }
-        val arr = JSONArray()
+        val u = repo.user.value
+        val hidden = u?.hidden.orEmpty()
+        val favs = u?.favorites.orEmpty()
+        val allGames = allGamesOverride ?: lib?.games?.values?.flatten().orEmpty()
+        val platIds = HashSet<String>()
+        val platNames = sortedSetOf<String>()
+        var favCount = 0
+        var hasHidden = false
         for (g in allGames) {
+            platIds += g.platformId
+            val pName = lib?.platform(g.platformId)?.shortName
+                ?: PlatformCatalog.forFolder(g.platformId).shortName
+            platNames += pName
+            if (g.id in favs) favCount++
+            if (!hasHidden && g.id in hidden) hasHidden = true
+        }
+        return JSONObject().apply {
+            put("totalGames", allGames.size)
+            put("platformCount", platIds.size)
+            put("favCount", favCount)
+            put("hasHidden", hasHidden)
+            put("platforms", JSONArray(platNames.toList()))
+        }
+    }
+
+    private fun handleGameItem(req: HttpRequest, res: HttpResponseWriter) {
+        val id = req.query["id"].orEmpty()
+        val game = repo.fullLibrary.value?.byId?.get(id)
+        if (game == null) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        val root = JSONObject().apply {
+            put("ok", true)
+            put("game", gameToJson(game))
+            put("stats", buildGamesStatsJson())
+        }
+        res.sendJson(200, root.toString())
+    }
+
+    private fun handleGames(req: HttpRequest, res: HttpResponseWriter) {
+        val lib = repo.fullLibrary.value
+        val u = repo.user.value
+        val hidden = u?.hidden.orEmpty()
+        val favs = u?.favorites.orEmpty()
+        val cats = u?.categories.orEmpty()
+        val metaMap = metadataRepo.metadata.value
+        val officialNames = metadataRepo.officialNames.value
+
+        val allGames = lib?.games?.values?.flatten().orEmpty().sortedBy { it.title.lowercase() }
+        val statsJson = buildGamesStatsJson(allGames)
+
+        val q = req.query["q"].orEmpty().trim().lowercase()
+        val vis = req.query["vis"].orEmpty().trim().ifBlank { "all" }
+        val platFilter = req.query["plat"].orEmpty().trim()
+        val catFilter = req.query["cat"].orEmpty().trim()
+        val catObj = if (catFilter.isNotEmpty()) cats.firstOrNull { it.id == catFilter } else null
+
+        val filtered = allGames.filter { g ->
+            when (vis) {
+                "visible" -> if (g.id in hidden) return@filter false
+                "hidden" -> if (g.id !in hidden) return@filter false
+                "fav" -> if (g.id !in favs) return@filter false
+                "nocover" -> if (covers.hasLocalOrCachedCover(g)) return@filter false
+            }
+            val pName = lib?.platform(g.platformId)?.shortName
+                ?: PlatformCatalog.forFolder(g.platformId).shortName
+            if (platFilter.isNotEmpty() && pName != platFilter) return@filter false
+            if (catFilter.isNotEmpty()) {
+                val inCat = catObj != null && (g.id in catObj.games || g.platformId in catObj.sources)
+                if (!inCat) return@filter false
+            }
+            if (q.isNotEmpty()) {
+                val m = metaMap[g.id]
+                val hay = buildString {
+                    append(g.title).append(' ')
+                    append(officialNames[g.id].orEmpty()).append(' ')
+                    append(g.fileName).append(' ')
+                    append(pName).append(' ')
+                    append(m?.developer.orEmpty()).append(' ')
+                    append(m?.publisher.orEmpty()).append(' ')
+                    append(m?.genre.orEmpty())
+                }.lowercase()
+                if (q !in hay) return@filter false
+            }
+            true
+        }
+
+        val total = filtered.size
+        val paged = req.query.containsKey("limit") || req.query.containsKey("offset")
+        val offset = req.query["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val limit = if (paged) {
+            req.query["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 60
+        } else {
+            total.coerceAtLeast(1)
+        }
+        val slice = if (offset >= total) {
+            emptyList()
+        } else {
+            filtered.subList(offset, (offset + limit).coerceAtMost(total))
+        }
+        val hasMore = offset + slice.size < total
+
+        val arr = JSONArray()
+        for (g in slice) {
             arr.put(gameToJson(g))
         }
         val root = JSONObject().apply {
             put("ok", true)
             put("games", arr)
+            put("offset", offset)
+            put("limit", limit)
+            put("total", total)
+            put("hasMore", hasMore)
+            put("stats", statsJson)
         }
         res.sendJson(200, root.toString())
     }
@@ -1052,7 +1162,10 @@ class WebManagerServer(
         }
         val existingCover = repo.user.value?.covers?.get(id)
         repo.saveGameEdits(id, title.ifBlank { null }, existingCover)
-        res.sendJson(200, """{"ok":true}""")
+        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
+        if (fresh != null) root.put("game", gameToJson(fresh))
+        res.sendJson(200, root.toString())
     }
 
     private suspend fun handleGameHide(req: HttpRequest, res: HttpResponseWriter) {
@@ -1064,7 +1177,10 @@ class WebManagerServer(
             return
         }
         if (hidden) repo.hide(id) else repo.unhide(id)
-        res.sendJson(200, """{"ok":true}""")
+        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
+        if (fresh != null) root.put("game", gameToJson(fresh))
+        res.sendJson(200, root.toString())
     }
 
     private suspend fun handleGameFavorite(req: HttpRequest, res: HttpResponseWriter) {
@@ -1079,7 +1195,13 @@ class WebManagerServer(
         if (wantFav == null || wantFav != currentlyFav) {
             repo.toggleFavorite(id)
         }
-        res.sendJson(200, JSONObject().put("ok", true).put("favorite", wantFav ?: !currentlyFav).toString())
+        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val root = JSONObject()
+            .put("ok", true)
+            .put("favorite", wantFav ?: !currentlyFav)
+            .put("stats", buildGamesStatsJson())
+        if (fresh != null) root.put("game", gameToJson(fresh))
+        res.sendJson(200, root.toString())
     }
 
     private suspend fun handleGameCategories(req: HttpRequest, res: HttpResponseWriter) {
@@ -1107,7 +1229,10 @@ class WebManagerServer(
                 },
             )
         }
-        res.sendJson(200, """{"ok":true}""")
+        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
+        if (fresh != null) root.put("game", gameToJson(fresh))
+        res.sendJson(200, root.toString())
     }
 
     private suspend fun handleGameRefreshMeta(req: HttpRequest, res: HttpResponseWriter) {
@@ -1134,6 +1259,7 @@ class WebManagerServer(
                 put("metaUpdated", metaUpdated)
                 put("coverUpdated", coverUpdated)
                 put("game", gameToJson(freshGame))
+                put("stats", buildGamesStatsJson())
             }.toString(),
         )
     }
@@ -1198,7 +1324,10 @@ class WebManagerServer(
         covers.forget(id)
         val existingName = repo.user.value?.renames?.get(id)
         repo.saveGameEdits(id, existingName, target.absolutePath)
-        res.sendJson(200, """{"ok":true}""")
+        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
+        if (fresh != null) root.put("game", gameToJson(fresh))
+        res.sendJson(200, root.toString())
     }
 
     private suspend fun handleGameUploadCover(req: HttpRequest, res: HttpResponseWriter) {
@@ -1236,7 +1365,10 @@ class WebManagerServer(
         covers.forget(id)
         val existingName = repo.user.value?.renames?.get(id)
         repo.saveGameEdits(id, existingName, target.absolutePath)
-        res.sendJson(200, """{"ok":true}""")
+        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
+        if (fresh != null) root.put("game", gameToJson(fresh))
+        res.sendJson(200, root.toString())
     }
 
     private suspend fun handleGameResetCover(req: HttpRequest, res: HttpResponseWriter) {
@@ -1254,7 +1386,10 @@ class WebManagerServer(
         covers.forget(id)
         val existingName = repo.user.value?.renames?.get(id)
         repo.saveGameEdits(id, existingName, null)
-        res.sendJson(200, """{"ok":true}""")
+        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
+        if (fresh != null) root.put("game", gameToJson(fresh))
+        res.sendJson(200, root.toString())
     }
 
     // ───────────────────────── 标签分类管理（带严格格式安全校验） ─────────────────────────

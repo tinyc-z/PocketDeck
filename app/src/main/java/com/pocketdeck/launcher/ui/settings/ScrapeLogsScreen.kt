@@ -1,5 +1,7 @@
 package com.pocketdeck.launcher.ui.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.os.Environment
 import android.widget.Toast
@@ -87,6 +89,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+private fun formatCompactLogPath(fullPath: String): String {
+    val parts = fullPath.split('/').filter { it.isNotEmpty() }
+    return if (parts.size > 3) "…/" + parts.takeLast(3).joinToString("/") else fullPath
+}
+
 private enum class ScrapeLogFilter {
     All,
     Cover,
@@ -128,6 +135,7 @@ fun ScrapeLogsScreen(
     var showExportDialog by remember { mutableStateOf(false) }
 
     val clearedMsg = stringResource(R.string.scrape_logs_cleared)
+    val pathCopiedMsg = stringResource(R.string.scrape_logs_path_copied)
     val exportOkFmt = stringResource(R.string.scrape_logs_export_ok)
     val exportFailFmt = stringResource(R.string.scrape_logs_export_fail)
 
@@ -242,12 +250,19 @@ fun ScrapeLogsScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    val fullLogPath = ScrapeLogStore.filePath()
+                    val shortLogPath = remember(fullLogPath) { formatCompactLogPath(fullLogPath) }
                     Text(
-                        ScrapeLogStore.filePath(),
+                        shortLogPath,
                         style = DeckType.metaLabel.copy(fontFamily = FontFamily.Monospace),
                         color = DeckColors.TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            cm?.setPrimaryClip(ClipData.newPlainText("scrape_log_path", fullLogPath))
+                            Toast.makeText(context, pathCopiedMsg, Toast.LENGTH_SHORT).show()
+                        },
                     )
                 }
                 Spacer(Modifier.width(8.dp))

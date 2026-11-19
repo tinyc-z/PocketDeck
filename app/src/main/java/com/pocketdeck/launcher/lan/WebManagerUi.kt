@@ -615,6 +615,8 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .log-win-btn.err { color:#ff7b72; }
   .log-win-in { flex:1; min-width:120px; border:1px solid #3A2D4A; background:#120D1A; color:#F2ECF7; border-radius:8px; padding:4px 9px; font-size:12px; outline:none; }
   .log-win-ft { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#9E8FB2; }
+  .list-footer { display:flex; align-items:center; justify-content:center; gap:10px; padding:18px 0 8px; color:var(--muted); font-size:12.5px; }
+  .list-footer:empty { display:none; padding:0; }
 
   @media (max-width: 899px) {
     .shell { flex-direction:column; }
@@ -702,7 +704,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
         </div>
         <div class="search-box">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oninput="renderGames()"/>
+          <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oninput="onGameSearchInput()"/>
           <span class="kbd">/</span>
         </div>
         <button class="btn primary pbtn" onclick="goUploadRoms()">
@@ -712,9 +714,9 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       </div>
 
       <div style="display:none">
-        <select id="gVis" onchange="renderGames()"><option value="all"></option><option value="visible"></option><option value="fav"></option><option value="nocover"></option><option value="hidden"></option></select>
-        <select id="gPlat" onchange="renderGames()"><option value=""></option></select>
-        <select id="gCat" onchange="renderGames()"><option value=""></option></select>
+        <select id="gVis" onchange="loadGames(true)"><option value="all"></option><option value="visible"></option><option value="fav"></option><option value="nocover"></option><option value="hidden"></option></select>
+        <select id="gPlat" onchange="loadGames(true)"><option value=""></option></select>
+        <select id="gCat" onchange="loadGames(true)"><option value=""></option></select>
       </div>
 
       <div class="filter-bar">
@@ -726,6 +728,8 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       </div>
 
       <div id="gamesContainer"></div>
+      <div id="gamesFooter" class="list-footer"></div>
+      <div id="gamesSentinel" style="height:1px;"></div>
     </section>
 
     <section id="tab-categories" style="display:none">
@@ -768,7 +772,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
           <option value="modified" data-i18n="sort_modified">Modified</option>
           <option value="type" data-i18n="sort_type">Type</option>
         </select>
-        <input id="fileFilter" class="search" style="min-width:160px;" data-i18n-ph="files_filter_ph" placeholder="Filter folder…" oninput="renderFiles()"/>
+        <input id="fileFilter" class="search" style="min-width:160px;" data-i18n-ph="files_filter_ph" placeholder="Filter folder…" oninput="onFileFilterInput()"/>
       </div>
       <div id="crumbsBar" class="crumbs"></div>
       <div id="dropzone" class="dropzone" style="display:none">
@@ -785,6 +789,8 @@ document.getElementById('f').addEventListener('submit', async (e) => {
         </label>
       </div>
       <div id="filesList" class="list"></div>
+      <div id="filesFooter" class="list-footer"></div>
+      <div id="filesSentinel" style="height:1px;"></div>
       <div id="batchBar" class="batch-bar">
         <strong id="batchCountText">0 selected</strong>
         <button class="btn sm" onclick="openBatchTransfer('move')" data-i18n="batch_move">Move…</button>
@@ -840,7 +846,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 <script>
 const I18N = {
   'zh-CN': {
-    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '内部存储', vol_external: 'TF 卡', logs_live: '● 实时', btn_find_cover: '查找封面', btn_pick_cover_short: '选封面', btn_upload_short: '上传', connecting: '连接中…',
+    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '内部存储', vol_external: 'TF 卡', logs_live: '● 实时', btn_find_cover: '查找封面', btn_pick_cover_short: '选封面', btn_upload_short: '上传', connecting: '连接中…', loaded_games_fmt: '已加载 {loaded} / 共 {total} 款游戏', loaded_all_games_fmt: '已显示全部 {total} 款游戏', loading_more: '正在加载更多…', btn_load_more: '加载更多', loaded_files_fmt: '已加载 {loaded} / 共 {total} 项',
     tab_games: '游戏库',
     tab_categories: '标签分类',
     tab_files: '文件管理',
@@ -1078,7 +1084,7 @@ const I18N = {
     logs_f_err: '仅报错',
   },
   'zh-TW': {
-    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '內部儲存', vol_external: 'TF 卡', logs_live: '● 即時', btn_find_cover: '尋找封面', btn_pick_cover_short: '選封面', btn_upload_short: '上傳', connecting: '連線中…',
+    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '內部儲存', vol_external: 'TF 卡', logs_live: '● 即時', btn_find_cover: '尋找封面', btn_pick_cover_short: '選封面', btn_upload_short: '上傳', connecting: '連線中…', loaded_games_fmt: '已載入 {loaded} / 共 {total} 款遊戲', loaded_all_games_fmt: '已顯示全部 {total} 款遊戲', loading_more: '正在載入更多…', btn_load_more: '載入更多', loaded_files_fmt: '已載入 {loaded} / 共 {total} 項',
     tab_games: '遊戲庫',
     tab_categories: '標籤分類',
     tab_files: '檔案管理',
@@ -1316,7 +1322,7 @@ const I18N = {
     logs_f_err: '僅報錯',
   },
   en: {
-    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', vol_internal: 'Internal', vol_external: 'SD / TF Card', logs_live: '● LIVE', btn_find_cover: 'Find cover', btn_pick_cover_short: 'Pick cover', btn_upload_short: 'Upload', connecting: 'Connecting…',
+    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', vol_internal: 'Internal', vol_external: 'SD / TF Card', logs_live: '● LIVE', btn_find_cover: 'Find cover', btn_pick_cover_short: 'Pick cover', btn_upload_short: 'Upload', connecting: 'Connecting…', loaded_games_fmt: 'Showing {loaded} of {total} games', loaded_all_games_fmt: 'All {total} games loaded', loading_more: 'Loading more…', btn_load_more: 'Load more', loaded_files_fmt: 'Showing {loaded} of {total} items',
     tab_games: 'Library',
     tab_categories: 'Tabs & Tags',
     tab_files: 'Files',
@@ -1617,7 +1623,21 @@ function setWebLang(lang) {
   }
 }
 applyStaticI18n();
+const GAME_PAGE_SIZE = 60;
+const FILE_BATCH_SIZE = 100;
 let games = [];
+let gamesById = Object.create(null);
+let gamesTotal = 0;
+let gamesHasMore = false;
+let gamesLoading = false;
+let gamesReqSeq = 0;
+let gamesStats = { totalGames: 0, platformCount: 0, favCount: 0, hasHidden: false, platforms: [] };
+let gSearchTimer = null;
+let gamesObserver = null;
+let filteredFileEntries = [];
+let filesRenderedCount = 0;
+let fileFilterTimer = null;
+let filesObserver = null;
 let roots = [];
 let deviceInfo = {};
 let curDir = '';
@@ -1947,16 +1967,111 @@ async function loadInit() {
   await Promise.all([loadGames(), loadCategories()]);
 }
 
-async function loadGames() {
-  const data = await (await api('/api/games')).json();
-  games = data.games || [];
+function buildGamesQueryUrl(offset, limit) {
+  const params = new URLSearchParams();
+  params.set('offset', String(offset));
+  params.set('limit', String(limit));
+  const q = (el('gSearch') ? el('gSearch').value : '').trim();
+  if (q) params.set('q', q);
+  if (activeFilterMode && activeFilterMode !== 'all') params.set('vis', activeFilterMode);
+  if (activeFilterPlat) params.set('plat', activeFilterPlat);
+  const catFilter = el('gCat') ? el('gCat').value : '';
+  if (catFilter) params.set('cat', catFilter);
+  return '/api/games?' + params.toString();
+}
+
+function applyGamesStats(stats) {
+  if (!stats) return;
+  gamesStats = {
+    totalGames: stats.totalGames || 0,
+    platformCount: stats.platformCount || 0,
+    favCount: stats.favCount || 0,
+    hasHidden: !!stats.hasHidden,
+    platforms: Array.isArray(stats.platforms) ? stats.platforms : [],
+  };
   const sel = el('gPlat');
-  const prev = sel.value;
-  const plats = [...new Set(games.map(g => g.platformName))].sort();
-  sel.innerHTML = '<option value="" data-i18n="plat_all">' + esc(tr('plat_all')) + '</option>' + plats.map(p => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join('');
-  sel.value = prev;
-  renderStats();
-  renderGames();
+  if (sel) {
+    const prev = sel.value;
+    sel.innerHTML = '<option value="" data-i18n="plat_all">' + esc(tr('plat_all')) + '</option>' +
+      gamesStats.platforms.map(p => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join('');
+    sel.value = prev;
+  }
+}
+
+function onGameSearchInput() {
+  clearTimeout(gSearchTimer);
+  gSearchTimer = setTimeout(() => loadGames(true), 180);
+}
+
+function ensureGamesObserver() {
+  if (gamesObserver || typeof IntersectionObserver === 'undefined') return;
+  const sentinel = el('gamesSentinel');
+  if (!sentinel) return;
+  gamesObserver = new IntersectionObserver(entries => {
+    if (entries.some(e => e.isIntersecting) && curTab === 'games' && gamesHasMore && !gamesLoading) {
+      loadMoreGames();
+    }
+  }, { rootMargin: '420px 0px' });
+  gamesObserver.observe(sentinel);
+}
+
+async function loadGames(reset = true) {
+  if (!reset) return loadMoreGames();
+  const seq = ++gamesReqSeq;
+  gamesLoading = true;
+  renderGamesFooter();
+  try {
+    const data = await (await api(buildGamesQueryUrl(0, GAME_PAGE_SIZE))).json();
+    if (seq !== gamesReqSeq) return;
+    const batch = data.games || [];
+    games = batch;
+    gamesById = Object.create(null);
+    batch.forEach(g => { gamesById[g.id] = g; });
+    gamesTotal = typeof data.total === 'number' ? data.total : batch.length;
+    gamesHasMore = !!data.hasMore;
+    applyGamesStats(data.stats);
+    renderStats();
+    renderGames();
+    ensureGamesObserver();
+  } finally {
+    if (seq === gamesReqSeq) {
+      gamesLoading = false;
+      renderGamesFooter();
+    }
+  }
+}
+
+async function loadMoreGames() {
+  if (gamesLoading || !gamesHasMore) return;
+  const seq = gamesReqSeq;
+  gamesLoading = true;
+  renderGamesFooter();
+  try {
+    const offset = games.length;
+    const data = await (await api(buildGamesQueryUrl(offset, GAME_PAGE_SIZE))).json();
+    if (seq !== gamesReqSeq) return;
+    const batch = data.games || [];
+    const fresh = [];
+    batch.forEach(g => {
+      if (!gamesById[g.id]) {
+        games.push(g);
+        fresh.push(g);
+      }
+      gamesById[g.id] = g;
+    });
+    gamesTotal = typeof data.total === 'number' ? data.total : games.length;
+    gamesHasMore = !!data.hasMore && batch.length > 0;
+    if (data.stats) {
+      applyGamesStats(data.stats);
+      renderStats();
+    }
+    if (fresh.length) appendGamesBatch(fresh);
+  } finally {
+    if (seq === gamesReqSeq) {
+      gamesLoading = false;
+      renderGamesFooter();
+    }
+  }
 }
 
 function svgIco(name, size) {
@@ -1987,14 +2102,14 @@ function setFilterChip(mode, plat) {
   el('gVis').value = activeFilterMode;
   el('gPlat').value = activeFilterPlat;
   renderFilterChips();
-  renderGames();
+  loadGames(true);
 }
 
 function renderFilterChips() {
   const box = el('filterChips');
   if (!box) return;
-  const plats = [...new Set(games.map(g => g.platformName))].sort();
-  const hasHidden = games.some(g => g.hidden);
+  const plats = gamesStats.platforms || [];
+  const hasHidden = !!gamesStats.hasHidden;
   const chips = [
     '<button class="fchip' + (activeFilterMode === 'all' && !activeFilterPlat ? ' on' : '') + '" onclick="setFilterChip(\'all\',\'\')">' + esc(tr('filter_all')) + '</button>'
   ];
@@ -2011,91 +2126,165 @@ function renderFilterChips() {
 }
 
 function renderStats() {
-  const platCount = new Set(games.map(g => g.platformId)).size;
-  const favCount = games.filter(g => g.favorite).length;
   const sg = el('statsGrid');
-  if (sg) sg.textContent = tr('summary_fmt', { games: games.length, plats: platCount, favs: favCount });
+  if (sg) sg.textContent = tr('summary_fmt', {
+    games: gamesStats.totalGames,
+    plats: gamesStats.platformCount,
+    favs: gamesStats.favCount,
+  });
   const gc = el('navGamesCnt');
-  if (gc) gc.textContent = games.length ? String(games.length) : '';
+  if (gc) gc.textContent = gamesStats.totalGames ? String(gamesStats.totalGames) : '';
   const cc = el('navCatsCnt');
   if (cc) cc.textContent = catTabs.length ? String(catTabs.length) : '';
   renderFilterChips();
   renderDevInfo(webConnected, deviceInfo.online);
 }
 
-function renderGames() {
-  const q = el('gSearch').value.trim().toLowerCase();
-  const vis = activeFilterMode;
-  const plat = activeFilterPlat;
-  const catFilter = el('gCat').value;
-  const list = games.filter(g => {
-    if (vis === 'visible' && g.hidden) return false;
-    if (vis === 'hidden' && !g.hidden) return false;
-    if (vis === 'fav' && !g.favorite) return false;
-    if (vis === 'nocover' && g.hasCover) return false;
-    if (plat && g.platformName !== plat) return false;
-    if (catFilter && !(g.categories || []).includes(catFilter)) return false;
-    if (q) {
-      const m = g.metadata || {};
-      const hay = (g.title + ' ' + g.officialName + ' ' + g.fileName + ' ' + g.platformName + ' ' + (m.developer||'') + ' ' + (m.publisher||'') + ' ' + (m.genre||'')).toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
-  const container = el('gamesContainer');
-  if (!list.length) {
-    container.innerHTML = '<div class="sub" style="padding:28px 0;">' + esc(tr('no_games')) + '</div>';
+function gameCardHtml(g) {
+  const safeId = encodeURIComponent(g.id);
+  const m = g.metadata || {};
+  const metaLine = [m.publisher || m.developer || null, m.releaseDate || null].filter(Boolean).join(' · ') || (g.isRom ? fmtBytes(g.size) : (m.genre || '—'));
+  const cov = g.hasCover
+    ? '<img loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/>'
+    : '';
+  const fbStyle = g.hasCover ? 'style="display:none"' : '';
+  return '<div class="gcard' + (g.hidden ? ' is-hidden' : '') + '" data-gid="' + esc(g.id) + '" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' +
+    '<div class="gcover-box">' + cov +
+      '<div class="gcover-fallback" ' + fbStyle + '><span class="tt">' + esc(g.title) + '</span></div>' +
+      '<span class="badge-plat">' + esc(g.platformName) + '</span>' +
+      '<button class="badge-fav' + (g.favorite ? ' on' : '') + '" onclick="event.stopPropagation();toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ')" title="' + esc(tr('btn_fav')) + '">' + svgIco(g.favorite ? 'heartFill' : 'heart', 14) + '</button>' +
+    '</div>' +
+    '<div class="gbody">' +
+      '<div class="gtitle" title="' + esc(g.title) + '">' + esc(g.title) + '</div>' +
+      '<div class="gmeta" title="' + esc(metaLine) + '">' + esc(metaLine) + '</div>' +
+    '</div></div>';
+}
+
+function gameRowHtml(g) {
+  const safeId = encodeURIComponent(g.id);
+  const m = g.metadata || {};
+  const metaSummary = [m.releaseDate, m.developer, m.publisher].filter(Boolean).join(' · ');
+  const cov = g.hasCover
+    ? '<img class="cover-sm" loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '"/>'
+    : '<div class="cover-sm">' + esc(g.platformName) + '</div>';
+  return '<div class="row" data-gid="' + esc(g.id) + '">' + cov +
+    '<div class="meta" style="cursor:pointer" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' +
+      '<div class="title">' + esc(g.title) +
+        (g.favorite ? '<span class="chip">' + esc(tr('fav_tag')) + '</span>' : '') +
+        (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
+      '</div>' +
+      '<div class="desc">' + esc(g.platformName) + (g.isRom ? ' · ' + fmtBytes(g.size) : ' · Android') + (metaSummary ? ' · ' + esc(metaSummary) : '') + '</div>' +
+    '</div>' +
+    '<div class="actions">' +
+      '<button class="btn sm" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' + esc(tr('btn_detail')) + '</button>' +
+      '<button class="btn sm" onclick="toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ')">' + esc(g.favorite ? tr('btn_unfav') : tr('btn_fav')) + '</button>' +
+      '<button class="btn sm" onclick="toggleHide(\'' + escJs(g.id) + '\',' + (!g.hidden) + ')">' + esc(g.hidden ? tr('btn_restore') : tr('btn_hide')) + '</button>' +
+      (g.isRom ? '<a class="btn sm" href="/api/files/download?path=' + safeId + '">' + esc(tr('btn_dl')) + '</a>' : '') +
+    '</div></div>';
+}
+
+function renderGamesFooter() {
+  const ft = el('gamesFooter');
+  if (!ft) return;
+  if (!gamesTotal && !gamesLoading) { ft.innerHTML = ''; return; }
+  if (gamesLoading) {
+    ft.innerHTML = '<span class="task-spin"></span><span>' + esc(tr('loading_more')) + '</span>';
     return;
   }
-
-  if (gameViewMode === 'grid') {
-    container.innerHTML = '<div class="game-grid">' + list.map(g => {
-      const safeId = encodeURIComponent(g.id);
-      const m = g.metadata || {};
-      const metaLine = [m.publisher || m.developer || null, m.releaseDate || null].filter(Boolean).join(' · ') || (g.isRom ? fmtBytes(g.size) : (m.genre || '—'));
-      const cov = g.hasCover
-        ? '<img loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/>'
-        : '';
-      const fbStyle = g.hasCover ? 'style="display:none"' : '';
-      return '<div class="gcard' + (g.hidden ? ' is-hidden' : '') + '" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' +
-        '<div class="gcover-box">' + cov +
-          '<div class="gcover-fallback" ' + fbStyle + '><span class="tt">' + esc(g.title) + '</span></div>' +
-          '<span class="badge-plat">' + esc(g.platformName) + '</span>' +
-          '<button class="badge-fav' + (g.favorite ? ' on' : '') + '" onclick="event.stopPropagation();toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ')" title="' + esc(tr('btn_fav')) + '">' + svgIco(g.favorite ? 'heartFill' : 'heart', 14) + '</button>' +
-        '</div>' +
-        '<div class="gbody">' +
-          '<div class="gtitle" title="' + esc(g.title) + '">' + esc(g.title) + '</div>' +
-          '<div class="gmeta" title="' + esc(metaLine) + '">' + esc(metaLine) + '</div>' +
-        '</div></div>';
-    }).join('') + '</div>';
+  if (gamesHasMore) {
+    ft.innerHTML = '<span>' + esc(tr('loaded_games_fmt', { loaded: games.length, total: gamesTotal })) + '</span>' +
+      '<button class="btn sm" onclick="loadMoreGames()">' + esc(tr('btn_load_more')) + '</button>';
+  } else if (gamesTotal > GAME_PAGE_SIZE) {
+    ft.innerHTML = '<span>' + esc(tr('loaded_all_games_fmt', { total: gamesTotal })) + '</span>';
   } else {
-    container.innerHTML = '<div class="list">' + list.map(g => {
-      const safeId = encodeURIComponent(g.id);
-      const m = g.metadata || {};
-      const metaSummary = [m.releaseDate, m.developer, m.publisher].filter(Boolean).join(' · ');
-      const cov = g.hasCover
-        ? '<img class="cover-sm" loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '"/>'
-        : '<div class="cover-sm">' + esc(g.platformName) + '</div>';
-      return '<div class="row">' + cov +
-        '<div class="meta" style="cursor:pointer" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' +
-          '<div class="title">' + esc(g.title) +
-            (g.favorite ? '<span class="chip">' + esc(tr('fav_tag')) + '</span>' : '') +
-            (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
-          '</div>' +
-          '<div class="desc">' + esc(g.platformName) + (g.isRom ? ' · ' + fmtBytes(g.size) : ' · Android') + (metaSummary ? ' · ' + esc(metaSummary) : '') + '</div>' +
-        '</div>' +
-        '<div class="actions">' +
-          '<button class="btn sm" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' + esc(tr('btn_detail')) + '</button>' +
-          '<button class="btn sm" onclick="toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ')">' + esc(g.favorite ? tr('btn_unfav') : tr('btn_fav')) + '</button>' +
-          '<button class="btn sm" onclick="toggleHide(\'' + escJs(g.id) + '\',' + (!g.hidden) + ')">' + esc(g.hidden ? tr('btn_restore') : tr('btn_hide')) + '</button>' +
-          (g.isRom ? '<a class="btn sm" href="/api/files/download?path=' + safeId + '">' + esc(tr('btn_dl')) + '</a>' : '') +
-        '</div></div>';
-    }).join('') + '</div>';
+    ft.innerHTML = '';
+  }
+}
+
+function renderGames() {
+  const container = el('gamesContainer');
+  if (!games.length) {
+    container.innerHTML = '<div class="sub" style="padding:28px 0;">' + esc(tr('no_games')) + '</div>';
+    renderGamesFooter();
+    return;
+  }
+  if (gameViewMode === 'grid') {
+    container.innerHTML = '<div id="gamesInner" class="game-grid">' + games.map(gameCardHtml).join('') + '</div>';
+  } else {
+    container.innerHTML = '<div id="gamesInner" class="list">' + games.map(gameRowHtml).join('') + '</div>';
+  }
+  renderGamesFooter();
+}
+
+function appendGamesBatch(batch) {
+  const inner = el('gamesInner');
+  if (!inner) { renderGames(); return; }
+  const html = batch.map(gameViewMode === 'grid' ? gameCardHtml : gameRowHtml).join('');
+  inner.insertAdjacentHTML('beforeend', html);
+  renderGamesFooter();
+}
+
+function matchesCurrentGameFilter(g) {
+  const vis = activeFilterMode;
+  if (vis === 'visible' && g.hidden) return false;
+  if (vis === 'hidden' && !g.hidden) return false;
+  if (vis === 'fav' && !g.favorite) return false;
+  if (vis === 'nocover' && g.hasCover) return false;
+  if (activeFilterPlat && g.platformName !== activeFilterPlat) return false;
+  const catFilter = el('gCat') ? el('gCat').value : '';
+  if (catFilter && !(g.categories || []).includes(catFilter)) return false;
+  const q = (el('gSearch') ? el('gSearch').value : '').trim().toLowerCase();
+  if (q) {
+    const m = g.metadata || {};
+    const hay = (g.title + ' ' + g.officialName + ' ' + g.fileName + ' ' + g.platformName + ' ' + (m.developer||'') + ' ' + (m.publisher||'') + ' ' + (m.genre||'')).toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+
+function patchSingleGame(updatedGame, stats) {
+  if (stats) {
+    applyGamesStats(stats);
+    renderStats();
+  }
+  if (!updatedGame || !updatedGame.id) return;
+  gamesById[updatedGame.id] = updatedGame;
+  const idx = games.findIndex(x => x.id === updatedGame.id);
+  const stillMatches = matchesCurrentGameFilter(updatedGame);
+  const inner = el('gamesInner');
+  let domNode = null;
+  if (inner) {
+    for (const child of inner.children) {
+      if (child.dataset && child.dataset.gid === updatedGame.id) { domNode = child; break; }
+    }
+  }
+  if (idx >= 0) {
+    if (stillMatches) {
+      games[idx] = updatedGame;
+      if (domNode) domNode.outerHTML = gameViewMode === 'grid' ? gameCardHtml(updatedGame) : gameRowHtml(updatedGame);
+    } else {
+      games.splice(idx, 1);
+      gamesTotal = Math.max(0, gamesTotal - 1);
+      if (domNode) domNode.remove();
+      if (!games.length) renderGames(); else renderGamesFooter();
+    }
   }
 }
 
 async function openGameDetail(id) {
-  const g = games.find(x => x.id === id);
+  let g = gamesById[id];
+  if (!g) {
+    try {
+      const r = await api('/api/games/item?id=' + encodeURIComponent(id));
+      if (r.ok) {
+        const d = await r.json();
+        if (d.ok && d.game) {
+          g = d.game;
+          gamesById[g.id] = g;
+        }
+      }
+    } catch (_) {}
+  }
   if (!g) return;
   const m = g.metadata || {};
   const mInfo = g.metaInfo || {};
@@ -2172,7 +2361,7 @@ async function refreshGameMetaFromHandheld(id) {
     } else if (d.ok) {
       coverVer++;
       toast((d.coverUpdated || d.metaUpdated) ? tr('msg_meta_done') : tr('msg_meta_none'));
-      await loadGames();
+      if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
       openGameDetail(id);
     } else {
       toast(tr('msg_meta_fail') + (d.error || r.status));
@@ -2215,9 +2404,10 @@ async function applyCandidateCover(id, token) {
     method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, token})
   });
   if (r.ok) {
+    const d = await r.json().catch(() => ({}));
     coverVer++;
     toast(tr('msg_cover_applied'));
-    await loadGames();
+    if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
     openGameDetail(id);
   } else {
     toast(tr('msg_cover_fail'));
@@ -2230,9 +2420,10 @@ async function uploadCustomCover(id, file) {
     method:'POST', body:file
   });
   if (r.ok) {
+    const d = await r.json().catch(() => ({}));
     coverVer++;
     toast(tr('msg_cover_uploaded'));
-    await loadGames();
+    if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
     openGameDetail(id);
   } else {
     const j = await r.json().catch(()=>({}));
@@ -2245,9 +2436,10 @@ async function resetGameCover(id) {
     method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})
   });
   if (r.ok) {
+    const d = await r.json().catch(() => ({}));
     coverVer++;
     toast(tr('msg_cover_reset'));
-    await loadGames();
+    if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
     openGameDetail(id);
   }
 }
@@ -2263,35 +2455,44 @@ async function saveGameCats(id) {
     method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, categoryIds})
   });
   if (r.ok) {
+    const d = await r.json().catch(() => ({}));
     toast(tr('msg_cats_saved'));
     const bodyEl = el('mBody');
     const prevScroll = bodyEl ? bodyEl.scrollTop : 0;
-    await Promise.all([loadCategories(), loadGames()]);
+    if (d.game) {
+      patchSingleGame(d.game, d.stats);
+      await loadCategories();
+    } else {
+      await Promise.all([loadCategories(), loadGames(true)]);
+    }
     openGameDetail(id);
     if (el('mBody')) el('mBody').scrollTop = prevScroll;
   }
 }
 
 async function toggleFav(id, fav, reopen) {
-  await api('/api/games/favorite', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, favorite:fav}) });
+  const r = await api('/api/games/favorite', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, favorite:fav}) });
+  const d = await r.json().catch(() => ({}));
   toast(fav ? tr('msg_fav_added') : tr('msg_fav_removed'));
-  await loadGames();
+  if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
   if (reopen) openGameDetail(id);
 }
 
 async function renameGame(id, cur) {
   const title = prompt(tr('prompt_rename_game'), cur);
   if (title === null) return;
-  await api('/api/games/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, title}) });
+  const r = await api('/api/games/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, title}) });
+  const d = await r.json().catch(() => ({}));
   toast(tr('msg_game_renamed'));
-  await loadGames();
+  if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
   if (el('modalBg').classList.contains('open')) openGameDetail(id);
 }
 
 async function toggleHide(id, hidden, reopen) {
-  await api('/api/games/hide', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, hidden}) });
+  const r = await api('/api/games/hide', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, hidden}) });
+  const d = await r.json().catch(() => ({}));
   toast(hidden ? tr('msg_hidden') : tr('msg_unhidden'));
-  await loadGames();
+  if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
   if (curTab === 'files' && curDir) await loadFiles(curDir);
   if (reopen) openGameDetail(id);
 }
@@ -2630,6 +2831,10 @@ async function loadFiles(dir, keepSel, restoreScroll) {
     requestAnimationFrame(() => {
       const mem = dirScrollMemory[curDir];
       if (restoreScroll && mem) {
+        if (prevDir) {
+          const targetIdx = filteredFileEntries.findIndex(e => e.path === prevDir);
+          if (targetIdx >= filesRenderedCount) appendMoreFiles(targetIdx + 20);
+        }
         if (!mem.filtered) window.scrollTo(0, mem.y || 0);
         if (prevDir) {
           const rows = el('filesList').querySelectorAll('.row');
@@ -2649,6 +2854,77 @@ async function loadFiles(dir, keepSel, restoreScroll) {
   }
 }
 
+function onFileFilterInput() {
+  clearTimeout(fileFilterTimer);
+  fileFilterTimer = setTimeout(() => renderFiles(), 150);
+}
+
+function fileRowHtml(f) {
+  const icon = f.isDir ? svgIco('folder', 16) : (f.isArchive ? svgIco('archive', 16) : (f.isImage ? svgIco('image', 16) : (f.isAudio ? svgIco('music', 16) : (f.isFont ? svgIco('type', 16) : svgIco('file', 16)))));
+  const romTag = f.isRom ? '<span class="chip">ROM</span>' : '';
+  const hiddenTag = (f.isRom && f.isHidden) ? '<span class="chip">' + esc(tr('hidden_tag')) + '</span>' : '';
+  const typeTag = f.isArchive ? '<span class="chip">' + esc(tr('tag_zip')) + '</span>' : (f.isImage ? '<span class="chip">' + esc(tr('tag_img')) + '</span>' : (f.isAudio ? '<span class="chip">' + esc(tr('tag_audio')) + '</span>' : (f.isFont ? '<span class="chip">' + esc(tr('tag_font')) + '</span>' : (f.isText ? '<span class="chip">' + esc(tr('tag_text')) + '</span>' : ''))));
+  const sub = f.isRoot
+    ? (tr('rom_root_lbl') + (f.freeBytes ? ' · ' + tr('free_lbl') + fmtBytes(f.freeBytes) : ''))
+    : (f.isDir ? tr('folder_lbl') : fmtBytes(f.size));
+  const p = escJs(f.path), n = escJs(f.name);
+  const checked = selectedPaths.has(f.path);
+
+  return '<div class="row" data-path="' + esc(f.path) + '">' +
+    (!f.isRoot ? '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="toggleFileSelect(\'' + p + '\',this.checked)"/>' : '') +
+    '<div style="font-size:19px">' + icon + '</div>' +
+    '<div class="meta" style="' + (f.isDir ? 'cursor:pointer' : '') + '" ' + (f.isDir ? 'onclick="loadFiles(\'' + p + '\')"' : '') + '>' +
+      '<div class="title">' + esc(f.name) + romTag + hiddenTag + typeTag + '</div>' +
+      '<div class="desc">' + sub + '</div>' +
+    '</div>' +
+    '<div class="actions">' +
+      (f.isRom ? '<button class="btn sm" onclick="openGameDetail(\'' + p + '\')">' + esc(tr('btn_game_detail')) + '</button>' : '') +
+      (f.isImage ? '<button class="btn sm" onclick="previewImage(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_preview')) + '</button>' : '') +
+      (f.isAudio ? '<button class="btn sm" onclick="playAudio(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_play')) + '</button>' : '') +
+      (f.isText ? '<button class="btn sm" onclick="openTextEditor(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_view_edit')) + '</button>' : '') +
+      (f.isArchive ? '<button class="btn sm primary" onclick="inspectArchive(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_view_zip')) + '</button>' : '') +
+      (!f.isDir ? '<a class="btn sm" href="/api/files/download?path=' + encodeURIComponent(f.path) + '">' + esc(tr('btn_dl')) + '</a>' : '') +
+      (!f.isRoot ? '<button class="btn sm" onclick="renameFile(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_rename')) + '</button>' : '') +
+      (!f.isRoot ? '<button class="btn sm" onclick="openMoveCopyModal(\'move\',[\'' + p + '\'],\'' + n + '\')">' + esc(tr('btn_move')) + '</button>' : '') +
+      (!f.isRoot ? '<button class="btn sm" onclick="openMoveCopyModal(\'copy\',[\'' + p + '\'],\'' + n + '\')">' + esc(tr('btn_copy')) + '</button>' : '') +
+      (!f.isRoot ? '<button class="btn sm danger" onclick="deleteFile(\'' + p + '\',\'' + n + '\',false,' + !!f.isDir + ')">' + esc(tr('btn_del')) + '</button>' : '') +
+    '</div></div>';
+}
+
+function renderFilesFooter() {
+  const ft = el('filesFooter');
+  if (!ft) return;
+  const total = filteredFileEntries.length;
+  if (filesRenderedCount < total) {
+    ft.innerHTML = '<span>' + esc(tr('loaded_files_fmt', { loaded: filesRenderedCount, total })) + '</span>' +
+      '<button class="btn sm" onclick="appendMoreFiles()">' + esc(tr('btn_load_more')) + '</button>';
+  } else {
+    ft.innerHTML = '';
+  }
+}
+
+function ensureFilesObserver() {
+  if (filesObserver || typeof IntersectionObserver === 'undefined') return;
+  const sentinel = el('filesSentinel');
+  if (!sentinel) return;
+  filesObserver = new IntersectionObserver(entries => {
+    if (entries.some(e => e.isIntersecting) && curTab === 'files' && filesRenderedCount < filteredFileEntries.length) {
+      appendMoreFiles();
+    }
+  }, { rootMargin: '420px 0px' });
+  filesObserver.observe(sentinel);
+}
+
+function appendMoreFiles(targetCount) {
+  const total = filteredFileEntries.length;
+  if (filesRenderedCount >= total) return;
+  const nextEnd = Math.min(total, targetCount ? Math.max(targetCount, filesRenderedCount + FILE_BATCH_SIZE) : (filesRenderedCount + FILE_BATCH_SIZE));
+  const slice = filteredFileEntries.slice(filesRenderedCount, nextEnd);
+  el('filesList').insertAdjacentHTML('beforeend', slice.map(fileRowHtml).join(''));
+  filesRenderedCount = nextEnd;
+  renderFilesFooter();
+}
+
 function renderFiles() {
   const filterQ = (el('fileFilter').value || '').trim().toLowerCase();
   const sortBy = el('fileSort').value;
@@ -2665,42 +2941,19 @@ function renderFiles() {
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   });
 
+  filteredFileEntries = entries;
   const listEl = el('filesList');
   if (!entries.length) {
+    filesRenderedCount = 0;
     listEl.innerHTML = '<div class="sub" style="padding:18px 0;">' + esc(tr('dir_empty')) + '</div>';
+    renderFilesFooter();
     return;
   }
-  listEl.innerHTML = entries.map(f => {
-    const icon = f.isDir ? svgIco('folder', 16) : (f.isArchive ? svgIco('archive', 16) : (f.isImage ? svgIco('image', 16) : (f.isAudio ? svgIco('music', 16) : (f.isFont ? svgIco('type', 16) : svgIco('file', 16)))));
-    const romTag = f.isRom ? '<span class="chip">ROM</span>' : '';
-    const hiddenTag = (f.isRom && f.isHidden) ? '<span class="chip">' + esc(tr('hidden_tag')) + '</span>' : '';
-    const typeTag = f.isArchive ? '<span class="chip">' + esc(tr('tag_zip')) + '</span>' : (f.isImage ? '<span class="chip">' + esc(tr('tag_img')) + '</span>' : (f.isAudio ? '<span class="chip">' + esc(tr('tag_audio')) + '</span>' : (f.isFont ? '<span class="chip">' + esc(tr('tag_font')) + '</span>' : (f.isText ? '<span class="chip">' + esc(tr('tag_text')) + '</span>' : ''))));
-    const sub = f.isRoot
-      ? (tr('rom_root_lbl') + (f.freeBytes ? ' · ' + tr('free_lbl') + fmtBytes(f.freeBytes) : ''))
-      : (f.isDir ? tr('folder_lbl') : fmtBytes(f.size));
-    const p = escJs(f.path), n = escJs(f.name);
-    const checked = selectedPaths.has(f.path);
-
-    return '<div class="row" data-path="' + esc(f.path) + '">' +
-      (!f.isRoot ? '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="toggleFileSelect(\'' + p + '\',this.checked)"/>' : '') +
-      '<div style="font-size:19px">' + icon + '</div>' +
-      '<div class="meta" style="' + (f.isDir ? 'cursor:pointer' : '') + '" ' + (f.isDir ? 'onclick="loadFiles(\'' + p + '\')"' : '') + '>' +
-        '<div class="title">' + esc(f.name) + romTag + hiddenTag + typeTag + '</div>' +
-        '<div class="desc">' + sub + '</div>' +
-      '</div>' +
-      '<div class="actions">' +
-        (f.isRom ? '<button class="btn sm" onclick="openGameDetail(\'' + p + '\')">' + esc(tr('btn_game_detail')) + '</button>' : '') +
-        (f.isImage ? '<button class="btn sm" onclick="previewImage(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_preview')) + '</button>' : '') +
-        (f.isAudio ? '<button class="btn sm" onclick="playAudio(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_play')) + '</button>' : '') +
-        (f.isText ? '<button class="btn sm" onclick="openTextEditor(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_view_edit')) + '</button>' : '') +
-        (f.isArchive ? '<button class="btn sm primary" onclick="inspectArchive(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_view_zip')) + '</button>' : '') +
-        (!f.isDir ? '<a class="btn sm" href="/api/files/download?path=' + encodeURIComponent(f.path) + '">' + esc(tr('btn_dl')) + '</a>' : '') +
-        (!f.isRoot ? '<button class="btn sm" onclick="renameFile(\'' + p + '\',\'' + n + '\')">' + esc(tr('btn_rename')) + '</button>' : '') +
-        (!f.isRoot ? '<button class="btn sm" onclick="openMoveCopyModal(\'move\',[\'' + p + '\'],\'' + n + '\')">' + esc(tr('btn_move')) + '</button>' : '') +
-        (!f.isRoot ? '<button class="btn sm" onclick="openMoveCopyModal(\'copy\',[\'' + p + '\'],\'' + n + '\')">' + esc(tr('btn_copy')) + '</button>' : '') +
-        (!f.isRoot ? '<button class="btn sm danger" onclick="deleteFile(\'' + p + '\',\'' + n + '\',false,' + !!f.isDir + ')">' + esc(tr('btn_del')) + '</button>' : '') +
-      '</div></div>';
-  }).join('');
+  const initialCount = Math.min(entries.length, FILE_BATCH_SIZE);
+  listEl.innerHTML = entries.slice(0, initialCount).map(fileRowHtml).join('');
+  filesRenderedCount = initialCount;
+  renderFilesFooter();
+  ensureFilesObserver();
 }
 
 function toggleFileSelect(path, checked) {

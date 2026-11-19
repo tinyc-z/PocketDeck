@@ -150,6 +150,7 @@
     <string name="scrape_logs_empty">No request logs recorded yet.</string>
     <string name="scrape_logs_clear">Clear</string>
     <string name="scrape_logs_cleared">Logs cleared</string>
+    <string name="scrape_logs_path_copied">Log path copied</string>
     <string name="scrape_logs_export">Export</string>
     <string name="scrape_logs_export_title">Choose disk folder to export log</string>
     <string name="scrape_logs_export_here">Export to this folder</string>

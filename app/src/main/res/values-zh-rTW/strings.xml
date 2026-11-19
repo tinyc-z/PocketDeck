@@ -149,6 +149,7 @@
     <string name="scrape_logs_empty">暫無請求日誌記錄。</string>
     <string name="scrape_logs_clear">清空</string>
     <string name="scrape_logs_cleared">已清空日誌</string>
+    <string name="scrape_logs_path_copied">已複製完整日誌路徑</string>
     <string name="scrape_logs_export">匯出</string>
     <string name="scrape_logs_export_title">選擇磁碟目錄匯出日誌</string>
     <string name="scrape_logs_export_here">匯出到此目錄</string>
