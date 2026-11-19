@@ -93,7 +93,7 @@ fun BubblesView(
             withFrameNanos { nowNs ->
                 val sec = (nowNs - startNs) / 1_000_000_000f
                 bubbleIdleSeconds.floatValue = sec
-                bubbleIdleEnvelope.floatValue = (sec / 0.60f).coerceIn(0f, 1f)
+                bubbleIdleEnvelope.floatValue = (sec / 0.85f).coerceIn(0f, 1f)
             }
         }
     }
@@ -201,12 +201,12 @@ fun BubblesView(
                                     val env = bubbleIdleEnvelope.floatValue
                                     if (env > 0f) {
                                         val t = bubbleIdleSeconds.floatValue
-                                        val omegaMain = (2f * PI.toFloat()) / 3.8f
-                                        val omegaDrift = (2f * PI.toFloat()) / 5.8f
-                                        translationY = sin(t * omegaMain) * 3.5.dp.toPx() * env
-                                        translationX = sin(t * omegaDrift) * 1.4.dp.toPx() * env
-                                        scaleX = 1f + sin(t * omegaMain + 0.7f) * 0.024f * env
-                                        scaleY = 1f + cos(t * omegaMain) * 0.020f * env
+                                        val omegaMain = (2f * PI.toFloat()) / 5.4f
+                                        val omegaDrift = (2f * PI.toFloat()) / 8.3f
+                                        translationY = sin(t * omegaMain) * 2.45.dp.toPx() * env
+                                        translationX = sin(t * omegaDrift) * 1.0.dp.toPx() * env
+                                        scaleX = 1f + sin(t * omegaMain + 0.7f) * 0.017f * env
+                                        scaleY = 1f + cos(t * omegaMain) * 0.014f * env
                                     }
                                 }
                             } else {
