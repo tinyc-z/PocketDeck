@@ -21,14 +21,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -39,6 +43,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -169,6 +175,12 @@ data class LauncherRow(
 
 enum class SettingsSection {
     Look, Home, Library, Covers, Emulators, Controls, System
+}
+
+private class SettingsNavState {
+    var selectedSection by mutableIntStateOf(0)
+    var focusOnMenu by mutableStateOf(true)
+    var contentItemIndex by mutableIntStateOf(0)
 }
 
 private data class BindingCategorySpec(
@@ -383,9 +395,8 @@ fun SettingsScreen(
     val reservedKeyError = stringResource(R.string.keybind_reserved)
 
     val sections = SettingsSection.entries
-    var selectedSection by rememberSaveable { mutableIntStateOf(0) }
-    var focusOnMenu by rememberSaveable { mutableStateOf(true) }
-    var contentItemIndex by rememberSaveable { mutableIntStateOf(0) }
+    // 独立导航状态容器：不在 SettingsScreen 顶层读取，确保切分区/上下移动焦点时零顶层重组，所有非活跃分区零重组
+    val nav = remember { SettingsNavState() }
     var langPicker by remember { mutableStateOf<Int?>(null) }
 
     fun toggleLangPicker() {
@@ -398,17 +409,19 @@ fun SettingsScreen(
         bgPicker = if (bgPicker == null) BackgroundStyle.entries.indexOf(state.backgroundStyle).coerceAtLeast(0) else null
     }
     fun selectSection(index: Int) {
-        selectedSection = index.coerceIn(0, sections.lastIndex)
-        contentItemIndex = 0
+        nav.selectedSection = index.coerceIn(0, sections.lastIndex)
+        nav.contentItemIndex = 0
         langPicker = null
         accentPicker = null
         bgPicker = null
     }
 
     var scrapeCacheBytes by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(sections[selectedSection]) {
-        if (sections[selectedSection] == SettingsSection.Covers) {
-            scrapeCacheBytes = withContext(Dispatchers.IO) { computeScrapeCacheBytes(context.cacheDir) }
+    LaunchedEffect(nav) {
+        snapshotFlow { sections[nav.selectedSection] }.collect { sec ->
+            if (sec == SettingsSection.Covers) {
+                scrapeCacheBytes = withContext(Dispatchers.IO) { computeScrapeCacheBytes(context.cacheDir) }
+            }
         }
     }
     fun clearScrapeCacheWithFeedback() {
@@ -509,8 +522,8 @@ fun SettingsScreen(
             }
             menu = ActionMenuState("$displayName · $sortTitleLabel", subItems)
         }
-        if (relIdx > 0) items += ActionItem(L.moveUp) { manage.moveTab(t.id, -1); contentItemIndex = (contentItemIndex - 1).coerceAtLeast(0) }
-        if (relIdx < tabs.lastIndex) items += ActionItem(L.moveDown) { manage.moveTab(t.id, 1); contentItemIndex++ }
+        if (relIdx > 0) items += ActionItem(L.moveUp) { manage.moveTab(t.id, -1); nav.contentItemIndex = (nav.contentItemIndex - 1).coerceAtLeast(0) }
+        if (relIdx < tabs.lastIndex) items += ActionItem(L.moveDown) { manage.moveTab(t.id, 1); nav.contentItemIndex++ }
         items += ActionItem(if (t.hidden) L.show else L.hide) { manage.toggleTabHidden(t.id) }
         if (t.type != TabType.Custom) {
             items += ActionItem(L.rename) { editingSystemTab = t }
@@ -584,7 +597,7 @@ fun SettingsScreen(
                                 ActionItem(if (d.enabled) L.disable else L.enable) { manage.toggleDir(d.path) },
                                 ActionItem(L.remove) {
                                     manage.removeDir(d.path)
-                                    contentItemIndex = (idx - 1).coerceAtLeast(0)
+                                    nav.contentItemIndex = (idx - 1).coerceAtLeast(0)
                                 },
                             ),
                         )
@@ -606,8 +619,8 @@ fun SettingsScreen(
                         val items = mutableListOf(
                             ActionItem(if (cfg.enabled) L.disable else L.enable) { manage.toggleCoverSource(cfg.id) },
                         )
-                        if (idx > 0) items += ActionItem(L.moveUp) { manage.moveCoverSource(idx, idx - 1); contentItemIndex = idx - 1 }
-                        if (idx < coverCount - 1) items += ActionItem(L.moveDown) { manage.moveCoverSource(idx, idx + 1); contentItemIndex = idx + 1 }
+                        if (idx > 0) items += ActionItem(L.moveUp) { manage.moveCoverSource(idx, idx - 1); nav.contentItemIndex = idx - 1 }
+                        if (idx < coverCount - 1) items += ActionItem(L.moveDown) { manage.moveCoverSource(idx, idx + 1); nav.contentItemIndex = idx + 1 }
                         desc.credentialKind?.let { k -> items += ActionItem(accountAddLabel) { credDialogKind = k } }
                         menu = ActionMenuState(coverNames[cfg.id] ?: desc.id, items)
                     }
@@ -618,8 +631,8 @@ fun SettingsScreen(
                         val items = mutableListOf(
                             ActionItem(if (cfg.enabled) L.disable else L.enable) { manage.toggleMetadataSource(cfg.id) },
                         )
-                        if (mIdx > 0) items += ActionItem(L.moveUp) { manage.moveMetadataSource(mIdx, mIdx - 1); contentItemIndex = idx - 1 }
-                        if (mIdx < metaCount - 1) items += ActionItem(L.moveDown) { manage.moveMetadataSource(mIdx, mIdx + 1); contentItemIndex = idx + 1 }
+                        if (mIdx > 0) items += ActionItem(L.moveUp) { manage.moveMetadataSource(mIdx, mIdx - 1); nav.contentItemIndex = idx - 1 }
+                        if (mIdx < metaCount - 1) items += ActionItem(L.moveDown) { manage.moveMetadataSource(mIdx, mIdx + 1); nav.contentItemIndex = idx + 1 }
                         desc.credentialKind?.let { k -> items += ActionItem(accountAddLabel) { credDialogKind = k } }
                         menu = ActionMenuState(metaNames[cfg.id] ?: desc.id, items)
                     }
@@ -672,15 +685,27 @@ fun SettingsScreen(
         }
     }
 
-    val railItems = listOf(
-        RailItem(DeckIcons.Palette, stringResource(R.string.settings_sec_appearance)),
-        RailItem(DeckIcons.Home, stringResource(R.string.settings_sec_home)),
-        RailItem(DeckIcons.Library, stringResource(R.string.settings_sec_library)),
-        RailItem(DeckIcons.Image, stringResource(R.string.settings_sec_covers)),
-        RailItem(DeckIcons.Gamepad, stringResource(R.string.settings_sec_emulators)),
-        RailItem(DeckIcons.Joystick, stringResource(R.string.settings_sec_controls)),
-        RailItem(DeckIcons.Device, stringResource(R.string.settings_sec_system)),
-    )
+    val railLook = stringResource(R.string.settings_sec_appearance)
+    val railHome = stringResource(R.string.settings_sec_home)
+    val railLib = stringResource(R.string.settings_sec_library)
+    val railCovers = stringResource(R.string.settings_sec_covers)
+    val railEmus = stringResource(R.string.settings_sec_emulators)
+    val railCtrls = stringResource(R.string.settings_sec_controls)
+    val railSys = stringResource(R.string.settings_sec_system)
+    val railItems = remember(railLook, railHome, railLib, railCovers, railEmus, railCtrls, railSys) {
+        listOf(
+            RailItem(DeckIcons.Palette, railLook),
+            RailItem(DeckIcons.Home, railHome),
+            RailItem(DeckIcons.Library, railLib),
+            RailItem(DeckIcons.Image, railCovers),
+            RailItem(DeckIcons.Gamepad, railEmus),
+            RailItem(DeckIcons.Joystick, railCtrls),
+            RailItem(DeckIcons.Device, railSys),
+        )
+    }
+    val cachedLauncherPlatforms = remember(state.libraryPlatforms, state.launcherRows, state.platformAspects, showAllLauncherPlatforms) {
+        launcherPlatformsFor(state, showAllLauncherPlatforms)
+    }
     val prevKeyBadge = GamepadKeys.badgeLabel(state.keyBindings, KeyAction.PrevTab, state.swapAbxy) ?: "L1"
     val nextKeyBadge = GamepadKeys.badgeLabel(state.keyBindings, KeyAction.NextTab, state.swapAbxy) ?: "R1"
 
@@ -845,16 +870,16 @@ fun SettingsScreen(
 
                 // L1 / R1 切换设置分区
                 if (GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings)) {
-                    selectSection((selectedSection - 1 + sections.size) % sections.size)
+                    selectSection((nav.selectedSection - 1 + sections.size) % sections.size)
                     return@onPreviewKeyEvent true
                 }
                 if (GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings)) {
-                    selectSection((selectedSection + 1) % sections.size)
+                    selectSection((nav.selectedSection + 1) % sections.size)
                     return@onPreviewKeyEvent true
                 }
 
                 if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
-                    if (focusOnMenu) onDismiss() else focusOnMenu = true
+                    if (nav.focusOnMenu) onDismiss() else nav.focusOnMenu = true
                     return@onPreviewKeyEvent true
                 }
                 if (GamepadKeys.isSettings(event.key, state.swapAbxy, state.keyBindings)) {
@@ -862,41 +887,41 @@ fun SettingsScreen(
                     return@onPreviewKeyEvent true
                 }
                 if (GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings)) {
-                    if (focusOnMenu) {
-                        val maxItems = itemCountForSection(sections[selectedSection], state, showAllLauncherPlatforms)
-                        if (maxItems > 0) { focusOnMenu = false; contentItemIndex = 0 }
+                    if (nav.focusOnMenu) {
+                        val maxItems = itemCountForSection(sections[nav.selectedSection], state, showAllLauncherPlatforms)
+                        if (maxItems > 0) { nav.focusOnMenu = false; nav.contentItemIndex = 0 }
                     } else {
-                        triggerItem(sections[selectedSection], contentItemIndex)
+                        triggerItem(sections[nav.selectedSection], nav.contentItemIndex)
                     }
                     return@onPreviewKeyEvent true
                 }
                 when (event.key) {
                     Key.DirectionUp -> {
-                        if (focusOnMenu) {
-                            if (selectedSection > 0) selectSection(selectedSection - 1)
-                        } else if (contentItemIndex > 0) {
-                            contentItemIndex--
+                        if (nav.focusOnMenu) {
+                            if (nav.selectedSection > 0) selectSection(nav.selectedSection - 1)
+                        } else if (nav.contentItemIndex > 0) {
+                            nav.contentItemIndex--
                         }
                         true
                     }
                     Key.DirectionDown -> {
-                        if (focusOnMenu) {
-                            if (selectedSection < sections.lastIndex) selectSection(selectedSection + 1)
+                        if (nav.focusOnMenu) {
+                            if (nav.selectedSection < sections.lastIndex) selectSection(nav.selectedSection + 1)
                         } else {
-                            val max = itemCountForSection(sections[selectedSection], state, showAllLauncherPlatforms)
-                            if (contentItemIndex < max - 1) contentItemIndex++
+                            val max = itemCountForSection(sections[nav.selectedSection], state, showAllLauncherPlatforms)
+                            if (nav.contentItemIndex < max - 1) nav.contentItemIndex++
                         }
                         true
                     }
                     Key.DirectionRight -> {
-                        if (focusOnMenu) {
-                            val maxItems = itemCountForSection(sections[selectedSection], state, showAllLauncherPlatforms)
-                            if (maxItems > 0) { focusOnMenu = false; contentItemIndex = 0 }
+                        if (nav.focusOnMenu) {
+                            val maxItems = itemCountForSection(sections[nav.selectedSection], state, showAllLauncherPlatforms)
+                            if (maxItems > 0) { nav.focusOnMenu = false; nav.contentItemIndex = 0 }
                         }
                         true
                     }
                     Key.DirectionLeft -> {
-                        if (!focusOnMenu) focusOnMenu = true
+                        if (!nav.focusOnMenu) nav.focusOnMenu = true
                         true
                     }
                     else -> false
@@ -913,136 +938,149 @@ fun SettingsScreen(
             )
 
             Row(Modifier.fillMaxSize()) {
-                SettingsRail(
+                SettingsRailSlot(
+                    nav = nav,
                     items = railItems,
-                    selected = selectedSection,
-                    focused = focusOnMenu,
                     onSelect = { selectSection(it) },
                     modifier = Modifier
                         .width(164.dp)
                         .fillMaxHeight(),
                 )
 
-                AnimatedContent(
-                    targetState = sections[selectedSection],
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "settings-content",
+                // 懒挂载 + 零重组切页保活：
+                // - 顶层 SettingsScreen 与 SettingsContentHost 均不读取 nav.selectedSection
+                // - 仅 Layout measurePolicy 切换可见分区；各分区通过 derivedStateOf 读取各自 hl
+                // - 在左侧菜单栏切换分区时，7 个分区全部 0 重组、0 销毁重建，仅切换布局显隐
+                val visitedSections = remember { mutableStateListOf(sections[nav.selectedSection]) }
+                LaunchedEffect(nav) {
+                    snapshotFlow { sections[nav.selectedSection] }.collect { sec ->
+                        if (sec !in visitedSections) visitedSections.add(sec)
+                    }
+                }
+                Layout(
+                    content = {
+                        visitedSections.forEach { section ->
+                            key(section) {
+                                val secIdx = section.ordinal
+                                SectionPaneSlot(
+                                    sectionIdx = secIdx,
+                                    nav = nav,
+                                    modifier = Modifier.layoutId(section),
+                                ) { hl ->
+                                    when (section) {
+                                        SettingsSection.Look -> LookSection(
+                                            theme = state.theme,
+                                            themeAccent = state.themeAccent,
+                                            accentCursor = accentPicker,
+                                            onToggleAccentPicker = ::toggleAccentPicker,
+                                            onSelectThemeAccent = { accentPicker = null; manage.setThemeAccent(it) },
+                                            backgroundStyle = state.backgroundStyle,
+                                            bgCursor = bgPicker,
+                                            onToggleBgPicker = ::toggleBgPicker,
+                                            onSelectBackgroundStyle = { bgPicker = null; onSetBackgroundStyle(it) },
+                                            customBackground = state.customBackground,
+                                            onPickCustomBackground = { pickBgLauncher.launch("image/*") },
+                                            onClearCustomBackground = { onSetCustomBackground(null) },
+                                            reduceMotion = state.reduceMotion,
+                                            onToggleReduceMotion = onToggleReduceMotion,
+                                            fontId = state.fontId,
+                                            onOpenFontPicker = { showFontPicker = true },
+                                            onCycleTheme = onCycleTheme,
+                                            highlightIndex = hl,
+                                        )
+                                        SettingsSection.Home -> HomeSettingsSection(
+                                            state = state,
+                                            onSetViewMode = { mode ->
+                                                onSetViewMode(mode)
+                                                val max = itemCountForSection(SettingsSection.Home, state.copy(viewMode = mode))
+                                                if (nav.contentItemIndex >= max) nav.contentItemIndex = max - 1
+                                            },
+                                            onCycleGalleryAlign = onCycleGalleryAlign,
+                                            onToggleBottomBar = onToggleBottomBar,
+                                            onToggleShowMetadata = onToggleShowMetadata,
+                                            onToggleMetaField = manage.toggleMetaField,
+                                            onTabRowClick = { relIdx -> nav.focusOnMenu = false; openTabAction(relIdx) },
+                                            onMoveTabTo = manage.moveTabTo,
+                                            onQuickCreateCategory = manage.quickCreateCategoryForPlatform,
+                                            highlightIndex = hl,
+                                        )
+                                        SettingsSection.Library -> LibrarySettingsSection(
+                                            dirs = state.romDirs,
+                                            autoRoot = state.autoRoot,
+                                            showAndroidGames = state.showAndroidGames,
+                                            hiddenCount = state.hiddenIds.size,
+                                            onRowClick = { idx -> nav.focusOnMenu = false; nav.contentItemIndex = idx; triggerItem(SettingsSection.Library, idx) },
+                                            highlightIndex = hl,
+                                        )
+                                        SettingsSection.Covers -> CoversSettingsSection(
+                                            coverSources = state.coverSources,
+                                            metadataSources = state.metadataSources,
+                                            credentials = state.scraperCredentials,
+                                            cacheSizeLabel = formatCacheBytes(scrapeCacheBytes),
+                                            onToggleCover = manage.toggleCoverSource,
+                                            onMoveCover = manage.moveCoverSource,
+                                            onToggleMeta = manage.toggleMetadataSource,
+                                            onMoveMeta = manage.moveMetadataSource,
+                                            onOpenCred = { credDialogKind = it },
+                                            onRowClick = { idx -> nav.focusOnMenu = false; nav.contentItemIndex = idx; triggerItem(SettingsSection.Covers, idx) },
+                                            onRefreshMetadata = {
+                                                if (!NetworkStatus.isOnline(context)) {
+                                                    Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
+                                                } else manage.refreshAllMetadata()
+                                            },
+                                            onClearCoverCache = ::clearScrapeCacheWithFeedback,
+                                            onViewLogs = { showScrapeLogs = true },
+                                            highlightIndex = hl,
+                                        )
+                                        SettingsSection.Emulators -> EmulatorsSettingsSection(
+                                            platforms = cachedLauncherPlatforms,
+                                            showAllPlatforms = showAllLauncherPlatforms,
+                                            onToggleShowAllPlatforms = { showAllLauncherPlatforms = !showAllLauncherPlatforms; nav.contentItemIndex = 0 },
+                                            selected = state.platformLaunchers,
+                                            aspectOverrides = state.platformAspects,
+                                            onPickLauncher = { launcherPickerPlatform = it },
+                                            highlightIndex = hl,
+                                        )
+                                        SettingsSection.Controls -> ControlsSettingsSection(
+                                            swapAbxy = state.swapAbxy,
+                                            keyBindings = state.keyBindings,
+                                            onToggleSwapAbxy = onToggleSwapAbxy,
+                                            onRebindAction = { action -> keyBindError = null; capturingAction = action },
+                                            onResetBindings = { resetConfirmChoiceIdx = 1; showResetBindingsConfirm = true },
+                                            highlightIndex = hl,
+                                        )
+                                        SettingsSection.System -> SystemSettingsSection(
+                                            state = state,
+                                            langPicker = langPicker,
+                                            onToggleLangPicker = ::toggleLangPicker,
+                                            onLanguageChange = { code -> langPicker = null; if (code != state.language) onLanguageChange(code) },
+                                            onToggleClock12h = onToggleClock12h,
+                                            onToggleKeySound = onToggleKeySound,
+                                            onToggleShowClock = onToggleShowClock,
+                                            onToggleShowBattery = onToggleShowBattery,
+                                            onToggleShowWifi = onToggleShowWifi,
+                                            onToggleShowBluetooth = onToggleShowBluetooth,
+                                            onToggleShowMobileSignal = onToggleShowMobileSignal,
+                                            onToggleShowHeadset = onToggleShowHeadset,
+                                            onToggleShowAirplane = onToggleShowAirplane,
+                                            onToggleShowDnd = onToggleShowDnd,
+                                            onOpenProjectUrl = { openProjectUrl(context) },
+                                            highlightIndex = hl,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                ) { section ->
-                    val contentScroll = rememberScrollState()
-                    LaunchedEffect(contentItemIndex, focusOnMenu) {
-                        if (contentItemIndex == 0) contentScroll.animateScrollTo(0)
-                    }
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .verticalScroll(contentScroll)
-                            .padding(start = 10.dp, end = 18.dp, top = 4.dp, bottom = 22.dp),
-                    ) {
-                        val hl = if (focusOnMenu) -1 else contentItemIndex
-                        when (section) {
-                            SettingsSection.Look -> LookSection(
-                                theme = state.theme,
-                                themeAccent = state.themeAccent,
-                                accentCursor = accentPicker,
-                                onToggleAccentPicker = ::toggleAccentPicker,
-                                onSelectThemeAccent = { accentPicker = null; manage.setThemeAccent(it) },
-                                backgroundStyle = state.backgroundStyle,
-                                bgCursor = bgPicker,
-                                onToggleBgPicker = ::toggleBgPicker,
-                                onSelectBackgroundStyle = { bgPicker = null; onSetBackgroundStyle(it) },
-                                customBackground = state.customBackground,
-                                onPickCustomBackground = { pickBgLauncher.launch("image/*") },
-                                onClearCustomBackground = { onSetCustomBackground(null) },
-                                reduceMotion = state.reduceMotion,
-                                onToggleReduceMotion = onToggleReduceMotion,
-                                fontId = state.fontId,
-                                onOpenFontPicker = { showFontPicker = true },
-                                onCycleTheme = onCycleTheme,
-                                highlightIndex = hl,
-                            )
-                            SettingsSection.Home -> HomeSettingsSection(
-                                state = state,
-                                onSetViewMode = { mode ->
-                                    onSetViewMode(mode)
-                                    val max = itemCountForSection(SettingsSection.Home, state.copy(viewMode = mode))
-                                    if (contentItemIndex >= max) contentItemIndex = max - 1
-                                },
-                                onCycleGalleryAlign = onCycleGalleryAlign,
-                                onToggleBottomBar = onToggleBottomBar,
-                                onToggleShowMetadata = onToggleShowMetadata,
-                                onToggleMetaField = manage.toggleMetaField,
-                                onTabRowClick = { relIdx -> focusOnMenu = false; openTabAction(relIdx) },
-                                onMoveTabTo = manage.moveTabTo,
-                                onQuickCreateCategory = manage.quickCreateCategoryForPlatform,
-                                highlightIndex = hl,
-                            )
-                            SettingsSection.Library -> LibrarySettingsSection(
-                                dirs = state.romDirs,
-                                autoRoot = state.autoRoot,
-                                showAndroidGames = state.showAndroidGames,
-                                hiddenCount = state.hiddenIds.size,
-                                onRowClick = { idx -> focusOnMenu = false; contentItemIndex = idx; triggerItem(SettingsSection.Library, idx) },
-                                highlightIndex = hl,
-                            )
-                            SettingsSection.Covers -> CoversSettingsSection(
-                                coverSources = state.coverSources,
-                                metadataSources = state.metadataSources,
-                                credentials = state.scraperCredentials,
-                                cacheSizeLabel = formatCacheBytes(scrapeCacheBytes),
-                                onToggleCover = manage.toggleCoverSource,
-                                onMoveCover = manage.moveCoverSource,
-                                onToggleMeta = manage.toggleMetadataSource,
-                                onMoveMeta = manage.moveMetadataSource,
-                                onOpenCred = { credDialogKind = it },
-                                onRowClick = { idx -> focusOnMenu = false; contentItemIndex = idx; triggerItem(SettingsSection.Covers, idx) },
-                                onRefreshMetadata = {
-                                    if (!NetworkStatus.isOnline(context)) {
-                                        Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
-                                    } else manage.refreshAllMetadata()
-                                },
-                                onClearCoverCache = ::clearScrapeCacheWithFeedback,
-                                onViewLogs = { showScrapeLogs = true },
-                                highlightIndex = hl,
-                            )
-                            SettingsSection.Emulators -> EmulatorsSettingsSection(
-                                platforms = launcherPlatformsFor(state, showAllLauncherPlatforms),
-                                showAllPlatforms = showAllLauncherPlatforms,
-                                onToggleShowAllPlatforms = { showAllLauncherPlatforms = !showAllLauncherPlatforms; contentItemIndex = 0 },
-                                selected = state.platformLaunchers,
-                                aspectOverrides = state.platformAspects,
-                                onPickLauncher = { launcherPickerPlatform = it },
-                                highlightIndex = hl,
-                            )
-                            SettingsSection.Controls -> ControlsSettingsSection(
-                                swapAbxy = state.swapAbxy,
-                                keyBindings = state.keyBindings,
-                                onToggleSwapAbxy = onToggleSwapAbxy,
-                                onRebindAction = { action -> keyBindError = null; capturingAction = action },
-                                onResetBindings = { resetConfirmChoiceIdx = 1; showResetBindingsConfirm = true },
-                                highlightIndex = hl,
-                            )
-                            SettingsSection.System -> SystemSettingsSection(
-                                state = state,
-                                langPicker = langPicker,
-                                onToggleLangPicker = ::toggleLangPicker,
-                                onLanguageChange = { code -> langPicker = null; if (code != state.language) onLanguageChange(code) },
-                                onToggleClock12h = onToggleClock12h,
-                                onToggleKeySound = onToggleKeySound,
-                                onToggleShowClock = onToggleShowClock,
-                                onToggleShowBattery = onToggleShowBattery,
-                                onToggleShowWifi = onToggleShowWifi,
-                                onToggleShowBluetooth = onToggleShowBluetooth,
-                                onToggleShowMobileSignal = onToggleShowMobileSignal,
-                                onToggleShowHeadset = onToggleShowHeadset,
-                                onToggleShowAirplane = onToggleShowAirplane,
-                                onToggleShowDnd = onToggleShowDnd,
-                                onOpenProjectUrl = { openProjectUrl(context) },
-                                highlightIndex = hl,
-                            )
-                        }
+                ) { measurables, constraints ->
+                    val activeSec = sections[nav.selectedSection]
+                    val activeMeasurable = measurables.firstOrNull { it.layoutId == activeSec }
+                    val placeable = activeMeasurable?.measure(constraints)
+                    layout(constraints.maxWidth, constraints.maxHeight) {
+                        placeable?.placeRelative(0, 0)
                     }
                 }
             }
@@ -1191,5 +1229,56 @@ fun SettingsScreen(
                 onDismiss = { showResetBindingsConfirm = false },
             )
         }
+    }
+}
+
+@Composable
+private fun SettingsRailSlot(
+    nav: SettingsNavState,
+    items: List<RailItem>,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SettingsRail(
+        items = items,
+        selected = nav.selectedSection,
+        focused = nav.focusOnMenu,
+        onSelect = onSelect,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun SectionPaneSlot(
+    sectionIdx: Int,
+    nav: SettingsNavState,
+    modifier: Modifier = Modifier,
+    content: @Composable (highlightIndex: Int) -> Unit,
+) {
+    val contentScroll = rememberScrollState()
+    LaunchedEffect(sectionIdx, nav) {
+        snapshotFlow { nav.selectedSection == sectionIdx }
+            .collect { active ->
+                if (active) contentScroll.scrollTo(0)
+            }
+    }
+    LaunchedEffect(sectionIdx, nav) {
+        snapshotFlow { nav.selectedSection == sectionIdx && !nav.focusOnMenu && nav.contentItemIndex == 0 }
+            .collect { atTop ->
+                if (atTop) contentScroll.scrollTo(0)
+            }
+    }
+    val hl by remember(sectionIdx, nav) {
+        derivedStateOf {
+            if (nav.selectedSection == sectionIdx && !nav.focusOnMenu) nav.contentItemIndex else -1
+        }
+    }
+    Column(
+        modifier
+            .fillMaxSize()
+            .verticalScroll(contentScroll)
+            .padding(start = 10.dp, end = 18.dp, top = 4.dp, bottom = 22.dp),
+    ) {
+        content(hl)
     }
 }

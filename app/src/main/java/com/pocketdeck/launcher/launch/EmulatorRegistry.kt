@@ -590,13 +590,24 @@ object EmulatorRegistry {
         PLATFORM_EMULATORS[platformId].orEmpty()
 
     /** 检查某个模拟器是否已安装，返回可用的包名（兼容 Android 11+ 包可见性）。 */
-    fun installedPackage(context: Context, emu: EmulatorDef): String? {
-        val pm = context.packageManager
-        return emu.packages.firstOrNull { pkg ->
-            pm.getLaunchIntentForPackage(pkg) != null ||
-                runCatching { pm.getPackageInfo(pkg, 0); true }.getOrDefault(false)
+    private const val PKG_CACHE_TTL_MS = 30_000L
+    private val pkgInstalledCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Boolean, Long>>()
+
+    /** 带 30 秒 TTL 缓存的包安装检测，避免设置页列表逐行同步触发 PackageManager Binder IPC。 */
+    fun isPackageInstalled(context: Context, pkg: String): Boolean {
+        val now = System.currentTimeMillis()
+        pkgInstalledCache[pkg]?.let { (installed, ts) ->
+            if (now - ts < PKG_CACHE_TTL_MS) return installed
         }
+        val pm = context.packageManager
+        val installed = pm.getLaunchIntentForPackage(pkg) != null ||
+            runCatching { pm.getPackageInfo(pkg, 0); true }.getOrDefault(false)
+        pkgInstalledCache[pkg] = installed to now
+        return installed
     }
+
+    fun installedPackage(context: Context, emu: EmulatorDef): String? =
+        emu.packages.firstOrNull { isPackageInstalled(context, it) }
 
     /** 获取某平台所有已安装的独立模拟器列表。 */
     fun availableForPlatform(context: Context, platformId: String): List<Pair<EmulatorDef, String>> {

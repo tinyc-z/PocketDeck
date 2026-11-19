@@ -424,9 +424,6 @@ object GameLauncher {
         return found
     }
 
-    private fun isInstalled(context: Context, pkg: String): Boolean {
-        val pm = context.packageManager
-        return pm.getLaunchIntentForPackage(pkg) != null ||
-            runCatching { pm.getPackageInfo(pkg, 0); true }.getOrDefault(false)
-    }
+    private fun isInstalled(context: Context, pkg: String): Boolean =
+        EmulatorRegistry.isPackageInstalled(context, pkg)
 }

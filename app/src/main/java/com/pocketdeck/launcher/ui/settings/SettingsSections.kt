@@ -26,9 +26,12 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -691,14 +694,27 @@ internal fun EmulatorsSettingsSection(
                 onClick = {},
             )
         } else {
+            val launcherDescMap by produceState(
+                initialValue = emptyMap<String, String>(),
+                key1 = platforms,
+                key2 = selected,
+                key3 = autoLabel,
+            ) {
+                value = withContext(Dispatchers.IO) {
+                    val map = HashMap<String, String>(platforms.size)
+                    for (plat in platforms) {
+                        val currentId = selected[plat.id]
+                        map[plat.id] = GameLauncher.describeLauncher(context, plat.id, currentId)?.let { desc ->
+                            if (currentId == null) "$autoLabel · $desc" else desc
+                        } ?: autoLabel
+                    }
+                    map
+                }
+            }
             platforms.forEachIndexed { idx, plat ->
                 RowDivider()
                 val currentId = selected[plat.id]
-                val currentName = remember(plat.id, currentId, autoLabel) {
-                    GameLauncher.describeLauncher(context, plat.id, currentId)?.let { desc ->
-                        if (currentId == null) "$autoLabel · $desc" else desc
-                    } ?: autoLabel
-                }
+                val currentName = launcherDescMap[plat.id] ?: autoLabel
                 val aspect = aspectOverrides[plat.id] ?: plat.coverAspect
                 val aspectTag = String.format(Locale.US, "%.2f:1", aspect)
                 val isCustom = currentId != null

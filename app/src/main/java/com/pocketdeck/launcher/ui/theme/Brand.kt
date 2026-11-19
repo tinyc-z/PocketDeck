@@ -79,8 +79,9 @@ fun Modifier.brandBorder(
 }
 
 /**
- * 卡片表面：浅色模式为白卡 + 粉调软阴影，深色模式为深紫卡。
- * [elevation] 为 0 时只绘制底色。
+ * 卡片表面：浅色模式为白卡 + 轻量化缓存柔影，深色模式为深紫卡。
+ * 使用 [drawWithCache] 替代硬件 `Modifier.shadow()`，避免批量创建 OpenGL 阴影 RenderNode 引起切页卡顿；
+ * 开启减少动态效果或 [elevation] 为 0 时仅绘制底色。
  */
 @Composable
 fun Modifier.cardSurface(
@@ -88,14 +89,32 @@ fun Modifier.cardSurface(
     elevation: Dp = 3.dp,
 ): Modifier {
     val p = LocalDeckColors.current
-    val base = if (elevation > 0.dp) {
-        this.shadow(
-            elevation = elevation,
-            shape = shape,
-            ambientColor = p.cardShadow,
-            spotColor = p.cardShadow,
-            clip = false,
-        )
+    val reduceMotion = LocalReduceMotion.current
+    val base = if (elevation > 0.dp && !reduceMotion) {
+        val shadowColor = p.cardShadow
+        this.drawWithCache {
+            val dy = (elevation.toPx() * 0.65f).coerceAtLeast(1f)
+            val outline = shape.createOutline(size, layoutDirection, this)
+            onDrawBehind {
+                when (outline) {
+                    is androidx.compose.ui.graphics.Outline.Rounded -> {
+                        val rr = outline.roundRect
+                        drawRoundRect(
+                            color = shadowColor,
+                            topLeft = Offset(0f, dy),
+                            size = size,
+                            cornerRadius = CornerRadius(rr.topLeftCornerRadius.x, rr.topLeftCornerRadius.y),
+                        )
+                    }
+                    is androidx.compose.ui.graphics.Outline.Rectangle -> {
+                        drawRect(color = shadowColor, topLeft = Offset(0f, dy), size = size)
+                    }
+                    is androidx.compose.ui.graphics.Outline.Generic -> {
+                        drawPath(outline.path, color = shadowColor)
+                    }
+                }
+            }
+        }
     } else this
     return base.background(p.surface, shape)
 }

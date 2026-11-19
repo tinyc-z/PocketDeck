@@ -59,6 +59,7 @@ import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.brandFocusRing
 import com.pocketdeck.launcher.ui.theme.cardSurface
 
@@ -259,6 +260,9 @@ internal fun SettingRow(
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val p = LocalDeckColors.current
+    val highlightBrush = remember(p.brandStart, p.brandMid, p.brandEnd) {
+        Brush.linearGradient(listOf(p.brandStart, p.brandMid, p.brandEnd))
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -269,7 +273,7 @@ internal fun SettingRow(
                 if (highlighted) {
                     Modifier
                         .background(p.accentSoft, RowShape)
-                        .border(1.5.dp, Brush.linearGradient(listOf(p.brandStart, p.brandMid, p.brandEnd)), RowShape)
+                        .border(1.5.dp, highlightBrush, RowShape)
                 } else Modifier,
             )
             .soundClickable(onClick = onClick)
@@ -361,10 +365,12 @@ internal fun CheckMark(checked: Boolean) {
     }
 }
 
-/** 渐变开关：开启为品牌渐变轨道，关闭为 Line 色轨道，白色圆形滑块。 */
+/** 渐变开关：开启为品牌渐变轨道，关闭为 Line 色轨道，白色圆形滑块（去硬件 shadow，减少动态效果时瞬切）。 */
 @Composable
 internal fun DeckSwitch(checked: Boolean, modifier: Modifier = Modifier) {
-    val thumbX by animateDpAsState(if (checked) 18.dp else 2.dp, tween(160), label = "switch")
+    val reduceMotion = LocalReduceMotion.current
+    val targetX = if (checked) 18.dp else 2.dp
+    val thumbX = if (reduceMotion) targetX else animateDpAsState(targetX, tween(140), label = "switch").value
     val trackShape = RoundedCornerShape(50)
     Box(
         modifier
@@ -380,7 +386,16 @@ internal fun DeckSwitch(checked: Boolean, modifier: Modifier = Modifier) {
             Modifier
                 .offset(x = thumbX, y = 2.dp)
                 .size(20.dp)
-                .shadow(1.5.dp, CircleShape)
+                .then(
+                    if (reduceMotion) Modifier
+                    else Modifier.drawBehind {
+                        drawCircle(
+                            color = Color(0x24000000),
+                            radius = size.minDimension / 2f,
+                            center = Offset(size.width / 2f, size.height / 2f + 1.dp.toPx()),
+                        )
+                    },
+                )
                 .background(Color.White, CircleShape),
         )
     }
