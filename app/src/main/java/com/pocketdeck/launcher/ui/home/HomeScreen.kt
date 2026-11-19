@@ -1348,6 +1348,7 @@ private fun HomeContentSlot(
             onLaunch = onLaunch,
             onLongPress = onLongPress,
             fastScrolling = isFastScrolling,
+            idlePaused = idlePaused,
             showMetadata = showMetadata,
             metaDisplay = metaDisplay,
             align = galleryAlign,

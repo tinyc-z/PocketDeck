@@ -34,11 +34,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,11 +81,15 @@ import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * Gallery 视图：粗体标题 + 副标题 + 位置计数 + 焦点卡渐变焦点环 + 弹簧滚动 + 手势滑动 + 信息胶囊。
@@ -105,6 +111,7 @@ fun GalleryView(
     onLaunch: (Game) -> Unit,
     onLongPress: ((Game) -> Unit)? = null,
     fastScrolling: Boolean = false,
+    idlePaused: Boolean = false,
     modifier: Modifier = Modifier,
     focusCardHeight: Dp = 182.dp,
     smallCardHeight: Dp = 104.dp,
@@ -149,6 +156,24 @@ fun GalleryView(
                     ),
                     initialVelocity = animatedFocus.velocity,
                 )
+            }
+        }
+    }
+
+    // 选中焦点卡片停稳 120ms 后的微幅 3D 立体倾斜呼吸（纯 graphicsLayer 零重组，幅度克制自然）
+    val heroIdleSeconds = remember { mutableFloatStateOf(0f) }
+    val heroIdleEnvelope = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(focusIndex, fastScrolling, isDragging, reduceMotion, idlePaused, games.size) {
+        heroIdleSeconds.floatValue = 0f
+        heroIdleEnvelope.floatValue = 0f
+        if (reduceMotion || fastScrolling || isDragging || idlePaused || games.isEmpty()) return@LaunchedEffect
+        delay(120L)
+        val startNs = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { nowNs ->
+                val sec = (nowNs - startNs) / 1_000_000_000f
+                heroIdleSeconds.floatValue = sec
+                heroIdleEnvelope.floatValue = (sec / 0.65f).coerceIn(0f, 1f)
             }
         }
     }
@@ -371,6 +396,23 @@ fun GalleryView(
                             }
                     }
 
+                    val heroTiltMod = if (isCardFocused && !reduceMotion) {
+                        Modifier.graphicsLayer {
+                            val env = heroIdleEnvelope.floatValue
+                            if (env > 0f) {
+                                val t = heroIdleSeconds.floatValue
+                                val omegaY = (2f * PI.toFloat()) / 5.8f
+                                val omegaX = (2f * PI.toFloat()) / 4.6f
+                                rotationY = sin(t * omegaY) * 2.4f * env
+                                rotationX = cos(t * omegaX) * 1.8f * env
+                                translationY = sin(t * omegaX) * 1.0.dp.toPx() * env
+                                cameraDistance = 14f * this.density
+                            }
+                        }
+                    } else {
+                        Modifier
+                    }
+
                     GameCoverCard(
                         game = game,
                         platform = plat,
@@ -383,7 +425,7 @@ fun GalleryView(
                         fastScrolling = fastScrolling || isDragging,
                         onClick = cardOnClick,
                         onLongPress = cardOnLongPress,
-                        modifier = cardModifier,
+                        modifier = cardModifier.then(heroTiltMod),
                     )
                 }
             }
