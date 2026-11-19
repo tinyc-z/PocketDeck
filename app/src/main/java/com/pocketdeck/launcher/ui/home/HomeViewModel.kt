@@ -307,12 +307,13 @@ class HomeViewModel(
         scanning: Boolean,
         metaMap: Map<String, GameMetadata>,
         officialNames: Map<String, String>,
+        stateOverride: HomeUiState? = null,
     ) {
         val manage = buildManageTabs(lib, user)
         val tabs = manage.filter { !it.hidden }.map {
             TabInfo(it.id, it.label, it.type, it.followSystemLanguage)
         }
-        val current = _state.value
+        val current = stateOverride ?: _state.value
         val prevTabId = current.tabs.getOrNull(current.selectedTab)?.id
         var tabIdx = if (prevTabId != null) {
             val found = tabs.indexOfFirst { it.id == prevTabId }
@@ -726,31 +727,37 @@ class HomeViewModel(
     fun toggleSearch() {
         val s = _state.value
         val nextSearching = !s.searching
-        _focusIndex.value = 0
-        _state.value = s.copy(
+        val nextState = s.copy(
             searching = nextSearching,
             searchQuery = if (!nextSearching) "" else s.searchQuery,
-            focusIndex = 0,
+            focusIndex = if (nextSearching) 0 else s.focusIndex,
         )
-        recomputeFromRepo()
+        if (nextSearching) _focusIndex.value = 0
+        if (!recomputeFromRepo(nextState)) {
+            _state.value = nextState
+        }
     }
 
     fun setSearchQuery(q: String) {
         _focusIndex.value = 0
-        _state.value = _state.value.copy(searchQuery = q, focusIndex = 0)
-        recomputeFromRepo()
+        val nextState = _state.value.copy(searchQuery = q, focusIndex = 0)
+        if (!recomputeFromRepo(nextState)) {
+            _state.value = nextState
+        }
     }
 
-    private fun recomputeFromRepo() {
-        val lib = repo.library.value ?: return
-        val user = repo.user.value ?: return
+    private fun recomputeFromRepo(stateOverride: HomeUiState? = null): Boolean {
+        val lib = repo.library.value ?: return false
+        val user = repo.user.value ?: return false
         updateState(
             lib,
             user,
-            _state.value.scanning,
+            (stateOverride ?: _state.value).scanning,
             metadataRepo.metadata.value,
             metadataRepo.officialNames.value,
+            stateOverride = stateOverride,
         )
+        return true
     }
 
     fun showMenu(game: Game) { _state.value = _state.value.copy(menuGame = game) }

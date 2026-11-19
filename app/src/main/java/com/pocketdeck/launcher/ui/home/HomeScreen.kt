@@ -14,8 +14,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -30,7 +33,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
@@ -39,6 +41,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -148,7 +151,10 @@ fun HomeScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
-    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    val imeInsets = WindowInsets.ime
+    val imeVisible by remember(density, imeInsets) {
+        derivedStateOf { imeInsets.getBottom(density) > 0 }
+    }
     var searchFieldFocused by remember { mutableStateOf(false) }
     var prevImeVisible by remember { mutableStateOf(false) }
     var capturingKeyBind by remember { mutableStateOf(false) }
@@ -559,11 +565,9 @@ fun HomeScreen(
             navAnimatingFlow = navAnimatingFlow,
         )
 
-        // 主内容列
+        // 主内容列（不套 imePadding，避免软键盘弹起/落下时逐帧挤压主页内容和底栏导致游戏卡片抖动）
         Column(
-            Modifier
-                .fillMaxSize()
-                .imePadding(),
+            Modifier.fillMaxSize(),
         ) {
             val nowLabel = stringResource(R.string.tab_name_now)
             val favsLabel = stringResource(R.string.tab_name_favs)
@@ -631,8 +635,8 @@ fun HomeScreen(
             } else {
                 AnimatedVisibility(
                     visible = state.searching,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
+                    enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(180)) + fadeIn(tween(150)),
+                    exit = shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(180)) + fadeOut(tween(120)),
                 ) {
                     SearchBar(
                         query = state.searchQuery,
@@ -785,7 +789,7 @@ fun HomeScreen(
                 }
             }
 
-            if (state.bottomBar && !(state.searching && imeVisible)) {
+            if (state.bottomBar) {
                 val stableOnApps = remember(vm) { { vm.openApps() } }
                 val stableOnSettings = remember(vm) { { vm.toggleSettings() } }
                 val stableOnViewSwitch = remember(vm) { { vm.openViewMenu() } }
