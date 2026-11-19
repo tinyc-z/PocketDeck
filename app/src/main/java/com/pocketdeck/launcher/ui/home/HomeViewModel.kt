@@ -107,6 +107,7 @@ data class HomeUiState(
     val customBackground: String? = null,
     val keyBindings: Map<KeyAction, Int> = emptyMap(),
     val keySoundEnabled: Boolean = true,
+    val reduceMotion: Boolean = false,
     val themeAccent: ThemeAccent = ThemeAccent.Sunset,
     val fontId: String = SystemFonts.DEFAULT_ID,
     val platformAspects: Map<String, Float> = emptyMap(),
@@ -249,6 +250,7 @@ class HomeViewModel(
                         customBackground = u?.customBackground ?: _state.value.customBackground,
                         keyBindings = u?.keyBindings ?: _state.value.keyBindings,
                         keySoundEnabled = u?.keySoundEnabled ?: _state.value.keySoundEnabled,
+                        reduceMotion = u?.reduceMotion ?: _state.value.reduceMotion,
                         viewMode = u?.viewMode ?: _state.value.viewMode,
                         metaDisplay = u?.metaDisplay ?: _state.value.metaDisplay,
                         metadataMap = data.metaMap,
@@ -392,6 +394,7 @@ class HomeViewModel(
             customBackground = user.customBackground,
             keyBindings = user.keyBindings,
             keySoundEnabled = user.keySoundEnabled,
+            reduceMotion = user.reduceMotion,
         )
         _state.value = newState
         preloadAssets(filteredGames, focusIdx, newState::platformFor)
@@ -968,6 +971,10 @@ class HomeViewModel(
 
     fun resetKeyBindings() {
         viewModelScope.launch { repo.updatePrefs { it.copy(keyBindings = emptyMap()) } }
+    }
+
+    fun toggleReduceMotion() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(reduceMotion = !it.reduceMotion) } }
     }
 
     fun toggleKeySound() {

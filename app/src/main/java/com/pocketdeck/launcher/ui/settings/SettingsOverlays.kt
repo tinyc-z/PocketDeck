@@ -85,6 +85,7 @@ import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
+import com.pocketdeck.launcher.ui.theme.brandFocusRow
 import com.pocketdeck.launcher.ui.theme.FontOption
 import com.pocketdeck.launcher.ui.theme.InterFamily
 import com.pocketdeck.launcher.ui.theme.SystemFonts
@@ -96,7 +97,7 @@ import java.io.File
 // 通用操作菜单（居中弹出，手柄上下选择 + A 确认 + B 关闭）
 // ════════════════════════════════════════════════════════════════
 
-class ActionItem(val label: String, val action: () -> Unit)
+class ActionItem(val label: String, val selected: Boolean = false, val action: () -> Unit)
 
 class ActionMenuState(val title: String, val items: List<ActionItem>) {
     var index by mutableIntStateOf(0)
@@ -149,19 +150,29 @@ fun ActionMenuDialog(
                     LaunchedEffect(hl) {
                         if (hl) bringIntoView.bringIntoView()
                     }
-                    Text(
-                        item.label,
-                        style = DeckType.menuButton,
-                        color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
-                        modifier = Modifier
+                    Row(
+                        Modifier
                             .fillMaxWidth()
                             .bringIntoViewRequester(bringIntoView)
                             .padding(vertical = 3.dp)
+                            .then(if (hl) Modifier.brandFocusRow(true, DeckShapes.menuButton) else Modifier)
                             .clip(DeckShapes.menuButton)
-                            .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
+                            .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
                             .clickable { onPick(item) }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
-                    )
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            item.label,
+                            style = DeckType.menuButton,
+                            color = if (hl || item.selected) DeckColors.Ruby else DeckColors.TextPrimary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (item.selected) {
+                            Spacer(Modifier.width(8.dp))
+                            DeckIcon(DeckIcons.Check, tint = DeckColors.Ruby, size = 16.dp)
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))

@@ -200,6 +200,8 @@ data class UserData(
     val keyBindings: Map<KeyAction, Int> = emptyMap(),
     /** 按键音开关（默认开启）。 */
     val keySoundEnabled: Boolean = true,
+    /** 减少动态效果：为 true 时背景动画暂停。 */
+    val reduceMotion: Boolean = false,
     /** 主题色（8 种预设）。 */
     val themeAccent: ThemeAccent = ThemeAccent.Sunset,
     /** 字体 ID（"default" / "system_sans" / "system_serif" / "system_mono" / "file:<path>"）。 */
@@ -270,6 +272,7 @@ class UserStore(private val context: Context) {
         val customBackground = stringPreferencesKey("custom_background")
         val keyBindings = stringSetPreferencesKey("key_bindings")
         val keySoundEnabled = booleanPreferencesKey("key_sound_enabled")
+        val reduceMotion = booleanPreferencesKey("reduce_motion")
         val themeAccent = stringPreferencesKey("theme_accent")
         val fontId = stringPreferencesKey("font_id")
         val platformAspects = stringSetPreferencesKey("platform_aspects")
@@ -494,6 +497,7 @@ class UserStore(private val context: Context) {
             customBackground = this[K.customBackground],
             keyBindings = decodeKeyBindings(this[K.keyBindings]),
             keySoundEnabled = this[K.keySoundEnabled] ?: true,
+            reduceMotion = this[K.reduceMotion] ?: false,
             themeAccent = ThemeAccent.fromName(this[K.themeAccent]),
             fontId = this[K.fontId] ?: "default",
             platformAspects = decodeFloatMap(this[K.platformAspects]),
@@ -667,6 +671,7 @@ class UserStore(private val context: Context) {
         if (new.customBackground == null) p.remove(K.customBackground) else p[K.customBackground] = new.customBackground
         p[K.keyBindings] = encodeKeyBindings(new.keyBindings)
         p[K.keySoundEnabled] = new.keySoundEnabled
+        p[K.reduceMotion] = new.reduceMotion
         p[K.themeAccent] = new.themeAccent.name
         p[K.fontId] = new.fontId
         p[K.platformAspects] = encodeFloatMap(new.platformAspects)

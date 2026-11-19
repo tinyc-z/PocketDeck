@@ -47,6 +47,233 @@ object DeckIcons {
         )
     }
 
+    /** 圆（两段弧闭合）。 */
+    private fun PathBuilder.circle(cx: Float, cy: Float, r: Float) {
+        moveTo(cx - r, cy)
+        arcToRelative(r, r, 0f, true, true, 2 * r, 0f)
+        arcToRelative(r, r, 0f, true, true, -2 * r, 0f)
+        close()
+    }
+
+    /** 圆角矩形。 */
+    private fun PathBuilder.roundRect(x: Float, y: Float, w: Float, h: Float, r: Float) {
+        moveTo(x + r, y)
+        horizontalLineTo(x + w - r)
+        arcToRelative(r, r, 0f, false, true, r, r)
+        verticalLineTo(y + h - r)
+        arcToRelative(r, r, 0f, false, true, -r, r)
+        horizontalLineTo(x + r)
+        arcToRelative(r, r, 0f, false, true, -r, -r)
+        verticalLineTo(y + r)
+        arcToRelative(r, r, 0f, false, true, r, -r)
+        close()
+    }
+
+    /** 主页（房子） */
+    val Home: ImageVector by lazy {
+        strokeIcon("Home") {
+            strokePath {
+                moveTo(3.5f, 10.5f); lineTo(12f, 3.5f); lineTo(20.5f, 10.5f)
+                verticalLineTo(19.5f); curveTo(20.5f, 20.05f, 20.05f, 20.5f, 19.5f, 20.5f)
+                horizontalLineTo(15f); verticalLineTo(14.5f); horizontalLineTo(9f); verticalLineTo(20.5f)
+                horizontalLineTo(4.5f); curveTo(3.95f, 20.5f, 3.5f, 20.05f, 3.5f, 19.5f); close()
+            }
+        }
+    }
+
+    /** 游戏库（书架） */
+    val Library: ImageVector by lazy {
+        strokeIcon("Library") {
+            strokePath {
+                roundRect(3f, 4f, 7f, 16f, 1.5f)
+                roundRect(12f, 4f, 4f, 16f, 1f)
+                moveTo(18f, 5f); lineTo(21f, 5.8f); lineTo(17.4f, 19.8f); lineTo(14.9f, 19.1f)
+            }
+        }
+    }
+
+    /** 封面与信息（图片） */
+    val Image: ImageVector by lazy {
+        strokeIcon("Image") {
+            strokePath {
+                roundRect(3f, 4f, 18f, 16f, 2.5f)
+                circle(9f, 10f, 2f)
+                moveTo(21f, 16f); lineTo(16f, 11f); lineTo(7f, 20f)
+            }
+        }
+    }
+
+    /** 信息 */
+    val Info: ImageVector by lazy {
+        strokeIcon("Info") {
+            strokePath {
+                circle(12f, 12f, 9f)
+                moveTo(12f, 11f); verticalLineTo(16.5f)
+            }
+            strokePath(strokeWidth = 2.2f) { moveTo(12f, 7.8f); lineTo(12.01f, 7.8f) }
+        }
+    }
+
+    /** 左箭头（返回） */
+    val ChevronLeft: ImageVector by lazy {
+        strokeIcon("ChevronLeft") {
+            strokePath(strokeWidth = 2.2f) {
+                moveTo(14.5f, 5.5f); lineTo(8f, 12f); lineTo(14.5f, 18.5f)
+            }
+        }
+    }
+
+    /** 加号（新建 / 添加） */
+    val Plus: ImageVector by lazy {
+        strokeIcon("Plus") {
+            strokePath(strokeWidth = 2f) {
+                moveTo(12f, 5f); verticalLineTo(19f)
+                moveTo(5f, 12f); horizontalLineTo(19f)
+            }
+        }
+    }
+
+    /** 分享 */
+    val Share: ImageVector by lazy {
+        strokeIcon("Share") {
+            strokePath {
+                circle(18f, 5f, 2.8f)
+                circle(6f, 12f, 2.8f)
+                circle(18f, 19f, 2.8f)
+                moveTo(8.5f, 13.4f); lineTo(15.5f, 17.6f)
+                moveTo(15.5f, 6.4f); lineTo(8.5f, 10.6f)
+            }
+        }
+    }
+
+    /** 音量（界面音效） */
+    val Volume: ImageVector by lazy {
+        strokeIcon("Volume") {
+            strokePath {
+                moveTo(11f, 5f); lineTo(6.5f, 9f); horizontalLineTo(3.5f); verticalLineTo(15f)
+                horizontalLineTo(6.5f); lineTo(11f, 19f); close()
+                moveTo(15.5f, 8.8f); curveTo(17.2f, 10.6f, 17.2f, 13.4f, 15.5f, 15.2f)
+                moveTo(18.4f, 6f); curveTo(21.6f, 9.4f, 21.6f, 14.6f, 18.4f, 18f)
+            }
+        }
+    }
+
+    /** 时钟 */
+    val Clock: ImageVector by lazy {
+        strokeIcon("Clock") {
+            strokePath {
+                circle(12f, 12f, 9f)
+                moveTo(12f, 7f); verticalLineTo(12f); lineTo(15.2f, 14f)
+            }
+        }
+    }
+
+    /** 无线网络 */
+    val Wifi: ImageVector by lazy {
+        strokeIcon("Wifi") {
+            strokePath {
+                moveTo(2.5f, 9f); curveTo(7.8f, 4.3f, 16.2f, 4.3f, 21.5f, 9f)
+                moveTo(5.5f, 12.5f); curveTo(9.1f, 9.4f, 14.9f, 9.4f, 18.5f, 12.5f)
+                moveTo(8.7f, 16f); curveTo(10.6f, 14.4f, 13.4f, 14.4f, 15.3f, 16f)
+            }
+            strokePath(strokeWidth = 2.4f) { moveTo(12f, 19.5f); lineTo(12.01f, 19.5f) }
+        }
+    }
+
+    /** 可见 */
+    val Eye: ImageVector by lazy {
+        strokeIcon("Eye") {
+            strokePath {
+                moveTo(2.5f, 12f); curveTo(4.6f, 7.8f, 8f, 5.5f, 12f, 5.5f)
+                curveTo(16f, 5.5f, 19.4f, 7.8f, 21.5f, 12f)
+                curveTo(19.4f, 16.2f, 16f, 18.5f, 12f, 18.5f)
+                curveTo(8f, 18.5f, 4.6f, 16.2f, 2.5f, 12f); close()
+                circle(12f, 12f, 3f)
+            }
+        }
+    }
+
+    /** 隐藏 */
+    val EyeOff: ImageVector by lazy {
+        strokeIcon("EyeOff") {
+            strokePath {
+                moveTo(9.9f, 5.8f); curveTo(10.6f, 5.6f, 11.3f, 5.5f, 12f, 5.5f)
+                curveTo(16f, 5.5f, 19.4f, 7.8f, 21.5f, 12f)
+                curveTo(20.9f, 13.2f, 20.2f, 14.2f, 19.4f, 15.1f)
+                moveTo(14.1f, 14.1f); curveTo(12.9f, 15.3f, 11f, 15.3f, 9.9f, 14.1f)
+                curveTo(8.7f, 12.9f, 8.7f, 11f, 9.9f, 9.9f)
+                moveTo(17.1f, 17.1f); curveTo(15.6f, 18f, 13.8f, 18.5f, 12f, 18.5f)
+                curveTo(8f, 18.5f, 4.6f, 16.2f, 2.5f, 12f)
+                curveTo(3.4f, 10.2f, 4.6f, 8.6f, 6.1f, 7.4f)
+                moveTo(3.5f, 3.5f); lineTo(20.5f, 20.5f)
+            }
+        }
+    }
+
+    /** 收藏（心形） */
+    val Heart: ImageVector by lazy {
+        strokeIcon("Heart") {
+            strokePath {
+                moveTo(12f, 20f)
+                curveTo(5f, 15.5f, 2.5f, 12f, 2.5f, 8.6f)
+                curveTo(2.5f, 5.7f, 4.7f, 3.5f, 7.4f, 3.5f)
+                curveTo(9.3f, 3.5f, 10.9f, 4.6f, 12f, 6.3f)
+                curveTo(13.1f, 4.6f, 14.7f, 3.5f, 16.6f, 3.5f)
+                curveTo(19.3f, 3.5f, 21.5f, 5.7f, 21.5f, 8.6f)
+                curveTo(21.5f, 12f, 19f, 15.5f, 12f, 20f)
+                close()
+            }
+        }
+    }
+
+    /** 下载 */
+    val Download: ImageVector by lazy {
+        strokeIcon("Download") {
+            strokePath {
+                moveTo(12f, 4f); verticalLineTo(15f)
+                moveTo(7.5f, 10.5f); lineTo(12f, 15f); lineTo(16.5f, 10.5f)
+                moveTo(4f, 16.5f); verticalLineTo(19f); curveTo(4f, 19.55f, 4.45f, 20f, 5f, 20f)
+                horizontalLineTo(19f); curveTo(19.55f, 20f, 20f, 19.55f, 20f, 19f); verticalLineTo(16.5f)
+            }
+        }
+    }
+
+    /** 上传 */
+    val Upload: ImageVector by lazy {
+        strokeIcon("Upload") {
+            strokePath {
+                moveTo(12f, 15f); verticalLineTo(4f)
+                moveTo(7.5f, 8.5f); lineTo(12f, 4f); lineTo(16.5f, 8.5f)
+                moveTo(4f, 16.5f); verticalLineTo(19f); curveTo(4f, 19.55f, 4.45f, 20f, 5f, 20f)
+                horizontalLineTo(19f); curveTo(19.55f, 20f, 20f, 19.55f, 20f, 19f); verticalLineTo(16.5f)
+            }
+        }
+    }
+
+    /** 设备（掌机 / 系统） */
+    val Device: ImageVector by lazy {
+        strokeIcon("Device") {
+            strokePath {
+                roundRect(6f, 2.5f, 12f, 19f, 2.5f)
+                moveTo(10f, 18.5f); horizontalLineTo(14f)
+            }
+        }
+    }
+
+    /** 操控（摇杆 / 准星） */
+    val Joystick: ImageVector by lazy {
+        strokeIcon("Joystick") {
+            strokePath {
+                circle(12f, 12f, 8f)
+                circle(12f, 12f, 3f)
+                moveTo(12f, 3f); verticalLineTo(6f)
+                moveTo(12f, 18f); verticalLineTo(21f)
+                moveTo(3f, 12f); horizontalLineTo(6f)
+                moveTo(18f, 12f); horizontalLineTo(21f)
+            }
+        }
+    }
+
     /** 外观（调色板 / 主题视觉） */
     val Palette: ImageVector by lazy {
         strokeIcon("Palette") {

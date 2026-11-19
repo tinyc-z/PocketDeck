@@ -562,7 +562,7 @@ fun HomeScreen(
             knownCoverIndex = blurKnownIdx,
             apkPackage = blurApkPackage,
             customBackground = state.customBackground,
-            paused = isFastScrolling || hasChildFocusOverlay,
+            paused = state.reduceMotion || isFastScrolling || hasChildFocusOverlay,
         )
 
         // 主内容列
@@ -1007,6 +1007,7 @@ fun HomeScreen(
                     showAndroidGames = state.showAndroidGames,
                     keyBindings = state.keyBindings,
                     keySoundEnabled = state.keySoundEnabled,
+                    reduceMotion = state.reduceMotion,
                     themeAccent = state.themeAccent,
                     fontId = state.fontId,
                     platformAspects = state.platformAspects,
@@ -1022,6 +1023,7 @@ fun HomeScreen(
                 onToggleClock12h = { vm.toggleClock12h() },
                 onToggleSwapAbxy = { vm.toggleSwapAbxy() },
                 onToggleKeySound = { vm.toggleKeySound() },
+                onToggleReduceMotion = { vm.toggleReduceMotion() },
                 onToggleNowTab = { vm.toggleNowTab() },
                 onToggleFavsTab = { vm.toggleFavsTab() },
                 onToggleBottomBar = { vm.toggleBottomBar() },

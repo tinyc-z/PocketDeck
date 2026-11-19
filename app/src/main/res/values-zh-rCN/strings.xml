@@ -37,35 +37,27 @@
     <string name="edit_name">名称</string>
     <string name="edit_pick_image">选择图片</string>
     <string name="edit_reset_cover">重置封面</string>
-    <string name="edit_delete">删除</string>
     <string name="edit_save">保存</string>
     <string name="edit_image_failed">读取图片失败</string>
 
     <!-- Settings -->
     <string name="settings_title">设置</string>
-    <string name="settings_general">通用</string>
-    <string name="settings_display">显示</string>
-    <string name="settings_show_metadata">显示元数据</string>
-    <string name="settings_metadata_desc">封面下方的游戏信息</string>
-    <string name="settings_show_bottom_bar">显示底部栏</string>
+    <string name="settings_general">系统</string>
+    <string name="settings_show_metadata">游戏信息</string>
+    <string name="settings_metadata_desc">显示在封面下方</string>
+    <string name="settings_show_bottom_bar">底部栏</string>
     <string name="settings_background">背景</string>
     <string name="settings_default_view">默认视图</string>
     <string name="settings_tabs">标签页</string>
-    <string name="settings_now_tab">NOW 标签</string>
-    <string name="settings_now_desc">最近游玩的游戏</string>
-    <string name="settings_favs_tab">FAVS 标签</string>
-    <string name="settings_favs_desc">收藏的游戏</string>
-    <string name="settings_input">输入</string>
+    <string name="settings_input">操控</string>
     <string name="settings_swap_abxy">交换 ABXY</string>
     <string name="settings_swap_desc">任天堂 ↔ Xbox 布局</string>
     <string name="settings_library">游戏库</string>
-    <string name="settings_rom_root">ROM 根目录</string>
-    <string name="settings_auto_detect">自动检测</string>
-    <string name="settings_rescan">重新扫描 ROM</string>
+    <string name="settings_rescan">重新扫描</string>
     <string name="settings_about">关于</string>
     <string name="settings_version">版本</string>
-    <string name="settings_project">项目</string>
-    <string name="settings_about_desc">PocketDeck 是一款面向游戏掌机的开源游戏启动器。</string>
+    <string name="settings_project">源代码</string>
+    <string name="settings_about_desc">面向掌机的开源游戏启动器。</string>
     <string name="settings_language">语言</string>
     <string name="settings_clock_12h">12 小时制</string>
     <string name="settings_clock_desc">使用 12 小时时间格式</string>
@@ -73,16 +65,16 @@
 
     <!-- Status bar settings -->
     <string name="settings_statusbar">状态栏</string>
-    <string name="settings_statusbar_desc">选择在顶部状态栏显示哪些图标。</string>
+    <string name="settings_statusbar_desc">顶部状态栏图标</string>
     <string name="settings_show_clock">时钟</string>
     <string name="settings_show_battery">电池</string>
     <string name="settings_show_wifi">Wi-Fi</string>
     <string name="settings_show_bluetooth">蓝牙</string>
-    <string name="settings_show_mobile">移动信号</string>
+    <string name="settings_show_mobile">信号</string>
     <string name="settings_show_mobile_desc">当插入有网络的 SIM 卡时显示</string>
     <string name="settings_show_headset">耳机</string>
     <string name="settings_show_airplane">飞行模式</string>
-    <string name="settings_show_dnd">勿扰模式</string>
+    <string name="settings_show_dnd">勿扰</string>
 
     <!-- Metadata labels -->
     <string name="meta_release_date">发行日期</string>
@@ -93,19 +85,19 @@
 
     <!-- Apps screen -->
     <string name="apps_title">应用</string>
-    <string name="settings_launcher">启动器</string>
-    <string name="settings_launcher_desc">为每个平台选择用哪个模拟器启动，按 A 切换。</string>
+    <string name="settings_launcher">模拟器</string>
+    <string name="settings_launcher_desc">为各平台选择模拟器</string>
     <string name="settings_launcher_auto">自动</string>
-    <string name="settings_launcher_empty">未发现平台。</string>
-    <string name="settings_gallery_align">Gallery 对齐</string>
+    <string name="settings_launcher_empty">暂无平台</string>
+    <string name="settings_gallery_align">卡片对齐</string>
     <string name="align_top">顶部</string>
     <string name="align_center">居中</string>
     <string name="align_bottom">底部</string>
-    <string name="settings_dirs_desc">每个目录下按平台分子文件夹，所有启用目录中的游戏会合并显示。</string>
+    <string name="settings_dirs_desc">每个平台一个子文件夹</string>
     <string name="settings_dir_auto">自动检测</string>
     <string name="settings_dir_games">%d 个游戏</string>
-    <string name="settings_dir_disabled">已停用</string>
-    <string name="settings_dir_add">+ 添加目录</string>
+    <string name="settings_dir_disabled">已关闭</string>
+    <string name="settings_dir_add">添加文件夹</string>
     <string name="action_enable">启用</string>
     <string name="action_disable">停用</string>
     <string name="action_remove">删除</string>
@@ -117,14 +109,13 @@
     <string name="picker_internal">内部存储</string>
     <string name="picker_hint">A 打开 · B 返回</string>
     <string name="picker_empty">没有子文件夹</string>
-    <string name="settings_tabs_desc">拖动 ≡ 调整排序，或按 A 进行排序、隐藏、重命名与合并。</string>
+    <string name="settings_tabs_desc">按 A 编辑，拖动排序</string>
     <string name="tab_kind_now">最近游玩</string>
     <string name="tab_kind_favs">收藏</string>
-    <string name="tab_kind_platform">平台</string>
-    <string name="tab_kind_custom">自定义分类</string>
-    <string name="tab_includes">包含 %s</string>
+    <string name="tab_kind_custom">自定义</string>
+    <string name="tab_includes">%s</string>
     <string name="tab_hidden">已隐藏</string>
-    <string name="tab_new">+ 新建分类</string>
+    <string name="tab_new">新建分类</string>
     <string name="action_move_up">上移</string>
     <string name="action_move_down">下移</string>
     <string name="action_show">显示</string>
@@ -135,30 +126,28 @@
     <string name="merge_title">将「%s」合并到</string>
     <string name="cat_name_title">分类名称</string>
     <string name="cat_default_name">分类 %d</string>
-    <string name="menu_categories">添加到分类…</string>
-    <string name="tab_reset_order">恢复默认顺序</string>
+    <string name="tab_reset_order">重置顺序</string>
 
     <!-- Theme -->
-    <string name="settings_theme">主题</string>
+    <string name="settings_theme">模式</string>
     <string name="theme_system">跟随系统</string>
-    <string name="theme_light">亮色</string>
-    <string name="theme_dark">暗色</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
 
     <!-- Scraping & Metadata -->
-    <string name="settings_scraping">刮削源与日志</string>
-    <string name="scraping_cover_title">封面刮削源</string>
-    <string name="scraping_cover_desc">按优先级顺序从已启用节点刮削封面，拖动可调整顺序。</string>
-    <string name="scraping_meta_title">元数据刮削源</string>
-    <string name="scraping_meta_desc">按优先级刮削并合并已启用服务商的游戏信息，拖动可调整顺序。</string>
-    <string name="scraping_clear_cache">清理刮削缓存</string>
-    <string name="scraping_clear_cache_desc">清空已缓存的封面图、索引和元数据，释放空间</string>
-    <string name="scraping_cache_cleared_toast">已清理刮削缓存，释放 %1$s</string>
-    <string name="scraping_refresh_meta">重新刮削全部游戏信息</string>
-    <string name="scraping_view_logs">查看刮削日志</string>
+    <string name="settings_scraping">封面与信息</string>
+    <string name="scraping_cover_title">封面来源</string>
+    <string name="scraping_cover_desc">按顺序尝试，拖动排序</string>
+    <string name="scraping_meta_title">信息来源</string>
+    <string name="scraping_meta_desc">按顺序合并，拖动排序</string>
+    <string name="scraping_clear_cache">清除缓存</string>
+    <string name="scraping_clear_cache_desc">清空已缓存的封面与游戏信息</string>
+    <string name="scraping_cache_cleared_toast">已释放 %1$s</string>
+    <string name="scraping_refresh_meta">刷新全部信息</string>
+    <string name="scraping_view_logs">请求日志</string>
     <string name="scrape_logs_title">刮削请求日志</string>
     <string name="scrape_logs_empty">暂无请求日志记录。</string>
     <string name="scrape_logs_clear">清空</string>
-    <string name="scrape_logs_refresh">刷新</string>
     <string name="scrape_logs_cleared">已清空日志</string>
     <string name="scrape_logs_export">导出</string>
     <string name="scrape_logs_export_title">选择磁盘目录导出日志</string>
@@ -177,10 +166,10 @@
     <string name="scrape_logs_search_hint">搜索节点 / 状态码 / URL / 报错…</string>
     <string name="scrape_logs_live">● 实时</string>
     <string name="scrape_logs_paused">❚❚ 已暂停</string>
-    <string name="scraping_needs_account">需配置账号</string>
-    <string name="scraping_account_set">已配置账号</string>
-    <string name="scraping_account_add">配置账号 / 密钥</string>
-    <string name="scraping_account_clear">清除凭据</string>
+    <string name="scraping_needs_account">需配置</string>
+    <string name="scraping_account_set">已配置</string>
+    <string name="scraping_account_add">设置</string>
+    <string name="scraping_account_clear">清除</string>
     <string name="scraping_ss_title">ScreenScraper.fr 账号</string>
     <string name="scraping_ss_user">用户名</string>
     <string name="scraping_ss_pass">密码</string>
@@ -189,28 +178,26 @@
     <string name="scraping_igdb_title">IGDB.com (Twitch) API</string>
     <string name="scraping_igdb_id">Client ID</string>
     <string name="scraping_igdb_secret">Client Secret</string>
-    <string name="scraping_enabled">已启用</string>
-    <string name="scraping_disabled">未启用</string>
 
     <!-- Built-in cover & metadata nodes -->
-    <string name="node_libretro_cdn">Libretro Thumbnails (CDN)</string>
-    <string name="node_libretro_cdn_desc">官方 Boxart 索引与 CDN</string>
-    <string name="node_libretro_jsdelivr">jsDelivr Libretro CDN</string>
-    <string name="node_libretro_jsdelivr_desc">全球 CDN 镜像加速节点</string>
-    <string name="node_libretro_github">Libretro GitHub 源</string>
-    <string name="node_libretro_github_desc">GitHub 官方封面仓库直连</string>
-    <string name="node_hasheous">Hasheous (ROM 哈希)</string>
-    <string name="node_hasheous_desc">基于 CRC32 精确识别封面</string>
-    <string name="node_arcadeitalia">ArcadeItalia (街机)</string>
-    <string name="node_arcadeitalia_desc">MAME/FBNeo 街机海报与标题图</string>
-    <string name="node_libretro_snaps">Libretro 标题图与截图</string>
-    <string name="node_libretro_snaps_desc">无盒装封面时回退游戏画面</string>
+    <string name="node_libretro_cdn">Libretro</string>
+    <string name="node_libretro_cdn_desc">官方封面库</string>
+    <string name="node_libretro_jsdelivr">Libretro (jsDelivr)</string>
+    <string name="node_libretro_jsdelivr_desc">CDN 镜像</string>
+    <string name="node_libretro_github">Libretro (GitHub)</string>
+    <string name="node_libretro_github_desc">GitHub 镜像</string>
+    <string name="node_hasheous">Hasheous</string>
+    <string name="node_hasheous_desc">按 ROM 哈希匹配</string>
+    <string name="node_arcadeitalia">ArcadeItalia</string>
+    <string name="node_arcadeitalia_desc">街机封面</string>
+    <string name="node_libretro_snaps">Libretro 截图</string>
+    <string name="node_libretro_snaps_desc">标题与实机截图</string>
     <string name="node_screenscraper">ScreenScraper.fr</string>
     <string name="node_screenscraper_desc">社区复古游戏库（需账号）</string>
     <string name="node_thegamesdb">TheGamesDB.net</string>
     <string name="node_thegamesdb_desc">开放游戏数据库（需 API Key）</string>
     <string name="node_igdb">IGDB.com</string>
-    <string name="node_igdb_desc">Twitch 游戏数据库（需 API 凭据）</string>
+    <string name="node_igdb_desc">需 Twitch 密钥</string>
 
     <string name="meta_src_libretro_jsdelivr">Libretro DB (jsDelivr CDN)</string>
     <string name="meta_src_libretro_jsdelivr_desc">No-Intro/Redump 元数据 CDN</string>
@@ -225,16 +212,15 @@
     <string name="edit_scrape_boxart">在线刮削封面</string>
     <string name="scrape_title">在线刮削封面</string>
     <string name="scrape_loading">正在从已启用节点查询…</string>
-    <string name="scrape_empty">已启用的节点未找到匹配封面。</string>
+    <string name="scrape_empty">未找到封面</string>
 
     <!-- Metadata visibility & File size -->
-    <string name="meta_file_size">文件大小</string>
-    <string name="settings_metadata_fields">显示的元数据字段</string>
+    <string name="meta_file_size">大小</string>
+    <string name="settings_metadata_fields">显示字段</string>
 
     <!-- Game Properties -->
     <string name="menu_properties">属性</string>
     <string name="prop_title">游戏属性</string>
-    <string name="prop_close">关闭</string>
     <string name="prop_none">—</string>
     <string name="prop_sec_game">游戏信息</string>
     <string name="prop_official_name">官方名称</string>
@@ -272,41 +258,41 @@
 
     <!-- Apps Drawer Menu -->
     <string name="app_menu_open">打开</string>
-    <string name="app_menu_add_to_games">添加到游戏库</string>
-    <string name="app_menu_remove_from_games">从游戏库移除</string>
+    <string name="app_menu_add_to_games">加入游戏库</string>
+    <string name="app_menu_remove_from_games">移出游戏库</string>
     <string name="app_menu_info">应用信息</string>
     <string name="app_menu_uninstall">卸载</string>
 
     <!-- Custom Category Binding -->
     <string name="action_bind_platforms">关联游戏平台…</string>
     <string name="cat_bind_title">为「%s」关联游戏平台</string>
-    <string name="cat_bind_desc">勾选要归入此标签的游戏平台（如同时勾选 NES 与 SNES）：</string>
+    <string name="cat_bind_desc">此标签包含的平台</string>
     <string name="cat_in_library">已扫描</string>
 
     <!-- Custom Launcher Picker -->
-    <string name="launcher_picker_title">选择启动器</string>
-    <string name="launcher_ra_auto_core">自动匹配 RetroArch 核心</string>
-    <string name="launcher_ra_cores">指定 RetroArch 核心</string>
+    <string name="launcher_picker_title">选择模拟器</string>
+    <string name="launcher_ra_auto_core">RetroArch（自动核心）</string>
+    <string name="launcher_ra_cores">RetroArch 核心</string>
     <string name="launcher_custom_current">当前自定义应用</string>
-    <string name="launcher_pick_custom_app">选择任意已安装应用…</string>
+    <string name="launcher_pick_custom_app">其他应用…</string>
     <string name="launcher_pick_app_title">选择启动器应用</string>
     <string name="launcher_search_app_hint">搜索应用名称或包名…</string>
     <string name="launch_mode_title">为「%s」选择启动方式</string>
-    <string name="launch_mode_content_uri">标准文件打开 (content://)</string>
-    <string name="launch_mode_content_uri_desc">推荐：兼容绝大多数现代 Android 模拟器</string>
-    <string name="launch_mode_file_uri">传统路径打开 (file://)</string>
-    <string name="launch_mode_file_uri_desc">兼容需要 file:// 路径的旧版模拟器</string>
-    <string name="launch_mode_extra">通过 Intent Extra 传参</string>
-    <string name="launch_mode_extra_desc">适合需要传入 ROM / bootPath 参数的模拟器</string>
+    <string name="launch_mode_content_uri">标准（content://）</string>
+    <string name="launch_mode_content_uri_desc">推荐</string>
+    <string name="launch_mode_file_uri">旧版（file://）</string>
+    <string name="launch_mode_file_uri_desc">旧版模拟器</string>
+    <string name="launch_mode_extra">Intent 参数</string>
+    <string name="launch_mode_extra_desc">通过参数传入路径</string>
     <string name="launch_mode_extra_key">参数键名 (Extra Key)</string>
-    <string name="launch_mode_app_only">仅直接启动应用</string>
-    <string name="launch_mode_app_only_desc">直接打开应用（适合 Winlator / 独立入口）</string>
+    <string name="launch_mode_app_only">仅打开应用</string>
+    <string name="launch_mode_app_only_desc">不传 ROM（如 Winlator）</string>
     <string name="edit_launcher_follow_platform">跟随平台默认设置</string>
 
     <!-- Library enhancements -->
-    <string name="library_android_games">显示原生 Android 游戏</string>
-    <string name="library_android_games_desc">自动归集已安装的安卓游戏与手动添加的应用</string>
-    <string name="library_hidden_manage">管理已隐藏游戏 (%d)</string>
+    <string name="library_android_games">安卓游戏</string>
+    <string name="library_android_games_desc">已装游戏与固定应用</string>
+    <string name="library_hidden_manage">已隐藏游戏 · %d</string>
     <string name="library_hidden_title">已隐藏的游戏</string>
     <string name="library_hidden_empty">暂无已隐藏的游戏。</string>
     <string name="library_restore">恢复</string>
@@ -318,33 +304,33 @@
     <string name="prop_refresh_meta_fail">未查询到可用元数据</string>
 
     <!-- Custom background & key sound & key bindings -->
-    <string name="settings_custom_bg">自定义背景图片</string>
-    <string name="settings_custom_bg_pick">选择图片</string>
+    <string name="settings_custom_bg">背景图片</string>
+    <string name="settings_custom_bg_pick">选择</string>
     <string name="settings_custom_bg_clear">清除</string>
-    <string name="settings_custom_bg_none">未选择图片</string>
-    <string name="settings_key_sound">按键音效</string>
-    <string name="settings_key_sound_desc">开启操作与切换分类时的按键音效反馈</string>
-    <string name="settings_keybindings">快捷键绑定</string>
-    <string name="settings_keybindings_desc">选中操作按 A 即可重新绑定手柄按键。</string>
-    <string name="settings_keybindings_reset">恢复默认按键</string>
+    <string name="settings_custom_bg_none">未选择</string>
+    <string name="settings_key_sound">界面音效</string>
+    <string name="settings_key_sound_desc">导航提示音</string>
+    <string name="settings_keybindings">按键映射</string>
+    <string name="settings_keybindings_desc">按 A 重新映射</string>
+    <string name="settings_keybindings_reset">重置按键</string>
     <string name="key_action_prev_tab">上一标签</string>
     <string name="key_action_next_tab">下一标签</string>
-    <string name="key_action_apps">应用抽屉</string>
-    <string name="key_action_settings">设置页面</string>
+    <string name="key_action_apps">应用</string>
+    <string name="key_action_settings">设置</string>
     <string name="key_action_play">开始 / 确认</string>
-    <string name="key_action_back">返回 / 取消</string>
+    <string name="key_action_back">返回</string>
     <string name="key_action_menu">游戏菜单</string>
     <string name="keybind_capture_title">绑定「%s」</string>
-    <string name="keybind_capture_prompt">请按下手柄按键或键盘键…</string>
+    <string name="keybind_capture_prompt">请按下按键…</string>
     <string name="keybind_current">当前按键：</string>
-    <string name="keybind_unbound">未绑定</string>
+    <string name="keybind_unbound">未设置</string>
     <string name="keybind_default_hint">默认：%s</string>
-    <string name="keybind_clear">清除绑定</string>
-    <string name="keybind_reserved">系统或方向保留按键，无法绑定</string>
+    <string name="keybind_clear">清除</string>
+    <string name="keybind_reserved">系统保留键</string>
     <string name="keybind_conflict_title">按键冲突</string>
-    <string name="keybind_conflict_desc">%1$s 已被「%2$s」占用，请选择如何分配给「%3$s」：</string>
-    <string name="keybind_conflict_swap">互换两者按键</string>
-    <string name="keybind_conflict_overwrite">覆盖并清除原有绑定</string>
+    <string name="keybind_conflict_desc">%1$s 已用于「%2$s」</string>
+    <string name="keybind_conflict_swap">互换</string>
+    <string name="keybind_conflict_overwrite">替换</string>
 
     <!-- Theme Accent -->
     <string name="settings_theme_accent">主题色</string>
@@ -355,44 +341,44 @@
 
     <!-- Reorganized Settings Sections -->
     <string name="settings_sec_appearance">外观</string>
-    <string name="settings_sec_home">主页与状态栏</string>
+    <string name="settings_sec_home">主页</string>
     <string name="settings_sec_library_scrape">游戏库与刮削</string>
-    <string name="settings_sec_controls">操控与音效</string>
-    <string name="settings_sec_system">系统与关于</string>
+    <string name="settings_sec_controls">操控</string>
+    <string name="settings_sec_system">系统</string>
 
     <!-- Fonts -->
-    <string name="settings_font">界面字体</string>
+    <string name="settings_font">字体</string>
     <string name="font_picker_title">选择字体</string>
     <string name="font_default">默认 (Inter)</string>
-    <string name="font_system_sans">系统无衬线 (Sans-Serif)</string>
-    <string name="font_system_serif">系统衬线 (Serif)</string>
-    <string name="font_system_mono">系统等宽 (Monospace)</string>
+    <string name="font_system_sans">无衬线</string>
+    <string name="font_system_serif">衬线</string>
+    <string name="font_system_mono">等宽</string>
     <string name="font_preview_sample">PocketDeck · 掌机游戏启动器 123</string>
-    <string name="font_pick_file">选择本地字体文件 (.ttf / .otf / .ttc)</string>
+    <string name="font_pick_file">导入字体…</string>
     <string name="font_custom_tag">自定义</string>
-    <string name="font_invalid_file">无效的字体文件，请选择有效的 .ttf / .otf / .ttc 字体</string>
-    <string name="font_missing_fallback">%s（文件已失效，已回退默认）</string>
+    <string name="font_invalid_file">不支持的字体文件</string>
+    <string name="font_missing_fallback">%s（已丢失）</string>
 
     <!-- Tabs & Categories redesign -->
     <string name="tab_name_now">最近</string>
     <string name="tab_name_favs">收藏</string>
     <string name="tab_name_other">其他</string>
-    <string name="tab_kind_other">未归类的平台游戏</string>
+    <string name="tab_kind_other">未归类</string>
     <string name="tab_games_count">%d 个游戏</string>
     <string name="no_other_games">游戏已全部归类</string>
     <string name="tab_system_edit_title">编辑系统标签</string>
-    <string name="tab_system_name_hint">自定义显示名称（留空则自动翻译）</string>
+    <string name="tab_system_name_hint">名称（留空自动）</string>
     <string name="tab_follow_system_lang">跟随系统语言</string>
-    <string name="tab_follow_system_lang_desc">自动随系统语言翻译名称；关闭并填写名称则使用自定义名字</string>
-    <string name="tab_uncategorized_title">未归类平台统计（共 %d 个游戏）</string>
-    <string name="tab_uncategorized_all_done">所有已扫描平台均已归类（0 个未归类游戏）。</string>
-    <string name="tab_quick_create_cat">+ 新建分类</string>
+    <string name="tab_follow_system_lang_desc">自动翻译名称</string>
+    <string name="tab_uncategorized_title">未归类平台 · %d</string>
+    <string name="tab_uncategorized_all_done">平台已全部归类</string>
+    <string name="tab_quick_create_cat">新建分类</string>
     <string name="tab_add_to_existing_cat">归入已有分类…</string>
     <string name="tab_pick_category_title">将「%s」归入分类</string>
 
     <!-- Platform Aspect Ratio & Enhanced Launcher -->
-    <string name="settings_launcher_show_all">显示全部已知平台</string>
-    <string name="settings_launcher_show_lib">仅显示已扫描到的平台</string>
+    <string name="settings_launcher_show_all">全部平台</string>
+    <string name="settings_launcher_show_lib">已有平台</string>
     <string name="launcher_aspect_title">封面比例</string>
     <string name="launcher_aspect_default">默认 (%.2f:1)</string>
     <string name="launcher_aspect_portrait">竖版 3:4</string>
@@ -400,21 +386,21 @@
     <string name="launcher_aspect_square">方形 1:1</string>
     <string name="launcher_aspect_landscape">横版 4:3</string>
     <string name="launcher_aspect_wide">宽屏 16:9</string>
-    <string name="launcher_supported_not_installed">支持但未安装的模拟器</string>
+    <string name="launcher_supported_not_installed">未安装</string>
     <string name="launcher_not_installed">未安装</string>
-    <string name="launcher_ra_custom_core">+ 手动输入 RetroArch 核心…</string>
+    <string name="launcher_ra_custom_core">自定义核心…</string>
     <string name="launcher_ra_custom_core_title">输入 RetroArch 核心名</string>
     <string name="launcher_ra_custom_core_hint">如 bsnes_hd_beta 或 fbneo</string>
-    <string name="launcher_activity_class">目标 Activity 类名（可选）</string>
+    <string name="launcher_activity_class">Activity（可选）</string>
     <string name="launcher_activity_hint">留空则自动识别入口</string>
-    <string name="launcher_save_preset">同时保存为可复用启动器预设</string>
+    <string name="launcher_save_preset">存为预设</string>
     <string name="launcher_preset_name">预设名称</string>
-    <string name="launcher_presets_title">已保存的自定义启动器</string>
+    <string name="launcher_presets_title">预设</string>
 
     <!-- Keybind Reset Confirm & Background Styles -->
-    <string name="keybind_reset_confirm_title">恢复默认按键</string>
-    <string name="keybind_reset_confirm_desc">确定要将所有快捷键恢复为默认绑定吗？当前的自定义按键设置将被清除。</string>
-    <string name="keybind_reset_confirm_yes">确认恢复</string>
+    <string name="keybind_reset_confirm_title">重置按键？</string>
+    <string name="keybind_reset_confirm_desc">自定义按键将被清除。</string>
+    <string name="keybind_reset_confirm_yes">重置</string>
     <string name="bg_style_aurora">极光</string>
     <string name="bg_style_aurora_desc">柔和光带</string>
     <string name="bg_style_image">图片</string>
@@ -423,16 +409,16 @@
     <string name="bg_style_none_desc">无动画</string>
 
     <!-- Offline Messages -->
-    <string name="scrape_offline">当前无网络连接，请连网后重试或使用本地图片</string>
+    <string name="scrape_offline">离线，请使用本地图片</string>
     <string name="offline_action_toast">当前无网络连接</string>
 
     <!-- Edit Delete File & Game Library Manager -->
     <string name="edit_delete_file">删除文件</string>
     <string name="edit_locate_file">查看文件</string>
-    <string name="delete_file_confirm_title">确认永久删除文件？</string>
-    <string name="delete_file_confirm_desc">即将从存储中永久删除「%1$s」（%2$s），删除后无法恢复！\n\n如果只是不想在桌面看到此游戏，建议改用「隐藏」功能（可随时在游戏库中恢复显示）。</string>
-    <string name="delete_file_use_hide">改用「隐藏」（推荐）</string>
-    <string name="delete_file_confirm_yes">确认永久删除</string>
+    <string name="delete_file_confirm_title">删除文件？</string>
+    <string name="delete_file_confirm_desc">「%1$s」（%2$s）将被永久删除。改为隐藏？</string>
+    <string name="delete_file_use_hide">改为隐藏</string>
+    <string name="delete_file_confirm_yes">删除</string>
     <string name="delete_file_done">文件已删除</string>
     <string name="delete_file_failed">删除失败：%s</string>
 
@@ -440,7 +426,7 @@
     <string name="game_library_stats">共 %1$d 个游戏 · %2$d 个已隐藏</string>
     <string name="lib_mode_games">游戏管理</string>
     <string name="lib_mode_files">目录文件</string>
-    <string name="lib_search_hint">搜索游戏名、文件名、平台…</string>
+    <string name="lib_search_hint">搜索</string>
     <string name="lib_filter_all">全部</string>
     <string name="lib_filter_visible">已显示</string>
     <string name="lib_filter_hidden">已隐藏 (%d)</string>
@@ -450,7 +436,7 @@
     <string name="lib_badge_uncategorized">未归类</string>
     <string name="lib_empty_games">没有匹配的游戏</string>
     <string name="lib_action_unhide">恢复显示</string>
-    <string name="lib_action_hide">隐藏游戏</string>
+    <string name="lib_action_hide">隐藏</string>
     <string name="lib_action_categories">设置分类</string>
     <string name="lib_action_rename_file">重命名文件</string>
     <string name="lib_action_move_file">移动文件…</string>
@@ -461,22 +447,21 @@
     <string name="lib_move_here">移动到当前目录</string>
     <string name="lib_move_done">文件已移动</string>
     <string name="lib_move_failed">移动失败：%s</string>
-    <string name="lib_new_folder">+ 新建文件夹</string>
+    <string name="lib_new_folder">新建文件夹</string>
     <string name="lib_new_folder_title">新建文件夹名称</string>
     <string name="lib_new_folder_done">文件夹已创建</string>
     <string name="lib_new_folder_failed">创建文件夹失败：%s</string>
     <string name="lib_cat_picker_title">设置「%s」所属分类</string>
     <string name="lib_cat_via_platform">已通过平台归入</string>
-    <string name="lib_cat_empty">暂无自定义分类，可在下方直接新建，或在「设置 → 标签页」管理。</string>
-    <string name="lib_cat_new">+ 新建分类</string>
+    <string name="lib_cat_empty">暂无分类</string>
+    <string name="lib_cat_new">新建分类</string>
     <string name="lib_cat_new_placeholder">输入新分类名称…</string>
     <string name="edit_categories">所属标签分类</string>
     <string name="edit_categories_none">未归类</string>
     <string name="lib_files_up">.. 返回上级</string>
-    <string name="lib_files_roots">已配置的游戏库目录</string>
     <string name="lib_files_empty">当前目录为空</string>
-    <string name="lib_files_search_hint">搜索当前目录文件…</string>
-    <string name="lib_files_search_recursive_hint">多层搜索子目录文件…</string>
+    <string name="lib_files_search_hint">搜索文件夹</string>
+    <string name="lib_files_search_recursive_hint">搜索子文件夹</string>
     <string name="lib_files_search_current">当前目录</string>
     <string name="lib_files_search_multi">多层搜索</string>
     <string name="lib_files_search_empty">未找到匹配的文件或目录</string>
@@ -496,32 +481,31 @@
 
     <!-- LAN Web Manager & Quick Share -->
     <string name="lan_service_btn">局域网服务</string>
-    <string name="lan_service_title">局域网服务与游戏快传</string>
+    <string name="lan_service_title">局域网与快传</string>
     <string name="lan_device_name">本机设备昵称</string>
     <string name="lan_device_rename">改名</string>
     <string name="lan_device_random">随机昵称</string>
-    <string name="lan_nic_title">选择服务网卡（已自动忽略 TUN/VPN）</string>
+    <string name="lan_nic_title">网络</string>
     <string name="lan_nic_refresh">刷新网卡</string>
-    <string name="lan_nic_empty">未检测到可用的物理局域网网卡（已自动屏蔽 VPN 虚拟网段）。</string>
+    <string name="lan_nic_empty">无可用局域网</string>
     <string name="lan_share_title">游戏快传服务</string>
-    <string name="lan_share_desc">同一局域网设备互传游戏文件，对方确认接收后开始高速传输。</string>
-    <string name="lan_share_online_fmt">已开启 · %1$s:%2$d · 发现 %3$d 台在线设备</string>
+    <string name="lan_share_desc">向附近设备发送游戏</string>
+    <string name="lan_share_online_fmt">%1$s:%2$d · 附近 %3$d 台</string>
     <string name="lan_share_scan">扫描设备</string>
-    <string name="lan_share_peers_empty">暂未发现其他在线 PocketDeck / LocalSend 设备，请确认对方已开启服务且在同一局域网。</string>
-    <string name="lan_web_title">Web 网页游戏管理</string>
-    <string name="lan_web_desc">在电脑浏览器管理游戏库、上传/下载 ROM（每次启动生成 4 位动态登录密码）。</string>
-    <string name="lan_web_url_label">浏览器访问地址</string>
-    <string name="lan_web_pwd_label">动态登录密码</string>
-    <string name="lan_web_pwd_refresh">刷新密码</string>
-    <string name="lan_stop_all">一键全部关闭</string>
+    <string name="lan_share_peers_empty">未发现设备，请连接同一网络</string>
+    <string name="lan_web_title">网页管理</string>
+    <string name="lan_web_desc">在浏览器中管理游戏</string>
+    <string name="lan_web_url_label">地址</string>
+    <string name="lan_web_pwd_label">PIN 码</string>
+    <string name="lan_stop_all">全部停止</string>
     <string name="lan_status_share">快传中</string>
     <string name="lan_status_web">Web管理</string>
     <string name="lan_status_both">快传 · Web</string>
     <string name="lan_share_send_action">局域网共享发送</string>
     <string name="lan_share_pick_peer_title">选择接收设备</string>
-    <string name="lan_share_enable_first">「游戏快传」当前已关闭，请先开启以发现同网段在线设备：</string>
-    <string name="lan_share_enable_btn">立即开启快传</string>
-    <string name="lan_incoming_title">收到游戏共享请求</string>
+    <string name="lan_share_enable_first">快传已关闭</string>
+    <string name="lan_share_enable_btn">开启</string>
+    <string name="lan_incoming_title">收到文件</string>
     <string name="lan_incoming_from">发送方：%1$s（%2$s）</string>
     <string name="lan_incoming_save_to">保存到目录</string>
     <string name="lan_incoming_accept">接收</string>
@@ -529,7 +513,7 @@
     <string name="lan_tx_waiting">正在等待「%s」确认接收…</string>
     <string name="lan_tx_pin_required">等待输入「%s」的 PIN 码…</string>
     <string name="lan_pin_title">需要输入 PIN 码</string>
-    <string name="lan_pin_desc">请输入「%s」上设置的接收 PIN 码以继续发送。</string>
+    <string name="lan_pin_desc">输入「%s」上显示的 PIN</string>
     <string name="lan_pin_hint">输入 PIN 码</string>
     <string name="lan_pin_wrong">PIN 码不正确，请重新输入。</string>
     <string name="lan_tx_sending">正在发送给「%s」</string>
@@ -538,7 +522,6 @@
     <string name="lan_tx_rejected">「%s」拒绝了本次共享</string>
     <string name="lan_tx_cancelled">传输已取消</string>
     <string name="lan_tx_failed">传输失败</string>
-    <string name="lan_tx_close">完成</string>
 
     <!-- File Manager Upgrades (Multi-select, Folders, Archives, Viewers) -->
     <string name="lib_multi_select">多选</string>
@@ -553,7 +536,7 @@
     <string name="lib_folder_delete">删除文件夹</string>
     <string name="lib_file_view_image">查看图片</string>
     <string name="lib_file_view_text">查看 / 编辑文本配置</string>
-    <string name="lib_archive_inspect">查看内容并解压…</string>
+    <string name="lib_archive_inspect">打开压缩包</string>
     <string name="lib_archive_extract_here">直接解压到当前目录</string>
     <string name="lib_archive_extract_sub">解压到「%s/」</string>
     <string name="lib_archive_extract_to">解压到指定目录…</string>
@@ -565,18 +548,18 @@
     <string name="lib_archive_compress_done">已创建压缩包 %s</string>
     <string name="lib_archive_failed">压缩包处理失败：%s</string>
     <string name="lib_batch_move">批量移动 %d 项…</string>
-    <string name="lib_batch_extract">批量解压选中压缩包</string>
+    <string name="lib_batch_extract">解压</string>
     <string name="lib_batch_delete">批量删除 %d 项</string>
-    <string name="lib_batch_delete_title">确认批量永久删除？</string>
-    <string name="lib_batch_delete_desc">即将从存储中永久删除选中的 %1$d 项（若包含文件夹将连同内部所有文件一并删除），此操作无法恢复！</string>
+    <string name="lib_batch_delete_title">删除所选？</string>
+    <string name="lib_batch_delete_desc">删除 %1$d 项（含文件夹）？无法恢复。</string>
     <string name="lib_batch_delete_yes">确认删除 (%d 项)</string>
     <string name="lib_batch_done">操作完成（共处理 %d 项）</string>
     <string name="lib_text_edit">编辑</string>
     <string name="lib_text_save">保存</string>
     <string name="lib_text_saved">文件已保存</string>
     <string name="lib_text_save_failed">保存失败：%s</string>
-    <string name="lib_text_truncated">文件超过 512 KB，仅展示前段内容（只读）。</string>
-    <string name="lib_image_zoom_hint">支持手势缩放，或按 + / − / 0 键缩放</string>
+    <string name="lib_text_truncated">超过 512 KB · 只读预览</string>
+    <string name="lib_image_zoom_hint">+/− 缩放 · 0 还原</string>
     <string name="lib_add_multi_select">多选此项</string>
     <string name="lib_task_src_web">Web 端</string>
     <string name="lib_task_src_local">本机</string>
@@ -596,22 +579,20 @@
     <string name="lan_status_tasks">文件任务</string>
     <string name="lan_status_task_pct">任务 %d%%</string>
     <string name="lan_total_progress">总进度</string>
-    <string name="lan_file_tasks_title">进行中的文件任务 (%d)</string>
+    <string name="lan_file_tasks_title">任务 · %d</string>
     <string name="lan_status_waiting">等待确认</string>
-    <string name="lan_status_sending_pct">发送 %d%%</string>
-    <string name="lan_status_receiving_pct">接收 %d%%</string>
     <string name="lan_multi_file_summary">共 %d 个文件</string>
     <string name="lan_cancel_receive">取消接收</string>
     <string name="lan_cancel_send">取消发送</string>
     <string name="lan_tx_clear">清除</string>
     <string name="lan_share_method_title">选择分享方式</string>
-    <string name="lan_share_method_lan">局域网快传（PocketDeck 客户端）</string>
-    <string name="lan_share_method_lan_desc">局域网直连传输，支持多选游戏和文件流式高速发送</string>
-    <string name="lan_share_method_android">安卓快速分享 / 系统分享</string>
-    <string name="lan_share_method_android_desc">调用系统 Quick Share、蓝牙或第三方应用接收，无需同款客户端</string>
+    <string name="lan_share_method_lan">局域网快传</string>
+    <string name="lan_share_method_lan_desc">发送到附近 PocketDeck 或 LocalSend</string>
+    <string name="lan_share_method_android">系统分享</string>
+    <string name="lan_share_method_android_desc">蓝牙、Quick Share 或其他应用</string>
     <string name="lan_share_batch_action">分享选中的 %d 个文件…</string>
     <string name="lan_share_no_files">所选项目中没有可发送的文件</string>
-    <string name="lan_share_started_hint">已发起发送，可在状态栏或局域网管理界面查看进度</string>
+    <string name="lan_share_started_hint">正在发送…</string>
     <string name="lib_file_play_audio">播放音频</string>
     <string name="lib_file_view_font">预览字体</string>
     <string name="lib_audio_error">无法播放该音频文件（格式不支持或已损坏）</string>
@@ -627,24 +608,23 @@
     <string name="quick_share_title">游戏快传</string>
     <string name="quick_share_tab_transfer">快传收发</string>
     <string name="quick_share_tab_history">接收记录</string>
-    <string name="quick_share_open_standalone">快传独立界面 / 接收记录 (%d)</string>
+    <string name="quick_share_open_standalone">记录 · %d</string>
     <string name="quick_share_history_count">共 %d 条历史接收记录</string>
-    <string name="quick_share_history_empty">暂无接收文件记录。\n通过局域网快传接收的文件将自动记录在此。</string>
+    <string name="quick_share_history_empty">暂无接收记录</string>
     <string name="quick_share_history_clear">清空记录</string>
     <string name="quick_share_history_clear_title">清空全部接收记录？</string>
-    <string name="quick_share_history_clear_desc">仅清除历史记录列表，已保存在存储中的游戏文件不会被删除。</string>
+    <string name="quick_share_history_clear_desc">文件不会被删除。</string>
     <string name="quick_share_history_delete">删除记录</string>
     <string name="quick_share_history_delete_only">仅删除记录</string>
     <string name="quick_share_history_delete_with_files">同时删除本地文件</string>
     <string name="quick_share_history_detail">接收详情</string>
     <string name="quick_share_history_from">发送方：%1$s（%2$s）</string>
-    <string name="quick_share_history_saved_to">保存路径：%s</string>
     <string name="quick_share_history_missing">本地文件已移动或删除</string>
     <string name="quick_share_history_open_file">预览 / 查看</string>
     <string name="quick_share_history_open_folder">打开所在文件夹</string>
     <string name="quick_share_history_jump_folder">文件夹</string>
     <string name="lan_web_clients_title">已连接客户端 (%d)</string>
-    <string name="lan_web_clients_empty">暂无客户端连接（登录成功后将显示访客 IP）。</string>
+    <string name="lan_web_clients_empty">暂无连接</string>
     <string name="lan_web_client_kick">断开</string>
     <string name="lan_web_client_just_now">刚刚活跃</string>
     <string name="lan_web_client_min_ago">%d 分钟前</string>
@@ -664,10 +644,10 @@
     <string name="lib_copy_batch_done">已复制 %d 项</string>
 
     <!-- LocalSend 兼容与关于构建号 -->
-    <string name="lan_localsend_compat_title">兼容 LocalSend 协议</string>
-    <string name="lan_localsend_compat_desc">开启后可与 PC / Mac / iOS / Android 版 LocalSend 互传文件（默认开启，可手动关闭）</string>
+    <string name="lan_localsend_compat_title">LocalSend 兼容</string>
+    <string name="lan_localsend_compat_desc">与 LocalSend 互传</string>
     <string name="settings_build">构建号</string>
-    <string name="settings_android_compat">系统兼容</string>
+    <string name="settings_android_compat">系统版本</string>
 
     <!-- Web 客户端实时传输与历史记录 -->
     <string name="lan_web_client_idle">空闲</string>
@@ -697,4 +677,18 @@
     <string name="view_bubbles">气泡</string>
     <string name="hint_view">视图</string>
     <string name="hint_options">选项</string>
+    <string name="settings_sec_library">游戏库</string>
+    <string name="settings_sec_covers">封面与信息</string>
+    <string name="settings_sec_emulators">模拟器</string>
+    <string name="settings_switch_section">切换分类</string>
+    <string name="settings_group_theme">主题</string>
+    <string name="settings_group_background">背景</string>
+    <string name="settings_group_typography">字体</string>
+    <string name="settings_group_layout">布局</string>
+    <string name="settings_group_folders">目录</string>
+    <string name="settings_group_actions">操作</string>
+    <string name="settings_group_general">通用</string>
+    <string name="settings_reduce_motion">减少动态效果</string>
+    <string name="settings_reduce_motion_desc">暂停背景动画，更省电</string>
+    <string name="share_failed">分享失败</string>
 </resources>
