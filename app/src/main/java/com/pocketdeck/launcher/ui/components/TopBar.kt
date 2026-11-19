@@ -22,31 +22,38 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,17 +74,22 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.draw.shadow
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pocketdeck.launcher.R
@@ -279,13 +291,44 @@ fun TopBar(
         }
     }
 
-    // 自动滚动选中的标签到可视区域
-    val listState = rememberLazyListState()
-    LaunchedEffect(selectedIndex) {
-        if (tabs.isNotEmpty()) {
-            listState.animateScrollToItem(
-                index = selectedIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0)),
-            )
+    // 动态滑块胶囊状态：位置 X 与宽度 W 同步弹性过渡，并自动将选中标签滚入可视居中区
+    val scrollState = rememberScrollState()
+    val tabBounds = remember(tabs) { mutableStateMapOf<Int, Pair<Float, Float>>() }
+    var pillHeightPx by remember { mutableFloatStateOf(0f) }
+    var viewportWidthPx by remember { mutableIntStateOf(0) }
+    val pillX = remember { Animatable(0f) }
+    val pillW = remember { Animatable(0f) }
+    var pillInitialized by remember { mutableStateOf(false) }
+
+    val safeSelected = selectedIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
+    val targetBounds = tabBounds[safeSelected]
+
+    LaunchedEffect(safeSelected, targetBounds, viewportWidthPx) {
+        val (tx, tw) = targetBounds ?: return@LaunchedEffect
+        val scrollTarget = if (viewportWidthPx > 0) {
+            (tx + tw / 2f - viewportWidthPx / 2f).roundToInt().coerceIn(0, scrollState.maxValue)
+        } else {
+            null
+        }
+        if (!pillInitialized || pillW.value <= 0f) {
+            pillX.snapTo(tx)
+            pillW.snapTo(tw)
+            pillInitialized = true
+            if (scrollTarget != null) scrollState.scrollTo(scrollTarget)
+        } else {
+            val pillSpec = spring<Float>(dampingRatio = 0.78f, stiffness = 460f)
+            coroutineScope {
+                launch { pillX.animateTo(tx, pillSpec) }
+                launch { pillW.animateTo(tw, pillSpec) }
+                if (scrollTarget != null) {
+                    launch {
+                        scrollState.animateScrollTo(
+                            scrollTarget,
+                            tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -296,20 +339,22 @@ fun TopBar(
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 可滚动标签行（仅在需要边缘渐变时启用离屏合成，避免无滚动时的多余离屏渲染开销）
+        // 可滚动标签行 + 动态滑动缩放的渐变选中胶囊（仅在需要边缘渐变时启用离屏合成）
         val palette = LocalDeckColors.current
-        val tabBrush = remember(palette.brandStart, palette.brandMid, palette.brandEnd) {
-            Brush.linearGradient(listOf(palette.brandStart, palette.brandMid, palette.brandEnd))
-        }
+        val brandStart = palette.brandStart
+        val brandMid = palette.brandMid
+        val brandEnd = palette.brandEnd
         val tabGlow = palette.brandEnd
         val tabSelectedStyle = DeckType.tabSelected
         val tabInactiveStyle = DeckType.tabInactive.copy(fontWeight = FontWeight.SemiBold)
-        val fadeLeft by remember { androidx.compose.runtime.derivedStateOf { listState.canScrollBackward } }
-        val fadeRight by remember { androidx.compose.runtime.derivedStateOf { listState.canScrollForward } }
-        LazyRow(
-            state = listState,
+        val fadeLeft by remember { derivedStateOf { scrollState.value > 2 } }
+        val fadeRight by remember { derivedStateOf { scrollState.value < scrollState.maxValue - 2 } }
+
+        Box(
             modifier = Modifier
                 .weight(1f)
+                .fillMaxHeight()
+                .onSizeChanged { viewportWidthPx = it.width }
                 .graphicsLayer(
                     compositingStrategy = if (fadeLeft || fadeRight) CompositingStrategy.Offscreen else CompositingStrategy.Auto,
                 )
@@ -331,40 +376,86 @@ fun TopBar(
                         )
                     }
                 },
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            contentAlignment = Alignment.CenterStart,
         ) {
-            itemsIndexed(tabs) { i, tab ->
-                val selected = i == selectedIndex
-                Box(
-                    Modifier
-                        .then(
-                            if (selected) Modifier
-                                .shadow(
-                                    elevation = 6.dp,
-                                    shape = CircleShape,
-                                    ambientColor = tabGlow,
-                                    spotColor = tabGlow,
-                                    clip = false,
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .horizontalScroll(scrollState)
+                    .drawBehind {
+                        val w = pillW.value
+                        val h = pillHeightPx
+                        if (w > 0f && h > 0f) {
+                            val x = pillX.value
+                            val y = (size.height - h) / 2f
+                            val r = h / 2f
+                            val yOff = 2.dp.toPx()
+                            // 柔和彩色投影辉光（无离屏开销）
+                            for (step in 3 downTo 1) {
+                                val spread = step * 2.2.dp.toPx()
+                                drawRoundRect(
+                                    color = tabGlow.copy(alpha = 0.08f * (4 - step) / 3f),
+                                    topLeft = Offset(x - spread * 0.45f, y + yOff - spread * 0.25f),
+                                    size = Size(w + spread * 0.9f, h + spread * 0.8f),
+                                    cornerRadius = CornerRadius(r + spread * 0.4f, r + spread * 0.4f),
                                 )
-                                .clip(CircleShape)
-                                .background(tabBrush)
-                            else Modifier.clip(CircleShape)
-                        )
-                        .clickable {
-                            KeySound.playTabSwitch(context)
-                            onTabClick(i)
+                            }
+                            drawRoundRect(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(brandStart, brandMid, brandEnd),
+                                    start = Offset(x, y),
+                                    end = Offset(x + w, y + h),
+                                ),
+                                topLeft = Offset(x, y),
+                                size = Size(w, h),
+                                cornerRadius = CornerRadius(r, r),
+                            )
                         }
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.Center,
+                    },
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        tab,
-                        style = if (selected) tabSelectedStyle else tabInactiveStyle,
-                        color = if (selected) Color.White else DeckColors.TextLabel,
-                        maxLines = 1,
-                        overflow = TextOverflow.Clip,
-                    )
+                    tabs.forEachIndexed { i, tab ->
+                        val selected = i == safeSelected
+                        val textColor by animateColorAsState(
+                            targetValue = if (selected) Color.White else DeckColors.TextLabel,
+                            animationSpec = tween(durationMillis = 180),
+                            label = "tabTextColor",
+                        )
+                        Box(
+                            Modifier
+                                .onGloballyPositioned { coords ->
+                                    val left = coords.positionInParent().x
+                                    val width = coords.size.width.toFloat()
+                                    val prev = tabBounds[i]
+                                    if (prev == null || prev.first != left || prev.second != width) {
+                                        tabBounds[i] = left to width
+                                    }
+                                    val h = coords.size.height.toFloat()
+                                    if (h > 0f && pillHeightPx != h) {
+                                        pillHeightPx = h
+                                    }
+                                }
+                                .clip(CircleShape)
+                                .clickable {
+                                    KeySound.playTabSwitch(context)
+                                    onTabClick(i)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                tab,
+                                style = if (selected) tabSelectedStyle else tabInactiveStyle,
+                                color = textColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip,
+                            )
+                        }
+                    }
                 }
             }
         }
