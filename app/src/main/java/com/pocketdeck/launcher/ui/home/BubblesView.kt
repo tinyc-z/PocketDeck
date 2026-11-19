@@ -129,7 +129,7 @@ fun BubblesView(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 46.dp),
+                contentPadding = PaddingValues(top = 12.dp, bottom = 46.dp),
             ) {
                 items(
                     count = totalRows,

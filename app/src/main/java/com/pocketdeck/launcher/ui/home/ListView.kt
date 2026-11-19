@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,8 +36,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
+import com.pocketdeck.launcher.ui.theme.DeckBrand
+import com.pocketdeck.launcher.ui.theme.LocalDeckColors
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -92,6 +97,11 @@ fun ListView(
     val view = LocalView.current
     val densityPx = LocalDensity.current.density
     val rubyColor = DeckColors.Ruby
+    val palette = LocalDeckColors.current
+    val rowSurface = palette.surface
+    val brandColors = remember(palette.brandStart, palette.brandMid, palette.brandEnd) {
+        listOf(palette.brandStart, palette.brandMid, palette.brandEnd)
+    }
     val listState = rememberLazyListState()
     var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(focusIndex, games.size) {
@@ -186,11 +196,32 @@ fun ListView(
                             translationX = 6f * p * densityPx
                             transformOrigin = TransformOrigin(0f, 0.5f)
                         }
-                        .clip(RoundedCornerShape(10.dp))
-                        .drawBehind {
-                            val p = focusProgressState.value
-                            if (p > 0.01f) {
-                                drawRect(rubyColor.copy(alpha = 0.20f * p))
+                        .drawWithCache {
+                            // 品牌焦点行：卡面底色 + 渐变细描边，随焦点进度淡入（渐变/描边按尺寸缓存，绘制期零分配）
+                            val radius = CornerRadius(DeckBrand.RadiusM.toPx())
+                            val strokeW = 1.5.dp.toPx()
+                            val inset = strokeW / 2f
+                            val ringBrush = Brush.linearGradient(
+                                brandColors,
+                                start = Offset.Zero,
+                                end = Offset(size.width, size.height),
+                            )
+                            val ringStroke = Stroke(width = strokeW)
+                            val ringTopLeft = Offset(inset, inset)
+                            val ringSize = Size(size.width - strokeW, size.height - strokeW)
+                            onDrawBehind {
+                                val p = focusProgressState.value
+                                if (p > 0.01f) {
+                                    drawRoundRect(color = rowSurface, cornerRadius = radius, alpha = p)
+                                    drawRoundRect(
+                                        brush = ringBrush,
+                                        topLeft = ringTopLeft,
+                                        size = ringSize,
+                                        cornerRadius = radius,
+                                        style = ringStroke,
+                                        alpha = p,
+                                    )
+                                }
                             }
                         }
                         .pointerInput(game.id) {
@@ -219,7 +250,7 @@ fun ListView(
                     Text(
                         text = game.title,
                         style = if (focused) DeckType.listItemSelected else DeckType.listItem,
-                        color = if (focused) rubyColor else DeckColors.TextSecondary.copy(alpha = 0.65f),
+                        color = if (focused) DeckColors.TextPrimary else DeckColors.TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -228,7 +259,7 @@ fun ListView(
                         Spacer(Modifier.width(8.dp))
                         FavoriteHeartIcon(
                             filled = true,
-                            color = if (focused) rubyColor else rubyColor.copy(alpha = 0.85f),
+                            color = rubyColor,
                             size = 15.dp,
                         )
                     }

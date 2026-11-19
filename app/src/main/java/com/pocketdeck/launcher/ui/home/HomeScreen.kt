@@ -539,7 +539,7 @@ fun HomeScreen(
                         vm.toggleSettings()
                         true
                     }
-                    event.key == Key.F4 -> {
+                    event.key == Key.F4 || event.key == Key.ButtonSelect -> {
                         vm.openViewMenu()
                         true
                     }
@@ -818,6 +818,9 @@ fun HomeScreen(
             if (state.bottomBar && !(state.searching && imeVisible)) {
                 val stableOnApps = remember(vm) { { vm.openApps() } }
                 val stableOnSettings = remember(vm) { { vm.toggleSettings() } }
+                val stableOnOptions = remember(state.games, state.focusIndex) {
+                    if (state.games.isNotEmpty()) ({ showCurrentGameMenu() }) else null
+                }
                 val stableOnViewSwitch = remember(vm) { { vm.openViewMenu() } }
                 val stableOnSearch = remember(vm) { { vm.toggleSearch() } }
                 val stableOnPlay = remember(launchGame) { { launchCurrentGame() } }
@@ -826,6 +829,7 @@ fun HomeScreen(
                     searching = state.searching,
                     onApps = stableOnApps,
                     onSettings = stableOnSettings,
+                    onOptions = stableOnOptions,
                     onViewSwitch = stableOnViewSwitch,
                     onSearch = stableOnSearch,
                     onPlay = stableOnPlay,

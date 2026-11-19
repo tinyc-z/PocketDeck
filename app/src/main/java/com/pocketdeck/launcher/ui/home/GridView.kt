@@ -116,7 +116,7 @@ fun GridView(
                 columns = GridCells.Fixed(GRID_COLUMNS),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = hPadding, end = hPadding, top = 8.dp, bottom = 44.dp),
+                contentPadding = PaddingValues(start = hPadding, end = hPadding, top = 14.dp, bottom = 44.dp),
                 horizontalArrangement = Arrangement.spacedBy(spacing),
                 verticalArrangement = Arrangement.spacedBy(spacing),
             ) {

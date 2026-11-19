@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -75,9 +78,10 @@ import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
 import com.pocketdeck.launcher.ui.theme.DeckShapes
+import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.brandFocusRing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 
 internal object AppIconCache {
     private val cache = LruCache<String, ImageBitmap>(64)
@@ -241,9 +245,14 @@ fun CoverCard(
         null
     }
     // 无边框选中态仅通过柔和浮起阴影与微幅暗退突显焦点；快滚期间跳过离屏阴影重绘
-    val elevation = if (isFocused && !fastScrolling) (if (prominentFocus) 14.dp else 12.dp) else 0.dp
-    val ambientShadowColor = if (isFocused) DeckColors.Ruby else Color.Black
-    val spotShadowColor = if (isFocused) DeckColors.CardShadow else Color.Black
+    // 焦点卡：品牌色柔光浮起阴影（快滚期跳过）；其余小卡：粉调软阴影
+    val elevation = when {
+        isFocused && !fastScrolling -> if (prominentFocus) 12.dp else 10.dp
+        isFocused -> 0.dp
+        else -> 2.dp
+    }
+    val ambientShadowColor = if (isFocused) DeckColors.BrandEnd else DeckColors.CardShadow
+    val spotShadowColor = if (isFocused) DeckColors.BrandMid else DeckColors.CardShadow
 
     val density = LocalDensity.current
     val decodeBucketPx = remember(width, height, density.density) {
@@ -313,215 +322,173 @@ fun CoverCard(
     }
 
     val dimColor = DeckColors.Background
-    val favPrimary = DeckColors.Ruby
-    val favGlow = DeckColors.AccentGlow
+    val isCircle = shapeOverride == CircleShape
+    val ringRadius = if (isCircle) maxOf(width, height) / 2 else if (isFocused) FOCUS_CARD_RADIUS else SMALL_CARD_RADIUS
+    // 焦点卡外侧悬浮渐变收藏徽章（方形大卡）；其余情况徽章收在卡内
+    val outerFavBadge = isFavorite && isFocused && !isCircle && width >= 120.dp && height >= 120.dp
 
     Box(
         modifier
             .then(focusAnimModifier)
             .size(width, height)
-            .then(
-                if (elevation > 0.dp) {
-                    Modifier.shadow(elevation, shape, ambientColor = ambientShadowColor, spotColor = spotShadowColor)
-                } else {
-                    Modifier
-                },
-            )
-            .clip(shape)
-            .background(DeckColors.Surface)
-            .then(gestureModifier)
-            .drawWithContent {
-                drawContent()
-                val p = focusProgressState?.value ?: if (isFocused) 1f else 0f
-                if (useFocusAnim && unfocusedAlpha < 1f && p < 0.99f) {
-                    val dimAlpha = (1f - unfocusedAlpha) * (1f - p)
-                    if (dimAlpha > 0.01f) {
-                        drawRect(dimColor.copy(alpha = dimAlpha * 0.58f))
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center,
+            .brandFocusRing(isFocused, cornerRadius = ringRadius),
     ) {
-        // 底层：加载中或无封面时显示精致默认封面（原生安卓游戏则居中显示应用图标）
-        if (!loadedSuccess) {
-            DefaultCoverArt(
-                title = title,
-                platformLabel = platformLabel,
-                cardHeight = height,
-                centeredTitle = centeredTitle,
-                appIcon = appIconBitmap,
-            )
-        }
-
-        // 顶层：快滚期只命中内存缓存（List 预览图支持盘缓存秒显，仅延后联网）；停下解锁后加载完整磁盘/网络封面
-        val isOnline by NetworkStatus.online.collectAsState()
-        if (currentModel != null) {
-            val request = remember(currentModel, isOnline, decodeBucketPx, loadUnlocked, allowDisk) {
-                ImageRequest.Builder(context)
-                    .data(currentModel)
-                    .size(decodeBucketPx, decodeBucketPx)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(if (allowDisk) CachePolicy.ENABLED else CachePolicy.DISABLED)
-                    .networkCachePolicy(if (loadUnlocked && isOnline) CachePolicy.ENABLED else CachePolicy.DISABLED)
-                    .build()
-            }
-            AsyncImage(
-                model = request,
-                contentDescription = title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                onState = { state ->
-                    when (state) {
-                        is AsyncImagePainter.State.Success -> {
-                            loadedSuccess = true
-                            if (loadUnlocked && knownIndex != candidateIdx) {
-                                onCandidateResolved?.invoke(candidateIdx)
-                            }
+        Box(
+            Modifier
+                .matchParentSize()
+                .then(
+                    if (elevation > 0.dp) {
+                        Modifier.shadow(elevation, shape, ambientColor = ambientShadowColor, spotColor = spotShadowColor)
+                    } else {
+                        Modifier
+                    },
+                )
+                .clip(shape)
+                .background(DeckColors.Surface)
+                .then(gestureModifier)
+                .drawWithContent {
+                    drawContent()
+                    val p = focusProgressState?.value ?: if (isFocused) 1f else 0f
+                    if (useFocusAnim && unfocusedAlpha < 1f && p < 0.99f) {
+                        val dimAlpha = (1f - unfocusedAlpha) * (1f - p)
+                        if (dimAlpha > 0.01f) {
+                            drawRect(dimColor.copy(alpha = dimAlpha * 0.58f))
                         }
-                        is AsyncImagePainter.State.Error -> {
-                            loadedSuccess = false
-                            if (loadUnlocked) {
-                                if (candidateIdx + 1 < candidates.size) {
-                                    candidateIdx += 1
-                                } else {
-                                    candidateIdx = -1
-                                    if (knownIndex != -1) {
-                                        onCandidateResolved?.invoke(-1)
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            // 底层：加载中或无封面时显示品牌渐变默认封面（原生安卓游戏则居中显示应用图标）
+            if (!loadedSuccess) {
+                DefaultCoverArt(
+                    title = title,
+                    platformLabel = platformLabel,
+                    cardHeight = height,
+                    centeredTitle = centeredTitle,
+                    appIcon = appIconBitmap,
+                )
+            }
+
+            // 顶层：快滚期只命中内存缓存（List 预览图支持盘缓存秒显，仅延后联网）；停下解锁后加载完整磁盘/网络封面
+            val isOnline by NetworkStatus.online.collectAsState()
+            if (currentModel != null) {
+                val request = remember(currentModel, isOnline, decodeBucketPx, loadUnlocked, allowDisk) {
+                    ImageRequest.Builder(context)
+                        .data(currentModel)
+                        .size(decodeBucketPx, decodeBucketPx)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(if (allowDisk) CachePolicy.ENABLED else CachePolicy.DISABLED)
+                        .networkCachePolicy(if (loadUnlocked && isOnline) CachePolicy.ENABLED else CachePolicy.DISABLED)
+                        .build()
+                }
+                AsyncImage(
+                    model = request,
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    onState = { state ->
+                        when (state) {
+                            is AsyncImagePainter.State.Success -> {
+                                loadedSuccess = true
+                                if (loadUnlocked && knownIndex != candidateIdx) {
+                                    onCandidateResolved?.invoke(candidateIdx)
+                                }
+                            }
+                            is AsyncImagePainter.State.Error -> {
+                                loadedSuccess = false
+                                if (loadUnlocked) {
+                                    if (candidateIdx + 1 < candidates.size) {
+                                        candidateIdx += 1
+                                    } else {
+                                        candidateIdx = -1
+                                        if (knownIndex != -1) {
+                                            onCandidateResolved?.invoke(-1)
+                                        }
                                     }
                                 }
                             }
+                            else -> Unit
                         }
-                        else -> Unit
-                    }
-                },
-            )
-        }
-
-        // 左上角平台缩写胶囊（有封面图与无封面图统一显示，圆形气泡与极小卡片不显示）
-        if (shapeOverride != CircleShape && !centeredTitle && !platformLabel.isNullOrBlank() && height >= 76.dp) {
-            val compactTag = height < 120.dp
-            val tagBg = if (loadedSuccess) Color.Black.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.20f)
-            Box(
-                Modifier
-                    .align(Alignment.TopStart)
-                    .padding(if (compactTag) 6.dp else 10.dp)
-                    .clip(CircleShape)
-                    .background(tagBg)
-                    .padding(
-                        horizontal = if (compactTag) 6.dp else 8.dp,
-                        vertical = if (compactTag) 1.5.dp else 2.5.dp,
-                    ),
-            ) {
-                Text(
-                    text = platformLabel,
-                    fontFamily = DeckFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = if (compactTag) 7.sp else 9.sp,
-                    color = Color.White,
-                    maxLines = 1,
+                    },
                 )
             }
+
+            // 左上角平台缩写角标（有封面图与无封面图统一显示，圆形气泡与极小卡片不显示）
+            if (!isCircle && !centeredTitle && !platformLabel.isNullOrBlank() && height >= 76.dp) {
+                PlatformBadge(
+                    label = platformLabel,
+                    compact = height < 120.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(if (height < 120.dp) 5.dp else 7.dp),
+                )
+            }
+
+            // 卡内收藏徽章：方形卡置右上角（避免遮挡底部标题）；气泡置正下方
+            if (isFavorite && !outerFavBadge && width >= 54.dp && height >= 54.dp) {
+                val compactBadge = width < 120.dp || height < 120.dp
+                val badgeSize = if (compactBadge) 18.dp else 22.dp
+                val badgeModifier = if (isCircle) {
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = (height * 0.07f).coerceAtLeast(5.dp))
+                } else {
+                    val pad = if (compactBadge) 5.dp else 7.dp
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = pad, end = pad)
+                }
+                BrandHeartBadge(size = badgeSize, shadow = false, modifier = badgeModifier)
+            }
         }
 
-        // 前卫收藏液态玻璃微章：熏黑玻璃透镜 + 柔光晕 + 渐变立体心形（方形置右上角避免遮挡底部标题；气泡置正下方）
-        if (isFavorite && width >= 54.dp && height >= 54.dp) {
-            val isCircle = shapeOverride == CircleShape
-            val compactBadge = width < 120.dp || height < 120.dp
-            val badgeSize = if (isCircle) {
-                if (compactBadge) 22.dp else 26.dp
-            } else {
-                if (compactBadge) 22.dp else 28.dp
-            }
-            val badgeModifier = if (isCircle) {
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = (height * 0.07f).coerceAtLeast(5.dp))
-            } else {
-                val pad = if (compactBadge) 5.dp else 8.dp
-                Modifier
+        // 焦点大卡：右上角外悬浮渐变心形徽章（与设计稿一致）
+        if (outerFavBadge) {
+            BrandHeartBadge(
+                size = 28.dp,
+                modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = pad, end = pad)
-            }
-            CoverFavoriteBadge(
-                size = badgeSize,
-                primary = favPrimary,
-                glow = favGlow,
-                modifier = badgeModifier,
+                    .offset(x = 9.dp, y = (-9).dp),
             )
         }
     }
 }
 
+private val FOCUS_CARD_RADIUS = 9.dp
+private val SMALL_CARD_RADIUS = 7.dp
+
+/** 统一平台角标：深梅色半透明圆角小牌 + 白色粗体缩写。 */
 @Composable
-private fun CoverFavoriteBadge(
-    size: Dp,
-    primary: Color,
-    glow: Color,
+fun PlatformBadge(
+    label: String,
+    compact: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val heartPath = remember { Path() }
-    val rimBrush = remember {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.34f),
-                Color.White.copy(alpha = 0.04f),
-                Color.Transparent,
+    Box(
+        modifier
+            .clip(RoundedCornerShape(if (compact) 4.dp else 5.dp))
+            .background(PLATFORM_BADGE_BG)
+            .padding(
+                horizontal = if (compact) 4.dp else 5.5.dp,
+                vertical = if (compact) 1.dp else 1.5.dp,
             ),
-        )
-    }
-    val heartTop = remember(glow) { lerp(glow, Color.White, 0.24f) }
-    val heartBrush = remember(heartTop, primary) {
-        Brush.linearGradient(colors = listOf(heartTop, primary))
-    }
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val minDim = minOf(w, h)
-        val center = Offset(w * 0.5f, h * 0.5f)
-
-        // 1. 柔和暖红环境光晕
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(glow.copy(alpha = 0.34f), Color.Transparent),
-                center = center,
-                radius = minDim * 0.50f,
-            ),
-            radius = minDim * 0.50f,
-            center = center,
-        )
-
-        // 2. 熏黑液态玻璃镜片 + 顶部微高光月牙边缘
-        val lensR = minDim * 0.42f
-        drawCircle(
-            color = Color(0xFF101016).copy(alpha = 0.46f),
-            radius = lensR,
-            center = center,
-        )
-        drawCircle(
-            brush = rimBrush,
-            radius = lensR,
-            center = center,
-            style = Stroke(width = 0.75.dp.toPx()),
-        )
-
-        // 3. 渐变立体心形
-        val heartW = minDim * 0.50f
-        val heartH = heartW * 0.92f
-        buildModernHeartPath(heartPath, heartW, heartH)
-        translate(left = center.x - heartW * 0.50f, top = center.y - heartH * 0.48f) {
-            drawPath(path = heartPath, brush = heartBrush, style = Fill)
-        }
-
-        // 4. 左上心瓣高光晶点
-        drawCircle(
-            color = Color.White.copy(alpha = 0.50f),
-            radius = (heartW * 0.09f).coerceAtLeast(1f),
-            center = Offset(center.x - heartW * 0.19f, center.y - heartH * 0.16f),
+    ) {
+        Text(
+            text = label,
+            fontFamily = DeckFontFamily,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 7.5.sp else 9.5.sp,
+            lineHeight = if (compact) 9.sp else 11.sp,
+            letterSpacing = 0.3.sp,
+            color = Color.White,
+            maxLines = 1,
         )
     }
 }
 
-/** 精致的默认封面：和谐渐变底色 + 几何装饰纹样 + 矢量手柄图标 + 平台角标 + 游戏名。 */
+private val PLATFORM_BADGE_BG = Color(0x9E24172F)
+
+/** 默认封面：主题品牌渐变底 + 白色手柄图标 + 游戏名（与网页控制台一致）。 */
 @Composable
 fun DefaultCoverArt(
     title: String,
@@ -530,23 +497,49 @@ fun DefaultCoverArt(
     centeredTitle: Boolean = false,
     appIcon: ImageBitmap? = null,
 ) {
-    val palette = remember(title) {
-        val idx = abs(title.hashCode()) % DEFAULT_PALETTES.size
-        DEFAULT_PALETTES[idx]
-    }
-    val bgBrush = remember(palette) {
-        Brush.linearGradient(
-            colors = listOf(palette.top, palette.bottom),
-            start = Offset(0f, 0f),
-            end = Offset(400f, 600f),
-        )
-    }
+    val p = LocalDeckColors.current
     val compact = cardHeight < 120.dp
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(bgBrush),
+            .drawWithCache {
+                val w = size.width
+                val h = size.height
+                val bg = Brush.linearGradient(
+                    listOf(p.brandStart, p.brandMid, p.brandEnd),
+                    start = Offset.Zero,
+                    end = Offset(w, h),
+                )
+                // 手柄图标几何（白色线性），仅在尺寸变化时重算
+                val iconScale = if (compact) 0.40f else 0.34f
+                val gw = w * iconScale
+                val gh = gw * 0.62f
+                val gx = (w - gw) / 2f
+                val gy = if (centeredTitle) h * 0.20f else h * 0.30f
+                val strokeW = (if (compact) 1.6f else 2.4f).dp.toPx()
+                val stroke = Stroke(width = strokeW)
+                val bodyCorner = CornerRadius(gh * 0.48f, gh * 0.48f)
+                val dpadCx = gx + gw * 0.28f
+                val dpadCy = gy + gh * 0.50f
+                val dpadArm = gh * 0.20f
+                val btnR = gh * 0.085f
+                val iconColor = Color.White.copy(alpha = 0.92f)
+                val drawIcon = appIcon == null
+                onDrawBehind {
+                    drawRect(bg)
+                    // 右上角柔和光晕
+                    drawCircle(Color.White.copy(alpha = 0.10f), radius = w * 0.55f, center = Offset(w * 0.92f, h * 0.08f))
+                    if (drawIcon) {
+                        drawRoundRect(iconColor, Offset(gx, gy), Size(gw, gh), bodyCorner, style = stroke)
+                        drawLine(iconColor, Offset(dpadCx - dpadArm, dpadCy), Offset(dpadCx + dpadArm, dpadCy), strokeW, cap = StrokeCap.Round)
+                        drawLine(iconColor, Offset(dpadCx, dpadCy - dpadArm), Offset(dpadCx, dpadCy + dpadArm), strokeW, cap = StrokeCap.Round)
+                        drawCircle(iconColor, btnR, Offset(gx + gw * 0.68f, gy + gh * 0.60f))
+                        drawCircle(iconColor, btnR, Offset(gx + gw * 0.79f, gy + gh * 0.42f))
+                    }
+                    drawRect(DEFAULT_COVER_SCRIM_BRUSH)
+                }
+            },
     ) {
         if (appIcon != null) {
             Image(
@@ -557,60 +550,7 @@ fun DefaultCoverArt(
                     .size((cardHeight * 0.48f).coerceIn(36.dp, 96.dp))
                     .clip(RoundedCornerShape(14.dp)),
             )
-        } else {
-            // 几何装饰背景与复古手柄矢量图
-            Canvas(Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-
-            // 右上角柔和同心圆光晕
-            drawCircle(
-                color = Color.White.copy(alpha = 0.08f),
-                radius = w * 0.55f,
-                center = Offset(w * 0.88f, h * 0.14f),
-            )
-            drawCircle(
-                color = Color.White.copy(alpha = 0.06f),
-                radius = w * 0.34f,
-                center = Offset(w * 0.88f, h * 0.14f),
-            )
-
-            // 居中偏上绘制极简手柄图标（非居中标题模式下）
-            val iconScale = if (compact) 0.34f else 0.30f
-            val gw = w * iconScale
-            val gh = gw * 0.58f
-            val gx = (w - gw) / 2f
-            val gy = if (centeredTitle) h * 0.22f else h * 0.33f
-            val strokeW = (if (compact) 1.5f else 2.2f).dp.toPx()
-            val iconColor = Color.White.copy(alpha = if (centeredTitle) 0.24f else 0.34f)
-
-            // 手柄机身
-            drawRoundRect(
-                color = iconColor,
-                topLeft = Offset(gx, gy),
-                size = Size(gw, gh),
-                cornerRadius = CornerRadius(gh * 0.48f, gh * 0.48f),
-                style = Stroke(width = strokeW),
-            )
-            // 左侧十字键
-            val dpadCx = gx + gw * 0.28f
-            val dpadCy = gy + gh * 0.50f
-            val dpadArm = gh * 0.22f
-            drawLine(iconColor, Offset(dpadCx - dpadArm, dpadCy), Offset(dpadCx + dpadArm, dpadCy), strokeW)
-            drawLine(iconColor, Offset(dpadCx, dpadCy - dpadArm), Offset(dpadCx, dpadCy + dpadArm), strokeW)
-            // 右侧 AB 键两点
-            val btnR = gh * 0.09f
-            drawCircle(iconColor, btnR, Offset(gx + gw * 0.68f, gy + gh * 0.58f))
-            drawCircle(iconColor, btnR, Offset(gx + gw * 0.78f, gy + gh * 0.42f))
         }
-        }
-
-        // 底部柔和暗色渐变遮罩，衬托文字清晰可读
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(DEFAULT_COVER_SCRIM_BRUSH),
-        )
 
         if (centeredTitle) {
             // 气泡或极小卡片：居中简洁显示标题
@@ -621,31 +561,31 @@ fun DefaultCoverArt(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                Spacer(Modifier.height(cardHeight * 0.18f))
                 Text(
                     text = title,
                     fontFamily = DeckFontFamily,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     fontSize = if (compact) 10.sp else 12.sp,
                     lineHeight = if (compact) 12.sp else 15.sp,
                     color = Color.White,
                     textAlign = TextAlign.Center,
-                    maxLines = 3,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         } else {
-            // 盒装封面风格：左上角平台胶囊由外层 CoverCard 统一绘制，此处仅保留底部游戏标题
+            // 盒装封面风格：左上角平台角标由外层 CoverCard 统一绘制，此处仅保留底部游戏标题
             Column(
                 Modifier
                     .fillMaxSize()
                     .padding(if (compact) 6.dp else 10.dp),
                 verticalArrangement = Arrangement.Bottom,
             ) {
-
                 Text(
                     text = title,
                     fontFamily = DeckFontFamily,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     fontSize = if (compact) 9.sp else 13.sp,
                     lineHeight = if (compact) 11.sp else 17.sp,
                     color = Color.White,
@@ -661,16 +601,5 @@ fun DefaultCoverArt(
 private val DEFAULT_COVER_SCRIM_BRUSH = Brush.verticalGradient(
     0f to Color.Transparent,
     0.55f to Color.Transparent,
-    1f to Color.Black.copy(alpha = 0.32f),
-)
-
-private data class CoverPalette(val top: Color, val bottom: Color)
-
-private val DEFAULT_PALETTES = listOf(
-    CoverPalette(Color(0xFFB71C1C), Color(0xFF6D131C)), // PocketDeck Ruby
-    CoverPalette(Color(0xFF3949AB), Color(0xFF1E2758)), // Classic Indigo
-    CoverPalette(Color(0xFF00796B), Color(0xFF00433B)), // Retro Teal
-    CoverPalette(Color(0xFF5E35B1), Color(0xFF311B66)), // GameCube Violet
-    CoverPalette(Color(0xFFD84315), Color(0xFF7A1E08)), // Famicom Vermilion
-    CoverPalette(Color(0xFF37474F), Color(0xFF1A2329)), // Slate Charcoal
+    1f to Color(0xFF24172F).copy(alpha = 0.28f),
 )

@@ -71,7 +71,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.shadow
+import com.pocketdeck.launcher.ui.theme.DeckBrand
+import com.pocketdeck.launcher.ui.theme.LocalDeckColors
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -293,6 +297,13 @@ fun TopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 可滚动标签行（仅在需要边缘渐变时启用离屏合成，避免无滚动时的多余离屏渲染开销）
+        val palette = LocalDeckColors.current
+        val tabBrush = remember(palette.brandStart, palette.brandMid, palette.brandEnd) {
+            Brush.linearGradient(listOf(palette.brandStart, palette.brandMid, palette.brandEnd))
+        }
+        val tabGlow = palette.brandEnd
+        val tabSelectedStyle = DeckType.tabSelected
+        val tabInactiveStyle = DeckType.tabInactive.copy(fontWeight = FontWeight.SemiBold)
         val fadeLeft by remember { androidx.compose.runtime.derivedStateOf { listState.canScrollBackward } }
         val fadeRight by remember { androidx.compose.runtime.derivedStateOf { listState.canScrollForward } }
         LazyRow(
@@ -327,23 +338,30 @@ fun TopBar(
                 val selected = i == selectedIndex
                 Box(
                     Modifier
+                        .then(
+                            if (selected) Modifier
+                                .shadow(
+                                    elevation = 6.dp,
+                                    shape = CircleShape,
+                                    ambientColor = tabGlow,
+                                    spotColor = tabGlow,
+                                    clip = false,
+                                )
+                                .clip(CircleShape)
+                                .background(tabBrush)
+                            else Modifier.clip(CircleShape)
+                        )
                         .clickable {
                             KeySound.playTabSwitch(context)
                             onTabClick(i)
                         }
-                        .then(
-                            if (selected) Modifier
-                                .clip(DeckShapes.tabPill)
-                                .background(DeckColors.PillSelected)
-                            else Modifier
-                        )
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         tab,
-                        style = if (selected) DeckType.tabSelected else DeckType.tabInactive,
-                        color = if (selected) DeckColors.PillText else DeckColors.PillTextInactive,
+                        style = if (selected) tabSelectedStyle else tabInactiveStyle,
+                        color = if (selected) Color.White else DeckColors.TextLabel,
                         maxLines = 1,
                         overflow = TextOverflow.Clip,
                     )
@@ -439,7 +457,7 @@ fun TopBar(
             }
 
             if (showClock) {
-                Text(timeText, style = DeckType.statusInfo, color = statusTint)
+                Text(timeText, style = DeckType.statusInfo.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp), color = statusTint)
             }
 
             // 勿扰模式图标
@@ -906,24 +924,29 @@ fun BumperBadge(
     }
 }
 
-/** 底栏按钮旁的黑色圆形/胶囊字母徽标（支持多字符按键名如 L1 / START）。 */
+/**
+ * 按键字母徽标：墨色圆形 + 反色粗体字母（支持多字符按键名如 L1 / START 自动变胶囊）。
+ * [primary] 为 true 时使用品牌渐变底 + 白字（主操作 A 键）。
+ */
 @Composable
-fun ButtonBadge(text: String, modifier: Modifier = Modifier) {
+fun ButtonBadge(text: String, modifier: Modifier = Modifier, primary: Boolean = false, size: Dp = 22.dp) {
+    val bgModifier = if (primary) Modifier.background(DeckBrand.brandBrush) else Modifier.background(DeckColors.ButtonBadge)
     Box(
         modifier
-            .defaultMinSize(minWidth = 22.dp, minHeight = 22.dp)
+            .defaultMinSize(minWidth = size, minHeight = size)
             .clip(CircleShape)
-            .background(DeckColors.ButtonBadge)
+            .then(bgModifier)
             .padding(horizontal = if (text.length > 1) 6.dp else 0.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text,
             style = DeckType.statusInfo.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 9.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = if (text.length > 1) 9.sp else (size.value * 0.46f).sp,
+                lineHeight = (size.value * 0.6f).sp,
             ),
-            color = DeckColors.ButtonBadgeText,
+            color = if (primary) Color.White else DeckColors.ButtonBadgeText,
             maxLines = 1,
         )
     }

@@ -1,7 +1,6 @@
 package com.pocketdeck.launcher.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,23 +21,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.pocketdeck.launcher.data.ViewMode
+import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.data.ViewMode
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.ui.components.icons.HomeIcons
 import com.pocketdeck.launcher.ui.theme.DeckColors
-import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
-import androidx.compose.ui.res.stringResource
 
 /**
- * 底栏：(B) Apps  (Y) Settings · 视图图标 搜索图标 ... (A) Play
+ * 底栏（Sunset Arcade）：
+ * (B) Apps  (Y) Settings  (X) Options  [视图图标] View  [搜索]  ...  (A 渐变) Play
  */
 @Composable
 fun BottomBar(
@@ -45,6 +44,7 @@ fun BottomBar(
     searching: Boolean = false,
     onApps: () -> Unit = {},
     onSettings: () -> Unit = {},
+    onOptions: (() -> Unit)? = null,
     onViewSwitch: () -> Unit = {},
     onSearch: () -> Unit = {},
     onPlay: () -> Unit = {},
@@ -55,81 +55,70 @@ fun BottomBar(
     val playBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Play, swapAbxy)
     val appsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Apps, swapAbxy)
     val settingsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Settings, swapAbxy)
+    val menuBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Menu, swapAbxy)
+
+    val ink = DeckColors.TextPrimary
+    val accent = DeckColors.Ruby
 
     Row(
         modifier
             .fillMaxWidth()
             .height(44.dp)
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // (B) Apps
         BarButton(badge = appsBtn, label = stringResource(R.string.apps), onClick = onApps)
 
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(2.dp))
 
         // (Y) Settings
         BarButton(badge = settingsBtn, label = stringResource(R.string.settings), onClick = onSettings)
 
-        Spacer(Modifier.width(4.dp))
-        Text("·", style = DeckType.bottomBar, color = DeckColors.TextSecondary)
-        Spacer(Modifier.width(4.dp))
+        if (onOptions != null) {
+            Spacer(Modifier.width(2.dp))
+            // (X) Options
+            BarButton(badge = menuBtn, label = stringResource(R.string.hint_options), onClick = onOptions)
+        }
 
-        val primaryTint = DeckColors.TextPrimary
-        val rubyTint = DeckColors.Ruby
+        Spacer(Modifier.width(2.dp))
 
-        // 当前视图图标（点击弹出视图切换菜单）
-        BarIconButton(onClick = onViewSwitch) {
+        // 视图切换（图标 + View 文案）
+        BarChipButton(onClick = onViewSwitch) {
             Box(
                 Modifier
-                    .size(22.dp)
-                    .drawBehind { drawViewModeIcon(viewMode, primaryTint) },
+                    .size(18.dp)
+                    .drawBehind { drawViewModeIcon(viewMode, ink) },
+            )
+            Text(
+                stringResource(R.string.hint_view),
+                style = DeckType.bottomBar.copy(fontWeight = FontWeight.Medium, fontSize = 13.5.sp),
+                color = ink,
+                maxLines = 1,
             )
         }
 
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(2.dp))
 
-        // 搜索图标（搜索时高亮为 Ruby 色关闭图标）
+        // 搜索图标（搜索时切换为强调色关闭图标）
         BarIconButton(onClick = onSearch) {
-            Box(
-                Modifier
-                    .size(22.dp)
-                    .drawBehind {
-                        if (searching) {
-                            drawCloseIcon(rubyTint)
-                        } else {
-                            drawSearchIcon(primaryTint)
-                        }
-                    },
+            DeckIcon(
+                icon = if (searching) HomeIcons.Close else HomeIcons.Search,
+                size = 19.dp,
+                tint = if (searching) accent else ink,
             )
         }
 
         Spacer(Modifier.weight(1f))
 
-        // (A) Play
-        BarButton(badge = playBtn, label = stringResource(R.string.play), onClick = onPlay)
+        // (A) Play —— 主操作使用品牌渐变徽标
+        BarButton(
+            badge = playBtn,
+            label = stringResource(R.string.play),
+            primary = true,
+            onClick = onPlay,
+        )
     }
-}
-
-/** 搜索图标：圆圈 + 右下斜线把手 */
-private fun DrawScope.drawSearchIcon(color: Color) {
-    val sw = 2f.dp.toPx()
-    val cx = size.width * 0.42f
-    val cy = size.height * 0.42f
-    val r = size.width * 0.26f
-
-    drawCircle(color, r, Offset(cx, cy), style = Stroke(sw))
-    val handleStart = Offset(cx + r * 0.7f, cy + r * 0.7f)
-    val handleEnd = Offset(size.width - 4.dp.toPx(), size.height - 4.dp.toPx())
-    drawLine(color, handleStart, handleEnd, sw, cap = StrokeCap.Round)
-}
-
-/** 关闭图标 */
-private fun DrawScope.drawCloseIcon(color: Color) {
-    val sw = 2f.dp.toPx()
-    val pad = 5.dp.toPx()
-    drawLine(color, Offset(pad, pad), Offset(size.width - pad, size.height - pad), sw, cap = StrokeCap.Round)
-    drawLine(color, Offset(size.width - pad, pad), Offset(pad, size.height - pad), sw, cap = StrokeCap.Round)
 }
 
 @Composable
@@ -137,23 +126,53 @@ private fun BarButton(
     badge: String?,
     label: String,
     onClick: () -> Unit,
+    primary: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Row(
         modifier
-            .clip(DeckShapes.tabPill)
+            .clip(CircleShape)
             .background(if (pressed) DeckColors.TextPrimary.copy(alpha = 0.10f) else Color.Transparent)
             .soundClickableNoIndication(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(horizontal = 7.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         if (badge != null) {
-            ButtonBadge(badge)
+            ButtonBadge(badge, primary = primary, size = 22.dp)
         }
-        Text(label, style = DeckType.bottomBar, color = DeckColors.TextPrimary)
+        Text(
+            label,
+            style = DeckType.bottomBar.copy(
+                fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
+                fontSize = 13.5.sp,
+            ),
+            color = DeckColors.TextPrimary,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun BarChipButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Row(
+        modifier
+            .clip(CircleShape)
+            .background(if (pressed) DeckColors.TextPrimary.copy(alpha = 0.10f) else Color.Transparent)
+            .soundClickableNoIndication(interactionSource = interaction, onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        content()
     }
 }
 
@@ -167,10 +186,10 @@ private fun BarIconButton(
     val pressed by interaction.collectIsPressedAsState()
     Box(
         modifier
-            .clip(DeckShapes.tabPill)
+            .clip(CircleShape)
             .background(if (pressed) DeckColors.TextPrimary.copy(alpha = 0.10f) else Color.Transparent)
             .soundClickableNoIndication(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 7.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center,
     ) {
         content()

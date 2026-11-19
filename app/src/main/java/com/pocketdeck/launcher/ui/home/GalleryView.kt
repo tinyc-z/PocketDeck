@@ -64,10 +64,14 @@ import com.pocketdeck.launcher.data.MetadataDisplayConfig
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
-import com.pocketdeck.launcher.ui.components.FavoriteHeartIcon
+import com.pocketdeck.launcher.ui.components.BrandHeartBadge
 import com.pocketdeck.launcher.ui.components.GameCoverCard
+import com.pocketdeck.launcher.ui.components.PlatformBadge
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
+import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.cardSurface
+import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
@@ -75,7 +79,7 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /**
- * Gallery 视图：焦点卡放大 + 两侧小卡 + 弹簧滚动 + 手势滑动 + 小图长按菜单 + 4 列游戏元数据。
+ * Gallery 视图：粗体标题 + 副标题 + 位置计数 + 焦点卡渐变焦点环 + 弹簧滚动 + 手势滑动 + 信息胶囊。
  *
  * 性能关键路径：
  * 1. 用 Animatable<Float> 驱动焦点位置，只有 offset / 缩放在动画期间重算。
@@ -95,8 +99,8 @@ fun GalleryView(
     onLongPress: ((Game) -> Unit)? = null,
     fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
-    focusCardHeight: Dp = 208.dp,
-    smallCardHeight: Dp = 95.dp,
+    focusCardHeight: Dp = 196.dp,
+    smallCardHeight: Dp = 108.dp,
     cardSpacing: Dp = 22.dp,
     leftMargin: Dp = 54.dp,
     showMetadata: Boolean = true,
@@ -169,51 +173,85 @@ fun GalleryView(
     val stepPx = (avgSmallW + spacingPx).coerceAtLeast(60f)
 
     Column(modifier) {
-        // 标题：焦点游戏名（常态带左右滑动进入动画；快滚连按期间直接刷新 Text 避免重叠重组合开销）
-        Box(
+        // 标题行：焦点游戏名（常态带左右滑动进入动画；快滚连按期间直接刷新 Text 避免重叠重组合开销）+ 右侧位置计数
+        val titleStyle = DeckType.gameTitle.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.2).sp)
+        val titleColor = DeckColors.TextPrimary
+        Row(
             Modifier
                 .fillMaxWidth()
-                .padding(start = leftMargin, end = 16.dp)
-                .height(32.dp)
-                .graphicsLayer { alpha = if (isDragging) dragAlpha else 1f },
+                .padding(start = leftMargin, end = 22.dp)
+                .height(30.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (fastScrolling) {
-                Text(
-                    focusedGame?.title.orEmpty(),
-                    style = DeckType.gameTitle,
-                    color = DeckColors.Ruby,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else {
-                AnimatedContent(
-                    targetState = Triple(listKey, focusIndex, focusedGame?.title.orEmpty()),
-                    transitionSpec = {
-                        if (targetState.first != initialState.first) {
-                            fadeIn(tween(150)).togetherWith(fadeOut(tween(100)))
-                        } else {
-                            val dir = if (targetState.second >= initialState.second) 1 else -1
-                            (fadeIn(tween(170)) + slideInHorizontally(tween(190)) { dir * titleSlidePx })
-                                .togetherWith(
-                                    fadeOut(tween(100)) + slideOutHorizontally(tween(130)) { -dir * (titleSlidePx / 2) },
-                                )
-                                .using(SizeTransform(clip = false))
-                        }
-                    },
-                    label = "galleryTitle",
-                ) { (_, _, title) ->
+            Box(
+                Modifier
+                    .weight(1f)
+                    .graphicsLayer { alpha = if (isDragging) dragAlpha else 1f },
+            ) {
+                if (fastScrolling) {
                     Text(
-                        title,
-                        style = DeckType.gameTitle,
-                        color = DeckColors.Ruby,
+                        focusedGame?.title.orEmpty(),
+                        style = titleStyle,
+                        color = titleColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                } else {
+                    AnimatedContent(
+                        targetState = Triple(listKey, focusIndex, focusedGame?.title.orEmpty()),
+                        transitionSpec = {
+                            if (targetState.first != initialState.first) {
+                                fadeIn(tween(150)).togetherWith(fadeOut(tween(100)))
+                            } else {
+                                val dir = if (targetState.second >= initialState.second) 1 else -1
+                                (fadeIn(tween(170)) + slideInHorizontally(tween(190)) { dir * titleSlidePx })
+                                    .togetherWith(
+                                        fadeOut(tween(100)) + slideOutHorizontally(tween(130)) { -dir * (titleSlidePx / 2) },
+                                    )
+                                    .using(SizeTransform(clip = false))
+                            }
+                        },
+                        label = "galleryTitle",
+                    ) { (_, _, title) ->
+                        Text(
+                            title,
+                            style = titleStyle,
+                            color = titleColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "${(focusIndex + 1).coerceAtMost(games.size)} / ${games.size}",
+                style = DeckType.metaValue.copy(fontWeight = FontWeight.Bold, fontSize = 12.5.sp),
+                color = DeckColors.TextLabel,
+                maxLines = 1,
+            )
         }
 
-        Spacer(Modifier.height(8.dp))
+        // 副标题：平台全称 · 年份 · 发行商/开发商（快滚/拖动期冻结在停稳的游戏上）
+        val settledPlatform = settledMetaGame?.let(platformOf)
+        val settledMeta = settledMetaGame?.let { metadataMap[it.id] }
+        val subtitle = remember(settledPlatform?.fullName, settledMeta, showMetadata, metaDisplay) {
+            gallerySubtitle(settledPlatform?.fullName, settledMeta, showMetadata, metaDisplay)
+        }
+        Text(
+            text = subtitle,
+            style = DeckType.metaValue.copy(fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp),
+            color = DeckColors.TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = leftMargin + 1.dp, end = 22.dp)
+                .height(18.dp)
+                .graphicsLayer { alpha = dragAlpha },
+        )
+
+        Spacer(Modifier.height(12.dp))
 
         // 卡片行（仅通过 graphicsLayer 驱动位移与缩放，避免动画期逐帧重组合和重测量）
         Box(
@@ -327,18 +365,90 @@ fun GalleryView(
             }
         }
 
-        // 元数据行：Release date / Genre / Developer / Publisher / File size（快滚/拖动期冻结并在停稳后同步，避免高速滚动抖动）
+        // 信息胶囊行：开发商 / 完整发行日期 / 文件大小（快滚/拖动期冻结并在停稳后同步，避免高速滚动抖动）
         if (showMetadata) {
             Spacer(Modifier.height(10.dp))
-            val meta = settledMetaGame?.let { metadataMap[it.id] }
-            MetadataRow(
-                metadata = meta,
-                metaDisplay = metaDisplay,
-                fileSizeBytes = settledMetaGame?.fileSize ?: 0L,
+            val chips = remember(settledMeta, metaDisplay, settledMetaGame?.fileSize) {
+                galleryChips(settledMeta, metaDisplay, settledMetaGame?.fileSize ?: 0L)
+            }
+            MetaChipRow(
+                chips = chips,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = leftMargin, end = 24.dp)
                     .graphicsLayer { alpha = dragAlpha },
+            )
+        }
+    }
+}
+
+private val YEAR_REGEX = Regex("(1[89]|20)\\d{2}")
+
+/** 副标题：平台全称 · 年份 · 发行商（无则开发商），按元数据显示开关过滤。 */
+internal fun gallerySubtitle(
+    platformName: String?,
+    meta: GameMetadata?,
+    showMetadata: Boolean,
+    display: MetadataDisplayConfig,
+): String {
+    val parts = ArrayList<String>(3)
+    platformName?.takeIf { it.isNotBlank() }?.let(parts::add)
+    if (showMetadata && meta != null) {
+        if (display.releaseDate) meta.releaseDate?.let { YEAR_REGEX.find(it)?.value }?.let(parts::add)
+        val company = when {
+            display.publisher && !meta.publisher.isNullOrBlank() -> meta.publisher
+            display.developer && !meta.developer.isNullOrBlank() -> meta.developer
+            else -> null
+        }
+        company?.let(parts::add)
+    }
+    return parts.joinToString(" · ")
+}
+
+/** 信息胶囊：仅展示副标题未覆盖的信息，避免重复。 */
+internal fun galleryChips(
+    meta: GameMetadata?,
+    display: MetadataDisplayConfig,
+    fileSizeBytes: Long,
+): List<String> = buildList {
+    if (meta != null) {
+        val subtitleUsedPublisher = display.publisher && !meta.publisher.isNullOrBlank()
+        val dev = meta.developer
+        if (display.developer && subtitleUsedPublisher && !dev.isNullOrBlank() && !dev.equals(meta.publisher, ignoreCase = true)) {
+            add(dev)
+        }
+        val date = meta.releaseDate
+        if (display.releaseDate && !date.isNullOrBlank() && date.trim().length > 4) add(date.trim())
+    }
+    if (display.fileSize && fileSizeBytes > 0L) add(formatFileSize(fileSizeBytes))
+}
+
+@Composable
+private fun MetaChipRow(
+    chips: List<String>,
+    modifier: Modifier = Modifier,
+) {
+    if (chips.isEmpty()) {
+        Spacer(modifier.height(24.dp))
+        return
+    }
+    Row(
+        modifier = modifier.height(24.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val chipStyle = DeckType.metaValue.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp)
+        for (chip in chips) {
+            Text(
+                text = chip,
+                style = chipStyle,
+                color = DeckColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .cardSurface(shape = CircleShape, elevation = 2.dp)
+                    .padding(horizontal = 9.dp, vertical = 3.dp),
             )
         }
     }
@@ -435,42 +545,6 @@ internal fun MetaField(
 }
 
 @Composable
-private fun MetadataRow(
-    metadata: GameMetadata?,
-    metaDisplay: MetadataDisplayConfig,
-    fileSizeBytes: Long,
-    modifier: Modifier = Modifier,
-) {
-    val fields = metadata.toDisplayFields(
-        visibility = metaDisplay,
-        fileSizeBytes = fileSizeBytes,
-        labelReleaseDate = stringResource(R.string.meta_release_date),
-        labelGenre = stringResource(R.string.meta_genre),
-        labelDeveloper = stringResource(R.string.meta_developer),
-        labelPublisher = stringResource(R.string.meta_publisher),
-        labelFileSize = stringResource(R.string.meta_file_size),
-        labelPlatform = stringResource(R.string.meta_platform),
-    )
-    if (fields.isEmpty()) {
-        Spacer(modifier.height(36.dp))
-        return
-    }
-
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
-    ) {
-        for ((label, value) in fields) {
-            MetaField(
-                label = label,
-                value = value,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-        }
-    }
-}
-
-@Composable
 internal fun EmptyPlatformMessage(
     modifier: Modifier = Modifier,
     text: String = stringResource(R.string.no_games_platform),
@@ -485,7 +559,7 @@ internal fun EmptyPlatformMessage(
 }
 
 /**
- * Grid 与 Bubbles 视图共用的悬浮胶囊指示器：
+ * Grid 与 Bubbles 视图共用的悬浮胶囊指示器：白卡胶囊 + 品牌渐变细描边 + 统一平台角标 + 位置计数。
  * 悬浮在视口边缘（默认底部居中，当焦点接近底部时自动切至顶部居中），不占用任何网格/气泡行高。
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -504,6 +578,10 @@ internal fun BoxScope.FocusedGameFloatingPill(
     val align = if (placeAtTop) Alignment.TopCenter else Alignment.BottomCenter
     val pad = if (placeAtTop) PaddingValues(top = 4.dp, start = 16.dp, end = 16.dp)
     else PaddingValues(bottom = 6.dp, start = 16.dp, end = 16.dp)
+    val p = LocalDeckColors.current
+    val hairline = remember(p.brandStart, p.brandMid, p.brandEnd) {
+        Brush.horizontalGradient(listOf(p.brandStart, p.brandMid, p.brandEnd))
+    }
 
     Row(
         modifier
@@ -511,25 +589,19 @@ internal fun BoxScope.FocusedGameFloatingPill(
             .zIndex(20f)
             .padding(pad)
             .widthIn(max = 460.dp)
-            .shadow(10.dp, CircleShape, ambientColor = DeckColors.CardShadow, spotColor = DeckColors.CardShadow)
-            .clip(CircleShape)
-            .background(DeckColors.DialogBg.copy(alpha = 0.92f))
-            .border(0.6.dp, DeckColors.Ruby.copy(alpha = 0.36f), CircleShape)
-            .padding(horizontal = 14.dp, vertical = 5.dp),
+            .cardSurface(shape = CircleShape, elevation = 8.dp)
+            .border(1.dp, hairline, CircleShape)
+            .padding(start = 8.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (isFavorite) {
-            FavoriteHeartIcon(
-                filled = true,
-                color = DeckColors.Ruby,
-                size = 13.dp,
-            )
-            Spacer(Modifier.width(7.dp))
+        platform?.shortName?.takeIf { it.isNotBlank() }?.let { shortName ->
+            PlatformBadge(label = shortName, compact = false)
+            Spacer(Modifier.width(8.dp))
         }
         Text(
             text = game.title,
             style = DeckType.settingsValue.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp),
-            color = DeckColors.Ruby,
+            color = DeckColors.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = if (fastScrolling) {
@@ -540,25 +612,16 @@ internal fun BoxScope.FocusedGameFloatingPill(
                     .basicMarquee(iterations = Int.MAX_VALUE)
             },
         )
-        platform?.shortName?.takeIf { it.isNotBlank() }?.let { shortName ->
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = shortName,
-                style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold, fontSize = 10.sp),
-                color = DeckColors.TextSecondary,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(DeckColors.Surface)
-                    .border(0.5.dp, DeckColors.DialogBorder, CircleShape)
-                    .padding(horizontal = 7.dp, vertical = 1.5.dp),
-            )
+        if (isFavorite) {
+            Spacer(Modifier.width(7.dp))
+            BrandHeartBadge(size = 16.dp, shadow = false)
         }
         if (total > 0) {
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(9.dp))
             Text(
-                text = "${index + 1}/$total",
-                style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium, fontSize = 11.sp),
-                color = DeckColors.TextSecondary,
+                text = "${index + 1} / $total",
+                style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
+                color = DeckColors.TextLabel,
             )
         }
     }

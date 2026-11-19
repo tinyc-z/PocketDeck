@@ -1,7 +1,7 @@
 package com.pocketdeck.launcher.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,29 +20,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.components.icons.HomeIcons
 import com.pocketdeck.launcher.ui.theme.DeckColors
-import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
+import com.pocketdeck.launcher.ui.theme.cardSurface
 
 /**
- * 搜索栏：置顶显示（避免被软键盘或遮挡搜索结果），支持一键收起键盘并用方向键选择结果。
+ * 搜索栏（Sunset Arcade）：圆角白卡浮起 + 线性图标。
  */
 @Composable
 fun SearchBar(
@@ -62,22 +55,15 @@ fun SearchBar(
         keyboard?.show()
     }
 
-    val primaryTint = DeckColors.TextPrimary
-    val secondaryTint = DeckColors.TextSecondary
-
     Row(
         modifier
-            .clip(DeckShapes.searchBar)
-            .background(DeckColors.Surface)
-            .height(44.dp)
+            .cardSurface(shape = CircleShape, elevation = 5.dp)
+            .border(0.8.dp, DeckColors.Line, CircleShape)
+            .height(42.dp)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(18.dp)
-                .drawBehind { drawMiniSearchIcon(secondaryTint) },
-        )
+        DeckIcon(HomeIcons.Search, size = 17.dp, tint = DeckColors.TextSecondary)
         Spacer(Modifier.width(10.dp))
 
         BasicTextField(
@@ -103,7 +89,7 @@ fun SearchBar(
                         Text(
                             stringResource(R.string.search_hint),
                             style = DeckType.searchHint,
-                            color = DeckColors.TextSecondary,
+                            color = DeckColors.TextLabel,
                         )
                     }
                     inner()
@@ -113,11 +99,10 @@ fun SearchBar(
 
         if (imeVisible) {
             Spacer(Modifier.width(6.dp))
-            // 收起键盘按钮：保留搜索结果，直接切回手柄方向键选择游戏
             Box(
                 Modifier
                     .clip(CircleShape)
-                    .background(DeckColors.PillSelected)
+                    .background(DeckColors.AccentSoft)
                     .soundClickable {
                         keyboard?.hide()
                         onHideKeyboard()
@@ -125,57 +110,24 @@ fun SearchBar(
                     .padding(horizontal = 10.dp, vertical = 5.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    Modifier
-                        .size(14.dp)
-                        .drawBehind { drawChevronDownIcon(primaryTint) },
-                )
+                DeckIcon(HomeIcons.ChevronDown, size = 14.dp, tint = DeckColors.Ruby)
             }
         }
 
-        Spacer(Modifier.width(6.dp))
+        Spacer(Modifier.width(4.dp))
 
-        // 关闭搜索按钮
         Box(
             Modifier
                 .size(28.dp)
                 .clip(CircleShape)
+                .background(DeckColors.SurfaceAlt)
                 .soundClickable(onClick = {
                     keyboard?.hide()
                     onClose()
                 }),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                "✕",
-                style = DeckType.bottomBar,
-                color = DeckColors.TextSecondary,
-            )
+            DeckIcon(HomeIcons.Close, size = 14.dp, tint = DeckColors.TextSecondary)
         }
     }
-}
-
-private fun DrawScope.drawMiniSearchIcon(color: Color) {
-    val sw = 1.8f.dp.toPx()
-    val cx = size.width * 0.42f
-    val cy = size.height * 0.42f
-    val r = size.width * 0.28f
-    drawCircle(color, r, Offset(cx, cy), style = Stroke(sw))
-    drawLine(
-        color,
-        Offset(cx + r * 0.72f, cy + r * 0.72f),
-        Offset(size.width * 0.88f, size.height * 0.88f),
-        sw,
-        cap = StrokeCap.Round,
-    )
-}
-
-private fun DrawScope.drawChevronDownIcon(color: Color) {
-    val sw = 1.8f.dp.toPx()
-    val p = Path().apply {
-        moveTo(size.width * 0.18f, size.height * 0.34f)
-        lineTo(size.width * 0.50f, size.height * 0.68f)
-        lineTo(size.width * 0.82f, size.height * 0.34f)
-    }
-    drawPath(p, color, style = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
 }
