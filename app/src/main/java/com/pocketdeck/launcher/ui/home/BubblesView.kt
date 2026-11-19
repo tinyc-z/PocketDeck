@@ -235,6 +235,7 @@ fun BubblesView(
             total = games.size,
             placeAtTop = placePillAtTop,
             fastScrolling = fastScrolling,
+            showFavoriteBadge = false,
         )
     }
 }
