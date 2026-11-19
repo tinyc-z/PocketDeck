@@ -154,7 +154,7 @@ fun GalleryView(
     }
 
     val dragAlpha by animateFloatAsState(
-        targetValue = if (isDragging || fastScrolling) 0.45f else 1f,
+        targetValue = if (isDragging) 0.45f else 1f,
         animationSpec = if (reduceMotion) snap() else tween(120),
         label = "titleDragAlpha",
     )
@@ -228,7 +228,7 @@ fun GalleryView(
                     .weight(1f)
                     .graphicsLayer {
                         translationX = titleOffsetX.value
-                        alpha = (if (isDragging) dragAlpha else 1f) * titleAlpha.value
+                        alpha = dragAlpha * titleAlpha.value
                     },
             ) {
                 Text(
@@ -248,11 +248,11 @@ fun GalleryView(
             )
         }
 
-        // 副标题：平台全称 · 年份 · 发行商/开发商（快滚/拖动期冻结在停稳的游戏上）
-        val settledPlatform = settledMetaGame?.let(platformOf)
-        val settledMeta = settledMetaGame?.let { metadataMap[it.id] }
-        val subtitle = remember(settledPlatform?.fullName, settledMeta, showMetadata, metaDisplay) {
-            gallerySubtitle(settledPlatform?.fullName, settledMeta, showMetadata, metaDisplay)
+        // 副标题：平台全称 · 年份 · 发行商/开发商（固定高度单 Text，实时跟随当前焦点游戏无重排开销）
+        val focusedPlatform = focusedGame?.let(platformOf)
+        val focusedMeta = focusedGame?.let { metadataMap[it.id] }
+        val subtitle = remember(focusedPlatform?.fullName, focusedMeta, showMetadata, metaDisplay) {
+            gallerySubtitle(focusedPlatform?.fullName, focusedMeta, showMetadata, metaDisplay)
         }
         Text(
             text = subtitle,
@@ -389,9 +389,10 @@ fun GalleryView(
             }
         }
 
-        // 信息胶囊行：开发商 / 完整发行日期 / 文件大小（快滚/拖动期冻结并在停稳后同步，避免高速滚动抖动）
+        // 信息胶囊行：开发商 / 完整发行日期 / 文件大小（快滚/拖动期隐藏，停稳后再同步并淡入）
         if (showMetadata) {
             Spacer(Modifier.height(12.dp))
+            val settledMeta = settledMetaGame?.let { metadataMap[it.id] }
             val chips = remember(settledMeta, metaDisplay, settledMetaGame?.fileSize) {
                 galleryChips(settledMeta, metaDisplay, settledMetaGame?.fileSize ?: 0L)
             }
