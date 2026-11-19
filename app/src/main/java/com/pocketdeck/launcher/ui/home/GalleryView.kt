@@ -5,6 +5,7 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -152,10 +153,16 @@ fun GalleryView(
         }
     }
 
-    val dragAlpha by animateFloatAsState(
-        targetValue = if (isDragging || fastScrolling) 0.45f else 1f,
-        animationSpec = tween(120),
+    val titleDragAlpha by animateFloatAsState(
+        targetValue = if (isDragging) 0.45f else 1f,
+        animationSpec = if (reduceMotion) snap() else tween(120),
         label = "titleDragAlpha",
+    )
+    val metaVisible = !isDragging && !fastScrolling
+    val metaAlpha by animateFloatAsState(
+        targetValue = if (metaVisible) 1f else 0f,
+        animationSpec = if (reduceMotion) snap() else tween(if (metaVisible) 150 else 80),
+        label = "metaSettleAlpha",
     )
     val listKey = remember(games) { games.firstOrNull()?.id }
     val titleSlidePx = with(density) { 28.dp.roundToPx() }
@@ -221,7 +228,7 @@ fun GalleryView(
                     .weight(1f)
                     .graphicsLayer {
                         translationX = titleOffsetX.value
-                        alpha = (if (isDragging) dragAlpha else 1f) * titleAlpha.value
+                        alpha = titleDragAlpha * titleAlpha.value
                     },
             ) {
                 Text(
@@ -257,7 +264,7 @@ fun GalleryView(
                 .fillMaxWidth()
                 .padding(start = leftMargin + 1.dp, end = 22.dp)
                 .height(20.dp)
-                .graphicsLayer { alpha = dragAlpha },
+                .graphicsLayer { alpha = metaAlpha },
         )
 
         Spacer(Modifier.height(12.dp))
@@ -393,7 +400,7 @@ fun GalleryView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = leftMargin, end = 24.dp)
-                    .graphicsLayer { alpha = dragAlpha },
+                    .graphicsLayer { alpha = metaAlpha },
             )
         }
     }
