@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.input.KeySound
+import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 
@@ -108,7 +109,7 @@ fun Modifier.gamepadClickable(
         }
         .then(
             if (showFocusBorder && focused) {
-                Modifier.border(1.dp, DeckColors.Ruby, shape)
+                Modifier.border(1.75.dp, DeckBrand.brandBrush, shape)
             } else {
                 Modifier
             },
@@ -182,7 +183,7 @@ fun Modifier.dpadNavItem(
         .bringIntoViewRequester(bringIntoView)
         .then(
             if (showFocusBorder && isFocused) {
-                Modifier.border(1.dp, DeckColors.Ruby, shape)
+                Modifier.border(1.75.dp, DeckBrand.brandBrush, shape)
             } else {
                 Modifier
             },

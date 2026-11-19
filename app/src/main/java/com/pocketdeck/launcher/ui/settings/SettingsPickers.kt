@@ -78,6 +78,10 @@ import com.pocketdeck.launcher.ui.components.gamepadClickable
 import java.util.Locale
 import kotlin.math.abs
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.DeckSwitch
+import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.Dispatchers
@@ -198,7 +202,7 @@ fun CategoryPlatformsDialog(
                 color = DeckColors.TextSecondary,
             )
             Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
 
             LazyColumn(
                 state = listState,
@@ -286,7 +290,7 @@ fun CategoryPlatformsDialog(
                     color = Color.White,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .border(
                             width = if (okHl) 1.dp else 0.dp,
                             color = if (okHl) DeckColors.TextPrimary else Color.Transparent,
@@ -447,7 +451,7 @@ fun LauncherPickerDialog(
                 )
             }
             Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
 
             Column(
                 Modifier
@@ -542,7 +546,7 @@ fun LauncherPickerDialog(
                                         .background(if (isSel) DeckColors.Ruby.copy(alpha = 0.16f) else DeckColors.Background)
                                         .border(
                                             width = if (isSel) 0.6.dp else 0.5.dp,
-                                            color = if (isSel) DeckColors.Ruby else DeckColors.DialogBorder,
+                                            color = if (isSel) DeckColors.Ruby else DeckColors.Line,
                                             shape = DeckShapes.settingsDropdown,
                                         )
                                         .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) {
@@ -612,7 +616,7 @@ fun LauncherPickerDialog(
                             .fillMaxWidth()
                             .clip(DeckShapes.menuButton)
                             .background(DeckColors.Surface)
-                            .border(0.5.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
+                            .border(0.5.dp, DeckColors.Line, DeckShapes.menuButton)
                             .gamepadClickable(swapAbxy, keyBindings) { customCoreDialog = true }
                             .padding(horizontal = 14.dp, vertical = 9.dp),
                     ) {
@@ -641,7 +645,7 @@ fun LauncherPickerDialog(
                                 .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                                 .border(
                                     width = if (selected) 0.6.dp else 0.5.dp,
-                                    color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
+                                    color = if (selected) DeckColors.Ruby else DeckColors.Line,
                                     shape = DeckShapes.menuButton,
                                 )
                                 .gamepadClickable(swapAbxy, keyBindings) { onSelect(preset.launcherId) }
@@ -859,7 +863,7 @@ private fun CustomRetroArchCoreDialog(
                     color = DeckColors.Background,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .gamepadClickable(swapAbxy, keyBindings) {
                             onConfirm(core.trim().removeSuffix("_libretro_android.so"))
                         }
@@ -887,7 +891,7 @@ private fun LauncherOptionRow(
             .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
             .border(
                 width = if (selected) 0.6.dp else 0.5.dp,
-                color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
+                color = if (selected) DeckColors.Ruby else DeckColors.Line,
                 shape = DeckShapes.menuButton,
             )
             .gamepadClickable(swapAbxy, keyBindings, focusRequester = focusRequester, onClick = onClick)
@@ -914,7 +918,7 @@ private fun LauncherOptionRow(
         }
         if (selected) {
             Spacer(Modifier.width(8.dp))
-            Text("✓", style = DeckType.settingsValue, color = DeckColors.Ruby)
+            DeckIcon(DeckIcons.Check, size = 16.dp, tint = DeckColors.Ruby)
         }
     }
 }
@@ -1172,7 +1176,7 @@ private fun CustomLaunchModeDialog(
                     }
                     if (sel) {
                         Spacer(Modifier.width(8.dp))
-                        Text("✓", style = DeckType.settingsValue, color = DeckColors.Ruby)
+                        DeckIcon(DeckIcons.Check, size = 16.dp, tint = DeckColors.Ruby)
                     }
                 }
             }
@@ -1280,7 +1284,7 @@ private fun CustomLaunchModeDialog(
                     color = DeckColors.Background,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .gamepadClickable(swapAbxy, keyBindings) {
                             onConfirm(
                                 mode,
@@ -1326,7 +1330,7 @@ fun HiddenGamesDialog(
                 modifier = Modifier.padding(end = 36.dp),
             )
             Spacer(Modifier.height(10.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
             if (sorted.isEmpty()) {
                 Box(
                     Modifier

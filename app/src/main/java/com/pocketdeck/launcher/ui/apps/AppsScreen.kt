@@ -83,6 +83,20 @@ import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.input.KeySound
 import com.pocketdeck.launcher.input.triggerLongPressHaptic
 import com.pocketdeck.launcher.ui.components.soundClickable
+import com.pocketdeck.launcher.ui.components.DeckButton
+import com.pocketdeck.launcher.ui.components.DeckButtonStyle
+import com.pocketdeck.launcher.ui.components.DeckCard
+import com.pocketdeck.launcher.ui.components.DeckDivider
+import com.pocketdeck.launcher.ui.components.DeckIconButton
+import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.DeckRow
+import com.pocketdeck.launcher.ui.components.DeckScreenHeader
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
+import com.pocketdeck.launcher.ui.theme.DeckBrand
+import com.pocketdeck.launcher.ui.theme.brandFocusRing
+import com.pocketdeck.launcher.ui.theme.cardSurface
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.pocketdeck.launcher.ui.library.GameLibraryAppIcon
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
@@ -90,9 +104,6 @@ import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
 
 private const val APPS_COLUMNS = 5
 
@@ -230,13 +241,13 @@ fun AppsScreen(
     val infoLabel = stringResource(R.string.app_menu_info)
     val uninstallLabel = stringResource(R.string.app_menu_uninstall)
 
-    fun buildMenuActions(app: InstalledApp): List<Triple<String, String, () -> Unit>> = buildList {
-        add(Triple("▶", openLabel) { menuApp = null; launchApp(app) })
+    fun buildMenuActions(app: InstalledApp): List<Triple<ImageVector, String, () -> Unit>> = buildList {
+        add(Triple(PanelIcons.Play, openLabel) { menuApp = null; launchApp(app) })
         if (onToggleInGameLibrary != null) {
             val inGames = isInGames(app.packageName)
             add(
                 Triple(
-                    if (inGames) "★" else "☆",
+                    if (inGames) PanelIcons.Close else PanelIcons.Plus,
                     if (inGames) removeGameLabel else addGameLabel,
                 ) {
                     onToggleInGameLibrary(app.packageName, !inGames)
@@ -244,9 +255,9 @@ fun AppsScreen(
                 },
             )
         }
-        add(Triple("ⓘ", infoLabel) { menuApp = null; openAppInfo(app) })
+        add(Triple(PanelIcons.Info, infoLabel) { menuApp = null; openAppInfo(app) })
         if (!app.isSystemApp) {
-            add(Triple("×", uninstallLabel) { menuApp = null; uninstallApp(app) })
+            add(Triple(DeckIcons.Trash, uninstallLabel) { menuApp = null; uninstallApp(app) })
         }
     }
 
@@ -332,194 +343,89 @@ fun AppsScreen(
             },
     ) {
         Column(Modifier.fillMaxSize()) {
-            val iconTint = DeckColors.TextPrimary
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .soundClickable(onClick = onDismiss)
-                        .drawBehind { drawBackArrow(iconTint) },
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = stringResource(R.string.apps_title),
-                    fontFamily = DeckFontFamily,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 20.sp,
-                    color = iconTint,
-                )
-                Spacer(Modifier.weight(1f))
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .soundClickable {
+            DeckScreenHeader(
+                title = stringResource(R.string.apps_title),
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 4.dp),
+                backModifier = Modifier.soundClickable(onClick = onDismiss),
+                trailing = {
+                    DeckIconButton(
+                        PanelIcons.Settings,
+                        modifier = Modifier.soundClickable {
                             runCatching {
                                 context.startActivity(
                                     Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                                 )
                             }
-                        }
-                        .drawBehind { drawGearIcon(iconTint) },
-                )
-            }
+                        },
+                        size = 38.dp,
+                        iconSize = 20.dp,
+                        elevated = true,
+                    )
+                },
+            )
 
             LazyVerticalGrid(
                 columns = GridCells.Fixed(APPS_COLUMNS),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 32.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 32.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 item(key = "__game_library__") {
-                    val focused = focusIndex == 0
-                    val libLabel = stringResource(R.string.game_library_title)
-                    Column(
-                        Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .then(
-                                if (focused) {
-                                    Modifier
-                                        .background(DeckColors.Surface)
-                                        .border(0.9.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
-                                } else {
-                                    Modifier
-                                },
-                            )
-                            .pointerInput("game_library") {
-                                detectTapGestures(
-                                    onTap = {
-                                        KeySound.playTouch(context)
-                                        focusIndex = 0
-                                        onOpenGameLibrary()
-                                    },
-                                    onLongPress = {
-                                        focusIndex = 0
-                                        onOpenGameLibrary()
-                                    },
-                                )
-                            }
-                            .padding(vertical = 10.dp, horizontal = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        GameLibraryAppIcon(size = 54.dp)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = libLabel,
-                            fontFamily = DeckFontFamily,
-                            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            color = DeckColors.TextPrimary,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    AppTile(
+                        label = stringResource(R.string.game_library_title),
+                        focused = focusIndex == 0,
+                        tapKey = "game_library",
+                        onTap = {
+                            KeySound.playTouch(context)
+                            focusIndex = 0
+                            onOpenGameLibrary()
+                        },
+                        onLongPress = {
+                            focusIndex = 0
+                            onOpenGameLibrary()
+                        },
+                    ) { GameLibraryAppIcon(size = 54.dp) }
                 }
                 item(key = "__quick_share__") {
-                    val focused = focusIndex == 1
-                    val qsLabel = stringResource(R.string.quick_share_title)
-                    Column(
-                        Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .then(
-                                if (focused) {
-                                    Modifier
-                                        .background(DeckColors.Surface)
-                                        .border(0.9.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
-                                } else {
-                                    Modifier
-                                },
-                            )
-                            .pointerInput("quick_share") {
-                                detectTapGestures(
-                                    onTap = {
-                                        KeySound.playTouch(context)
-                                        focusIndex = 1
-                                        onOpenQuickShare()
-                                    },
-                                    onLongPress = {
-                                        focusIndex = 1
-                                        onOpenQuickShare()
-                                    },
-                                )
-                            }
-                            .padding(vertical = 10.dp, horizontal = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        QuickShareAppIcon(size = 54.dp)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = qsLabel,
-                            fontFamily = DeckFontFamily,
-                            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            color = DeckColors.TextPrimary,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    AppTile(
+                        label = stringResource(R.string.quick_share_title),
+                        focused = focusIndex == 1,
+                        tapKey = "quick_share",
+                        onTap = {
+                            KeySound.playTouch(context)
+                            focusIndex = 1
+                            onOpenQuickShare()
+                        },
+                        onLongPress = {
+                            focusIndex = 1
+                            onOpenQuickShare()
+                        },
+                    ) { QuickShareAppIcon(size = 54.dp) }
                 }
                 itemsIndexed(apps, key = { _, a -> a.packageName }) { idx, app ->
                     val gridIdx = idx + 2
-                    val focused = gridIdx == focusIndex
-                    Column(
-                        Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .then(
-                                if (focused) {
-                                    Modifier
-                                        .background(DeckColors.Surface)
-                                        .border(0.9.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
-                                } else {
-                                    Modifier
-                                },
-                            )
-                            .pointerInput(app.packageName) {
-                                detectTapGestures(
-                                    onTap = {
-                                        KeySound.playTouch(context)
-                                        focusIndex = gridIdx
-                                        launchApp(app)
-                                    },
-                                    onLongPress = {
-                                        focusIndex = gridIdx
-                                        openMenuFor(app, vibrate = true)
-                                    },
-                                )
-                            }
-                            .padding(vertical = 10.dp, horizontal = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                    AppTile(
+                        label = app.label,
+                        focused = gridIdx == focusIndex,
+                        tapKey = app.packageName,
+                        onTap = {
+                            KeySound.playTouch(context)
+                            focusIndex = gridIdx
+                            launchApp(app)
+                        },
+                        onLongPress = {
+                            focusIndex = gridIdx
+                            openMenuFor(app, vibrate = true)
+                        },
                     ) {
                         Image(
                             bitmap = app.icon,
                             contentDescription = app.label,
                             modifier = Modifier
                                 .size(54.dp)
-                                .clip(RoundedCornerShape(12.dp)),
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = app.label,
-                            fontFamily = DeckFontFamily,
-                            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            color = DeckColors.TextPrimary,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
+                                .clip(RoundedCornerShape(13.dp)),
                         )
                     }
                 }
@@ -530,6 +436,7 @@ fun AppsScreen(
         BackHandler(enabled = menuApp != null) { menuApp = null }
         menuApp?.let { app ->
             val actions = buildMenuActions(app)
+            val sheetShape = RoundedCornerShape(DeckBrand.RadiusXL)
             Box(
                 Modifier
                     .fillMaxSize()
@@ -540,13 +447,14 @@ fun AppsScreen(
                 Column(
                     Modifier
                         .padding(horizontal = 24.dp, vertical = 16.dp)
-                        .widthIn(max = 320.dp)
+                        .widthIn(max = 340.dp)
                         .fillMaxWidth()
                         .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp)
-                        .clip(DeckShapes.menuPanel)
+                        .shadow(18.dp, sheetShape, ambientColor = DeckColors.CardShadow, spotColor = DeckColors.CardShadow, clip = false)
+                        .clip(sheetShape)
                         .background(DeckColors.DialogBg)
                         .clickable(enabled = false, onClick = {})
-                        .padding(24.dp),
+                        .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Row(
@@ -558,13 +466,13 @@ fun AppsScreen(
                             contentDescription = app.label,
                             modifier = Modifier
                                 .size(44.dp)
-                                .clip(RoundedCornerShape(10.dp)),
+                                .clip(RoundedCornerShape(11.dp)),
                         )
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
                                 app.label,
-                                style = DeckType.menuTitle,
+                                style = DeckType.menuTitle.copy(fontWeight = FontWeight.Bold),
                                 color = DeckColors.TextPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -572,58 +480,81 @@ fun AppsScreen(
                             Text(
                                 app.packageName,
                                 style = DeckType.metaLabel,
-                                color = DeckColors.TextSecondary,
+                                color = DeckColors.TextLabel,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
 
-                    Spacer(Modifier.height(18.dp))
+                    Spacer(Modifier.height(14.dp))
 
-                    actions.forEachIndexed { idx, (icon, label, action) ->
-                        if (idx > 0) Spacer(Modifier.height(8.dp))
-                        val isDestructive = label == uninstallLabel
-                        val focused = idx == menuSelection
-                        val bg = when {
-                            isDestructive && focused -> DeckColors.Ruby.copy(alpha = 0.14f)
-                            focused -> DeckColors.Surface
-                            else -> DeckColors.Background
-                        }
-                        val fg = if (isDestructive) DeckColors.Ruby else DeckColors.TextPrimary
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(DeckShapes.menuButton)
-                                .background(bg)
-                                .border(
-                                    width = if (focused) 0.9.dp else 0.6.dp,
-                                    color = if (focused) DeckColors.CardBorder else DeckColors.DialogBorder,
-                                    shape = DeckShapes.menuButton,
-                                )
-                                .soundClickable(onClick = action)
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(icon, style = DeckType.menuButton, color = fg)
-                            Spacer(Modifier.width(12.dp))
-                            Text(label, style = DeckType.menuButton, color = fg)
+                    DeckCard(elevation = 1.dp) {
+                        actions.forEachIndexed { idx, (icon, label, action) ->
+                            if (idx > 0) DeckDivider(startIndent = 58.dp)
+                            val isDestructive = label == uninstallLabel
+                            DeckRow(
+                                title = label,
+                                icon = icon,
+                                focused = idx == menuSelection,
+                                titleColor = if (isDestructive) DeckColors.Ruby else DeckColors.TextPrimary,
+                                modifier = Modifier.soundClickable(onClick = action),
+                            )
                         }
                     }
 
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(12.dp))
 
-                    Text(
-                        stringResource(R.string.menu_cancel),
-                        style = DeckType.menuButton,
-                        color = DeckColors.TextSecondary,
-                        modifier = Modifier
-                            .soundClickable { menuApp = null }
-                            .padding(vertical = 6.dp, horizontal = 16.dp),
+                    DeckButton(
+                        text = stringResource(R.string.menu_cancel),
+                        style = DeckButtonStyle.Ghost,
+                        compact = true,
+                        modifier = Modifier.soundClickable { menuApp = null },
                     )
                 }
             }
         }
+    }
+}
+
+/** 应用网格中的单个图标磁贴：手柄焦点时显示白卡底 + 品牌渐变焦点环。 */
+@Composable
+private fun AppTile(
+    label: String,
+    focused: Boolean,
+    tapKey: Any,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit,
+    icon: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(DeckBrand.RadiusM)
+    Column(
+        Modifier
+            .brandFocusRing(focused, cornerRadius = DeckBrand.RadiusM, gap = 2.dp)
+            .then(if (focused) Modifier.cardSurface(shape, elevation = 3.dp) else Modifier)
+            .clip(shape)
+            .pointerInput(tapKey) {
+                detectTapGestures(
+                    onTap = { onTap() },
+                    onLongPress = { onLongPress() },
+                )
+            }
+            .padding(vertical = 10.dp, horizontal = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        icon()
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = label,
+            fontFamily = DeckFontFamily,
+            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
+            color = if (focused) DeckColors.TextPrimary else DeckColors.TextSecondary,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -643,23 +574,4 @@ internal fun DrawScope.drawBackArrow(color: Color) {
     drawLine(color, Offset(right, cy), Offset(left, cy), sw, cap = StrokeCap.Round)
     drawLine(color, Offset(left, cy), Offset(left + tip, cy - tip), sw, cap = StrokeCap.Round)
     drawLine(color, Offset(left, cy), Offset(left + tip, cy + tip), sw, cap = StrokeCap.Round)
-}
-
-private fun DrawScope.drawGearIcon(color: Color) {
-    val cx = size.width / 2f
-    val cy = size.height / 2f
-    val innerR = size.minDimension * 0.14f
-    val outerR = size.minDimension * 0.27f
-    val toothR = size.minDimension * 0.34f
-    val sw = 2.2.dp.toPx()
-    drawCircle(color, outerR, Offset(cx, cy), style = Stroke(sw))
-    drawCircle(color, innerR, Offset(cx, cy), style = Stroke(sw))
-    for (i in 0 until 8) {
-        val a = (i * 45.0) * PI / 180.0
-        val sx = cx + cos(a).toFloat() * outerR
-        val sy = cy + sin(a).toFloat() * outerR
-        val ex = cx + cos(a).toFloat() * toothR
-        val ey = cy + sin(a).toFloat() * toothR
-        drawLine(color, Offset(sx, sy), Offset(ex, ey), sw * 1.15f, cap = StrokeCap.Round)
-    }
 }

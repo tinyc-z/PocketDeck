@@ -72,6 +72,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckProgressBar
+import com.pocketdeck.launcher.ui.components.DeckSwitch
+import com.pocketdeck.launcher.ui.theme.DeckBrand
+import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.cardSurface
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.FileTask
 import com.pocketdeck.launcher.data.FileTaskKind
@@ -264,7 +269,7 @@ fun LanServiceControlDialog(
             }
 
             Spacer(Modifier.height(8.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
             Spacer(Modifier.height(8.dp))
 
             Column(
@@ -332,7 +337,7 @@ fun LanServiceControlDialog(
                                     .background(if (picked) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.DialogBg)
                                     .border(
                                         width = if (picked) 0.9.dp else 0.6.dp,
-                                        color = if (picked) DeckColors.Ruby else DeckColors.DialogBorder,
+                                        color = if (picked) DeckColors.Ruby else DeckColors.Line,
                                         shape = RoundedCornerShape(8.dp),
                                     )
                                     .dpadNavItem(nav, "inc_dir_$dIdx", shape = RoundedCornerShape(8.dp)) {
@@ -349,7 +354,7 @@ fun LanServiceControlDialog(
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
                                 )
-                                if (picked) Text("✓", style = DeckType.metaLabel, color = DeckColors.Ruby)
+                                if (picked) DeckIcon(DeckIcons.Check, size = 15.dp, tint = DeckColors.Ruby)
                             }
                         }
                         Row(
@@ -363,7 +368,7 @@ fun LanServiceControlDialog(
                                 modifier = Modifier
                                     .clip(DeckShapes.menuButton)
                                     .background(DeckColors.DialogBg)
-                                    .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
+                                    .border(0.6.dp, DeckColors.Line, DeckShapes.menuButton)
                                     .dpadNavItem(nav, "inc_reject") {
                                         onRejectIncoming(req.sessionId)
                                     }
@@ -472,7 +477,7 @@ fun LanServiceControlDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
+                        .border(0.6.dp, DeckColors.Line, RoundedCornerShape(12.dp))
                         .padding(14.dp),
                 ) {
                     Row(
@@ -514,7 +519,7 @@ fun LanServiceControlDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
+                        .border(0.6.dp, DeckColors.Line, RoundedCornerShape(12.dp))
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -552,7 +557,7 @@ fun LanServiceControlDialog(
                                     .background(if (selected) DeckColors.Ruby.copy(alpha = 0.10f) else DeckColors.DialogBg)
                                     .border(
                                         width = if (selected) 0.9.dp else 0.6.dp,
-                                        color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
+                                        color = if (selected) DeckColors.Ruby else DeckColors.Line,
                                         shape = RoundedCornerShape(10.dp),
                                     )
                                     .dpadNavItem(nav, "nic_$nicIdx", shape = RoundedCornerShape(10.dp)) {
@@ -577,7 +582,7 @@ fun LanServiceControlDialog(
                                     modifier = Modifier.weight(1f),
                                 )
                                 if (selected) {
-                                    Text("✓", style = DeckType.settingsValue, color = DeckColors.Ruby)
+                                    DeckIcon(DeckIcons.Check, size = 16.dp, tint = DeckColors.Ruby)
                                 }
                             }
                         }
@@ -588,13 +593,8 @@ fun LanServiceControlDialog(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (state.shareRunning) DeckColors.Ruby.copy(alpha = 0.06f) else DeckColors.Surface)
-                        .border(
-                            width = if (state.shareRunning) 0.9.dp else 0.6.dp,
-                            color = if (state.shareRunning) DeckColors.Ruby.copy(alpha = 0.7f) else DeckColors.DialogBorder,
-                            shape = RoundedCornerShape(12.dp),
-                        )
+                        .cardSurface(RoundedCornerShape(DeckBrand.RadiusM), elevation = 2.dp)
+                        .border(0.8.dp, DeckColors.Line, RoundedCornerShape(DeckBrand.RadiusM))
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -636,16 +636,7 @@ fun LanServiceControlDialog(
                             )
                         }
                         Spacer(Modifier.width(10.dp))
-                        Switch(
-                            checked = state.shareRunning,
-                            onCheckedChange = null,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = DeckColors.Background,
-                                checkedTrackColor = DeckColors.Ruby,
-                                uncheckedThumbColor = DeckColors.TextSecondary,
-                                uncheckedTrackColor = DeckColors.DialogBg,
-                            ),
-                        )
+                        DeckSwitch(checked = state.shareRunning)
                     }
 
                     if (state.shareRunning) {
@@ -668,7 +659,7 @@ fun LanServiceControlDialog(
                             )
                             Spacer(Modifier.width(8.dp))
                             SmallPillButton(
-                                label = "↻ ${stringResource(R.string.lan_share_scan)}",
+                                label = stringResource(R.string.lan_share_scan),
                                 accent = true,
                                 nav = nav,
                                 navId = "scan_peers",
@@ -700,16 +691,7 @@ fun LanServiceControlDialog(
                             )
                         }
                         Spacer(Modifier.width(8.dp))
-                        Switch(
-                            checked = state.localSendCompat,
-                            onCheckedChange = null,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = DeckColors.Background,
-                                checkedTrackColor = DeckColors.Ruby,
-                                uncheckedThumbColor = DeckColors.TextSecondary,
-                                uncheckedTrackColor = DeckColors.DialogBg,
-                            ),
-                        )
+                        DeckSwitch(checked = state.localSendCompat)
                     }
 
                     if (onOpenQuickShareScreen != null) {
@@ -718,7 +700,7 @@ fun LanServiceControlDialog(
                             horizontalArrangement = Arrangement.End,
                         ) {
                             SmallPillButton(
-                                label = "${stringResource(R.string.quick_share_open_standalone, state.shareHistory.size)} →",
+                                label = stringResource(R.string.quick_share_open_standalone, state.shareHistory.size),
                                 accent = true,
                                 nav = nav,
                                 navId = "open_quickshare",
@@ -732,13 +714,8 @@ fun LanServiceControlDialog(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (state.webRunning) DeckColors.Ruby.copy(alpha = 0.06f) else DeckColors.Surface)
-                        .border(
-                            width = if (state.webRunning) 0.9.dp else 0.6.dp,
-                            color = if (state.webRunning) DeckColors.Ruby.copy(alpha = 0.7f) else DeckColors.DialogBorder,
-                            shape = RoundedCornerShape(12.dp),
-                        )
+                        .cardSurface(RoundedCornerShape(DeckBrand.RadiusM), elevation = 2.dp)
+                        .border(0.8.dp, DeckColors.Line, RoundedCornerShape(DeckBrand.RadiusM))
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -771,16 +748,7 @@ fun LanServiceControlDialog(
                             )
                         }
                         Spacer(Modifier.width(10.dp))
-                        Switch(
-                            checked = state.webRunning,
-                            onCheckedChange = null,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = DeckColors.Background,
-                                checkedTrackColor = DeckColors.Ruby,
-                                uncheckedThumbColor = DeckColors.TextSecondary,
-                                uncheckedTrackColor = DeckColors.DialogBg,
-                            ),
-                        )
+                        DeckSwitch(checked = state.webRunning)
                     }
 
                     if (state.webRunning) {
@@ -789,7 +757,7 @@ fun LanServiceControlDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(DeckColors.DialogBg)
-                                .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                                .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -873,7 +841,7 @@ fun LanServiceControlDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(DeckColors.DialogBg)
-                                .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                                .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -1237,7 +1205,7 @@ fun ShareMethodDialog(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
 
             val options = listOf(
                 Triple(DeckIcons.Radio, stringResource(R.string.lan_share_method_lan), stringResource(R.string.lan_share_method_lan_desc)),
@@ -1252,7 +1220,7 @@ fun ShareMethodDialog(
                         .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                         .border(
                             width = if (hl) 0.9.dp else 0.6.dp,
-                            color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
+                            color = if (hl) DeckColors.Ruby else DeckColors.Line,
                             shape = RoundedCornerShape(12.dp),
                         )
                         .clickable {
@@ -1386,7 +1354,7 @@ fun SharePeerPickerDialog(
                 )
             }
             Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
             Spacer(Modifier.height(12.dp))
 
             val tx = state.transfer
@@ -1505,7 +1473,7 @@ fun SharePeerPickerDialog(
                         color = DeckColors.TextSecondary,
                     )
                     SmallPillButton(
-                        label = "↻ ${stringResource(R.string.lan_share_scan)}",
+                        label = stringResource(R.string.lan_share_scan),
                         accent = true,
                         onClick = onScanPeers,
                     )
@@ -1535,7 +1503,7 @@ fun SharePeerPickerDialog(
                                     .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                                     .border(
                                         width = if (hl) 0.9.dp else 0.6.dp,
-                                        color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
+                                        color = if (hl) DeckColors.Ruby else DeckColors.Line,
                                         shape = RoundedCornerShape(10.dp),
                                     )
                                     .clickable {
@@ -1660,7 +1628,7 @@ fun IncomingShareDialog(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .background(DeckColors.Surface)
-                    .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                    .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -1709,7 +1677,7 @@ fun IncomingShareDialog(
                     )
                 }
                 if (dirs.size > 1) {
-                    Text("↻", style = DeckType.settingsValue, color = DeckColors.Ruby)
+                    DeckIcon(DeckIcons.Refresh, size = 16.dp, tint = DeckColors.Ruby)
                 }
             }
 
@@ -1833,17 +1801,7 @@ fun ShareTransferDialog(
                 val progress = if (tx.totalBytes > 0L) {
                     (tx.bytesTransferred.toFloat() / tx.totalBytes.toFloat()).coerceIn(0f, 1f)
                 } else 0f
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(DeckShapes.tabPill),
-                    color = DeckColors.Ruby,
-                    trackColor = DeckColors.Surface,
-                    gapSize = 0.dp,
-                    drawStopIndicator = {},
-                )
+                DeckProgressBar(progress = progress, height = 7.dp)
                 Spacer(Modifier.height(6.dp))
                 val speedText = if (tx.speedBytesPerSec > 0L) " · ${formatSize(tx.speedBytesPerSec)}/s" else ""
                 Text(
@@ -1909,14 +1867,10 @@ private fun SmallPillButton(
     }
     val bg = when {
         danger -> Color(0xFFEF4444).copy(alpha = 0.12f)
-        accent -> DeckColors.Ruby.copy(alpha = 0.12f)
-        else -> DeckColors.DialogBg
+        accent -> DeckColors.AccentSoft
+        else -> DeckColors.SurfaceAlt
     }
-    val borderColor = when {
-        danger -> Color(0xFFEF4444).copy(alpha = 0.45f)
-        accent -> DeckColors.Ruby.copy(alpha = 0.45f)
-        else -> DeckColors.DialogBorder
-    }
+    val borderColor = Color.Transparent
     Text(
         label,
         style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
@@ -2017,7 +1971,7 @@ fun WebTransferHistoryDialog(
             }
 
             Spacer(Modifier.height(8.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
             Spacer(Modifier.height(8.dp))
 
             if (history.isEmpty()) {
@@ -2061,7 +2015,7 @@ fun WebTransferHistoryDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(DeckColors.Surface)
-                                .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                                .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2366,17 +2320,7 @@ internal fun ShareTransferProgressSection(
             trackColor = DeckColors.DialogBg,
         )
     } else if (tx.phase == TransferPhase.Transferring || tx.phase == TransferPhase.Completed) {
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(7.dp)
-                .clip(DeckShapes.tabPill),
-            color = DeckColors.Ruby,
-            trackColor = DeckColors.DialogBg,
-            gapSize = 0.dp,
-            drawStopIndicator = {},
-        )
+        DeckProgressBar(progress = progress, height = 7.dp)
         val speedText = if (tx.speedBytesPerSec > 0L) " · ${formatSize(tx.speedBytesPerSec)}/s" else ""
         val prefix = if (tx.totalFiles > 1) "${stringResource(R.string.lan_total_progress)} · " else ""
         Text(

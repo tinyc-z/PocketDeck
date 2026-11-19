@@ -85,6 +85,8 @@ import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
 import com.pocketdeck.launcher.ui.settings.LauncherPickerDialog
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.cardSurface
+import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -271,7 +273,7 @@ fun EditGameScreen(
                                 .focusable()
                                 .border(
                                     width = if (locateFocused) 1.5.dp else 1.dp,
-                                    color = if (locateFocused) DeckColors.Ruby else DeckColors.DialogBorder,
+                                    color = if (locateFocused) DeckColors.Ruby else DeckColors.Line,
                                     shape = DeckShapes.tabPill,
                                 )
                                 .clickable { onLocateFile() }
@@ -320,7 +322,7 @@ fun EditGameScreen(
                         OutlinedButton(
                             onClick = { pickImageLauncher.launch("image/*") },
                             shape = CircleShape,
-                            border = BorderStroke(1.dp, DeckColors.DialogBorder),
+                            border = BorderStroke(1.dp, DeckColors.Line),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
@@ -391,7 +393,7 @@ fun EditGameScreen(
                             .focusable()
                             .border(
                                 width = if (launcherFocused) 1.5.dp else 1.dp,
-                                color = if (launcherFocused) DeckColors.Ruby else DeckColors.DialogBorder,
+                                color = if (launcherFocused) DeckColors.Ruby else DeckColors.Line,
                                 shape = DeckShapes.settingsDropdown,
                             )
                             .clickable { launcherDialog = true }
@@ -441,7 +443,7 @@ fun EditGameScreen(
                             .focusable()
                             .border(
                                 width = if (catFocused) 1.5.dp else 1.dp,
-                                color = if (catFocused) DeckColors.Ruby else DeckColors.DialogBorder,
+                                color = if (catFocused) DeckColors.Ruby else DeckColors.Line,
                                 shape = DeckShapes.settingsDropdown,
                             )
                             .clickable { categoryDialog = true }
@@ -484,7 +486,7 @@ fun EditGameScreen(
                         OutlinedButton(
                             onClick = onHide,
                             shape = CircleShape,
-                            border = BorderStroke(1.dp, DeckColors.DialogBorder),
+                            border = BorderStroke(1.dp, DeckColors.Line),
                         ) {
                             Text(
                                 stringResource(R.string.menu_dismiss),
@@ -728,7 +730,7 @@ fun DeleteFileConfirmDialog(
                         .background(bg)
                         .border(
                             width = if (hl) 1.5.dp else 1.dp,
-                            color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
+                            color = if (hl) DeckColors.Ruby else DeckColors.Line,
                             shape = DeckShapes.menuButton,
                         )
                         .clickable(onClick = action)
@@ -900,7 +902,7 @@ private fun ScrapeCoverDialog(
                                     .background(if (hl) DeckColors.Ruby.copy(alpha = 0.10f) else DeckColors.Surface)
                                     .border(
                                         width = if (hl) 2.dp else 1.dp,
-                                        color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
+                                        color = if (hl) DeckColors.Ruby else DeckColors.Line,
                                         shape = RoundedCornerShape(10.dp),
                                     )
                                     .clickable { onPickUrl(item.url) }

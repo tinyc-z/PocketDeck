@@ -76,6 +76,7 @@ import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.Dispatchers
@@ -224,11 +225,11 @@ fun ScrapeLogsScreen(
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.DialogBorder, CircleShape)
+                        .border(0.6.dp, DeckColors.Line, CircleShape)
                         .soundClickable(onClick = onBack),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("←", style = DeckType.menuTitle, color = DeckColors.TextPrimary)
+                    DeckIcon(DeckIcons.ChevronLeft, size = 18.dp, tint = DeckColors.TextPrimary)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -276,7 +277,7 @@ fun ScrapeLogsScreen(
                     modifier = Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                        .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
                         .soundClickable { showExportDialog = true }
                         .padding(horizontal = 11.dp, vertical = 7.dp),
                 )
@@ -298,7 +299,7 @@ fun ScrapeLogsScreen(
                 )
             }
 
-            HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+            HorizontalDivider(color = DeckColors.Line, thickness = 1.dp)
 
             // 筛选与折叠搜索栏
             Column(
@@ -336,7 +337,7 @@ fun ScrapeLogsScreen(
                                     .background(if (selected) DeckColors.Ruby else DeckColors.Surface)
                                     .border(
                                         0.6.dp,
-                                        if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
+                                        if (selected) DeckColors.Ruby else DeckColors.Line,
                                         DeckShapes.tabPill,
                                     )
                                     .soundClickable { filter = kind }
@@ -351,7 +352,7 @@ fun ScrapeLogsScreen(
                             .background(if (searchActive) DeckColors.Ruby else DeckColors.Surface)
                             .border(
                                 0.6.dp,
-                                if (searchActive) DeckColors.Ruby else DeckColors.DialogBorder,
+                                if (searchActive) DeckColors.Ruby else DeckColors.Line,
                                 DeckShapes.tabPill,
                             )
                             .soundClickable {
@@ -385,7 +386,7 @@ fun ScrapeLogsScreen(
                             .height(36.dp)
                             .clip(DeckShapes.tabPill)
                             .background(DeckColors.Surface)
-                            .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                            .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
                             .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -621,7 +622,7 @@ private fun ExportLogDirDialog(
                                 .background(if (active) DeckColors.Ruby else DeckColors.Surface)
                                 .border(
                                     0.6.dp,
-                                    if (active) DeckColors.Ruby else DeckColors.DialogBorder,
+                                    if (active) DeckColors.Ruby else DeckColors.Line,
                                     DeckShapes.tabPill,
                                 )
                                 .soundClickable { currentDir = sc.dir }
@@ -641,7 +642,7 @@ private fun ExportLogDirDialog(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(8.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
 
             // 子目录列表
             LazyColumn(
@@ -660,7 +661,7 @@ private fun ExportLogDirDialog(
                                 .fillMaxWidth()
                                 .clip(DeckShapes.settingsDropdown)
                                 .background(DeckColors.Surface)
-                                .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
+                                .border(0.6.dp, DeckColors.Line, DeckShapes.settingsDropdown)
                                 .soundClickable { currentDir = parent }
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -685,7 +686,7 @@ private fun ExportLogDirDialog(
                                 .fillMaxWidth()
                                 .clip(DeckShapes.settingsDropdown)
                                 .background(DeckColors.Surface)
-                                .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
+                                .border(0.6.dp, DeckColors.Line, DeckShapes.settingsDropdown)
                                 .soundClickable { currentDir = sub }
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -714,7 +715,7 @@ private fun ExportLogDirDialog(
                     Modifier
                         .weight(1f)
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.tabPill)
                         .soundClickable { onExportTo(currentDir) }
                         .padding(vertical = 11.dp),
                     contentAlignment = Alignment.Center,
@@ -729,7 +730,7 @@ private fun ExportLogDirDialog(
                     Modifier
                         .clip(DeckShapes.menuButton)
                         .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
+                        .border(0.6.dp, DeckColors.Line, DeckShapes.menuButton)
                         .soundClickable(onClick = onDismiss)
                         .padding(horizontal = 18.dp, vertical = 11.dp),
                     contentAlignment = Alignment.Center,

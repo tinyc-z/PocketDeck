@@ -82,6 +82,7 @@ import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.SystemFonts
@@ -382,7 +383,7 @@ fun TextFileViewerEditorDialog(
                             color = Color.White,
                             modifier = Modifier
                                 .clip(DeckShapes.tabPill)
-                                .background(DeckColors.Ruby)
+                                .brandBackground(DeckShapes.tabPill)
                                 .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill) { saveNow() }
                                 .padding(horizontal = 16.dp, vertical = 7.dp),
                         )
@@ -412,7 +413,7 @@ fun TextFileViewerEditorDialog(
             }
 
             Spacer(Modifier.height(10.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
             Spacer(Modifier.height(10.dp))
 
             Box(
@@ -421,7 +422,7 @@ fun TextFileViewerEditorDialog(
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(DeckColors.Surface)
-                    .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                    .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
                     .verticalScroll(scrollState)
                     .padding(12.dp),
             ) {
@@ -567,7 +568,7 @@ fun ArchivePreviewDialog(
             }
 
             Spacer(Modifier.height(10.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
 
             if (entries != null) {
                 LazyColumn(
@@ -637,7 +638,7 @@ fun ArchivePreviewDialog(
                         )
                         .border(
                             width = if (hl) 0.9.dp else 0.6.dp,
-                            color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
+                            color = if (hl) DeckColors.Ruby else DeckColors.Line,
                             shape = DeckShapes.menuButton,
                         )
                         .soundClickable {
@@ -726,7 +727,7 @@ fun BatchDeleteConfirmDialog(
                     .fillMaxWidth()
                     .clip(DeckShapes.menuButton)
                     .background(if (delHl) Color(0xFFEF4444).copy(alpha = 0.16f) else DeckColors.Surface)
-                    .border(0.9.dp, if (delHl) Color(0xFFDC2626) else DeckColors.DialogBorder, DeckShapes.menuButton)
+                    .border(0.9.dp, if (delHl) Color(0xFFDC2626) else DeckColors.Line, DeckShapes.menuButton)
                     .soundClickable(onClick = onConfirm)
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             )
@@ -740,7 +741,7 @@ fun BatchDeleteConfirmDialog(
                     .fillMaxWidth()
                     .clip(DeckShapes.menuButton)
                     .background(if (cancelHl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                    .border(0.9.dp, if (cancelHl) DeckColors.Ruby else DeckColors.DialogBorder, DeckShapes.menuButton)
+                    .border(0.9.dp, if (cancelHl) DeckColors.Ruby else DeckColors.Line, DeckShapes.menuButton)
                     .soundClickable(onClick = onDismiss)
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             )
@@ -996,7 +997,7 @@ fun AudioPlayerDialog(
                 }
             }
 
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
 
             if (errorMsg != null) {
                 Text(
@@ -1058,7 +1059,7 @@ fun AudioPlayerDialog(
                         color = DeckColors.Background,
                         modifier = Modifier
                             .clip(DeckShapes.menuButton)
-                            .background(DeckColors.Ruby)
+                            .brandBackground(DeckShapes.tabPill)
                             .gamepadClickable(swapAbxy, keyBindings, focusRequester = playBtnFr) { togglePlay() }
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -1182,7 +1183,7 @@ fun FontViewerDialog(
                 )
             }
 
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
 
             val state = loadedState
             if (state == null) {
@@ -1259,7 +1260,7 @@ fun FontViewerDialog(
                             color = DeckColors.Background,
                             modifier = Modifier
                                 .clip(DeckShapes.menuButton)
-                                .background(DeckColors.Ruby)
+                                .brandBackground(DeckShapes.tabPill)
                                 .gamepadClickable(swapAbxy, keyBindings) {
                                     if (applying) return@gamepadClickable
                                     applying = true

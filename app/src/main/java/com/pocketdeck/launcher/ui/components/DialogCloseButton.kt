@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,8 +26,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
+import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
-import com.pocketdeck.launcher.ui.theme.DeckShapes
+import com.pocketdeck.launcher.ui.theme.brandFocusRing
 
 /**
  * 弹窗面板容器：统一圆角底板 + 右上角等距（top == end）关闭（✕）图标按钮。
@@ -44,9 +48,11 @@ fun DialogPanelCard(
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val sheetShape = RoundedCornerShape(DeckBrand.RadiusXL)
     Box(
         modifier
-            .clip(DeckShapes.menuPanel)
+            .shadow(18.dp, sheetShape, ambientColor = DeckColors.CardShadow, spotColor = DeckColors.CardShadow, clip = false)
+            .clip(sheetShape)
             .background(DeckColors.DialogBg)
             .clickable(enabled = false, onClick = {}),
     ) {
@@ -87,13 +93,8 @@ fun DialogCloseButton(
 ) {
     val bg = when {
         darkSurface -> Color.White.copy(alpha = 0.16f)
-        focused -> DeckColors.Ruby.copy(alpha = 0.16f)
-        else -> DeckColors.Surface
-    }
-    val borderColor = when {
-        darkSurface -> Color.White.copy(alpha = 0.30f)
-        focused -> DeckColors.Ruby
-        else -> DeckColors.DialogBorder
+        focused -> DeckColors.AccentSoft
+        else -> DeckColors.SurfaceAlt
     }
     val iconColor = when {
         darkSurface -> Color.White
@@ -102,10 +103,10 @@ fun DialogCloseButton(
     }
     Box(
         modifier
+            .brandFocusRing(focused, cornerRadius = size / 2, width = 2.dp, gap = 2.dp, glow = false)
             .size(size)
             .clip(CircleShape)
             .background(bg)
-            .border(if (focused) 1.5.dp else 1.dp, borderColor, CircleShape)
             .gamepadClickable(
                 swapAbxy = swapAbxy,
                 keyBindings = keyBindings,
@@ -115,22 +116,6 @@ fun DialogCloseButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(size * 0.36f)) {
-            val stroke = 2.dp.toPx()
-            drawLine(
-                color = iconColor,
-                start = Offset(0f, 0f),
-                end = Offset(this.size.width, this.size.height),
-                strokeWidth = stroke,
-                cap = StrokeCap.Round,
-            )
-            drawLine(
-                color = iconColor,
-                start = Offset(this.size.width, 0f),
-                end = Offset(0f, this.size.height),
-                strokeWidth = stroke,
-                cap = StrokeCap.Round,
-            )
-        }
+        DeckIcon(PanelIcons.Close, tint = iconColor, size = size * 0.5f)
     }
 }

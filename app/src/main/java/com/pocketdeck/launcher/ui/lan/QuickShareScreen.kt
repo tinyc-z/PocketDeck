@@ -62,7 +62,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.apps.QuickShareAppIcon
 import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckSwitch
+import com.pocketdeck.launcher.ui.theme.DeckBrand
+import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.cardSurface
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.input.GamepadKeys
@@ -262,12 +267,17 @@ fun QuickShareScreen(
             ) {
                 Box(
                     Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .dpadNavItem(nav, "back", shape = RoundedCornerShape(8.dp), onClick = onDismiss)
-                        .drawBehind { drawBackArrow(iconTint) },
-                )
-                Spacer(Modifier.width(12.dp))
+                        .size(34.dp)
+                        .cardSurface(androidx.compose.foundation.shape.CircleShape, elevation = 3.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .dpadNavItem(nav, "back", shape = androidx.compose.foundation.shape.CircleShape, onClick = onDismiss),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    DeckIcon(DeckIcons.ChevronLeft, tint = iconTint, size = 18.dp)
+                }
+                Spacer(Modifier.width(10.dp))
+                QuickShareAppIcon(size = 32.dp)
+                Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         stringResource(R.string.quick_share_title),
@@ -293,7 +303,7 @@ fun QuickShareScreen(
                     Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                        .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
                         .padding(3.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -319,7 +329,7 @@ fun QuickShareScreen(
                 }
             }
 
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
 
             if (activeTab == QuickShareTab.Transfer) {
                 Column(
@@ -336,8 +346,8 @@ fun QuickShareScreen(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(DeckColors.Ruby.copy(alpha = 0.08f))
-                                .border(0.9.dp, DeckColors.Ruby, RoundedCornerShape(14.dp))
+                                .cardSurface(RoundedCornerShape(DeckBrand.RadiusM), elevation = 3.dp)
+                                .border(1.2.dp, DeckColors.Ruby.copy(alpha = 0.45f), RoundedCornerShape(DeckBrand.RadiusM))
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -386,7 +396,7 @@ fun QuickShareScreen(
                                         .background(if (selected) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.DialogBg)
                                         .border(
                                             width = if (selected) 0.9.dp else 0.6.dp,
-                                            color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
+                                            color = if (selected) DeckColors.Ruby else DeckColors.Line,
                                             shape = DeckShapes.settingsDropdown,
                                         )
                                         .dpadNavItem(nav, "inc_dir_$idx", shape = DeckShapes.settingsDropdown) {
@@ -403,7 +413,7 @@ fun QuickShareScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    if (selected) Text("✓", style = DeckType.settingsLabel, color = DeckColors.Ruby)
+                                    if (selected) DeckIcon(DeckIcons.Check, size = 15.dp, tint = DeckColors.Ruby)
                                 }
                             }
                             Row(
@@ -427,10 +437,10 @@ fun QuickShareScreen(
                                 Text(
                                     stringResource(R.string.lan_incoming_accept),
                                     style = DeckType.menuButton,
-                                    color = DeckColors.Background,
+                                    color = Color.White,
                                     modifier = Modifier
                                         .clip(DeckShapes.menuButton)
-                                        .background(DeckColors.Ruby)
+                                        .brandBackground(DeckShapes.menuButton)
                                         .dpadNavItem(nav, "inc_accept") {
                                             onAcceptIncoming(req.sessionId, chosenDir)
                                         }
@@ -453,13 +463,13 @@ fun QuickShareScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(DeckColors.Surface)
-                                .border(0.9.dp, if (txActive) DeckColors.Ruby else DeckColors.DialogBorder, RoundedCornerShape(14.dp))
+                                .border(0.9.dp, if (txActive) DeckColors.Ruby else DeckColors.Line, RoundedCornerShape(14.dp))
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 val heading = when (tx.phase) {
-                                    TransferPhase.WaitingAccept -> "⏳ ${stringResource(R.string.lan_tx_waiting, tx.peerName)}"
+                                    TransferPhase.WaitingAccept -> stringResource(R.string.lan_tx_waiting, tx.peerName)
                                     TransferPhase.PinRequired -> "${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
                                     TransferPhase.Transferring -> if (tx.direction == TransferDirection.Sending) {
                                         "${stringResource(R.string.lan_tx_sending, tx.peerName)}"
@@ -509,12 +519,8 @@ fun QuickShareScreen(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(if (state.shareRunning) DeckColors.Ruby.copy(alpha = 0.06f) else DeckColors.Surface)
-                            .border(
-                                width = if (state.shareRunning) 0.9.dp else 0.6.dp,
-                                color = if (state.shareRunning) DeckColors.Ruby.copy(alpha = 0.7f) else DeckColors.DialogBorder,
-                                shape = RoundedCornerShape(14.dp),
-                            )
+                            .cardSurface(RoundedCornerShape(DeckBrand.RadiusM), elevation = 2.dp)
+                            .border(0.8.dp, DeckColors.Line, RoundedCornerShape(DeckBrand.RadiusM))
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
@@ -544,20 +550,11 @@ fun QuickShareScreen(
                                 )
                             }
                             Spacer(Modifier.width(12.dp))
-                            Switch(
-                                checked = state.shareRunning,
-                                onCheckedChange = null,
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DeckColors.Background,
-                                    checkedTrackColor = DeckColors.Ruby,
-                                    uncheckedThumbColor = DeckColors.TextSecondary,
-                                    uncheckedTrackColor = DeckColors.DialogBg,
-                                ),
-                            )
+                            DeckSwitch(checked = state.shareRunning)
                         }
 
                         if (state.shareRunning) {
-                            HorizontalDivider(color = DeckColors.DialogBorder)
+                            HorizontalDivider(color = DeckColors.Line)
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -575,7 +572,7 @@ fun QuickShareScreen(
                                 )
                                 Spacer(Modifier.width(10.dp))
                                 Text(
-                                    "↻ ${stringResource(R.string.lan_share_scan)}",
+                                    stringResource(R.string.lan_share_scan),
                                     style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
                                     color = DeckColors.Ruby,
                                     modifier = Modifier
@@ -587,7 +584,7 @@ fun QuickShareScreen(
                             }
                         }
 
-                        HorizontalDivider(color = DeckColors.DialogBorder)
+                        HorizontalDivider(color = DeckColors.Line)
 
                         // LocalSend 协议兼容开关（默认开启，可手动关闭）
                         Row(
@@ -613,16 +610,7 @@ fun QuickShareScreen(
                                 )
                             }
                             Spacer(Modifier.width(12.dp))
-                            Switch(
-                                checked = state.localSendCompat,
-                                onCheckedChange = null,
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DeckColors.Background,
-                                    checkedTrackColor = DeckColors.Ruby,
-                                    uncheckedThumbColor = DeckColors.TextSecondary,
-                                    uncheckedTrackColor = DeckColors.DialogBg,
-                                ),
-                            )
+                            DeckSwitch(checked = state.localSendCompat)
                         }
                     }
 
@@ -632,7 +620,7 @@ fun QuickShareScreen(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
                             .background(DeckColors.Surface)
-                            .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(14.dp))
+                            .border(0.6.dp, DeckColors.Line, RoundedCornerShape(14.dp))
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
@@ -652,7 +640,7 @@ fun QuickShareScreen(
                                 modifier = Modifier
                                     .clip(DeckShapes.tabPill)
                                     .background(DeckColors.Background)
-                                    .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                                    .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
                                     .dpadNavItem(nav, "rand_name", shape = DeckShapes.tabPill, onClick = onRandomizeDeviceName)
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                             )
@@ -669,7 +657,7 @@ fun QuickShareScreen(
                             )
                         }
 
-                        HorizontalDivider(color = DeckColors.DialogBorder)
+                        HorizontalDivider(color = DeckColors.Line)
 
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -685,7 +673,7 @@ fun QuickShareScreen(
                                 modifier = Modifier
                                     .clip(DeckShapes.tabPill)
                                     .background(DeckColors.Background)
-                                    .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                                    .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
                                     .dpadNavItem(nav, "refresh_nic", shape = DeckShapes.tabPill, onClick = onRefreshInterfaces)
                                     .padding(horizontal = 10.dp, vertical = 5.dp),
                             )
@@ -703,7 +691,7 @@ fun QuickShareScreen(
                                         .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.DialogBg)
                                         .border(
                                             width = if (selected) 0.9.dp else 0.6.dp,
-                                            color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
+                                            color = if (selected) DeckColors.Ruby else DeckColors.Line,
                                             shape = DeckShapes.settingsDropdown,
                                         )
                                         .dpadNavItem(nav, "nic_$nicIdx", shape = DeckShapes.settingsDropdown) {
@@ -725,7 +713,7 @@ fun QuickShareScreen(
                                         color = if (selected) DeckColors.Ruby else DeckColors.TextPrimary,
                                         modifier = Modifier.weight(1f),
                                     )
-                                    if (selected) Text("✓", style = DeckType.settingsValue, color = DeckColors.Ruby)
+                                    if (selected) DeckIcon(DeckIcons.Check, size = 16.dp, tint = DeckColors.Ruby)
                                 }
                             }
                         }
@@ -786,7 +774,7 @@ fun QuickShareScreen(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(DeckColors.Surface)
-                                        .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
+                                        .border(0.6.dp, DeckColors.Line, RoundedCornerShape(12.dp))
                                         .dpadNavItem(nav, "hist_$hIdx", shape = RoundedCornerShape(12.dp)) {
                                             detailItem = item
                                         }
@@ -987,7 +975,7 @@ private fun QuickShareTabPill(
         color = if (selected) Color.White else DeckColors.TextSecondary,
         modifier = Modifier
             .clip(DeckShapes.tabPill)
-            .background(if (selected) DeckColors.Ruby else Color.Transparent)
+            .then(if (selected) Modifier.brandBackground(DeckShapes.tabPill) else Modifier)
             .dpadNavItem(nav, navId, shape = DeckShapes.tabPill, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp),
     )
@@ -1057,7 +1045,7 @@ private fun ShareHistoryDetailDialog(
                 color = DeckColors.TextSecondary,
             )
             Spacer(Modifier.height(10.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            HorizontalDivider(color = DeckColors.Line)
             Spacer(Modifier.height(10.dp))
 
             Column(
@@ -1081,7 +1069,7 @@ private fun ShareHistoryDetailDialog(
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
                             .background(DeckColors.Surface)
-                            .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
+                            .border(0.6.dp, DeckColors.Line, DeckShapes.settingsDropdown)
                             .padding(horizontal = 12.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -1138,7 +1126,7 @@ private fun ShareHistoryDetailDialog(
                                         modifier = Modifier
                                             .clip(DeckShapes.tabPill)
                                             .background(DeckColors.DialogBg)
-                                            .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                                            .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
                                             .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill) {
                                                 onOpenFolder(parentDir, if (exists) file else null)
                                             }
@@ -1162,7 +1150,7 @@ private fun ShareHistoryDetailDialog(
                         modifier = Modifier
                             .clip(DeckShapes.menuButton)
                             .background(DeckColors.Surface)
-                            .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
+                            .border(0.6.dp, DeckColors.Line, DeckShapes.menuButton)
                             .gamepadClickable(swapAbxy, keyBindings) {
                                 onOpenFolder(dialogFolderTarget.first, dialogFolderTarget.second)
                             }

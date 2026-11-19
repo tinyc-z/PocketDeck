@@ -123,6 +123,9 @@ import com.pocketdeck.launcher.ui.settings.NameDialog
 import com.pocketdeck.launcher.ui.settings.NameDialogSpec
 import com.pocketdeck.launcher.ui.settings.NameDialogState
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.DeckBrand
+import com.pocketdeck.launcher.ui.theme.cardSurface
+import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -775,7 +778,7 @@ fun GameLibraryScreen(
             }
             context.startActivity(chooser)
         }.onFailure {
-            Toast.makeText(context, it.message ?: "Share failed", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, it.message ?: context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1564,7 +1567,7 @@ fun GameLibraryScreen(
                             color = when {
                                 lanHl -> DeckColors.Ruby
                                 lanActive -> lanAccent
-                                else -> DeckColors.DialogBorder
+                                else -> DeckColors.Line
                             },
                             shape = DeckShapes.tabPill,
                         )
@@ -1598,7 +1601,7 @@ fun GameLibraryScreen(
                     Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                        .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
                         .padding(3.dp),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -1617,7 +1620,7 @@ fun GameLibraryScreen(
                 }
             }
 
-            HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+            HorizontalDivider(color = DeckColors.Line, thickness = 1.dp)
 
             if (mode == LibraryMode.Games) {
                 Column(
@@ -1636,7 +1639,7 @@ fun GameLibraryScreen(
                                 .background(DeckColors.Surface)
                                 .border(
                                     width = if (searchHl) 0.9.dp else 0.6.dp,
-                                    color = if (searchHl) DeckColors.Ruby else DeckColors.DialogBorder,
+                                    color = if (searchHl) DeckColors.Ruby else DeckColors.Line,
                                     shape = DeckShapes.tabPill,
                                 )
                                 .clickable { searchFieldFr.requestFocus() }
@@ -1740,7 +1743,7 @@ fun GameLibraryScreen(
                             )
                         }
                         item {
-                            Box(Modifier.width(1.dp).height(18.dp).background(DeckColors.DialogBorder))
+                            Box(Modifier.width(1.dp).height(18.dp).background(DeckColors.Line))
                         }
                         item {
                             FilterChipPill(
@@ -1793,7 +1796,7 @@ fun GameLibraryScreen(
                                     .background(if (hl) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
                                     .border(
                                         width = if (hl) 0.9.dp else 0.6.dp,
-                                        color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
+                                        color = if (hl) DeckColors.Ruby else DeckColors.Line,
                                         shape = RoundedCornerShape(12.dp),
                                     )
                                     .soundClickable {
@@ -1935,7 +1938,7 @@ fun GameLibraryScreen(
                                 .background(DeckColors.Surface)
                                 .border(
                                     width = if (fileSearchBoxHl) 0.9.dp else 0.6.dp,
-                                    color = if (fileSearchBoxHl) DeckColors.Ruby else DeckColors.DialogBorder,
+                                    color = if (fileSearchBoxHl) DeckColors.Ruby else DeckColors.Line,
                                     shape = DeckShapes.tabPill,
                                 )
                                 .clickable {
@@ -2062,7 +2065,7 @@ fun GameLibraryScreen(
                                         .background(if (hl) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
                                         .border(
                                             width = if (hl) 0.9.dp else 0.6.dp,
-                                            color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
+                                            color = if (hl) DeckColors.Ruby else DeckColors.Line,
                                             shape = RoundedCornerShape(10.dp),
                                         )
                                         .soundClickable { stepUpDir() }
@@ -2117,7 +2120,7 @@ fun GameLibraryScreen(
                                     )
                                     .border(
                                         width = if (hl || checked) 0.9.dp else 0.6.dp,
-                                        color = if (hl || checked) DeckColors.Ruby else DeckColors.DialogBorder,
+                                        color = if (hl || checked) DeckColors.Ruby else DeckColors.Line,
                                         shape = RoundedCornerShape(10.dp),
                                     )
                                     .soundClickable {
@@ -2696,7 +2699,7 @@ private fun FilterChipPill(
                 color = when {
                     focused -> DeckColors.Ruby
                     selected -> activeFg.copy(alpha = 0.55f)
-                    else -> DeckColors.DialogBorder
+                    else -> DeckColors.Line
                 },
                 shape = DeckShapes.tabPill,
             )
@@ -3030,7 +3033,7 @@ private fun FileTasksBanner(
                             .height(4.dp)
                             .clip(RoundedCornerShape(2.dp)),
                         color = DeckColors.Ruby,
-                        trackColor = DeckColors.DialogBorder,
+                        trackColor = DeckColors.Line,
                         gapSize = 0.dp,
                         drawStopIndicator = {},
                     )
@@ -3041,7 +3044,7 @@ private fun FileTasksBanner(
                             .height(4.dp)
                             .clip(RoundedCornerShape(2.dp)),
                         color = DeckColors.Ruby,
-                        trackColor = DeckColors.DialogBorder,
+                        trackColor = DeckColors.Line,
                     )
                 }
             }

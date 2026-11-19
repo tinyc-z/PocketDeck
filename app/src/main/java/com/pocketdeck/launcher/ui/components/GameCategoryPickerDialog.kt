@@ -52,6 +52,7 @@ import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 
@@ -251,11 +252,7 @@ fun GameCategoryPickerDialog(
                                     Text(viaPlatText, style = DeckType.metaLabel, color = DeckColors.TextSecondary)
                                 }
                             }
-                            Text(
-                                if (checked) "✓" else "—",
-                                style = DeckType.settingsValue,
-                                color = if (checked || hl) DeckColors.Ruby else DeckColors.TextSecondary,
-                            )
+                            if (checked) DeckIcon(DeckIcons.Check, size = 15.dp, tint = DeckColors.Ruby)
                         }
                     }
                 }
@@ -326,7 +323,7 @@ fun GameCategoryPickerDialog(
                             .background(if (createHl) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.Surface)
                             .border(
                                 width = if (createHl) 0.9.dp else 0.6.dp,
-                                color = if (createHl) DeckColors.Ruby else DeckColors.DialogBorder,
+                                color = if (createHl) DeckColors.Ruby else DeckColors.Line,
                                 shape = DeckShapes.settingsDropdown,
                             )
                             .soundClickable {
@@ -367,7 +364,7 @@ fun GameCategoryPickerDialog(
                     color = Color.White,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .border(if (okHl) 1.dp else 0.dp, if (okHl) DeckColors.TextPrimary else Color.Transparent, DeckShapes.menuButton)
                         .clickable { onConfirm(selectedIds) }
                         .padding(horizontal = 18.dp, vertical = 8.dp),

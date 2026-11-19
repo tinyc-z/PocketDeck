@@ -60,7 +60,9 @@ import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.home.formatFileSize
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.launch
@@ -244,142 +246,123 @@ fun GamePropertiesDialog(
                     .padding(end = 36.dp),
             ) {
                 Text(
-                    stringResource(R.string.prop_title),
-                    style = DeckType.settingsLabel,
+                    stringResource(R.string.prop_title).uppercase(),
+                    style = DeckSectionHeaderStyle,
                     color = DeckColors.Ruby,
                 )
+                Spacer(Modifier.height(2.dp))
                 Text(
                     game.title,
-                    style = DeckType.menuTitle,
+                    style = DeckType.menuTitle.copy(fontWeight = FontWeight.Bold),
                     color = DeckColors.TextPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = DeckColors.DialogBorder)
+            Spacer(Modifier.height(10.dp))
 
             Column(
                 Modifier
                     .weight(1f, fill = false)
                     .verticalScroll(scrollState)
-                    .padding(vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .padding(vertical = 6.dp, horizontal = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                PropSectionHeader(stringResource(R.string.prop_sec_game))
-                if (!officialName.isNullOrBlank() && officialName != game.title) {
-                    PropRow(stringResource(R.string.prop_official_name), officialName)
-                }
-                PropRow(stringResource(R.string.meta_platform), "${platform.fullName} (${platform.shortName})")
-                PropRow(stringResource(R.string.meta_release_date), metadata?.releaseDate ?: noneLabel)
-                PropRow(stringResource(R.string.meta_genre), metadata?.genre ?: noneLabel)
-                PropRow(stringResource(R.string.meta_developer), metadata?.developer ?: noneLabel)
-                PropRow(stringResource(R.string.meta_publisher), metadata?.publisher ?: noneLabel)
-                PropRow(stringResource(R.string.prop_launcher), launcherText)
-                val statusList = buildList {
-                    if (isFavorite) add(stringResource(R.string.prop_favorited))
-                    addAll(categoryNames)
-                }
-                if (statusList.isNotEmpty()) {
-                    PropRow(stringResource(R.string.prop_tags), statusList.joinToString(" · "))
-                }
-
-                HorizontalDivider(color = DeckColors.DialogBorder, modifier = Modifier.padding(vertical = 4.dp))
-                PropSectionHeader(stringResource(R.string.prop_sec_file))
-                PropRow(
-                    if (isApk) stringResource(R.string.prop_package) else stringResource(R.string.prop_file_name),
-                    game.fileName,
-                )
-                PropRow(stringResource(R.string.meta_file_size), sizeText)
-                if (!isApk) {
-                    PropRow(stringResource(R.string.prop_file_path), game.id)
-                    PropRow("CRC32", crc32 ?: noneLabel)
+                DeckSectionHeader(stringResource(R.string.prop_sec_game))
+                DeckCard(elevation = 1.dp) {
+                    if (!officialName.isNullOrBlank() && officialName != game.title) {
+                        PropRow(stringResource(R.string.prop_official_name), officialName)
+                        DeckDivider()
+                    }
+                    PropRow(stringResource(R.string.meta_platform), "${platform.fullName} (${platform.shortName})")
+                    DeckDivider()
+                    PropRow(stringResource(R.string.meta_release_date), metadata?.releaseDate ?: noneLabel)
+                    DeckDivider()
+                    PropRow(stringResource(R.string.meta_genre), metadata?.genre ?: noneLabel)
+                    DeckDivider()
+                    PropRow(stringResource(R.string.meta_developer), metadata?.developer ?: noneLabel)
+                    DeckDivider()
+                    PropRow(stringResource(R.string.meta_publisher), metadata?.publisher ?: noneLabel)
+                    DeckDivider()
+                    PropRow(stringResource(R.string.prop_launcher), launcherText)
+                    val statusList = buildList {
+                        if (isFavorite) add(stringResource(R.string.prop_favorited))
+                        addAll(categoryNames)
+                    }
+                    if (statusList.isNotEmpty()) {
+                        DeckDivider()
+                        PropRow(stringResource(R.string.prop_tags), statusList.joinToString(" · "))
+                    }
                 }
 
-                HorizontalDivider(color = DeckColors.DialogBorder, modifier = Modifier.padding(vertical = 4.dp))
-                PropSectionHeader(stringResource(R.string.prop_sec_scraping))
-                PropRow(stringResource(R.string.prop_meta_provider), metaProvidersText)
-                PropRow(stringResource(R.string.prop_meta_mode), metaModesText)
-                PropRow(stringResource(R.string.prop_cover_provider), coverProviderText)
-                PropRow(stringResource(R.string.prop_cover_mode), coverModeText)
-                coverInfo?.source?.takeIf { it.isNotBlank() }?.let { src ->
-                    PropRow(stringResource(R.string.prop_cover_source), src)
+                Spacer(Modifier.height(4.dp))
+                DeckSectionHeader(stringResource(R.string.prop_sec_file))
+                DeckCard(elevation = 1.dp) {
+                    PropRow(
+                        if (isApk) stringResource(R.string.prop_package) else stringResource(R.string.prop_file_name),
+                        game.fileName,
+                    )
+                    DeckDivider()
+                    PropRow(stringResource(R.string.meta_file_size), sizeText)
+                    if (!isApk) {
+                        DeckDivider()
+                        PropRow(stringResource(R.string.prop_file_path), game.id)
+                        DeckDivider()
+                        PropRow("CRC32", crc32 ?: noneLabel)
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                DeckSectionHeader(stringResource(R.string.prop_sec_scraping))
+                DeckCard(elevation = 1.dp) {
+                    PropRow(stringResource(R.string.prop_meta_provider), metaProvidersText)
+                    DeckDivider()
+                    PropRow(stringResource(R.string.prop_meta_mode), metaModesText)
+                    DeckDivider()
+                    PropRow(stringResource(R.string.prop_cover_provider), coverProviderText)
+                    DeckDivider()
+                    PropRow(stringResource(R.string.prop_cover_mode), coverModeText)
+                    coverInfo?.source?.takeIf { it.isNotBlank() }?.let { src ->
+                        DeckDivider()
+                        PropRow(stringResource(R.string.prop_cover_source), src)
+                    }
                 }
             }
 
             if (canLocate || onRefreshMetadata != null) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (canLocate) {
-                        val locateFocused = footerFocus == 0
-                        Row(
-                            Modifier
+                        DeckButton(
+                            text = stringResource(R.string.edit_locate_file),
+                            style = DeckButtonStyle.Secondary,
+                            icon = PanelIcons.Folder,
+                            focused = footerFocus == 0,
+                            modifier = Modifier
                                 .weight(1f)
-                                .clip(DeckShapes.menuButton)
-                                .background(
-                                    if (locateFocused) DeckColors.Ruby.copy(alpha = 0.16f)
-                                    else DeckColors.Surface,
-                                )
-                                .border(
-                                    width = if (locateFocused) 1.5.dp else 1.dp,
-                                    color = if (locateFocused) DeckColors.Ruby else DeckColors.DialogBorder,
-                                    shape = DeckShapes.menuButton,
-                                )
-                                .soundClickable { onLocateFile() }
-                                .padding(horizontal = 16.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            Text(
-                                text = stringResource(R.string.edit_locate_file),
-                                style = DeckType.menuButton,
-                                color = if (locateFocused) DeckColors.Ruby else DeckColors.TextPrimary,
-                            )
-                        }
+                                .soundClickable { onLocateFile() },
+                        )
                     }
                     if (onRefreshMetadata != null) {
-                        val refreshFocused = footerFocus == 1
-                        Row(
-                            Modifier
+                        DeckButton(
+                            text = if (refreshing) {
+                                stringResource(R.string.prop_refreshing_meta)
+                            } else {
+                                stringResource(R.string.prop_refresh_meta)
+                            },
+                            style = DeckButtonStyle.Primary,
+                            icon = PanelIcons.Refresh,
+                            focused = footerFocus == 1,
+                            enabled = !refreshing,
+                            modifier = Modifier
                                 .weight(1f)
-                                .clip(DeckShapes.menuButton)
-                                .background(
-                                    if (refreshFocused) DeckColors.Ruby.copy(alpha = 0.16f)
-                                    else DeckColors.Surface,
-                                )
-                                .border(
-                                    width = if (refreshFocused) 1.5.dp else 1.dp,
-                                    color = if (refreshFocused) DeckColors.Ruby else DeckColors.DialogBorder,
-                                    shape = DeckShapes.menuButton,
-                                )
-                                .soundClickable(enabled = !refreshing) { triggerRefresh() }
-                                .padding(horizontal = 16.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            if (refreshing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    strokeWidth = 2.dp,
-                                    color = DeckColors.Ruby,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Text(
-                                text = if (refreshing) {
-                                    stringResource(R.string.prop_refreshing_meta)
-                                } else {
-                                    stringResource(R.string.prop_refresh_meta)
-                                },
-                                style = DeckType.menuButton,
-                                color = if (refreshFocused || refreshing) DeckColors.Ruby else DeckColors.TextPrimary,
-                            )
-                        }
+                                .soundClickable(enabled = !refreshing) { triggerRefresh() },
+                        )
                     }
                 }
             }
@@ -388,35 +371,23 @@ fun GamePropertiesDialog(
 }
 
 @Composable
-private fun PropSectionHeader(title: String) {
-    Text(
-        title,
-        style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-        color = DeckColors.Ruby,
-    )
-}
-
-@Composable
 private fun PropRow(label: String, value: String) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(DeckShapes.settingsDropdown)
-            .background(DeckColors.Surface)
-            .border(0.5.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Text(
             label,
-            style = DeckType.settingsLabel,
+            style = DeckType.settingsLabel.copy(fontSize = 13.sp),
             color = DeckColors.TextSecondary,
-            modifier = Modifier.width(126.dp),
+            modifier = Modifier.width(120.dp),
         )
         Spacer(Modifier.width(10.dp))
         Text(
             value,
-            style = DeckType.settingsLabel,
+            style = DeckType.settingsLabel.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium),
             color = DeckColors.TextPrimary,
             modifier = Modifier.weight(1f),
         )
