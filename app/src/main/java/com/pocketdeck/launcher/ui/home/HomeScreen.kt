@@ -130,8 +130,8 @@ fun HomeScreen(
     val lanState by lanManager.state.collectAsState()
     var showLanControlFromStatusBar by remember { mutableStateOf(false) }
     var showQuickShareScreen by remember { mutableStateOf(false) }
-    LaunchedEffect(state.keySoundEnabled, state.keySoundStyle) {
-        KeySound.configure(state.keySoundEnabled, state.keySoundStyle)
+    LaunchedEffect(state.keySoundEnabled) {
+        KeySound.configure(state.keySoundEnabled)
     }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -301,10 +301,23 @@ fun HomeScreen(
     } else {
         0
     }
+    val blurOfficialName = if (state.backgroundStyle == BackgroundStyle.CoverBlur) {
+        settledFocusGame?.let { state.officialNames[it.id] }
+    } else {
+        null
+    }
+    val blurResolvedSource = if (state.backgroundStyle == BackgroundStyle.CoverBlur) {
+        val map by vm.coverResolutionMap.collectAsState()
+        settledFocusGame?.let { map[it.id]?.source }
+    } else {
+        null
+    }
     val blurCoverCandidates = remember(
         settledFocusGame?.id,
         settledFocusGame?.customCover,
         settledFocusGame?.localCover,
+        blurOfficialName,
+        blurResolvedSource,
         state.backgroundStyle,
         coverIndexVer,
     ) {
@@ -313,12 +326,13 @@ fun HomeScreen(
         else vm.covers.candidates(
             g,
             state.platformFor(g),
-            state.officialNames[g.id],
+            blurOfficialName,
         )
     }
     val blurKnownIdx = remember(
         settledFocusGame?.id,
         settledFocusGame?.customCover,
+        blurResolvedSource,
         state.backgroundStyle,
         coverIndexVer,
     ) {
@@ -387,7 +401,21 @@ fun HomeScreen(
                     !imeVisible &&
                     KeySound.isNavOrGamepadKey(event, state.swapAbxy, state.keyBindings)
                 ) {
-                    KeySound.play(context, true, state.keySoundStyle)
+                    val isTabSwitchKey = when {
+                        GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings) ||
+                            GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) ->
+                            !state.showViewMenu && !state.showSettings && !state.showApps &&
+                                state.menuGame == null && state.propertiesGame == null &&
+                                state.editingGame == null && !showLanControlFromStatusBar
+                        !hasChildFocusOverlay && !state.showViewMenu && state.viewMode == ViewMode.List &&
+                            (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> true
+                        else -> false
+                    }
+                    if (isTabSwitchKey) {
+                        KeySound.playTabSwitch(context, true)
+                    } else {
+                        KeySound.play(context, true)
+                    }
                 }
 
                 // 弹窗/全屏子页面自己处理按键
@@ -975,7 +1003,6 @@ fun HomeScreen(
                     showAndroidGames = state.showAndroidGames,
                     keyBindings = state.keyBindings,
                     keySoundEnabled = state.keySoundEnabled,
-                    keySoundStyle = state.keySoundStyle,
                     themeAccent = state.themeAccent,
                     fontId = state.fontId,
                     platformAspects = state.platformAspects,
@@ -991,7 +1018,6 @@ fun HomeScreen(
                 onToggleClock12h = { vm.toggleClock12h() },
                 onToggleSwapAbxy = { vm.toggleSwapAbxy() },
                 onToggleKeySound = { vm.toggleKeySound() },
-                onSetKeySoundStyle = { vm.setKeySoundStyle(it) },
                 onToggleNowTab = { vm.toggleNowTab() },
                 onToggleFavsTab = { vm.toggleFavsTab() },
                 onToggleBottomBar = { vm.toggleBottomBar() },

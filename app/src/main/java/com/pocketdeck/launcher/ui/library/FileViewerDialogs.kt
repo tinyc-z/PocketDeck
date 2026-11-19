@@ -70,6 +70,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.ArchiveEntryInfo
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.input.GamepadKeys
@@ -419,7 +421,7 @@ fun TextFileViewerEditorDialog(
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(DeckColors.Surface)
-                    .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                    .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
                     .verticalScroll(scrollState)
                     .padding(12.dp),
             ) {
@@ -528,13 +530,17 @@ fun ArchivePreviewDialog(
                 .clickable(enabled = false, onClick = {})
                 .padding(20.dp),
         ) {
-            Text(
-                "🗜  ${file.name}",
-                style = DeckType.menuTitle,
-                color = DeckColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                DeckIcon(DeckIcons.Archive, tint = DeckColors.Ruby, size = 18.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    file.name,
+                    style = DeckType.menuTitle,
+                    color = DeckColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             val entries = inspectState?.getOrNull()
             val err = inspectState?.exceptionOrNull()
             Spacer(Modifier.height(4.dp))
@@ -580,7 +586,11 @@ fun ArchivePreviewDialog(
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(if (e.isDir) "📁" else "📄", fontSize = 13.sp)
+                            DeckIcon(
+                                icon = if (e.isDir) DeckIcons.Folder else DeckIcons.FileText,
+                                tint = if (e.isDir) DeckColors.Ruby else DeckColors.TextSecondary,
+                                size = 15.dp,
+                            )
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 e.name,
@@ -626,7 +636,7 @@ fun ArchivePreviewDialog(
                             },
                         )
                         .border(
-                            width = if (hl) 1.5.dp else 1.dp,
+                            width = if (hl) 0.9.dp else 0.6.dp,
                             color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
                             shape = DeckShapes.menuButton,
                         )
@@ -716,7 +726,7 @@ fun BatchDeleteConfirmDialog(
                     .fillMaxWidth()
                     .clip(DeckShapes.menuButton)
                     .background(if (delHl) Color(0xFFEF4444).copy(alpha = 0.16f) else DeckColors.Surface)
-                    .border(1.5.dp, if (delHl) Color(0xFFDC2626) else DeckColors.DialogBorder, DeckShapes.menuButton)
+                    .border(0.9.dp, if (delHl) Color(0xFFDC2626) else DeckColors.DialogBorder, DeckShapes.menuButton)
                     .soundClickable(onClick = onConfirm)
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             )
@@ -730,7 +740,7 @@ fun BatchDeleteConfirmDialog(
                     .fillMaxWidth()
                     .clip(DeckShapes.menuButton)
                     .background(if (cancelHl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                    .border(1.5.dp, if (cancelHl) DeckColors.Ruby else DeckColors.DialogBorder, DeckShapes.menuButton)
+                    .border(0.9.dp, if (cancelHl) DeckColors.Ruby else DeckColors.DialogBorder, DeckShapes.menuButton)
                     .soundClickable(onClick = onDismiss)
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             )
@@ -967,7 +977,7 @@ fun AudioPlayerDialog(
                         .background(DeckColors.Ruby.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(if (playing) "🎶" else "🎵", fontSize = 22.sp)
+                    DeckIcon(DeckIcons.Music, tint = DeckColors.Ruby, size = 22.dp)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -1063,10 +1073,7 @@ fun AudioPlayerDialog(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                     Spacer(Modifier.weight(1f))
-                    Text(
-                        if (looping) "🔁 ${stringResource(R.string.lib_audio_loop_on)}" else "🔁 ${stringResource(R.string.lib_audio_loop_off)}",
-                        style = DeckType.settingsLabel,
-                        color = if (looping) DeckColors.Ruby else DeckColors.TextSecondary,
+                    Row(
                         modifier = Modifier
                             .clip(DeckShapes.menuButton)
                             .background(if (looping) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.Surface)
@@ -1075,7 +1082,20 @@ fun AudioPlayerDialog(
                                 runCatching { playerRef?.isLooping = looping }
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DeckIcon(
+                            icon = DeckIcons.Repeat,
+                            tint = if (looping) DeckColors.Ruby else DeckColors.TextSecondary,
+                            size = 14.dp,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (looping) stringResource(R.string.lib_audio_loop_on) else stringResource(R.string.lib_audio_loop_off),
+                            style = DeckType.settingsLabel,
+                            color = if (looping) DeckColors.Ruby else DeckColors.TextSecondary,
+                        )
+                    }
                 }
             }
         }

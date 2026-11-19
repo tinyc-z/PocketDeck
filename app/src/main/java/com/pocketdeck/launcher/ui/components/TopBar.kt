@@ -25,7 +25,6 @@ import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -78,6 +77,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.input.KeySound
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -327,7 +327,10 @@ fun TopBar(
                 val selected = i == selectedIndex
                 Box(
                     Modifier
-                        .soundClickable { onTabClick(i) }
+                        .clickable {
+                            KeySound.playTabSwitch(context)
+                            onTabClick(i)
+                        }
                         .then(
                             if (selected) Modifier
                                 .clip(DeckShapes.tabPill)
@@ -360,10 +363,11 @@ fun TopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            // 局域网快传 / Web 管理与任务进度提醒（文字态优先且不显示 Logo；空闲或进度条态仅显示扁平单色 Logo + 半透明进度填充）
+            // 局域网快传 / Web 管理与任务进度提醒（无边框扁平风格；常态中性轻量底色，有待确认/等待/活跃进度时呈现语义主题色）
             val hasTask = lanTaskProgress != null
             if (lanSharingActive || lanWebActive || lanPendingIncoming || lanTransferWaiting || hasTask) {
                 val showTextOnly = lanPendingIncoming || lanTransferWaiting
+                val isDarkTheme = DeckColors.isDark
                 val animProgress by animateFloatAsState(
                     targetValue = (lanTaskProgress ?: 0f).coerceIn(0f, 1f),
                     animationSpec = tween(durationMillis = 200),
@@ -373,14 +377,13 @@ fun TopBar(
                 val accent = when {
                     lanPendingIncoming -> Color(0xFFEC4899)
                     hasTask || lanTransferWaiting -> Color(0xFF0EA5E9)
-                    else -> statusTint
+                    else -> statusTint.copy(alpha = 0.85f)
                 }
                 val bgTint = when {
-                    !isColored -> statusTint.copy(alpha = 0.06f)
-                    !showTextOnly && hasTask -> accent.copy(alpha = 0.12f)
-                    else -> accent.copy(alpha = 0.16f)
+                    !isColored -> statusTint.copy(alpha = if (isDarkTheme) 0.11f else 0.07f)
+                    !showTextOnly && hasTask -> accent.copy(alpha = if (isDarkTheme) 0.18f else 0.12f)
+                    else -> accent.copy(alpha = if (isDarkTheme) 0.22f else 0.14f)
                 }
-                val borderTint = if (isColored) accent.copy(alpha = 0.85f) else statusTint.copy(alpha = 0.24f)
 
                 Row(
                     Modifier
@@ -389,14 +392,13 @@ fun TopBar(
                         .drawBehind {
                             if (!showTextOnly && hasTask && animProgress > 0f) {
                                 drawRect(
-                                    color = accent.copy(alpha = 0.28f),
+                                    color = accent.copy(alpha = if (isDarkTheme) 0.36f else 0.25f),
                                     size = Size(size.width * animProgress, size.height),
                                 )
                             }
                         }
-                        .border(0.8.dp, borderTint, DeckShapes.tabPill)
                         .soundClickable(onClick = onLanBadgeClick)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
@@ -927,43 +929,57 @@ fun ButtonBadge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** 扁平单色「快传」双向传输箭头 Logo。 */
+/** 扁平单色「快传」纤细纸飞机 Logo（13dp 小尺寸依然锐利灵动）。 */
 private fun DrawScope.drawQuickShareLogo(color: Color) {
     val w = size.width
     val h = size.height
-    val sw = (w * 0.125f).coerceAtLeast(1.3f)
-    val cap = StrokeCap.Round
-    // 上方右向箭头 →
-    val yTop = h * 0.30f
-    drawLine(color, Offset(w * 0.14f, yTop), Offset(w * 0.86f, yTop), strokeWidth = sw, cap = cap)
-    drawLine(color, Offset(w * 0.64f, h * 0.12f), Offset(w * 0.86f, yTop), strokeWidth = sw, cap = cap)
-    drawLine(color, Offset(w * 0.64f, h * 0.48f), Offset(w * 0.86f, yTop), strokeWidth = sw, cap = cap)
-    // 下方左向箭头 ←
-    val yBot = h * 0.70f
-    drawLine(color, Offset(w * 0.86f, yBot), Offset(w * 0.14f, yBot), strokeWidth = sw, cap = cap)
-    drawLine(color, Offset(w * 0.36f, h * 0.52f), Offset(w * 0.14f, yBot), strokeWidth = sw, cap = cap)
-    drawLine(color, Offset(w * 0.36f, h * 0.88f), Offset(w * 0.14f, yBot), strokeWidth = sw, cap = cap)
+    val sw = (w * 0.115f).coerceAtLeast(1.25f)
+    val plane = Path().apply {
+        moveTo(w * 0.88f, h * 0.14f)
+        lineTo(w * 0.12f, h * 0.46f)
+        lineTo(w * 0.46f, h * 0.56f)
+        lineTo(w * 0.58f, h * 0.88f)
+        close()
+    }
+    drawPath(plane, color = color, style = Stroke(width = sw, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+    drawLine(
+        color = color,
+        start = Offset(w * 0.86f, h * 0.16f),
+        end = Offset(w * 0.46f, h * 0.56f),
+        strokeWidth = sw * 0.92f,
+        cap = StrokeCap.Round,
+    )
 }
 
-/** 扁平单色「Web」地球网格 Logo。 */
+/** 扁平单色「Web 服务」极简浏览器窗口 Logo（避免地球网格缩小后密集糊边）。 */
 private fun DrawScope.drawWebGlobeLogo(color: Color) {
     val w = size.width
     val h = size.height
-    val sw = (w * 0.105f).coerceAtLeast(1.2f)
-    val pad = sw * 0.8f
-    val r = (minOf(w, h) / 2f) - pad
-    val cx = w / 2f
-    val cy = h / 2f
-    // 外圆
-    drawCircle(color, radius = r, center = Offset(cx, cy), style = Stroke(width = sw))
-    // 经线椭圆
-    val ew = r * 1.05f
-    drawOval(
+    val sw = (w * 0.115f).coerceAtLeast(1.25f)
+    val padX = w * 0.10f
+    val padY = h * 0.16f
+    val rectW = w - padX * 2f
+    val rectH = h - padY * 2f
+    val corner = w * 0.16f
+    // 外框圆角窗口
+    drawRoundRect(
         color = color,
-        topLeft = Offset(cx - ew / 2f, cy - r),
-        size = Size(ew, r * 2f),
-        style = Stroke(width = sw * 0.9f),
+        topLeft = Offset(padX, padY),
+        size = Size(rectW, rectH),
+        cornerRadius = CornerRadius(corner, corner),
+        style = Stroke(width = sw),
     )
-    // 纬线（赤道）
-    drawLine(color, Offset(cx - r, cy), Offset(cx + r, cy), strokeWidth = sw * 0.9f)
+    // 顶部地址栏细横线
+    val barY = padY + rectH * 0.34f
+    drawLine(
+        color = color,
+        start = Offset(padX + sw * 0.4f, barY),
+        end = Offset(padX + rectW - sw * 0.4f, barY),
+        strokeWidth = sw * 0.88f,
+    )
+    // 左上角两个极简窗口微点
+    val dotR = (w * 0.048f).coerceAtLeast(0.8f)
+    val dotY = padY + rectH * 0.17f
+    drawCircle(color, radius = dotR, center = Offset(padX + rectW * 0.22f, dotY))
+    drawCircle(color, radius = dotR, center = Offset(padX + rectW * 0.38f, dotY))
 }

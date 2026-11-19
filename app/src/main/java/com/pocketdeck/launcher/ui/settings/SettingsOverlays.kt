@@ -70,6 +70,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.data.CredentialKind
 import com.pocketdeck.launcher.data.ScraperCredentials
@@ -339,12 +341,11 @@ fun DirBrowser(
             ) {
                 itemsIndexed(state.rows) { idx, row ->
                     val hl = idx == state.index
-                    val (icon, label) = when (row.kind) {
-                        DirBrowserState.Kind.Use -> "✓" to useLabel
-                        DirBrowserState.Kind.Up -> "↑" to upLabel
+                    val label = when (row.kind) {
+                        DirBrowserState.Kind.Use -> useLabel
+                        DirBrowserState.Kind.Up -> upLabel
                         DirBrowserState.Kind.Dir ->
-                            (if (state.current == null) "💾" else "📁") to
-                                (if (state.current == null && row.file?.path == internalPath) internalLabel else row.label)
+                            if (state.current == null && row.file?.path == internalPath) internalLabel else row.label
                     }
                     Row(
                         Modifier
@@ -365,7 +366,15 @@ fun DirBrowser(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(icon, style = DeckType.settingsValue, color = DeckColors.Ruby)
+                        when (row.kind) {
+                            DirBrowserState.Kind.Use -> DeckIcon(DeckIcons.Check, tint = DeckColors.Ruby, size = 16.dp)
+                            DirBrowserState.Kind.Up -> Text("↑", style = DeckType.settingsValue, color = DeckColors.Ruby)
+                            DirBrowserState.Kind.Dir -> DeckIcon(
+                                icon = if (state.current == null) DeckIcons.HardDrive else DeckIcons.Folder,
+                                tint = DeckColors.Ruby,
+                                size = 16.dp,
+                            )
+                        }
                         Spacer(Modifier.width(12.dp))
                         Text(
                             label,
@@ -786,7 +795,7 @@ fun KeyBindConflictDialog(
                         .clip(DeckShapes.menuButton)
                         .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                         .border(
-                            width = if (hl) 1.5.dp else 1.dp,
+                            width = if (hl) 0.9.dp else 0.6.dp,
                             color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
                             shape = DeckShapes.menuButton,
                         )
@@ -848,7 +857,7 @@ fun ConfirmActionDialog(
                         .clip(DeckShapes.menuButton)
                         .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                         .border(
-                            width = if (hl) 1.5.dp else 1.dp,
+                            width = if (hl) 0.9.dp else 0.6.dp,
                             color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
                             shape = DeckShapes.menuButton,
                         )
@@ -1116,7 +1125,7 @@ fun FontPickerDialog(
                     .clip(DeckShapes.menuButton)
                     .background(if (pickFileHl) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.Ruby.copy(alpha = 0.08f))
                     .border(
-                        width = if (pickFileHl) 1.5.dp else 0.8.dp,
+                        width = if (pickFileHl) 0.9.dp else 0.5.dp,
                         color = if (pickFileHl) DeckColors.Ruby else DeckColors.Ruby.copy(alpha = 0.4f),
                         shape = DeckShapes.menuButton,
                     )
@@ -1127,8 +1136,10 @@ fun FontPickerDialog(
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                DeckIcon(DeckIcons.Folder, tint = DeckColors.Ruby, size = 17.dp)
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    "📁  ${stringResource(R.string.font_pick_file)}",
+                    stringResource(R.string.font_pick_file),
                     style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
                     color = DeckColors.Ruby,
                     modifier = Modifier.weight(1f),
@@ -1169,7 +1180,7 @@ fun FontPickerDialog(
                                 },
                             )
                             .border(
-                                width = if (hl || selected) 1.5.dp else 0.5.dp,
+                                width = if (hl || selected) 0.9.dp else 0.5.dp,
                                 color = when {
                                     hl -> DeckColors.Ruby
                                     selected -> DeckColors.Ruby.copy(alpha = 0.6f)

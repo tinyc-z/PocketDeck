@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
@@ -82,7 +83,6 @@ import com.pocketdeck.launcher.data.CategorySortOrder
 import com.pocketdeck.launcher.data.CredentialKind
 import com.pocketdeck.launcher.data.CustomLauncherPreset
 import com.pocketdeck.launcher.data.GalleryAlign
-import com.pocketdeck.launcher.data.KeySoundStyle
 import com.pocketdeck.launcher.data.MetadataDisplayConfig
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.data.PlatformCatalog
@@ -100,6 +100,8 @@ import com.pocketdeck.launcher.input.KeySound
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.components.ButtonBadge
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.ui.components.drawViewModeIcon
 import com.pocketdeck.launcher.ui.home.MetaFieldKey
 import com.pocketdeck.launcher.ui.home.RomDirEntry
@@ -160,7 +162,6 @@ data class SettingsState(
     val showAndroidGames: Boolean = true,
     val keyBindings: Map<KeyAction, Int> = emptyMap(),
     val keySoundEnabled: Boolean = true,
-    val keySoundStyle: KeySoundStyle = KeySoundStyle.CrispTick,
     val themeAccent: ThemeAccent = ThemeAccent.Ruby,
     val fontId: String = SystemFonts.DEFAULT_ID,
     val platformAspects: Map<String, Float> = emptyMap(),
@@ -221,7 +222,7 @@ private fun nextLauncher(row: LauncherRow, current: String?): String? {
 }
 
 enum class SettingsSection {
-    General, Display, Tabs, Scraping, Input, StatusBar, Launcher, Library, About
+    Appearance, HomeAndBar, LibraryAndScrape, Launcher, Controls, SystemAbout
 }
 
 private data class BindingCategorySpec(
@@ -236,20 +237,20 @@ private fun itemCountForSection(
     state: SettingsState,
     showAllLauncherPlatforms: Boolean = false,
 ): Int = when (section) {
-    SettingsSection.General -> 2    // 语言, 时钟
-    SettingsSection.Display -> {
+    SettingsSection.Appearance -> {
         val bgImageRow = if (state.backgroundStyle == BackgroundStyle.Image) 1 else 0
         val galleryRow = if (state.viewMode == ViewMode.Gallery) 1 else 0
-        val metaFields = if (state.showMetadata) MetaFieldKey.entries.size else 0
-        4 + bgImageRow + ViewMode.entries.size + galleryRow + 2 + metaFields
+        4 + bgImageRow + ViewMode.entries.size + galleryRow
     }
-    SettingsSection.Tabs -> state.manageTabs.size + 2 + state.uncategorizedPlatforms.size
-    SettingsSection.Scraping -> state.coverSources.size + 1 + state.metadataSources.size + 2
-    SettingsSection.Input -> 2 + (if (state.keySoundEnabled) 1 else 0) + KeyAction.entries.size + 1  // Swap ABXY + 按键音 (+ 风格) + 快捷键绑定 + 还原默认
-    SettingsSection.StatusBar -> 8  // 时钟, 电池, WiFi, 蓝牙, 移动信号, 耳机, 飞行模式, 勿扰
+    SettingsSection.HomeAndBar -> {
+        val metaFields = if (state.showMetadata) MetaFieldKey.entries.size else 0
+        state.manageTabs.size + 2 + state.uncategorizedPlatforms.size + 2 + metaFields + 8
+    }
+    SettingsSection.LibraryAndScrape ->
+        state.romDirs.size + 4 + state.coverSources.size + 1 + state.metadataSources.size + 2
     SettingsSection.Launcher -> 1 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
-    SettingsSection.Library -> state.romDirs.size + 4  // 每个目录 + 添加 + 重新扫描 + 原生安卓游戏开关 + 已隐藏游戏管理
-    SettingsSection.About -> 0      // 纯展示，无可交互项
+    SettingsSection.Controls -> 2 + KeyAction.entries.size + 1  // Swap ABXY + 按键音效 + 快捷键绑定 + 还原默认
+    SettingsSection.SystemAbout -> 2  // 语言, 时钟（下方关于区域为展示与链接）
 }
 
 private fun launcherPlatformsFor(
@@ -277,7 +278,6 @@ fun SettingsScreen(
     onToggleClock12h: () -> Unit,
     onToggleSwapAbxy: () -> Unit,
     onToggleKeySound: () -> Unit = {},
-    onSetKeySoundStyle: (KeySoundStyle) -> Unit = {},
     onToggleNowTab: () -> Unit,
     onToggleFavsTab: () -> Unit,
     onToggleBottomBar: () -> Unit,
@@ -326,7 +326,6 @@ fun SettingsScreen(
     var editingSystemTab by remember { mutableStateOf<TabEntry?>(null) }
     var accentPicker by remember { mutableStateOf<Int?>(null) }
     var bgPicker by remember { mutableStateOf<Int?>(null) }
-    var keySoundPicker by remember { mutableStateOf<Int?>(null) }
     var showAllLauncherPlatforms by rememberSaveable { mutableStateOf(false) }
     var capturingAction by remember { mutableStateOf<KeyAction?>(null) }
     var keyBindError by remember { mutableStateOf<String?>(null) }
@@ -440,7 +439,6 @@ fun SettingsScreen(
         langPicker = null
         accentPicker = null
         bgPicker = null
-        keySoundPicker = null
     }
 
     val accountAddLabel = stringResource(R.string.scraping_account_add)
@@ -474,10 +472,6 @@ fun SettingsScreen(
         bgPicker = if (bgPicker == null) BackgroundStyle.entries.indexOf(state.backgroundStyle).coerceAtLeast(0) else null
     }
 
-    fun toggleKeySoundPicker() {
-        keySoundPicker = if (keySoundPicker == null) KeySoundStyle.entries.indexOf(state.keySoundStyle).coerceAtLeast(0) else null
-    }
-
     fun resolvedTabLabel(t: TabEntry): String {
         if (t.type == TabType.Custom) return t.label
         if (!t.followSystemLanguage && t.label.isNotBlank()) return t.label
@@ -494,10 +488,10 @@ fun SettingsScreen(
         onUpdateKeyBindings(next)
     }
 
-    /** 标签管理 / 目录管理 / 刮削节点 / 输入 / 启动器条目的 A 键操作。返回 true 表示已处理。 */
+    /** 外观选择器 / 主页标签管理 / 游戏库与刮削 / 操控 / 启动器条目的 A 键操作。返回 true 表示已处理。 */
     fun openManageAction(section: SettingsSection, idx: Int): Boolean {
         when (section) {
-            SettingsSection.Display -> {
+            SettingsSection.Appearance -> {
                 when {
                     idx == 1 -> {
                         toggleAccentPicker()
@@ -518,8 +512,10 @@ fun SettingsScreen(
                 }
                 return false
             }
-            SettingsSection.Tabs -> {
+            SettingsSection.HomeAndBar -> {
                 val tabs = state.manageTabs
+                val tabsTotal = tabs.size + 2 + state.uncategorizedPlatforms.size
+                if (idx >= tabsTotal) return false // 下方主页与状态栏开关交由 triggerContentAction 处理
                 if (idx == tabs.size) {
                     val n = tabs.count { it.type == TabType.Custom } + 1
                     nameSpec = NameDialogSpec(L.catNameTitle, L.catDefault.format(n)) { newName ->
@@ -614,32 +610,60 @@ fun SettingsScreen(
                 menu = ActionMenuState(displayName, items)
                 return true
             }
-            SettingsSection.Scraping -> {
+            SettingsSection.LibraryAndScrape -> {
+                val dirs = state.romDirs
+                val scrapeOffset = dirs.size + 4
+                if (idx < scrapeOffset) {
+                    when {
+                        idx < dirs.size -> {
+                            val d = dirs[idx]
+                            menu = ActionMenuState(
+                                d.path.replace(android.os.Environment.getExternalStorageDirectory().path, "~"),
+                                listOf(
+                                    ActionItem(if (d.enabled) L.disable else L.enable) { manage.toggleDir(d.path) },
+                                    ActionItem(L.remove) {
+                                        manage.removeDir(d.path)
+                                        contentItemIndex = (idx - 1).coerceAtLeast(0)
+                                    },
+                                ),
+                            )
+                        }
+                        idx == dirs.size -> {
+                            browser.reset()
+                            browsing = true
+                        }
+                        idx == dirs.size + 1 -> onRescan()
+                        idx == dirs.size + 2 -> manage.toggleShowAndroidGames()
+                        else -> manage.openLibraryHidden()
+                    }
+                    return true
+                }
+                val sIdx = idx - scrapeOffset
                 val coverCount = state.coverSources.size
                 val metaStart = coverCount + 1
                 val metaCount = state.metadataSources.size
                 when {
-                    idx < coverCount -> {
-                        val cfg = state.coverSources[idx]
+                    sIdx < coverCount -> {
+                        val cfg = state.coverSources[sIdx]
                         val desc = ScraperCatalog.coverDescriptor(cfg.id) ?: return true
                         val items = mutableListOf<ActionItem>()
                         items += ActionItem(if (cfg.enabled) L.disable else L.enable) {
                             manage.toggleCoverSource(cfg.id)
                         }
-                        if (idx > 0) items += ActionItem(L.moveUp) {
-                            manage.moveCoverSource(idx, idx - 1); contentItemIndex = idx - 1
+                        if (sIdx > 0) items += ActionItem(L.moveUp) {
+                            manage.moveCoverSource(sIdx, sIdx - 1); contentItemIndex = idx - 1
                         }
-                        if (idx < coverCount - 1) items += ActionItem(L.moveDown) {
-                            manage.moveCoverSource(idx, idx + 1); contentItemIndex = idx + 1
+                        if (sIdx < coverCount - 1) items += ActionItem(L.moveDown) {
+                            manage.moveCoverSource(sIdx, sIdx + 1); contentItemIndex = idx + 1
                         }
                         desc.credentialKind?.let { kind ->
                             items += ActionItem(accountAddLabel) { credDialogKind = kind }
                         }
                         menu = ActionMenuState(coverNames[cfg.id] ?: desc.id, items)
                     }
-                    idx == coverCount -> manage.clearCoverCache()
-                    idx in metaStart until (metaStart + metaCount) -> {
-                        val mIdx = idx - metaStart
+                    sIdx == coverCount -> manage.clearCoverCache()
+                    sIdx in metaStart until (metaStart + metaCount) -> {
+                        val mIdx = sIdx - metaStart
                         val cfg = state.metadataSources[mIdx]
                         val desc = ScraperCatalog.metaDescriptor(cfg.id) ?: return true
                         val items = mutableListOf<ActionItem>()
@@ -657,7 +681,7 @@ fun SettingsScreen(
                         }
                         menu = ActionMenuState(metaNames[cfg.id] ?: desc.id, items)
                     }
-                    idx == metaStart + metaCount -> {
+                    sIdx == metaStart + metaCount -> {
                         if (!NetworkStatus.isOnline(context)) {
                             Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
                         } else {
@@ -668,23 +692,20 @@ fun SettingsScreen(
                 }
                 return true
             }
-            SettingsSection.Input -> {
+            SettingsSection.Controls -> {
                 val actions = KeyAction.entries
-                val styleOffset = if (state.keySoundEnabled) 1 else 0
                 return when {
                     idx == 0 -> { onToggleSwapAbxy(); true }
                     idx == 1 -> {
-                        if (state.keySoundEnabled) keySoundPicker = null
                         onToggleKeySound()
                         true
                     }
-                    state.keySoundEnabled && idx == 2 -> { toggleKeySoundPicker(); true }
-                    idx in (2 + styleOffset) until (2 + styleOffset + actions.size) -> {
+                    idx in 2 until (2 + actions.size) -> {
                         keyBindError = null
-                        capturingAction = actions[idx - 2 - styleOffset]
+                        capturingAction = actions[idx - 2]
                         true
                     }
-                    idx == 2 + styleOffset + actions.size -> {
+                    idx == 2 + actions.size -> {
                         resetConfirmChoiceIdx = 1
                         showResetBindingsConfirm = true
                         true
@@ -703,32 +724,6 @@ fun SettingsScreen(
                     return true
                 }
                 return false
-            }
-            SettingsSection.Library -> {
-                val dirs = state.romDirs
-                when {
-                    idx < dirs.size -> {
-                        val d = dirs[idx]
-                        menu = ActionMenuState(
-                            d.path.replace(android.os.Environment.getExternalStorageDirectory().path, "~"),
-                            listOf(
-                                ActionItem(if (d.enabled) L.disable else L.enable) { manage.toggleDir(d.path) },
-                                ActionItem(L.remove) {
-                                    manage.removeDir(d.path)
-                                    contentItemIndex = (idx - 1).coerceAtLeast(0)
-                                },
-                            ),
-                        )
-                    }
-                    idx == dirs.size -> {
-                        browser.reset()
-                        browsing = true
-                    }
-                    idx == dirs.size + 1 -> onRescan()
-                    idx == dirs.size + 2 -> manage.toggleShowAndroidGames()
-                    else -> manage.openLibraryHidden()
-                }
-                return true
             }
             else -> return false
         }
@@ -941,33 +936,6 @@ fun SettingsScreen(
                     return@onPreviewKeyEvent true
                 }
 
-                // 按键音风格列表展开时：上下选择并试听、A 确认、B 收起
-                keySoundPicker?.let { idx ->
-                    val styles = KeySoundStyle.entries
-                    when {
-                        event.key == Key.DirectionUp -> {
-                            val next = (idx - 1).coerceAtLeast(0)
-                            keySoundPicker = next
-                            KeySound.preview(context, styles[next])
-                        }
-                        event.key == Key.DirectionDown -> {
-                            val next = (idx + 1).coerceAtMost(styles.size - 1)
-                            keySoundPicker = next
-                            KeySound.preview(context, styles[next])
-                        }
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
-                            val chosen = styles[idx]
-                            keySoundPicker = null
-                            KeySound.preview(context, chosen)
-                            onSetKeySoundStyle(chosen)
-                        }
-                        GamepadKeys.isBack(event.key) ||
-                            GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) ||
-                            event.key == Key.DirectionLeft -> keySoundPicker = null
-                    }
-                    return@onPreviewKeyEvent true
-                }
-
                 // 语言列表展开时：上下选择、A 确认、B 收起
                 langPicker?.let { idx ->
                     when {
@@ -1012,7 +980,7 @@ fun SettingsScreen(
                             focusOnMenu = false
                             contentItemIndex = 0
                         }
-                    } else if (sections[selectedSection] == SettingsSection.General && contentItemIndex == 0) {
+                    } else if (sections[selectedSection] == SettingsSection.SystemAbout && contentItemIndex == 0) {
                         toggleLangPicker()
                     } else if (openManageAction(sections[selectedSection], contentItemIndex)) {
                         // 已由标签 / 目录管理等处理
@@ -1099,7 +1067,7 @@ fun SettingsScreen(
                     isFocused = focusOnMenu,
                     onSelect = { selectSection(it) },
                     modifier = Modifier
-                        .width(200.dp)
+                        .width(190.dp)
                         .fillMaxHeight(),
                 )
 
@@ -1128,26 +1096,11 @@ fun SettingsScreen(
                         Modifier
                             .fillMaxSize()
                             .verticalScroll(contentScroll)
-                            .padding(horizontal = 32.dp, vertical = 24.dp),
+                            .padding(horizontal = 24.dp, vertical = 22.dp),
                     ) {
                         val highlight = if (focusOnMenu) -1 else contentItemIndex
                         when (section) {
-                            SettingsSection.General -> GeneralSection(
-                                clock12h = state.clock12h,
-                                language = state.language,
-                                onToggleClock12h = onToggleClock12h,
-                                onLanguageChange = { code ->
-                                    langPicker = null
-                                    if (code != state.language) onLanguageChange(code)
-                                },
-                                langPicker = langPicker,
-                                onToggleLangPicker = ::toggleLangPicker,
-                                highlightIndex = highlight,
-                            )
-                            SettingsSection.Display -> DisplaySection(
-                                showMetadata = state.showMetadata,
-                                metaDisplay = state.metaDisplay,
-                                bottomBar = state.bottomBar,
+                            SettingsSection.Appearance -> DisplaySection(
                                 theme = state.theme,
                                 themeAccent = state.themeAccent,
                                 accentPicker = accentPicker,
@@ -1169,14 +1122,11 @@ fun SettingsScreen(
                                 onPickCustomBackground = { pickBgLauncher.launch("image/*") },
                                 onClearCustomBackground = { onSetCustomBackground(null) },
                                 viewMode = state.viewMode,
-                                onToggleShowMetadata = onToggleShowMetadata,
-                                onToggleMetaField = manage.toggleMetaField,
-                                onToggleBottomBar = onToggleBottomBar,
                                 onCycleTheme = onCycleTheme,
                                 onSetViewMode = { mode ->
                                     onSetViewMode(mode)
                                     if (mode != ViewMode.Gallery) {
-                                        val max = itemCountForSection(SettingsSection.Display, state.copy(viewMode = mode))
+                                        val max = itemCountForSection(SettingsSection.Appearance, state.copy(viewMode = mode))
                                         if (contentItemIndex >= max) contentItemIndex = max - 1
                                     }
                                 },
@@ -1184,77 +1134,74 @@ fun SettingsScreen(
                                 onCycleGalleryAlign = onCycleGalleryAlign,
                                 highlightIndex = highlight,
                             )
-                            SettingsSection.Tabs -> TabsSection(
-                                tabs = state.manageTabs,
-                                categories = state.categories,
-                                systemTabs = state.systemTabs,
-                                uncategorizedCount = state.uncategorizedCount,
-                                uncategorizedPlatforms = state.uncategorizedPlatforms,
-                                onRowClick = { clickManageRow(SettingsSection.Tabs, it) },
-                                onMoveTabTo = manage.moveTabTo,
-                                onQuickCreateCategory = manage.quickCreateCategoryForPlatform,
-                                highlightIndex = highlight,
-                            )
-                            SettingsSection.Scraping -> ScrapingSection(
-                                coverSources = state.coverSources,
-                                metadataSources = state.metadataSources,
-                                credentials = state.scraperCredentials,
-                                onToggleCover = manage.toggleCoverSource,
-                                onMoveCover = manage.moveCoverSource,
-                                onToggleMeta = manage.toggleMetadataSource,
-                                onMoveMeta = manage.moveMetadataSource,
-                                onOpenCred = { credDialogKind = it },
-                                onRowClick = { clickManageRow(SettingsSection.Scraping, it) },
-                                onClearCoverCache = manage.clearCoverCache,
-                                onRefreshMetadata = {
-                                    if (!NetworkStatus.isOnline(context)) {
-                                        Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        manage.refreshAllMetadata()
-                                    }
-                                },
-                                onViewLogs = { showScrapeLogs = true },
-                                highlightIndex = highlight,
-                            )
-                            SettingsSection.Input -> InputSection(
-                                swapAbxy = state.swapAbxy,
-                                keySoundEnabled = state.keySoundEnabled,
-                                keySoundStyle = state.keySoundStyle,
-                                keySoundPicker = keySoundPicker,
-                                keyBindings = state.keyBindings,
-                                onToggleSwapAbxy = onToggleSwapAbxy,
-                                onToggleKeySound = {
-                                    if (state.keySoundEnabled) keySoundPicker = null
-                                    onToggleKeySound()
-                                },
-                                onToggleKeySoundPicker = ::toggleKeySoundPicker,
-                                onSelectKeySoundStyle = { style ->
-                                    keySoundPicker = null
-                                    KeySound.preview(context, style)
-                                    onSetKeySoundStyle(style)
-                                },
-                                onRebindAction = { action ->
-                                    keyBindError = null
-                                    capturingAction = action
-                                },
-                                onResetBindings = {
-                                    resetConfirmChoiceIdx = 1
-                                    showResetBindingsConfirm = true
-                                },
-                                highlightIndex = highlight,
-                            )
-                            SettingsSection.StatusBar -> StatusBarSection(
-                                state = state,
-                                onToggleShowClock = onToggleShowClock,
-                                onToggleShowBattery = onToggleShowBattery,
-                                onToggleShowWifi = onToggleShowWifi,
-                                onToggleShowBluetooth = onToggleShowBluetooth,
-                                onToggleShowMobileSignal = onToggleShowMobileSignal,
-                                onToggleShowHeadset = onToggleShowHeadset,
-                                onToggleShowAirplane = onToggleShowAirplane,
-                                onToggleShowDnd = onToggleShowDnd,
-                                highlightIndex = highlight,
-                            )
+                            SettingsSection.HomeAndBar -> {
+                                val tabsTotal = state.manageTabs.size + 2 + state.uncategorizedPlatforms.size
+                                TabsSection(
+                                    tabs = state.manageTabs,
+                                    categories = state.categories,
+                                    systemTabs = state.systemTabs,
+                                    uncategorizedCount = state.uncategorizedCount,
+                                    uncategorizedPlatforms = state.uncategorizedPlatforms,
+                                    onRowClick = { clickManageRow(SettingsSection.HomeAndBar, it) },
+                                    onMoveTabTo = manage.moveTabTo,
+                                    onQuickCreateCategory = manage.quickCreateCategoryForPlatform,
+                                    highlightIndex = highlight,
+                                )
+                                Spacer(Modifier.height(18.dp))
+                                HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+                                Spacer(Modifier.height(16.dp))
+                                HomeElementsAndStatusBarBlock(
+                                    state = state,
+                                    startIndex = tabsTotal,
+                                    highlightIndex = highlight,
+                                    onToggleBottomBar = onToggleBottomBar,
+                                    onToggleShowMetadata = onToggleShowMetadata,
+                                    onToggleMetaField = manage.toggleMetaField,
+                                    onToggleShowClock = onToggleShowClock,
+                                    onToggleShowBattery = onToggleShowBattery,
+                                    onToggleShowWifi = onToggleShowWifi,
+                                    onToggleShowBluetooth = onToggleShowBluetooth,
+                                    onToggleShowMobileSignal = onToggleShowMobileSignal,
+                                    onToggleShowHeadset = onToggleShowHeadset,
+                                    onToggleShowAirplane = onToggleShowAirplane,
+                                    onToggleShowDnd = onToggleShowDnd,
+                                )
+                            }
+                            SettingsSection.LibraryAndScrape -> {
+                                val scrapeOffset = state.romDirs.size + 4
+                                LibrarySection(
+                                    dirs = state.romDirs,
+                                    autoRoot = state.autoRoot,
+                                    showAndroidGames = state.showAndroidGames,
+                                    hiddenCount = state.hiddenIds.size,
+                                    onRowClick = { clickManageRow(SettingsSection.LibraryAndScrape, it) },
+                                    highlightIndex = highlight,
+                                )
+                                Spacer(Modifier.height(20.dp))
+                                HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+                                Spacer(Modifier.height(18.dp))
+                                ScrapingSection(
+                                    coverSources = state.coverSources,
+                                    metadataSources = state.metadataSources,
+                                    credentials = state.scraperCredentials,
+                                    onToggleCover = manage.toggleCoverSource,
+                                    onMoveCover = manage.moveCoverSource,
+                                    onToggleMeta = manage.toggleMetadataSource,
+                                    onMoveMeta = manage.moveMetadataSource,
+                                    onOpenCred = { credDialogKind = it },
+                                    onRowClick = { clickManageRow(SettingsSection.LibraryAndScrape, scrapeOffset + it) },
+                                    onClearCoverCache = manage.clearCoverCache,
+                                    onRefreshMetadata = {
+                                        if (!NetworkStatus.isOnline(context)) {
+                                            Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            manage.refreshAllMetadata()
+                                        }
+                                    },
+                                    onViewLogs = { showScrapeLogs = true },
+                                    highlightIndex = if (highlight >= scrapeOffset) highlight - scrapeOffset else -1,
+                                )
+                            }
                             SettingsSection.Launcher -> LauncherSection(
                                 platforms = launcherPlatformsFor(state, showAllLauncherPlatforms),
                                 showAllPlatforms = showAllLauncherPlatforms,
@@ -1267,15 +1214,40 @@ fun SettingsScreen(
                                 onPickLauncher = { launcherPickerPlatform = it },
                                 highlightIndex = highlight,
                             )
-                            SettingsSection.Library -> LibrarySection(
-                                dirs = state.romDirs,
-                                autoRoot = state.autoRoot,
-                                showAndroidGames = state.showAndroidGames,
-                                hiddenCount = state.hiddenIds.size,
-                                onRowClick = { clickManageRow(SettingsSection.Library, it) },
+                            SettingsSection.Controls -> InputSection(
+                                swapAbxy = state.swapAbxy,
+                                keySoundEnabled = state.keySoundEnabled,
+                                keyBindings = state.keyBindings,
+                                onToggleSwapAbxy = onToggleSwapAbxy,
+                                onToggleKeySound = onToggleKeySound,
+                                onRebindAction = { action ->
+                                    keyBindError = null
+                                    capturingAction = action
+                                },
+                                onResetBindings = {
+                                    resetConfirmChoiceIdx = 1
+                                    showResetBindingsConfirm = true
+                                },
                                 highlightIndex = highlight,
                             )
-                            SettingsSection.About -> AboutSection()
+                            SettingsSection.SystemAbout -> {
+                                GeneralSection(
+                                    clock12h = state.clock12h,
+                                    language = state.language,
+                                    onToggleClock12h = onToggleClock12h,
+                                    onLanguageChange = { code ->
+                                        langPicker = null
+                                        if (code != state.language) onLanguageChange(code)
+                                    },
+                                    langPicker = langPicker,
+                                    onToggleLangPicker = ::toggleLangPicker,
+                                    highlightIndex = highlight,
+                                )
+                                Spacer(Modifier.height(20.dp))
+                                HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+                                Spacer(Modifier.height(18.dp))
+                                AboutSection()
+                            }
                         }
                     }
                 }
@@ -1535,58 +1507,50 @@ private fun triggerContentAction(
     onToggleMetaField: (MetaFieldKey) -> Unit = {},
 ) {
     when (section) {
-        SettingsSection.General -> when (itemIndex) {
+        SettingsSection.SystemAbout -> when (itemIndex) {
             0 -> {} // 语言：A 键展开下拉框由 composable 内部处理
             1 -> onToggleClock12h()
         }
-        SettingsSection.Display -> {
-            val fields = MetaFieldKey.entries
-            val fieldCount = if (state.showMetadata) fields.size else 0
+        SettingsSection.Appearance -> {
             val viewModes = ViewMode.entries
             val bgImageRow = if (state.backgroundStyle == BackgroundStyle.Image) 1 else 0
             val viewStart = 4 + bgImageRow
             val alignIdx = viewStart + viewModes.size
-            val galleryRow = if (state.viewMode == ViewMode.Gallery) 1 else 0
-            val bottomStart = alignIdx + galleryRow
-            val bottomBarIdx = bottomStart
-            val showMetaIdx = bottomStart + 1
             when {
                 itemIndex == 0 -> onCycleTheme()
                 itemIndex in 1..3 || (bgImageRow == 1 && itemIndex == 4) -> Unit // 由 openManageAction 处理
                 itemIndex in viewStart until alignIdx -> onSetViewMode(viewModes[itemIndex - viewStart])
                 itemIndex == alignIdx && state.viewMode == ViewMode.Gallery -> onCycleGalleryAlign()
-                itemIndex == bottomBarIdx -> onToggleBottomBar()
-                itemIndex == showMetaIdx -> onToggleShowMetadata()
-                state.showMetadata && itemIndex in (bottomStart + 2)..(bottomStart + 1 + fieldCount) ->
-                    onToggleMetaField(fields[itemIndex - (bottomStart + 2)])
             }
         }
-        SettingsSection.Tabs -> when (itemIndex) {
-            0 -> onToggleNowTab()
-            1 -> onToggleFavsTab()
+        SettingsSection.HomeAndBar -> {
+            val tabsTotal = state.manageTabs.size + 2 + state.uncategorizedPlatforms.size
+            val rel = itemIndex - tabsTotal
+            if (rel < 0) return
+            val fields = MetaFieldKey.entries
+            val fieldCount = if (state.showMetadata) fields.size else 0
+            val barStart = 2 + fieldCount
+            when {
+                rel == 0 -> onToggleBottomBar()
+                rel == 1 -> onToggleShowMetadata()
+                state.showMetadata && rel in 2 until (2 + fieldCount) -> onToggleMetaField(fields[rel - 2])
+                rel == barStart + 0 -> onToggleShowClock()
+                rel == barStart + 1 -> onToggleShowBattery()
+                rel == barStart + 2 -> onToggleShowWifi()
+                rel == barStart + 3 -> onToggleShowBluetooth()
+                rel == barStart + 4 -> onToggleShowMobileSignal()
+                rel == barStart + 5 -> onToggleShowHeadset()
+                rel == barStart + 6 -> onToggleShowAirplane()
+                rel == barStart + 7 -> onToggleShowDnd()
+            }
         }
-        SettingsSection.Scraping -> {} // 由 openManageAction 处理
-        SettingsSection.Input -> when (itemIndex) {
+        SettingsSection.LibraryAndScrape -> {} // 由 openManageAction 处理
+        SettingsSection.Controls -> when (itemIndex) {
             0 -> onToggleSwapAbxy()
-        }
-        SettingsSection.StatusBar -> when (itemIndex) {
-            0 -> onToggleShowClock()
-            1 -> onToggleShowBattery()
-            2 -> onToggleShowWifi()
-            3 -> onToggleShowBluetooth()
-            4 -> onToggleShowMobileSignal()
-            5 -> onToggleShowHeadset()
-            6 -> onToggleShowAirplane()
-            7 -> onToggleShowDnd()
         }
         SettingsSection.Launcher -> state.launcherRows.getOrNull(itemIndex)?.let { row ->
             onSetPlatformLauncher(row.platformId, nextLauncher(row, state.platformLaunchers[row.platformId]))
         }
-        SettingsSection.Library -> when (itemIndex) {
-            0 -> {} // ROM root: 只读
-            1 -> onRescan()
-        }
-        SettingsSection.About -> {}
     }
 }
 
@@ -1662,7 +1626,7 @@ private fun SettingsMenu(
                     .clip(DeckShapes.viewMenuItem)
                     .background(bgColor)
                     .soundClickable { onSelect(index) }
-                    .padding(start = if (isSelected && isFocused) 12.dp else 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                    .padding(start = if (isSelected && isFocused) 10.dp else 14.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // 选中指示条
@@ -1674,19 +1638,21 @@ private fun SettingsMenu(
                             .clip(DeckShapes.settingsDropdown)
                             .background(DeckColors.Ruby)
                     )
-                    Spacer(Modifier.width(9.dp))
+                    Spacer(Modifier.width(7.dp))
                 }
-                Text(
-                    sectionIcon(section),
-                    style = DeckType.settingsValue,
-                    color = textColor,
+                DeckIcon(
+                    icon = sectionIcon(section),
+                    tint = textColor,
+                    size = 18.dp,
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(9.dp))
                 Text(
                     sectionLabel(section),
                     style = if (isSelected) DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold)
                     else DeckType.settingsValue,
                     color = textColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -1695,27 +1661,21 @@ private fun SettingsMenu(
 
 @Composable
 private fun sectionLabel(section: SettingsSection): String = when (section) {
-    SettingsSection.General -> stringResource(R.string.settings_general)
-    SettingsSection.Display -> stringResource(R.string.settings_display)
-    SettingsSection.Tabs -> stringResource(R.string.settings_tabs)
-    SettingsSection.Scraping -> stringResource(R.string.settings_scraping)
-    SettingsSection.Input -> stringResource(R.string.settings_input)
-    SettingsSection.StatusBar -> stringResource(R.string.settings_statusbar)
+    SettingsSection.Appearance -> stringResource(R.string.settings_sec_appearance)
+    SettingsSection.HomeAndBar -> stringResource(R.string.settings_sec_home)
+    SettingsSection.LibraryAndScrape -> stringResource(R.string.settings_sec_library_scrape)
     SettingsSection.Launcher -> stringResource(R.string.settings_launcher)
-    SettingsSection.Library -> stringResource(R.string.settings_library)
-    SettingsSection.About -> stringResource(R.string.settings_about)
+    SettingsSection.Controls -> stringResource(R.string.settings_sec_controls)
+    SettingsSection.SystemAbout -> stringResource(R.string.settings_sec_system)
 }
 
-private fun sectionIcon(section: SettingsSection): String = when (section) {
-    SettingsSection.General -> "⚙"
-    SettingsSection.Display -> "🎨"
-    SettingsSection.Tabs -> "📑"
-    SettingsSection.Scraping -> "🔍"
-    SettingsSection.Input -> "🎮"
-    SettingsSection.StatusBar -> "📊"
-    SettingsSection.Launcher -> "🚀"
-    SettingsSection.Library -> "📂"
-    SettingsSection.About -> "ℹ️"
+private fun sectionIcon(section: SettingsSection) = when (section) {
+    SettingsSection.Appearance -> DeckIcons.Palette
+    SettingsSection.HomeAndBar -> DeckIcons.LayoutGrid
+    SettingsSection.LibraryAndScrape -> DeckIcons.Folder
+    SettingsSection.Launcher -> DeckIcons.Cpu
+    SettingsSection.Controls -> DeckIcons.Gamepad
+    SettingsSection.SystemAbout -> DeckIcons.Sliders
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1802,9 +1762,6 @@ private fun GeneralSection(
 
 @Composable
 private fun DisplaySection(
-    showMetadata: Boolean,
-    metaDisplay: MetadataDisplayConfig,
-    bottomBar: Boolean,
     theme: AppTheme,
     themeAccent: ThemeAccent,
     accentPicker: Int?,
@@ -1820,16 +1777,13 @@ private fun DisplaySection(
     onPickCustomBackground: () -> Unit,
     onClearCustomBackground: () -> Unit,
     viewMode: ViewMode,
-    onToggleShowMetadata: () -> Unit,
-    onToggleMetaField: (MetaFieldKey) -> Unit,
-    onToggleBottomBar: () -> Unit,
     onCycleTheme: () -> Unit,
     onSetViewMode: (ViewMode) -> Unit,
     galleryAlign: GalleryAlign,
     onCycleGalleryAlign: () -> Unit,
     highlightIndex: Int = -1,
 ) {
-    SectionTitle(stringResource(R.string.settings_display))
+    SectionTitle(stringResource(R.string.settings_sec_appearance))
 
     SettingsChoice(
         label = stringResource(R.string.settings_theme),
@@ -1928,7 +1882,7 @@ private fun DisplaySection(
                             .clip(androidx.compose.foundation.shape.CircleShape)
                             .background(swatch)
                             .border(
-                                width = if (sel) 2.dp else 0.5.dp,
+                                width = if (sel) 1.dp else 0.5.dp,
                                 color = if (sel) DeckColors.TextPrimary else DeckColors.DialogBorder,
                                 shape = androidx.compose.foundation.shape.CircleShape,
                             ),
@@ -2099,7 +2053,6 @@ private fun DisplaySection(
         }
     }
 
-    val galleryRow = if (viewMode == ViewMode.Gallery) 1 else 0
     if (viewMode == ViewMode.Gallery) {
         Spacer(Modifier.height(12.dp))
         SettingsChoice(
@@ -2113,77 +2066,6 @@ private fun DisplaySection(
             highlighted = highlightIndex == viewStart + ViewMode.entries.size,
         )
     }
-
-    val bottomStart = viewStart + ViewMode.entries.size + galleryRow
-    Spacer(Modifier.height(12.dp))
-
-    SettingsToggle(
-        label = stringResource(R.string.settings_show_bottom_bar),
-        description = "",
-        checked = bottomBar,
-        onToggle = onToggleBottomBar,
-        highlighted = highlightIndex == bottomStart,
-    )
-
-    Spacer(Modifier.height(4.dp))
-
-    SettingsToggle(
-        label = stringResource(R.string.settings_show_metadata),
-        description = stringResource(R.string.settings_metadata_desc),
-        checked = showMetadata,
-        onToggle = onToggleShowMetadata,
-        highlighted = highlightIndex == bottomStart + 1,
-    )
-
-    if (showMetadata) {
-        Text(
-            text = stringResource(R.string.settings_metadata_fields),
-            style = DeckType.settingsLabel,
-            color = DeckColors.TextSecondary,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-        )
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(DeckShapes.settingsDropdown)
-                .background(DeckColors.Surface)
-                .padding(vertical = 4.dp),
-        ) {
-            val items = listOf(
-                Triple(MetaFieldKey.ReleaseDate, stringResource(R.string.meta_release_date), metaDisplay.releaseDate),
-                Triple(MetaFieldKey.Genre, stringResource(R.string.meta_genre), metaDisplay.genre),
-                Triple(MetaFieldKey.Developer, stringResource(R.string.meta_developer), metaDisplay.developer),
-                Triple(MetaFieldKey.Publisher, stringResource(R.string.meta_publisher), metaDisplay.publisher),
-                Triple(MetaFieldKey.FileSize, stringResource(R.string.meta_file_size), metaDisplay.fileSize),
-            )
-            items.forEachIndexed { idx, (key, label, checked) ->
-                val hl = highlightIndex == bottomStart + 2 + idx
-                val tint = if (hl || checked) DeckColors.Ruby else DeckColors.TextPrimary
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .bringIntoViewWhen(hl)
-                        .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else Color.Transparent)
-                        .soundClickable { onToggleMetaField(key) }
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = label,
-                        style = if (hl) DeckType.listItemSelected else DeckType.settingsValue,
-                        color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = if (checked) "✓" else "—",
-                        style = DeckType.settingsValue,
-                        color = if (checked) tint else DeckColors.TextSecondary,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-    }
 }
 
 @Composable
@@ -2196,6 +2078,10 @@ private fun themeAccentLabel(accent: ThemeAccent): String = when (accent) {
     ThemeAccent.Sakura -> stringResource(R.string.accent_sakura)
     ThemeAccent.Cyan -> stringResource(R.string.accent_cyan)
     ThemeAccent.Gold -> stringResource(R.string.accent_gold)
+    ThemeAccent.Sage -> stringResource(R.string.accent_sage)
+    ThemeAccent.Slate -> stringResource(R.string.accent_slate)
+    ThemeAccent.Terracotta -> stringResource(R.string.accent_terracotta)
+    ThemeAccent.Graphite -> stringResource(R.string.accent_graphite)
 }
 
 @Composable
@@ -2203,6 +2089,9 @@ private fun bgStyleLabel(style: BackgroundStyle): String = when (style) {
     BackgroundStyle.Waves -> stringResource(R.string.bg_style_waves)
     BackgroundStyle.Gradient -> stringResource(R.string.bg_style_gradient)
     BackgroundStyle.Particles -> stringResource(R.string.bg_style_particles)
+    BackgroundStyle.Aurora -> stringResource(R.string.bg_style_aurora)
+    BackgroundStyle.Topo -> stringResource(R.string.bg_style_topo)
+    BackgroundStyle.DotMatrix -> stringResource(R.string.bg_style_dot_matrix)
     BackgroundStyle.CoverBlur -> stringResource(R.string.bg_style_cover_blur)
     BackgroundStyle.Static -> stringResource(R.string.bg_style_static)
     BackgroundStyle.Image -> stringResource(R.string.bg_style_image)
@@ -2214,6 +2103,9 @@ private fun bgStyleDesc(style: BackgroundStyle): String = when (style) {
     BackgroundStyle.Waves -> stringResource(R.string.bg_style_waves_desc)
     BackgroundStyle.Gradient -> stringResource(R.string.bg_style_gradient_desc)
     BackgroundStyle.Particles -> stringResource(R.string.bg_style_particles_desc)
+    BackgroundStyle.Aurora -> stringResource(R.string.bg_style_aurora_desc)
+    BackgroundStyle.Topo -> stringResource(R.string.bg_style_topo_desc)
+    BackgroundStyle.DotMatrix -> stringResource(R.string.bg_style_dot_matrix_desc)
     BackgroundStyle.CoverBlur -> stringResource(R.string.bg_style_cover_blur_desc)
     BackgroundStyle.Static -> stringResource(R.string.bg_style_static_desc)
     BackgroundStyle.Image -> stringResource(R.string.bg_style_image_desc)
@@ -2487,6 +2379,7 @@ private fun SourceConfigRow(
 
     ManageRow(
         title = "${index + 1}. ${stringResource(descriptor.nameRes)}",
+        titleMaxLines = 2,
         subtitle = stringResource(descriptor.descRes),
         badge = badge,
         onBadgeClick = descriptor.credentialKind?.let { kind -> { onOpenCred(kind) } },
@@ -2515,13 +2408,13 @@ private fun DragHandle(modifier: Modifier = Modifier) {
     Box(
         modifier
             .clip(DeckShapes.settingsDropdown)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 6.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            "≡",
-            style = DeckType.settingsSection,
-            color = DeckColors.TextSecondary,
+        DeckIcon(
+            icon = DeckIcons.GripHorizontal,
+            tint = DeckColors.TextSecondary,
+            size = 16.dp,
         )
     }
 }
@@ -2625,13 +2518,9 @@ private fun <T> DragReorderColumn(
 private fun InputSection(
     swapAbxy: Boolean,
     keySoundEnabled: Boolean,
-    keySoundStyle: KeySoundStyle,
-    keySoundPicker: Int?,
     keyBindings: Map<KeyAction, Int>,
     onToggleSwapAbxy: () -> Unit,
     onToggleKeySound: () -> Unit,
-    onToggleKeySoundPicker: () -> Unit,
-    onSelectKeySoundStyle: (KeySoundStyle) -> Unit,
     onRebindAction: (KeyAction) -> Unit,
     onResetBindings: () -> Unit,
     highlightIndex: Int = -1,
@@ -2656,57 +2545,6 @@ private fun InputSection(
         highlighted = highlightIndex == 1,
     )
 
-    val styleOffset = if (keySoundEnabled) 1 else 0
-    if (keySoundEnabled) {
-        SettingsChoice(
-            label = stringResource(R.string.settings_key_sound_style),
-            current = keySoundStyleLabel(keySoundStyle),
-            onClick = onToggleKeySoundPicker,
-            highlighted = highlightIndex == 2 && keySoundPicker == null,
-        )
-        if (keySoundPicker != null) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, top = 4.dp, bottom = 6.dp)
-                    .clip(DeckShapes.settingsDropdown)
-                    .background(DeckColors.Surface)
-                    .padding(vertical = 4.dp),
-            ) {
-                KeySoundStyle.entries.forEachIndexed { idx, style ->
-                    val hl = idx == keySoundPicker
-                    val sel = style == keySoundStyle
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .bringIntoViewWhen(hl)
-                            .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else Color.Transparent)
-                            .soundClickable { onSelectKeySoundStyle(style) }
-                            .padding(horizontal = 14.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                keySoundStyleLabel(style),
-                                style = if (hl || sel) DeckType.listItemSelected else DeckType.settingsValue,
-                                color = if (hl || sel) DeckColors.Ruby else DeckColors.TextPrimary,
-                            )
-                            Text(
-                                keySoundStyleDesc(style),
-                                style = DeckType.settingsLabel,
-                                color = DeckColors.TextSecondary,
-                            )
-                        }
-                        if (sel) {
-                            Spacer(Modifier.width(10.dp))
-                            Text("✓", style = DeckType.settingsValue, color = DeckColors.Ruby)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     Spacer(Modifier.height(16.dp))
     HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
     Spacer(Modifier.height(14.dp))
@@ -2726,7 +2564,7 @@ private fun InputSection(
     val unboundLabel = stringResource(R.string.keybind_unbound)
     val actions = KeyAction.entries
     actions.forEachIndexed { idx, action ->
-        val rowIdx = 2 + styleOffset + idx
+        val rowIdx = 2 + idx
         val hl = highlightIndex == rowIdx
         val badge = GamepadKeys.badgeLabel(keyBindings, action, swapAbxy)
         Row(
@@ -2772,27 +2610,9 @@ private fun InputSection(
     Spacer(Modifier.height(10.dp))
     ActionRow(
         label = stringResource(R.string.settings_keybindings_reset),
-        highlighted = highlightIndex == 2 + styleOffset + actions.size,
+        highlighted = highlightIndex == 2 + actions.size,
         onClick = onResetBindings,
     )
-}
-
-@Composable
-private fun keySoundStyleLabel(style: KeySoundStyle): String = when (style) {
-    KeySoundStyle.CrispTick -> stringResource(R.string.key_sound_crisp_tick)
-    KeySoundStyle.CrystalDrop -> stringResource(R.string.key_sound_crystal_drop)
-    KeySoundStyle.WoodBlock -> stringResource(R.string.key_sound_wood_block)
-    KeySoundStyle.Mechanical -> stringResource(R.string.key_sound_mechanical)
-    KeySoundStyle.RetroBit -> stringResource(R.string.key_sound_retro_bit)
-}
-
-@Composable
-private fun keySoundStyleDesc(style: KeySoundStyle): String = when (style) {
-    KeySoundStyle.CrispTick -> stringResource(R.string.key_sound_crisp_tick_desc)
-    KeySoundStyle.CrystalDrop -> stringResource(R.string.key_sound_crystal_drop_desc)
-    KeySoundStyle.WoodBlock -> stringResource(R.string.key_sound_wood_block_desc)
-    KeySoundStyle.Mechanical -> stringResource(R.string.key_sound_mechanical_desc)
-    KeySoundStyle.RetroBit -> stringResource(R.string.key_sound_retro_bit_desc)
 }
 
 @Composable
@@ -2888,6 +2708,174 @@ private fun StatusBarSection(
         onToggle = onToggleShowDnd,
         highlighted = highlightIndex == 7,
     )
+}
+
+/** 主页底栏、封面元数据字段与紧凑双列状态栏开关块（合入「主页与状态栏」分类）。 */
+@Composable
+private fun HomeElementsAndStatusBarBlock(
+    state: SettingsState,
+    startIndex: Int,
+    highlightIndex: Int,
+    onToggleBottomBar: () -> Unit,
+    onToggleShowMetadata: () -> Unit,
+    onToggleMetaField: (MetaFieldKey) -> Unit,
+    onToggleShowClock: () -> Unit,
+    onToggleShowBattery: () -> Unit,
+    onToggleShowWifi: () -> Unit,
+    onToggleShowBluetooth: () -> Unit,
+    onToggleShowMobileSignal: () -> Unit,
+    onToggleShowHeadset: () -> Unit,
+    onToggleShowAirplane: () -> Unit,
+    onToggleShowDnd: () -> Unit,
+) {
+    SettingsToggle(
+        label = stringResource(R.string.settings_show_bottom_bar),
+        description = "",
+        checked = state.bottomBar,
+        onToggle = onToggleBottomBar,
+        highlighted = highlightIndex == startIndex,
+    )
+    Spacer(Modifier.height(4.dp))
+    SettingsToggle(
+        label = stringResource(R.string.settings_show_metadata),
+        description = stringResource(R.string.settings_metadata_desc),
+        checked = state.showMetadata,
+        onToggle = onToggleShowMetadata,
+        highlighted = highlightIndex == startIndex + 1,
+    )
+
+    val metaFields = if (state.showMetadata) MetaFieldKey.entries.size else 0
+    if (state.showMetadata) {
+        Text(
+            text = stringResource(R.string.settings_metadata_fields),
+            style = DeckType.settingsLabel,
+            color = DeckColors.TextSecondary,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(DeckShapes.settingsDropdown)
+                .background(DeckColors.Surface)
+                .padding(vertical = 4.dp),
+        ) {
+            val items = listOf(
+                Triple(MetaFieldKey.ReleaseDate, stringResource(R.string.meta_release_date), state.metaDisplay.releaseDate),
+                Triple(MetaFieldKey.Genre, stringResource(R.string.meta_genre), state.metaDisplay.genre),
+                Triple(MetaFieldKey.Developer, stringResource(R.string.meta_developer), state.metaDisplay.developer),
+                Triple(MetaFieldKey.Publisher, stringResource(R.string.meta_publisher), state.metaDisplay.publisher),
+                Triple(MetaFieldKey.FileSize, stringResource(R.string.meta_file_size), state.metaDisplay.fileSize),
+            )
+            items.forEachIndexed { idx, (key, label, checked) ->
+                val hl = highlightIndex == startIndex + 2 + idx
+                val tint = if (hl || checked) DeckColors.Ruby else DeckColors.TextPrimary
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewWhen(hl)
+                        .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else Color.Transparent)
+                        .soundClickable { onToggleMetaField(key) }
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = label,
+                        style = if (hl) DeckType.listItemSelected else DeckType.settingsValue,
+                        color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (checked) {
+                        DeckIcon(DeckIcons.Check, tint = tint, size = 16.dp)
+                    } else {
+                        Text("—", style = DeckType.settingsValue, color = DeckColors.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
+
+    Spacer(Modifier.height(18.dp))
+    HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+    Spacer(Modifier.height(16.dp))
+
+    Text(
+        stringResource(R.string.settings_statusbar),
+        style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
+        color = DeckColors.TextPrimary,
+    )
+    Text(
+        stringResource(R.string.settings_statusbar_desc),
+        style = DeckType.settingsLabel,
+        color = DeckColors.TextSecondary,
+    )
+    Spacer(Modifier.height(10.dp))
+
+    val barStart = startIndex + 2 + metaFields
+    val statusToggles = listOf(
+        Triple(stringResource(R.string.settings_show_clock), state.showClock, onToggleShowClock),
+        Triple(stringResource(R.string.settings_show_battery), state.showBattery, onToggleShowBattery),
+        Triple(stringResource(R.string.settings_show_wifi), state.showWifi, onToggleShowWifi),
+        Triple(stringResource(R.string.settings_show_bluetooth), state.showBluetooth, onToggleShowBluetooth),
+        Triple(stringResource(R.string.settings_show_mobile), state.showMobileSignal, onToggleShowMobileSignal),
+        Triple(stringResource(R.string.settings_show_headset), state.showHeadset, onToggleShowHeadset),
+        Triple(stringResource(R.string.settings_show_airplane), state.showAirplane, onToggleShowAirplane),
+        Triple(stringResource(R.string.settings_show_dnd), state.showDnd, onToggleShowDnd),
+    )
+    // 紧凑 2 列卡片网格，一屏即可总览全部状态栏图标开关
+    statusToggles.chunked(2).forEachIndexed { rowIdx, pair ->
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            pair.forEachIndexed { colIdx, (label, checked, onToggle) ->
+                val itemIdx = barStart + rowIdx * 2 + colIdx
+                val hl = highlightIndex == itemIdx
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .bringIntoViewWhen(hl)
+                        .clip(DeckShapes.settingsDropdown)
+                        .background(
+                            when {
+                                hl -> DeckColors.Ruby.copy(alpha = 0.12f)
+                                checked -> DeckColors.Surface
+                                else -> DeckColors.Surface.copy(alpha = 0.55f)
+                            },
+                        )
+                        .soundClickable(onClick = onToggle)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = label,
+                        style = if (hl) DeckType.listItemSelected else DeckType.settingsValue,
+                        color = when {
+                            hl -> DeckColors.Ruby
+                            checked -> DeckColors.TextPrimary
+                            else -> DeckColors.TextSecondary
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(if (checked) DeckColors.Ruby else DeckColors.DialogBorder),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (checked) {
+                            DeckIcon(DeckIcons.Check, tint = DeckColors.Background, size = 12.dp)
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3111,21 +3099,113 @@ private fun LauncherSection(
         val cur = selected[plat.id]
         val curName = if (cur == null) {
             val detected = GameLauncher.describeLauncher(context, plat.id, null)
-            if (detected != null) "$autoLabel ($detected)" else autoLabel
+            if (detected != null) "$autoLabel · $detected" else autoLabel
         } else {
             GameLauncher.describeLauncher(context, plat.id, cur) ?: cur
         }
         val aspect = aspectOverrides[plat.id] ?: plat.coverAspect
         val ratioTag = String.format(Locale.US, "%.2f:1", aspect)
-        ManageRow(
-            title = plat.shortName,
-            subtitle = plat.fullName,
-            badge = "$curName · $ratioTag",
-            badgeAccent = cur != null,
-            dimmed = false,
+        LauncherPlatformRow(
+            shortName = plat.shortName,
+            fullName = plat.fullName,
+            launcherLabel = curName,
+            ratioTag = ratioTag,
+            isCustom = cur != null,
             highlighted = highlightIndex == idx + 1,
             onClick = { onPickLauncher(plat) },
         )
+    }
+}
+
+/**
+ * 双层启动器配置行：
+ * - 上行：平台简称 + 完整名称（永不被挤压截断）+ 右侧紧凑封面比例与箭头
+ * - 下行：独立一行展示当前生效的模拟器与核心，彻底杜绝长模拟器名挤掉 SNES 等平台简称的 bug。
+ */
+@Composable
+private fun LauncherPlatformRow(
+    shortName: String,
+    fullName: String,
+    launcherLabel: String,
+    ratioTag: String,
+    isCustom: Boolean,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .bringIntoViewWhen(highlighted)
+            .padding(vertical = 3.dp)
+            .clip(DeckShapes.settingsDropdown)
+            .background(if (highlighted) DeckColors.Ruby.copy(alpha = 0.09f) else DeckColors.Surface.copy(alpha = 0.65f))
+            .soundClickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (highlighted) {
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(34.dp)
+                    .clip(DeckShapes.settingsDropdown)
+                    .background(DeckColors.Ruby),
+            )
+            Spacer(Modifier.width(10.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = shortName,
+                    style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (highlighted) DeckColors.Ruby else DeckColors.TextPrimary,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                if (fullName.isNotBlank() && !fullName.equals(shortName, ignoreCase = true)) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = fullName,
+                        style = DeckType.settingsLabel,
+                        color = DeckColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = ratioTag,
+                    style = DeckType.settingsLabel,
+                    color = DeckColors.TextSecondary,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                Spacer(Modifier.width(4.dp))
+                DeckIcon(
+                    icon = DeckIcons.ChevronRight,
+                    tint = if (highlighted) DeckColors.Ruby else DeckColors.TextSecondary,
+                    size = 15.dp,
+                )
+            }
+            Spacer(Modifier.height(5.dp))
+            Text(
+                text = launcherLabel,
+                style = DeckType.settingsLabel,
+                color = if (isCustom) DeckColors.Ruby else DeckColors.TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clip(DeckShapes.settingsDropdown)
+                    .background(if (isCustom) DeckColors.Ruby.copy(alpha = 0.11f) else DeckColors.Background.copy(alpha = 0.72f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
     }
 }
 

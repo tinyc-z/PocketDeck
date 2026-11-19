@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.Category
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.NetworkStatus
@@ -241,9 +243,10 @@ fun EditGameScreen(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "📄",
-                        fontSize = 16.sp,
+                    DeckIcon(
+                        icon = DeckIcons.FileText,
+                        tint = DeckColors.TextSecondary,
+                        size = 16.dp,
                         modifier = Modifier.padding(end = 10.dp),
                     )
                     Text(

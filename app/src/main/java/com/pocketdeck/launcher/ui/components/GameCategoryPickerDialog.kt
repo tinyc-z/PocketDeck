@@ -230,7 +230,7 @@ fun GameCategoryPickerDialog(
                                     },
                                 )
                                 .border(
-                                    width = if (hl) 1.5.dp else 0.dp,
+                                    width = if (hl) 0.9.dp else 0.dp,
                                     color = if (hl) DeckColors.Ruby else Color.Transparent,
                                     shape = DeckShapes.settingsDropdown,
                                 )
@@ -269,7 +269,7 @@ fun GameCategoryPickerDialog(
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
                             .background(DeckColors.Surface)
-                            .border(1.5.dp, DeckColors.Ruby, DeckShapes.settingsDropdown)
+                            .border(0.9.dp, DeckColors.Ruby, DeckShapes.settingsDropdown)
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -325,7 +325,7 @@ fun GameCategoryPickerDialog(
                             .clip(DeckShapes.settingsDropdown)
                             .background(if (createHl) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.Surface)
                             .border(
-                                width = if (createHl) 1.5.dp else 1.dp,
+                                width = if (createHl) 0.9.dp else 0.6.dp,
                                 color = if (createHl) DeckColors.Ruby else DeckColors.DialogBorder,
                                 shape = DeckShapes.settingsDropdown,
                             )
@@ -356,7 +356,7 @@ fun GameCategoryPickerDialog(
                     color = if (cancelHl) DeckColors.Ruby else DeckColors.TextSecondary,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .border(if (cancelHl) 1.5.dp else 0.dp, if (cancelHl) DeckColors.Ruby else Color.Transparent, DeckShapes.menuButton)
+                        .border(if (cancelHl) 0.9.dp else 0.dp, if (cancelHl) DeckColors.Ruby else Color.Transparent, DeckShapes.menuButton)
                         .clickable(onClick = onDismiss)
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
@@ -368,7 +368,7 @@ fun GameCategoryPickerDialog(
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
                         .background(DeckColors.Ruby)
-                        .border(if (okHl) 2.dp else 0.dp, if (okHl) DeckColors.TextPrimary else Color.Transparent, DeckShapes.menuButton)
+                        .border(if (okHl) 1.dp else 0.dp, if (okHl) DeckColors.TextPrimary else Color.Transparent, DeckShapes.menuButton)
                         .clickable { onConfirm(selectedIds) }
                         .padding(horizontal = 18.dp, vertical = 8.dp),
                 )

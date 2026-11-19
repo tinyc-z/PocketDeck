@@ -23,7 +23,7 @@
 
 ## ✨ Why PocketDeck?
 
-PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI frameworks, and custom `graphicsLayer`-driven animations—delivering instant cold starts, silky 60+ fps scrolling, full controller navigation, and a tiny ~3 MB release APK.
+PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI frameworks, custom `graphicsLayer` + `drawWithCache` zero-GC animations, binary disk index caching with first-tab-first progressive scanning, and a flat minimalist design language—delivering instant cold starts even on 10,000+ ROM libraries, silky 60+ fps scrolling, full controller navigation, and a tiny ~2.8 MB release APK.
 
 ### 🖼️ Four View Modes — Maximized for Small Handheld Screens
 
@@ -31,14 +31,14 @@ PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI
   <img src="docs/images/views-showcase.jpg" alt="PocketDeck 4 View Modes on KONKR Pocket Block" width="90%"/>
 </div>
 
-- **Gallery**: Horizontal spring-animated cover carousel with live metadata (Release Date, Genre, Developer, Publisher, File Size).
-- **List**: Smooth console-style title list paired with a large box-art preview and two-column metadata card.
-- **Grid**: 5-column full-height cover grid with a **non-intrusive floating title pill** (automatically flips top/bottom to never block the focused game or waste a single grid row).
-- **Bubbles**: Circular honeycomb layout (3-4-3-4) with elastic focus scaling and floating title pill for maximum viewport density on compact 4:3 screens.
+- **Gallery**: Borderless floating cover carousel with spring elevation, Liquid-Glass favorite badge, and live metadata (Release Date, Genre, Developer, Publisher, File Size).
+- **List**: Smooth console-style title list paired with a live-updating box-art preview (instant memory/disk cache display even during rapid D-pad scrolling) and two-column metadata card.
+- **Grid**: 5-column full-height borderless cover grid with a **hairline-bordered floating title pill** (automatically flips top/bottom to never block the focused game or waste a single grid row).
+- **Bubbles**: Circular honeycomb layout (3-4-3-4) with elastic focus scaling, bottom-centered Liquid-Glass favorite badge, and floating title pill for maximum viewport density on compact 4:3 screens.
 
 ---
 
-### 🌐 PocketDeck OS — Gaming-Style Web Game Library Manager
+### 🌐 PocketDeck OS — Flat Minimalist Web Game Library Manager
 
 <div align="center">
   <img src="docs/images/web-manager-showcase.jpg" alt="PocketDeck OS Web Manager & LocalSend Transfer" width="90%"/>
@@ -46,8 +46,8 @@ PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI
 
 Turn any PC, Mac, or tablet browser on your LAN into a full **Web Game Library Console** (`http://<handheld-ip>:8686`) secured with a dynamic 4-digit PIN and brute-force rate limiting:
 
-- **Dynamic Theme Sync**: Automatically mirrors your handheld's **Light / Dark mode** and **8 Theme Accent colors** (`Ruby`, `Ocean`, `Emerald`, `Violet`, `Sunset`, `Sakura`, `Cyan`, `Gold`) in real time.
-- **100% Handheld-Served Covers & Metadata**: Displays box art and full metadata served directly from the handheld (the browser never connects to external internet domains). Need an update? Trigger scraping on the handheld right from the browser modal or upload custom cover art.
+- **Flat Minimalist UI & Dynamic Theme Sync**: Clean hairline borders and thin Lucide-style vector SVG icons that automatically mirror your handheld's **Light / Dark mode** and **12 Eye-Friendly Theme Accents** in real time.
+- **100% Handheld-Served Covers & Metadata**: Displays box art and full metadata served directly from the handheld (the browser never connects to external internet domains). Need an update? Trigger scraping on the handheld right from the browser modal, watch live floating scrape logs, or upload custom cover art.
 - **Visual Tag & Category Editor**: Drag-and-drop reordering, editing `NOW / FAVS / OTHER` aliases & sort orders, binding platforms to custom categories, and syncing directly to the handheld with strict server-side schema & bounds validation.
 - **Complete File & Archive Manager**: Clickable breadcrumbs, multi-select batch Move / Copy / Delete / Compress to ZIP, folder drag-and-drop upload (`webkitdirectory`), archive inspection & extraction (ZIP / 7Z / RAR / TAR), image/audio previews, and inline text/config editing.
 
@@ -58,17 +58,23 @@ Turn any PC, Mac, or tablet browser on your LAN into a full **Web Game Library C
 - **Dual-Protocol Discovery & Transfer**: Works seamlessly with both **PocketDeck Quick Share** (`53318/53319`) and **LocalSend v2** (`53317` HTTPS/TLS + UDP multicast) — send ROMs or folders directly from Windows, macOS, Linux, iOS, or Android LocalSend apps!
 - **Toggleable Anytime**: LocalSend compatibility is **enabled by default** and can be toggled on/off anytime inside the Quick Share screen or LAN Control panel.
 - **Physical NIC Binding**: Automatically filters out VPN/TUN interfaces (`Clash`, `Tailscale`, `WireGuard`, etc.) and supports choosing specific Wi-Fi, Hotspot, or USB-LAN adapters.
-- **Dedicated Inbox & Jump-to-Folder History**: Incoming files save by default to `Download/PocketDeck` (customizable per transfer before accepting), monitor live speed & progress, and let you open or jump straight to the saved folder in File Manager from transfer history.
+- **Dedicated Inbox & Jump-to-Folder History**: Incoming files save by default to `Download/PocketDeck` (customizable per transfer before accepting), monitor live speed & progress with instant cancellation, and let you open or jump straight to the saved folder in File Manager from transfer history.
 
 ---
 
-### 🎨 Personalization, Scraping & Emulators
+### 🎨 Personalization, Scraping, Performance & Emulators
 
-- **8 Theme Accents & 7 Backgrounds**: `Waves`, `Gradient`, `Particles`, `Cover Blur`, `Static Waves`, `Custom Image`, and `Solid Color`, with full Light / Dark / System mode.
-- **Custom Fonts & Key Sounds**: Import `.ttf / .otf / .ttc` fonts and choose from 5 handheld key sound presets (`Crisp Tick`, `Crystal Drop`, `Soft Wood`, `Mechanical Key`, `Retro 8-Bit`).
-- **Multi-Source Cover & Metadata Scraping**: Drag-to-reorder priority across **Libretro Thumbnails / DB**, **Hasheous (CRC32)**, **ArcadeItalia**, **Wikidata**, **ScreenScraper.fr**, **TheGamesDB**, and **IGDB**.
-- **40+ Emulators & Custom Launchers**: Built-in support for **RetroArch** (auto or custom core), **PPSSPP**, **DuckStation**, **DraStic**, **melonDS**, **Dolphin**, **AetherSX2 / NetherSX2**, **Citra / Azahar**, **Yuzu forks**, **Cemu**, **Vita3K**, **Flycast**, **mGBA**, **Winlator**, and custom Android app intent presets.
-- **Full Gamepad Control**: D-Pad navigation, `L1/R1` tab switching, `Swap ABXY` (Nintendo ↔ Xbox), custom key remapping with conflict resolution, and Home Launcher (`HOME`) integration.
+<div align="center">
+  <img src="docs/images/v040-ui-showcase.jpg" alt="PocketDeck v0.4.0 Redesigned Settings, Launcher, Icons & Flat LAN UI" width="90%"/>
+</div>
+
+- **12 Eye-Friendly Theme Accents & 10 Backgrounds**: Curated low-fatigue palette including `Sage`, `Slate`, `Terracotta`, and `Graphite`, paired with `Waves`, `Gradient`, `Particles`, `Aurora Ribbons`, `Topographic`, `Dot Matrix`, `Cover Blur`, `Static Waves`, `Custom Image`, and `Solid Color` in full Light / Dark / System mode.
+- **Unified Thin Flat Iconography & 6-Section Settings**: Custom Lucide-style vector icon set across the entire app (zero skeuomorphic OS emojis), hairline borders, 2-column Status Bar toggle grid, and two-tier Launcher cards that never truncate platform names.
+- **Custom Fonts & Tactile Dual-Tone Key Sounds**: Import `.ttf / .otf / .ttc` fonts and enjoy a single Key Sound toggle with **Mechanical Switch** audio on category switches and **Crisp Tick** on navigation/taps.
+- **Massive-Library Cold-Start Architecture**: Binary disk index cache (`Stale-While-Revalidate`) for near-instant cold boots, first-tab-first progressive ROM scanning on uncached drives, and bounded LRU tab caching for 30+ categories.
+- **Multi-Source Cover & Metadata Scraping + Live Logs**: Drag-to-reorder priority across **Libretro Thumbnails / DB**, **Hasheous (CRC32)**, **ArcadeItalia**, **Wikidata**, **ScreenScraper.fr**, **TheGamesDB**, and **IGDB**, with built-in searchable & exportable scraping logs.
+- **50+ Emulators & Custom Launchers**: Built-in support for **RetroArch** (auto or custom core), **PPSSPP**, **DuckStation**, **DraStic**, **melonDS**, **Dolphin**, **AetherSX2 / NetherSX2**, **Citra / Azahar**, **Yuzu / Eden / Citron**, **Cemu**, **Vita3K**, **Flycast**, **mGBA**, **Winlator**, **RPCSX**, and custom Android app intent presets.
+- **Full Gamepad Control**: 60fps D-Pad fast-scroll navigation, `L1/R1` tab switching, `Swap ABXY` (Nintendo ↔ Xbox), custom key remapping with conflict resolution, and Home Launcher (`HOME`) integration.
 
 ---
 

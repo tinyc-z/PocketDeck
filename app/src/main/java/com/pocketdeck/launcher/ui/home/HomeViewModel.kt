@@ -7,7 +7,6 @@ import com.pocketdeck.launcher.data.BackgroundStyle
 import com.pocketdeck.launcher.data.CoverResolutionInfo
 import com.pocketdeck.launcher.data.CustomLauncherPreset
 import com.pocketdeck.launcher.data.GalleryAlign
-import com.pocketdeck.launcher.data.KeySoundStyle
 import com.pocketdeck.launcher.data.MetadataDisplayConfig
 import com.pocketdeck.launcher.data.MetadataResolutionInfo
 import com.pocketdeck.launcher.data.RomDir
@@ -108,7 +107,6 @@ data class HomeUiState(
     val customBackground: String? = null,
     val keyBindings: Map<KeyAction, Int> = emptyMap(),
     val keySoundEnabled: Boolean = true,
-    val keySoundStyle: KeySoundStyle = KeySoundStyle.CrispTick,
     val themeAccent: ThemeAccent = ThemeAccent.Ruby,
     val fontId: String = SystemFonts.DEFAULT_ID,
     val platformAspects: Map<String, Float> = emptyMap(),
@@ -251,7 +249,6 @@ class HomeViewModel(
                         customBackground = u?.customBackground ?: _state.value.customBackground,
                         keyBindings = u?.keyBindings ?: _state.value.keyBindings,
                         keySoundEnabled = u?.keySoundEnabled ?: _state.value.keySoundEnabled,
-                        keySoundStyle = u?.keySoundStyle ?: _state.value.keySoundStyle,
                         viewMode = u?.viewMode ?: _state.value.viewMode,
                         metaDisplay = u?.metaDisplay ?: _state.value.metaDisplay,
                         metadataMap = data.metaMap,
@@ -395,7 +392,6 @@ class HomeViewModel(
             customBackground = user.customBackground,
             keyBindings = user.keyBindings,
             keySoundEnabled = user.keySoundEnabled,
-            keySoundStyle = user.keySoundStyle,
         )
         _state.value = newState
         preloadAssets(filteredGames, focusIdx, newState::platformFor)
@@ -493,6 +489,23 @@ class HomeViewModel(
             .map { it.value }
     }
 
+    /**
+     * 活跃标签页排序列表 LRU 缓存（仅常驻最近访问的 5 个标签页），
+     * 避免 30+ 分类、上万款游戏场景下反复全量排序或常驻过多分类列表占用内存。
+     */
+    private data class TabGamesCacheKey(
+        val tabId: String,
+        val tabType: TabType,
+        val libIdentity: Int,
+        val sortOrder: CategorySortOrder?,
+        val listSignature: Int,
+    )
+
+    private val tabGamesLru = object : LinkedHashMap<TabGamesCacheKey, List<Game>>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TabGamesCacheKey, List<Game>>?): Boolean =
+            size > 5
+    }
+
     private fun getGamesForTab(
         tab: TabInfo?,
         lib: Library,
@@ -500,16 +513,36 @@ class HomeViewModel(
         metaMap: Map<String, GameMetadata> = emptyMap(),
     ): List<Game> {
         if (tab == null) return emptyList()
-        return when (tab.type) {
+        val sortOrder: CategorySortOrder? = when (tab.type) {
+            TabType.Now -> user.systemTabs["now"]?.sortOrder
+            TabType.Favs -> user.systemTabs["favs"]?.sortOrder ?: CategorySortOrder.TitleAsc
+            TabType.Custom -> user.categories.firstOrNull { it.id == tab.id }?.sortOrder ?: CategorySortOrder.TitleAsc
+            TabType.Other -> user.systemTabs["other"]?.sortOrder ?: CategorySortOrder.TitleAsc
+        }
+        val needsMeta = sortOrder == CategorySortOrder.ReleaseNewest || sortOrder == CategorySortOrder.ReleaseOldest
+        val listSig = when (tab.type) {
+            TabType.Now -> user.recents.hashCode()
+            TabType.Favs -> user.favorites.hashCode()
+            TabType.Custom -> user.categories.firstOrNull { it.id == tab.id }.hashCode()
+            TabType.Other -> user.categories.hashCode()
+        } * 31 + (if (needsMeta) metaMap.size else 0)
+        val cacheKey = TabGamesCacheKey(
+            tabId = tab.id,
+            tabType = tab.type,
+            libIdentity = System.identityHashCode(lib),
+            sortOrder = sortOrder,
+            listSignature = listSig,
+        )
+        tabGamesLru[cacheKey]?.let { return it }
+
+        val computed = when (tab.type) {
             TabType.Now -> {
                 val raw = user.recents.mapNotNull { lib.byId[it] }
-                val order = user.systemTabs["now"]?.sortOrder
-                if (order != null) sortCategoryGames(raw, order, metaMap) else raw
+                if (sortOrder != null) sortCategoryGames(raw, sortOrder, metaMap) else raw
             }
             TabType.Favs -> {
                 val raw = user.favorites.mapNotNull { lib.byId[it] }
-                val order = user.systemTabs["favs"]?.sortOrder ?: CategorySortOrder.TitleAsc
-                sortCategoryGames(raw, order, metaMap)
+                sortCategoryGames(raw, sortOrder ?: CategorySortOrder.TitleAsc, metaMap)
             }
             TabType.Custom -> {
                 val cat = user.categories.firstOrNull { it.id == tab.id } ?: return emptyList()
@@ -522,10 +555,11 @@ class HomeViewModel(
                 val categorizedGames = user.categories.flatMap { it.games }.toSet()
                 val raw = lib.byId.values
                     .filter { it.platformId !in categorizedPlatforms && it.id !in categorizedGames }
-                val order = user.systemTabs["other"]?.sortOrder ?: CategorySortOrder.TitleAsc
-                sortCategoryGames(raw, order, metaMap)
+                sortCategoryGames(raw, sortOrder ?: CategorySortOrder.TitleAsc, metaMap)
             }
         }
+        tabGamesLru[cacheKey] = computed
+        return computed
     }
 
     private fun sortCategoryGames(
@@ -939,10 +973,6 @@ class HomeViewModel(
 
     fun toggleKeySound() {
         viewModelScope.launch { repo.updatePrefs { it.copy(keySoundEnabled = !it.keySoundEnabled) } }
-    }
-
-    fun setKeySoundStyle(style: KeySoundStyle) {
-        viewModelScope.launch { repo.updatePrefs { it.copy(keySoundStyle = style) } }
     }
 
     suspend fun refreshGameMetadata(game: Game): Boolean =

@@ -80,6 +80,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.data.Category
 import com.pocketdeck.launcher.data.CoverResolutionInfo
@@ -290,14 +292,14 @@ private sealed interface MoveTarget {
 }
 
 /**
- * 「游戏库」内置应用图标：融合 文件夹 + 手柄 + 搜索管理角标 的第一方风格 App Logo。
+ * 「游戏库」旗舰扁平图标：深邃靛曜石缎面 + 三层错落精雕卡带叠层（Stacked Deck Cards）。
  */
 @Composable
 fun GameLibraryAppIcon(
     size: Dp = 54.dp,
     modifier: Modifier = Modifier,
 ) {
-    val corner = size * 0.22f
+    val corner = size * 0.24f
     Canvas(
         modifier
             .size(size)
@@ -306,100 +308,67 @@ fun GameLibraryAppIcon(
         val w = this.size.width
         val h = this.size.height
 
+        // 深邃靛夜曜石底面
         drawRect(
             brush = Brush.linearGradient(
-                colors = listOf(Color(0xFF3B6EF6), Color(0xFF1D4ED8), Color(0xFF0E7490)),
+                colors = listOf(Color(0xFF1A233A), Color(0xFF111626), Color(0xFF0B0E18)),
                 start = Offset(0f, 0f),
                 end = Offset(w, h),
             ),
         )
+        // 左上角微弱矢车菊蓝柔光
         drawCircle(
-            color = Color.White.copy(alpha = 0.14f),
-            radius = w * 0.48f,
-            center = Offset(w * 0.25f, h * 0.12f),
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0xFF60A5FA).copy(alpha = 0.24f), Color.Transparent),
+                center = Offset(w * 0.26f, h * 0.20f),
+                radius = w * 0.58f,
+            ),
+            radius = w * 0.58f,
+            center = Offset(w * 0.26f, h * 0.20f),
         )
 
-        val fLeft = w * 0.15f
-        val fRight = w * 0.85f
-        val fTop = h * 0.23f
-        val fBottom = h * 0.78f
-        val tabW = w * 0.28f
-        val tabH = h * 0.09f
-        val r = w * 0.08f
-
-        val folderPath = Path().apply {
-            moveTo(fLeft, fTop + r)
-            quadraticTo(fLeft, fTop, fLeft + r, fTop)
-            lineTo(fLeft + tabW, fTop)
-            lineTo(fLeft + tabW + tabH * 0.8f, fTop + tabH)
-            lineTo(fRight - r, fTop + tabH)
-            quadraticTo(fRight, fTop + tabH, fRight, fTop + tabH + r)
-            lineTo(fRight, fBottom - r)
-            quadraticTo(fRight, fBottom, fRight - r, fBottom)
-            lineTo(fLeft + r, fBottom)
-            quadraticTo(fLeft, fBottom, fLeft, fBottom - r)
-            close()
-        }
-        drawPath(folderPath, color = Color.White.copy(alpha = 0.94f))
-
-        val padW = w * 0.38f
-        val padH = h * 0.22f
-        val padLeft = (w - padW) * 0.47f
-        val padTop = h * 0.44f
+        val cardR = CornerRadius(w * 0.11f, w * 0.11f)
+        // 后层叠卡（深蓝微光）
         drawRoundRect(
-            color = Color(0xFF1E3A8A),
-            topLeft = Offset(padLeft, padTop),
-            size = Size(padW, padH),
-            cornerRadius = CornerRadius(padH * 0.5f, padH * 0.5f),
+            color = Color(0xFF3B82F6).copy(alpha = 0.36f),
+            topLeft = Offset(w * 0.29f, h * 0.19f),
+            size = Size(w * 0.42f, h * 0.14f),
+            cornerRadius = cardR,
         )
-        val dpadCx = padLeft + padW * 0.30f
-        val dpadCy = padTop + padH * 0.5f
-        val dpadR = padH * 0.28f
-        val dpadStroke = (w * 0.036f).coerceAtLeast(1.5f)
-        drawLine(
-            Color.White,
-            Offset(dpadCx - dpadR, dpadCy),
-            Offset(dpadCx + dpadR, dpadCy),
-            strokeWidth = dpadStroke,
-            cap = StrokeCap.Round,
+        // 中层叠卡（冰蓝磨砂）
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFF93C5FD), Color(0xFF3B82F6)),
+                start = Offset(w * 0.22f, h * 0.27f),
+                end = Offset(w * 0.78f, h * 0.45f),
+            ),
+            topLeft = Offset(w * 0.22f, h * 0.27f),
+            size = Size(w * 0.56f, h * 0.20f),
+            cornerRadius = cardR,
         )
-        drawLine(
-            Color.White,
-            Offset(dpadCx, dpadCy - dpadR),
-            Offset(dpadCx, dpadCy + dpadR),
-            strokeWidth = dpadStroke,
-            cap = StrokeCap.Round,
+        // 前层主卡（纯白雕塑卡面）
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFFFFFF), Color(0xFFE6EAF4)),
+                start = Offset(w * 0.16f, h * 0.37f),
+                end = Offset(w * 0.84f, h * 0.80f),
+            ),
+            topLeft = Offset(w * 0.16f, h * 0.37f),
+            size = Size(w * 0.68f, h * 0.43f),
+            cornerRadius = CornerRadius(w * 0.12f, w * 0.12f),
         )
-        val dotR = (w * 0.025f).coerceAtLeast(1.2f)
-        drawCircle(Color(0xFF38BDF8), dotR, Offset(padLeft + padW * 0.65f, padTop + padH * 0.62f))
-        drawCircle(Color(0xFFFCA5A5), dotR, Offset(padLeft + padW * 0.77f, padTop + padH * 0.39f))
-
-        val badgeCx = w * 0.75f
-        val badgeCy = h * 0.74f
-        val badgeR = w * 0.175f
-        drawCircle(Color(0xFF0EA5E9), badgeR, Offset(badgeCx, badgeCy))
-        drawCircle(
-            Color.White,
-            badgeR,
-            Offset(badgeCx, badgeCy),
-            style = Stroke(width = (w * 0.03f).coerceAtLeast(1.5f)),
+        // 主卡内极简卡带切口与双细条纹
+        drawRoundRect(
+            color = Color(0xFF1D4ED8),
+            topLeft = Offset(w * 0.27f, h * 0.51f),
+            size = Size(w * 0.28f, h * 0.065f),
+            cornerRadius = CornerRadius(w * 0.035f, w * 0.035f),
         )
-        val glassR = badgeR * 0.42f
-        val glassCx = badgeCx - badgeR * 0.12f
-        val glassCy = badgeCy - badgeR * 0.12f
-        val glassStroke = (w * 0.034f).coerceAtLeast(1.5f)
-        drawCircle(
-            Color.White,
-            glassR,
-            Offset(glassCx, glassCy),
-            style = Stroke(width = glassStroke),
-        )
-        drawLine(
-            Color.White,
-            Offset(glassCx + glassR * 0.72f, glassCy + glassR * 0.72f),
-            Offset(badgeCx + badgeR * 0.54f, badgeCy + badgeR * 0.54f),
-            strokeWidth = glassStroke,
-            cap = StrokeCap.Round,
+        drawRoundRect(
+            color = Color(0xFF94A3B8).copy(alpha = 0.55f),
+            topLeft = Offset(w * 0.27f, h * 0.625f),
+            size = Size(w * 0.42f, h * 0.055f),
+            cornerRadius = CornerRadius(w * 0.03f, w * 0.03f),
         )
     }
 }
@@ -977,20 +946,20 @@ fun GameLibraryScreen(
             add(ActionItem("▶  $playLabel") { onLaunchGame(game) })
             add(ActionItem("ⓘ  $propsLabel") { propertiesGame = game })
             if (isRom && file.isFile) {
-                add(ActionItem("📤  $shareSendLabel") {
+                add(ActionItem("$shareSendLabel") {
                     shareMethodTarget = ShareFileTarget(listOf(file), game.title, plat.id, plat.shortName)
                 })
             }
-            add(ActionItem("🏷  $categoriesLabel") { categoryTargetGame = game })
+            add(ActionItem("$categoriesLabel") { categoryTargetGame = game })
             add(
-                ActionItem(if (isHidden) "👁  $unhideLabel" else "🙈  $hideLabel") {
+                ActionItem(if (isHidden) "$unhideLabel" else "$hideLabel") {
                     if (isHidden) onUnhideGame(game.id) else onHideGame(game.id)
                 },
             )
             add(ActionItem("✎  $editLabel") { editingGame = game })
             if (isRom && file.isFile) {
                 add(
-                    ActionItem("📝  $renameFileLabel") {
+                    ActionItem("$renameFileLabel") {
                         nameSpec = NameDialogSpec(renameTitle, file.name) { newName ->
                             scope.launch {
                                 val res = onRenameFile(file, newName)
@@ -1004,9 +973,9 @@ fun GameLibraryScreen(
                         }
                     },
                 )
-                add(ActionItem("📦  $moveFileLabel") { moveTarget = MoveTarget.Single(file, isCopy = false) })
-                add(ActionItem("📋  $copyFileLabel") { moveTarget = MoveTarget.Single(file, isCopy = true) })
-                add(ActionItem("🗑  $deleteFileLabel") { deleteConfirm = file to game })
+                add(ActionItem("$moveFileLabel") { moveTarget = MoveTarget.Single(file, isCopy = false) })
+                add(ActionItem("$copyFileLabel") { moveTarget = MoveTarget.Single(file, isCopy = true) })
+                add(ActionItem("$deleteFileLabel") { deleteConfirm = file to game })
             }
         }
         actionMenu = ActionMenuState(game.title, items)
@@ -1016,11 +985,11 @@ fun GameLibraryScreen(
         val isRoot = romRoots.any { runCatching { it.canonicalPath == folder.canonicalPath }.getOrDefault(false) } ||
             storageLocations.any { !it.isRomRoot && runCatching { it.dir.canonicalPath == folder.canonicalPath }.getOrDefault(false) }
         val items = buildList {
-            add(ActionItem("📂  $folderOpenLabel") { enterDir(folder) })
-            add(ActionItem("📋  $copyFileLabel") { moveTarget = MoveTarget.Single(folder, isCopy = true) })
+            add(ActionItem("$folderOpenLabel") { enterDir(folder) })
+            add(ActionItem("$copyFileLabel") { moveTarget = MoveTarget.Single(folder, isCopy = true) })
             if (!isRoot) {
                 add(
-                    ActionItem("📝  $folderRenameLabel") {
+                    ActionItem("$folderRenameLabel") {
                         nameSpec = NameDialogSpec(folderRenameLabel, folder.name) { newName ->
                             scope.launch {
                                 val res = onRenameFile(folder, newName)
@@ -1034,9 +1003,9 @@ fun GameLibraryScreen(
                         }
                     },
                 )
-                add(ActionItem("📦  $folderMoveLabel") { moveTarget = MoveTarget.Single(folder, isCopy = false) })
+                add(ActionItem("$folderMoveLabel") { moveTarget = MoveTarget.Single(folder, isCopy = false) })
                 folder.parentFile?.let { parent ->
-                    add(ActionItem("🗜  $compressZipLabel") {
+                    add(ActionItem("$compressZipLabel") {
                         runCompressZip(listOf(folder), parent, "${folder.name}.zip")
                     })
                 }
@@ -1046,7 +1015,7 @@ fun GameLibraryScreen(
                         selectedPaths = selectedPaths + folder.path
                     })
                 }
-                add(ActionItem("🗑  $folderDeleteLabel") { batchDeleteFiles = listOf(folder) })
+                add(ActionItem("$folderDeleteLabel") { batchDeleteFiles = listOf(folder) })
             }
         }
         actionMenu = ActionMenuState(folder.name, items)
@@ -1067,25 +1036,25 @@ fun GameLibraryScreen(
                 add(ActionItem("ⓘ  $propsLabel") { propertiesGame = matchedGame })
             }
             if (isArchive) {
-                add(ActionItem("🗜  $archiveInspectLabel") { archivePreviewFile = file })
+                add(ActionItem("$archiveInspectLabel") { archivePreviewFile = file })
                 file.parentFile?.let { parent ->
-                    add(ActionItem("📂  $archiveExtractHereLabel") { runExtract(file, parent) })
+                    add(ActionItem("$archiveExtractHereLabel") { runExtract(file, parent) })
                 }
             }
             if (isImage) {
-                add(ActionItem("🖼  $viewImageLabel") { imageViewerFile = file })
+                add(ActionItem("$viewImageLabel") { imageViewerFile = file })
             }
             if (isAudio) {
-                add(ActionItem("🎵  $playAudioLabel") { audioPlayerFile = file })
+                add(ActionItem("$playAudioLabel") { audioPlayerFile = file })
             }
             if (isFont) {
-                add(ActionItem("🔤  $viewFontLabel") { fontViewerFile = file })
+                add(ActionItem("$viewFontLabel") { fontViewerFile = file })
             }
             if (isText) {
-                add(ActionItem("📄  $viewTextLabel") { textEditorFile = file })
+                add(ActionItem("$viewTextLabel") { textEditorFile = file })
             }
             if (file.isFile) {
-                add(ActionItem("📤  $shareSendLabel") {
+                add(ActionItem("$shareSendLabel") {
                     val plat = matchedGame?.let(platformFor)
                     shareMethodTarget = ShareFileTarget(
                         files = listOf(file),
@@ -1096,7 +1065,7 @@ fun GameLibraryScreen(
                 })
             }
             add(
-                ActionItem("📝  $renameFileLabel") {
+                ActionItem("$renameFileLabel") {
                     nameSpec = NameDialogSpec(renameTitle, file.name) { newName ->
                         scope.launch {
                             val res = onRenameFile(file, newName)
@@ -1110,10 +1079,10 @@ fun GameLibraryScreen(
                     }
                 },
             )
-            add(ActionItem("📦  $moveFileLabel") { moveTarget = MoveTarget.Single(file, isCopy = false) })
-            add(ActionItem("📋  $copyFileLabel") { moveTarget = MoveTarget.Single(file, isCopy = true) })
+            add(ActionItem("$moveFileLabel") { moveTarget = MoveTarget.Single(file, isCopy = false) })
+            add(ActionItem("$copyFileLabel") { moveTarget = MoveTarget.Single(file, isCopy = true) })
             file.parentFile?.let { parent ->
-                add(ActionItem("🗜  $compressZipLabel") {
+                add(ActionItem("$compressZipLabel") {
                     runCompressZip(listOf(file), parent, "${file.nameWithoutExtension}.zip")
                 })
             }
@@ -1123,7 +1092,7 @@ fun GameLibraryScreen(
                     selectedPaths = selectedPaths + file.path
                 })
             }
-            add(ActionItem("🗑  $deleteFileLabel") { deleteConfirm = file to matchedGame })
+            add(ActionItem("$deleteFileLabel") { deleteConfirm = file to matchedGame })
         }
         actionMenu = ActionMenuState(file.name, items)
     }
@@ -1136,7 +1105,7 @@ fun GameLibraryScreen(
         val dirNow = currentDir ?: picked.first().parentFile
         val items = buildList {
             if (shareable.isNotEmpty()) {
-                add(ActionItem("📤  ${shareBatchLabel.format(shareable.size)}") {
+                add(ActionItem("${shareBatchLabel.format(shareable.size)}") {
                     shareMethodTarget = ShareFileTarget(
                         files = shareable,
                         gameTitle = "${shareable.size} files",
@@ -1145,15 +1114,15 @@ fun GameLibraryScreen(
                     )
                 })
             }
-            add(ActionItem("📦  ${batchMoveFmt.format(picked.size)}") { moveTarget = MoveTarget.Batch(picked, isCopy = false) })
-            add(ActionItem("📋  ${batchCopyFmt.format(picked.size)}") { moveTarget = MoveTarget.Batch(picked, isCopy = true) })
+            add(ActionItem("${batchMoveFmt.format(picked.size)}") { moveTarget = MoveTarget.Batch(picked, isCopy = false) })
+            add(ActionItem("${batchCopyFmt.format(picked.size)}") { moveTarget = MoveTarget.Batch(picked, isCopy = true) })
             if (dirNow != null) {
-                add(ActionItem("🗜  $compressZipLabel") {
+                add(ActionItem("$compressZipLabel") {
                     runCompressZip(picked, dirNow, "archive_${picked.size}.zip")
                 })
             }
             if (archives.isNotEmpty() && dirNow != null) {
-                add(ActionItem("📂  $batchExtractLabel (${archives.size})") {
+                add(ActionItem("$batchExtractLabel (${archives.size})") {
                     opCancelled.set(false)
                     opProgress = extractingTitle to archives.first().name
                     opJob = scope.launch {
@@ -1192,7 +1161,7 @@ fun GameLibraryScreen(
                     }
                 })
             }
-            add(ActionItem("🗑  ${batchDeleteFmt.format(picked.size)}") { batchDeleteFiles = picked })
+            add(ActionItem("${batchDeleteFmt.format(picked.size)}") { batchDeleteFiles = picked })
             add(ActionItem("☑  $selectAllLabel") { selectedPaths = fileEntries.map { it.path }.toSet() })
             add(ActionItem("✕  $exitMultiLabel") {
                 multiSelectMode = false
@@ -1205,7 +1174,7 @@ fun GameLibraryScreen(
     // Files Toolbar 动作列表（确保全键盘/手柄可达）
     val filesToolbarActions: List<Pair<String, () -> Unit>> = if (!multiSelectMode) {
         buildList {
-            add("🔍" to {
+            add("⌕" to {
                 if (fileSearchOpen) {
                     fileSearchOpen = false
                     fileSearchQuery = ""
@@ -1216,7 +1185,7 @@ fun GameLibraryScreen(
                 }
             })
             if (currentDir != null) {
-                add("💾 $storageLocationsLabel" to {
+                add("$storageLocationsLabel" to {
                     pendingFocusPath = currentDir?.path
                     fileSearchOpen = false
                     fileSearchQuery = ""
@@ -1608,7 +1577,7 @@ fun GameLibraryScreen(
                         .size(36.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (backHl) DeckColors.Ruby.copy(alpha = 0.14f) else Color.Transparent)
-                        .border(if (backHl) 1.5.dp else 0.dp, if (backHl) DeckColors.Ruby else Color.Transparent, RoundedCornerShape(8.dp))
+                        .border(if (backHl) 0.9.dp else 0.dp, if (backHl) DeckColors.Ruby else Color.Transparent, RoundedCornerShape(8.dp))
                         .soundClickable(onClick = onDismiss)
                         .drawBehind { drawBackArrow(backTint) },
                 )
@@ -1665,7 +1634,7 @@ fun GameLibraryScreen(
                             }
                         }
                         .border(
-                            width = if (lanActive || lanHl) 1.5.dp else 1.dp,
+                            width = if (lanActive || lanHl) 0.9.dp else 0.6.dp,
                             color = when {
                                 lanHl -> DeckColors.Ruby
                                 lanActive -> lanAccent
@@ -1690,7 +1659,7 @@ fun GameLibraryScreen(
                                 lanState.webRunning -> stringResource(R.string.lan_status_web)
                                 else -> stringResource(R.string.lan_status_tasks)
                             }
-                            else -> "📡 ${stringResource(R.string.lan_service_btn)}"
+                            else -> "${stringResource(R.string.lan_service_btn)}"
                         },
                         style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
                         color = if (lanActive) lanAccent else if (lanHl) DeckColors.Ruby else DeckColors.TextPrimary,
@@ -1703,7 +1672,7 @@ fun GameLibraryScreen(
                     Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Surface)
-                        .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                        .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
                         .padding(3.dp),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -1740,7 +1709,7 @@ fun GameLibraryScreen(
                                 .clip(DeckShapes.tabPill)
                                 .background(DeckColors.Surface)
                                 .border(
-                                    width = if (searchHl) 1.5.dp else 1.dp,
+                                    width = if (searchHl) 0.9.dp else 0.6.dp,
                                     color = if (searchHl) DeckColors.Ruby else DeckColors.DialogBorder,
                                     shape = DeckShapes.tabPill,
                                 )
@@ -1748,7 +1717,7 @@ fun GameLibraryScreen(
                                 .padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("🔍", fontSize = 13.sp)
+                            DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 14.dp)
                             Spacer(Modifier.width(8.dp))
                             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                                 if (searchQuery.isEmpty()) {
@@ -1798,7 +1767,7 @@ fun GameLibraryScreen(
                     ) {
                         item {
                             FilterChipPill(
-                                label = "🔍",
+                                label = "⌕",
                                 selected = gameSearchOpen || searchQuery.isNotBlank(),
                                 focused = focusZone == LibraryZone.Filter && filterChipIdx == 0,
                                 onClick = {
@@ -1897,7 +1866,7 @@ fun GameLibraryScreen(
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(if (hl) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
                                     .border(
-                                        width = if (hl) 1.5.dp else 1.dp,
+                                        width = if (hl) 0.9.dp else 0.6.dp,
                                         color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
                                         shape = RoundedCornerShape(12.dp),
                                     )
@@ -2012,7 +1981,7 @@ fun GameLibraryScreen(
                                 .clip(DeckShapes.tabPill)
                                 .background(DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f))
                                 .border(
-                                    width = if (tHl) 1.5.dp else 0.dp,
+                                    width = if (tHl) 0.9.dp else 0.dp,
                                     color = if (tHl) DeckColors.Ruby else Color.Transparent,
                                     shape = DeckShapes.tabPill,
                                 )
@@ -2039,7 +2008,7 @@ fun GameLibraryScreen(
                                 .clip(DeckShapes.tabPill)
                                 .background(DeckColors.Surface)
                                 .border(
-                                    width = if (fileSearchBoxHl) 1.5.dp else 1.dp,
+                                    width = if (fileSearchBoxHl) 0.9.dp else 0.6.dp,
                                     color = if (fileSearchBoxHl) DeckColors.Ruby else DeckColors.DialogBorder,
                                     shape = DeckShapes.tabPill,
                                 )
@@ -2051,7 +2020,7 @@ fun GameLibraryScreen(
                                 .padding(horizontal = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("🔍", fontSize = 13.sp)
+                            DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 14.dp)
                             Spacer(Modifier.width(8.dp))
                             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                                 if (fileSearchQuery.isEmpty()) {
@@ -2166,7 +2135,7 @@ fun GameLibraryScreen(
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(if (hl) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
                                         .border(
-                                            width = if (hl) 1.5.dp else 1.dp,
+                                            width = if (hl) 0.9.dp else 0.6.dp,
                                             color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
                                             shape = RoundedCornerShape(10.dp),
                                         )
@@ -2199,14 +2168,14 @@ fun GameLibraryScreen(
                             val inSearchMode = fileSearchQuery.isNotBlank()
                             val label = storageLoc?.label ?: if (dirNow == null && !inSearchMode) file.path.replace(sdPath, "~") else file.name
                             val icon = when {
-                                storageLoc != null && !storageLoc.isRomRoot -> "💾"
-                                file.isDirectory -> "📁"
-                                isArchive -> "🗜"
-                                isImage -> "🖼"
-                                isAudio -> "🎵"
-                                isFont -> "🔤"
-                                isText -> "📝"
-                                else -> "📄"
+                                storageLoc != null && !storageLoc.isRomRoot -> "SD"
+                                file.isDirectory -> "DIR"
+                                isArchive -> "ZIP"
+                                isImage -> "IMG"
+                                isAudio -> "AUD"
+                                isFont -> "TTF"
+                                isText -> "TXT"
+                                else -> "ROM"
                             }
 
                             Row(
@@ -2221,7 +2190,7 @@ fun GameLibraryScreen(
                                         },
                                     )
                                     .border(
-                                        width = if (hl || checked) 1.5.dp else 1.dp,
+                                        width = if (hl || checked) 0.9.dp else 0.6.dp,
                                         color = if (hl || checked) DeckColors.Ruby else DeckColors.DialogBorder,
                                         shape = RoundedCornerShape(10.dp),
                                     )
@@ -2770,7 +2739,7 @@ private fun ModePill(
             .clip(DeckShapes.tabPill)
             .background(if (selected) DeckColors.Ruby else Color.Transparent)
             .border(
-                width = if (focused) 1.5.dp else 0.dp,
+                width = if (focused) 0.9.dp else 0.dp,
                 color = if (focused) (if (selected) Color.White else DeckColors.Ruby) else Color.Transparent,
                 shape = DeckShapes.tabPill,
             )
@@ -2797,7 +2766,7 @@ private fun FilterChipPill(
             .clip(DeckShapes.tabPill)
             .background(if (selected) activeBg else if (focused) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
             .border(
-                width = if (focused) 1.6.dp else 1.dp,
+                width = if (focused) 1.6.dp else 0.6.dp,
                 color = when {
                     focused -> DeckColors.Ruby
                     selected -> activeFg.copy(alpha = 0.55f)
@@ -2960,7 +2929,7 @@ private fun MoveFolderDialog(
                                 .fillMaxWidth()
                                 .clip(DeckShapes.settingsDropdown)
                                 .background(DeckColors.Ruby.copy(alpha = if (hl) 0.20f else 0.12f))
-                                .border(if (hl) 1.5.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
+                                .border(if (hl) 0.9.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
                                 .soundClickable { curDir?.let(onPickDir) }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2979,7 +2948,7 @@ private fun MoveFolderDialog(
                                 .fillMaxWidth()
                                 .clip(DeckShapes.settingsDropdown)
                                 .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                                .border(if (hl) 1.5.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
+                                .border(if (hl) 0.9.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
                                 .soundClickable { stepUpPicker() }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2997,13 +2966,13 @@ private fun MoveFolderDialog(
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
                             .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                            .border(if (hl) 1.5.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
+                            .border(if (hl) 0.9.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
                             .soundClickable { curDir = dir }
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "${if (storageLoc != null && !storageLoc.isRomRoot) "💾" else "📁"}  $label",
+                            label,
                             style = DeckType.settingsValue,
                             color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
                             modifier = Modifier.weight(1f),
@@ -3030,12 +2999,12 @@ private fun FileTasksBanner(
     ) {
         tasks.forEach { task ->
             val icon = when (task.kind) {
-                FileTaskKind.Compress -> "🗜"
-                FileTaskKind.Extract -> "📦"
-                FileTaskKind.Copy -> "📋"
-                FileTaskKind.Move -> "📦"
-                FileTaskKind.Delete -> "🗑"
-                FileTaskKind.Upload -> "📤"
+                FileTaskKind.Compress -> "ZIP"
+                FileTaskKind.Extract -> "EXT"
+                FileTaskKind.Copy -> "CP"
+                FileTaskKind.Move -> "MV"
+                FileTaskKind.Delete -> "DEL"
+                FileTaskKind.Upload -> "UP"
             }
             val kindLabel = stringResource(
                 when (task.kind) {
@@ -3074,7 +3043,7 @@ private fun FileTasksBanner(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .background(DeckColors.Surface)
-                    .border(1.2.dp, DeckColors.Ruby.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                    .border(0.75.dp, DeckColors.Ruby.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
                     .padding(horizontal = 12.dp, vertical = 9.dp),
             ) {
                 Row(

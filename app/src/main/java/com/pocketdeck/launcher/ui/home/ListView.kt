@@ -32,7 +32,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -129,11 +128,7 @@ fun ListView(
     }
 
     val focusedGame = games.getOrNull(focusIndex)
-    var previewGame by remember(games.firstOrNull()?.id, games.size) { mutableStateOf(focusedGame) }
-    if (!fastScrolling || previewGame == null) {
-        previewGame = focusedGame
-    }
-    val previewPlatform = previewGame?.let(platformOf)
+    val focusedPlatform = focusedGame?.let(platformOf)
 
     val latestOnFocusChange by rememberUpdatedState(onFocusChange)
     val latestOnLaunch by rememberUpdatedState(onLaunch)
@@ -241,13 +236,12 @@ fun ListView(
             }
         }
 
-        if (previewGame != null) {
-            val shownGame = previewGame!!
+        if (focusedGame != null) {
             val fields = if (showMetadata) {
-                metadataMap[shownGame.id].toDisplayFields(
+                metadataMap[focusedGame.id].toDisplayFields(
                     visibility = metaDisplay,
-                    fileSizeBytes = shownGame.fileSize,
-                    fallbackPlatform = previewPlatform?.fullName,
+                    fileSizeBytes = focusedGame.fileSize,
+                    fallbackPlatform = focusedPlatform?.fullName,
                     labelReleaseDate = stringResource(R.string.meta_release_date),
                     labelGenre = stringResource(R.string.meta_genre),
                     labelDeveloper = stringResource(R.string.meta_developer),
@@ -263,11 +257,10 @@ fun ListView(
                 Modifier
                     .weight(1.1f)
                     .fillMaxHeight()
-                    .padding(top = 2.dp, bottom = 4.dp)
-                    .graphicsLayer { alpha = if (fastScrolling) 0.70f else 1f },
+                    .padding(top = 2.dp, bottom = 4.dp),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                val aspect = previewPlatform?.coverAspect ?: 1f
+                val aspect = focusedPlatform?.coverAspect ?: 1f
                 val infoReserve = when {
                     fields.isEmpty() -> 8.dp
                     fields.size <= 2 -> 42.dp
@@ -284,17 +277,18 @@ fun ListView(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     GameCoverCard(
-                        game = shownGame,
-                        platform = previewPlatform,
+                        game = focusedGame,
+                        platform = focusedPlatform,
                         covers = covers,
-                        officialName = officialNames[shownGame.id],
+                        officialName = officialNames[focusedGame.id],
                         width = targetW,
                         height = targetH,
                         isFocused = false,
-                        isFavorite = shownGame.id in favorites,
+                        isFavorite = focusedGame.id in favorites,
                         fastScrolling = fastScrolling,
-                        onClick = { onLaunch(shownGame) },
-                        onLongPress = onLongPress?.let { cb -> { cb(shownGame) } },
+                        allowDiskDuringFastScroll = true,
+                        onClick = { onLaunch(focusedGame) },
+                        onLongPress = onLongPress?.let { cb -> { cb(focusedGame) } },
                     )
 
                     if (fields.isNotEmpty()) {

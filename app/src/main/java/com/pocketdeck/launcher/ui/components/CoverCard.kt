@@ -8,7 +8,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,10 +40,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -103,6 +106,7 @@ fun GameCoverCard(
     isFocused: Boolean,
     isFavorite: Boolean = false,
     fastScrolling: Boolean = false,
+    allowDiskDuringFastScroll: Boolean = false,
     modifier: Modifier = Modifier,
     shapeOverride: Shape? = null,
     centeredTitle: Boolean = false,
@@ -157,6 +161,7 @@ fun GameCoverCard(
         platformLabel = platform?.shortName,
         apkPackage = apkPackage,
         fastScrolling = fastScrolling,
+        allowDiskDuringFastScroll = allowDiskDuringFastScroll,
         modifier = modifier,
         shapeOverride = shapeOverride,
         centeredTitle = centeredTitle,
@@ -187,6 +192,7 @@ fun CoverCard(
     platformLabel: String? = null,
     apkPackage: String? = null,
     fastScrolling: Boolean = false,
+    allowDiskDuringFastScroll: Boolean = false,
     modifier: Modifier = Modifier,
     shapeOverride: Shape? = null,
     centeredTitle: Boolean = false,
@@ -203,10 +209,15 @@ fun CoverCard(
     val useFocusAnim = prominentFocus || focusedScale != 1f || unfocusedScale != 1f || unfocusedAlpha != 1f
 
     val cachedIcon = remember(apkPackage) { apkPackage?.let(AppIconCache::get) }
-    val appIconBitmap by produceState(initialValue = cachedIcon, key1 = apkPackage, key2 = fastScrolling) {
+    val appIconBitmap by produceState(
+        initialValue = cachedIcon,
+        key1 = apkPackage,
+        key2 = fastScrolling,
+        key3 = allowDiskDuringFastScroll,
+    ) {
         if (apkPackage == null) {
             value = null
-        } else if (value == null && !fastScrolling) {
+        } else if (value == null && (!fastScrolling || allowDiskDuringFastScroll)) {
             value = withContext(Dispatchers.IO) { AppIconCache.loadSync(context, apkPackage) }
         }
     }
@@ -229,9 +240,10 @@ fun CoverCard(
     } else {
         null
     }
-    // 仅在非快滚时为聚焦卡片绘制柔和阴影，避免高速连按滑动时触发离屏阴影重绘
-    val elevation = if (isFocused && !fastScrolling) (if (prominentFocus) 10.dp else 8.dp) else 0.dp
-    val shadowColor = if (isFocused) DeckColors.Ruby else Color.Black
+    // 无边框选中态仅通过柔和浮起阴影与微幅暗退突显焦点；快滚期间跳过离屏阴影重绘
+    val elevation = if (isFocused && !fastScrolling) (if (prominentFocus) 14.dp else 12.dp) else 0.dp
+    val ambientShadowColor = if (isFocused) DeckColors.Ruby else Color.Black
+    val spotShadowColor = if (isFocused) DeckColors.CardShadow else Color.Black
 
     val density = LocalDensity.current
     val decodeBucketPx = remember(width, height, density.density) {
@@ -259,6 +271,7 @@ fun CoverCard(
     if (!fastScrolling && !loadedSuccess && !loadUnlocked) {
         loadUnlocked = true
     }
+    val allowDisk = loadUnlocked || allowDiskDuringFastScroll
 
     val currentOnClick by androidx.compose.runtime.rememberUpdatedState(onClick)
     val currentOnLongPress by androidx.compose.runtime.rememberUpdatedState(onLongPress)
@@ -299,13 +312,9 @@ fun CoverCard(
         Modifier
     }
 
-    val cardBorderColor = DeckColors.CardBorder
     val dimColor = DeckColors.Background
-    val cornerRadiusDp = when {
-        shapeOverride == CircleShape -> null
-        isFocused -> 9.dp
-        else -> 7.dp
-    }
+    val favPrimary = DeckColors.Ruby
+    val favGlow = DeckColors.AccentGlow
 
     Box(
         modifier
@@ -313,7 +322,7 @@ fun CoverCard(
             .size(width, height)
             .then(
                 if (elevation > 0.dp) {
-                    Modifier.shadow(elevation, shape, ambientColor = shadowColor, spotColor = shadowColor)
+                    Modifier.shadow(elevation, shape, ambientColor = ambientShadowColor, spotColor = spotShadowColor)
                 } else {
                     Modifier
                 },
@@ -327,68 +336,7 @@ fun CoverCard(
                 if (useFocusAnim && unfocusedAlpha < 1f && p < 0.99f) {
                     val dimAlpha = (1f - unfocusedAlpha) * (1f - p)
                     if (dimAlpha > 0.01f) {
-                        drawRect(dimColor.copy(alpha = dimAlpha * 0.45f))
-                    }
-                }
-                if (p > 0.01f) {
-                    if (prominentFocus) {
-                        val outerStroke = 3.dp.toPx()
-                        val innerPad = 3.dp.toPx()
-                        val innerStroke = 2.dp.toPx()
-                        if (cornerRadiusDp == null) {
-                            drawCircle(
-                                color = cardBorderColor.copy(alpha = p),
-                                radius = ((size.minDimension - outerStroke) / 2f).coerceAtLeast(0f),
-                                style = Stroke(width = outerStroke),
-                            )
-                            val innerR = size.minDimension / 2f - innerPad - innerStroke / 2f
-                            drawCircle(
-                                color = Color.White.copy(alpha = p),
-                                radius = innerR.coerceAtLeast(0f),
-                                style = Stroke(width = innerStroke),
-                            )
-                        } else {
-                            val outerCorner = (cornerRadiusDp.toPx() - outerStroke / 2f).coerceAtLeast(0f)
-                            val h1 = outerStroke / 2f
-                            drawRoundRect(
-                                color = cardBorderColor.copy(alpha = p),
-                                topLeft = Offset(h1, h1),
-                                size = Size((size.width - outerStroke).coerceAtLeast(0f), (size.height - outerStroke).coerceAtLeast(0f)),
-                                cornerRadius = CornerRadius(outerCorner, outerCorner),
-                                style = Stroke(width = outerStroke),
-                            )
-                            val innerCorner = (6.dp.toPx() - innerStroke / 2f).coerceAtLeast(0f)
-                            val h2 = innerPad + innerStroke / 2f
-                            drawRoundRect(
-                                color = Color.White.copy(alpha = p),
-                                topLeft = Offset(h2, h2),
-                                size = Size(
-                                    (size.width - innerPad * 2f - innerStroke).coerceAtLeast(0f),
-                                    (size.height - innerPad * 2f - innerStroke).coerceAtLeast(0f),
-                                ),
-                                cornerRadius = CornerRadius(innerCorner, innerCorner),
-                                style = Stroke(width = innerStroke),
-                            )
-                        }
-                    } else {
-                        val strokeW = 2.5.dp.toPx()
-                        val h = strokeW / 2f
-                        if (cornerRadiusDp == null) {
-                            drawCircle(
-                                color = cardBorderColor.copy(alpha = p),
-                                radius = ((size.minDimension - strokeW) / 2f).coerceAtLeast(0f),
-                                style = Stroke(width = strokeW),
-                            )
-                        } else {
-                            val cr = (cornerRadiusDp.toPx() - h).coerceAtLeast(0f)
-                            drawRoundRect(
-                                color = cardBorderColor.copy(alpha = p),
-                                topLeft = Offset(h, h),
-                                size = Size((size.width - strokeW).coerceAtLeast(0f), (size.height - strokeW).coerceAtLeast(0f)),
-                                cornerRadius = CornerRadius(cr, cr),
-                                style = Stroke(width = strokeW),
-                            )
-                        }
+                        drawRect(dimColor.copy(alpha = dimAlpha * 0.58f))
                     }
                 }
             },
@@ -405,15 +353,15 @@ fun CoverCard(
             )
         }
 
-        // 顶层：快滚期只命中内存缓存（零磁盘解码/零联网）；停下解锁后按分档像素尺寸加载磁盘/网络封面
+        // 顶层：快滚期只命中内存缓存（List 预览图支持盘缓存秒显，仅延后联网）；停下解锁后加载完整磁盘/网络封面
         val isOnline by NetworkStatus.online.collectAsState()
         if (currentModel != null) {
-            val request = remember(currentModel, isOnline, decodeBucketPx, loadUnlocked) {
+            val request = remember(currentModel, isOnline, decodeBucketPx, loadUnlocked, allowDisk) {
                 ImageRequest.Builder(context)
                     .data(currentModel)
                     .size(decodeBucketPx, decodeBucketPx)
                     .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(if (loadUnlocked) CachePolicy.ENABLED else CachePolicy.DISABLED)
+                    .diskCachePolicy(if (allowDisk) CachePolicy.ENABLED else CachePolicy.DISABLED)
                     .networkCachePolicy(if (loadUnlocked && isOnline) CachePolicy.ENABLED else CachePolicy.DISABLED)
                     .build()
             }
@@ -449,31 +397,101 @@ fun CoverCard(
             )
         }
 
-        // 收藏心形角标（固定显示在封面右下角；圆形气泡内缩在圆弧安全区内）
+        // 前卫收藏液态玻璃微章：熏黑玻璃透镜 + 柔光晕 + 渐变立体心形（方形置右上角避免遮挡底部标题；气泡置正下方）
         if (isFavorite && width >= 54.dp && height >= 54.dp) {
             val isCircle = shapeOverride == CircleShape
             val compactBadge = width < 120.dp || height < 120.dp
-            val badgeSize = if (compactBadge) 19.dp else 24.dp
-            val heartSize = if (compactBadge) 11.dp else 14.dp
-            val endPad = if (isCircle) (width * 0.135f) else if (compactBadge) 5.dp else 8.dp
-            val bottomPad = if (isCircle) (height * 0.135f) else if (compactBadge) 5.dp else 8.dp
-            Box(
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = endPad, bottom = bottomPad)
-                    .size(badgeSize)
-                    .clip(CircleShape)
-                    .background(DeckColors.Background.copy(alpha = 0.88f))
-                    .border(0.8.dp, DeckColors.DialogBorder.copy(alpha = 0.85f), CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                FavoriteHeartIcon(
-                    filled = true,
-                    color = DeckColors.Ruby,
-                    size = heartSize,
-                )
+            val badgeSize = if (isCircle) {
+                if (compactBadge) 22.dp else 26.dp
+            } else {
+                if (compactBadge) 22.dp else 28.dp
             }
+            val badgeModifier = if (isCircle) {
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = (height * 0.07f).coerceAtLeast(5.dp))
+            } else {
+                val pad = if (compactBadge) 5.dp else 8.dp
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = pad, end = pad)
+            }
+            CoverFavoriteBadge(
+                size = badgeSize,
+                primary = favPrimary,
+                glow = favGlow,
+                modifier = badgeModifier,
+            )
         }
+    }
+}
+
+@Composable
+private fun CoverFavoriteBadge(
+    size: Dp,
+    primary: Color,
+    glow: Color,
+    modifier: Modifier = Modifier,
+) {
+    val heartPath = remember { Path() }
+    val rimBrush = remember {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.34f),
+                Color.White.copy(alpha = 0.04f),
+                Color.Transparent,
+            ),
+        )
+    }
+    val heartTop = remember(glow) { lerp(glow, Color.White, 0.24f) }
+    val heartBrush = remember(heartTop, primary) {
+        Brush.linearGradient(colors = listOf(heartTop, primary))
+    }
+    Canvas(modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val minDim = minOf(w, h)
+        val center = Offset(w * 0.5f, h * 0.5f)
+
+        // 1. 柔和暖红环境光晕
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(glow.copy(alpha = 0.34f), Color.Transparent),
+                center = center,
+                radius = minDim * 0.50f,
+            ),
+            radius = minDim * 0.50f,
+            center = center,
+        )
+
+        // 2. 熏黑液态玻璃镜片 + 顶部微高光月牙边缘
+        val lensR = minDim * 0.42f
+        drawCircle(
+            color = Color(0xFF101016).copy(alpha = 0.46f),
+            radius = lensR,
+            center = center,
+        )
+        drawCircle(
+            brush = rimBrush,
+            radius = lensR,
+            center = center,
+            style = Stroke(width = 0.75.dp.toPx()),
+        )
+
+        // 3. 渐变立体心形
+        val heartW = minDim * 0.50f
+        val heartH = heartW * 0.92f
+        buildModernHeartPath(heartPath, heartW, heartH)
+        translate(left = center.x - heartW * 0.50f, top = center.y - heartH * 0.48f) {
+            drawPath(path = heartPath, brush = heartBrush, style = Fill)
+        }
+
+        // 4. 左上心瓣高光晶点
+        drawCircle(
+            color = Color.White.copy(alpha = 0.50f),
+            radius = (heartW * 0.09f).coerceAtLeast(1f),
+            center = Offset(center.x - heartW * 0.19f, center.y - heartH * 0.16f),
+        )
     }
 }
 

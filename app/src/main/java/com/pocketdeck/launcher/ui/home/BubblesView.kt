@@ -159,9 +159,9 @@ fun BubblesView(
                                 isFavorite = game.id in favorites,
                                 fastScrolling = fastScrolling,
                                 prominentFocus = true,
-                                focusedScale = 1.16f,
-                                unfocusedScale = 0.89f,
-                                unfocusedAlpha = 0.82f,
+                                focusedScale = 1.18f,
+                                unfocusedScale = 0.87f,
+                                unfocusedAlpha = 0.72f,
                                 shapeOverride = CircleShape,
                                 centeredTitle = true,
                                 onClick = {

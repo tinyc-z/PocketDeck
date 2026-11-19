@@ -322,7 +322,7 @@
     <string name="settings_custom_bg_clear">Clear</string>
     <string name="settings_custom_bg_none">Not selected</string>
     <string name="settings_key_sound">Key sound</string>
-    <string name="settings_key_sound_desc">Play click feedback when navigating with D-pad or gamepad</string>
+    <string name="settings_key_sound_desc">Play tactile sound feedback when navigating and switching categories</string>
     <string name="settings_keybindings">Key bindings</string>
     <string name="settings_keybindings_desc">Press A on an action to rebind its gamepad key.</string>
     <string name="settings_keybindings_reset">Reset to defaults</string>
@@ -355,6 +355,17 @@
     <string name="accent_sakura">Sakura Rose</string>
     <string name="accent_cyan">Cyber Cyan</string>
     <string name="accent_gold">Royal Gold</string>
+    <string name="accent_sage">Sage Green</string>
+    <string name="accent_slate">Slate Blue</string>
+    <string name="accent_terracotta">Terracotta</string>
+    <string name="accent_graphite">Graphite</string>
+
+    <!-- Reorganized Settings Sections -->
+    <string name="settings_sec_appearance">Appearance</string>
+    <string name="settings_sec_home">Home &amp; Bar</string>
+    <string name="settings_sec_library_scrape">Library &amp; Scrape</string>
+    <string name="settings_sec_controls">Controls &amp; Audio</string>
+    <string name="settings_sec_system">System &amp; About</string>
 
     <!-- Fonts -->
     <string name="settings_font">Font</string>
@@ -417,6 +428,12 @@
     <string name="bg_style_gradient_desc">Slowly breathing aurora theme gradient</string>
     <string name="bg_style_particles">Particles</string>
     <string name="bg_style_particles_desc">Floating translucent bokeh bubbles</string>
+    <string name="bg_style_aurora">Aurora Ribbons</string>
+    <string name="bg_style_aurora_desc">Soft diagonal silk aurora bands</string>
+    <string name="bg_style_topo">Topographic</string>
+    <string name="bg_style_topo_desc">Minimal animated 1dp contour lines</string>
+    <string name="bg_style_dot_matrix">Dot Matrix</string>
+    <string name="bg_style_dot_matrix_desc">Subtle breathing ambient dot grid</string>
     <string name="bg_style_cover_blur">Cover Blur</string>
     <string name="bg_style_cover_blur_desc">Blurred backdrop from focused game cover</string>
     <string name="bg_style_static">Static Waves</string>
@@ -425,19 +442,6 @@
     <string name="bg_style_image_desc">Use a local image file as wallpaper</string>
     <string name="bg_style_none">Solid Color</string>
     <string name="bg_style_none_desc">Plain theme background with no effects</string>
-
-    <!-- Key Sound Styles -->
-    <string name="settings_key_sound_style">Key sound style</string>
-    <string name="key_sound_crisp_tick">Crisp Tick</string>
-    <string name="key_sound_crisp_tick_desc">Tight tactile snap like a handheld D-pad</string>
-    <string name="key_sound_crystal_drop">Crystal Drop</string>
-    <string name="key_sound_crystal_drop_desc">Bright glassy chime droplet</string>
-    <string name="key_sound_wood_block">Soft Wood</string>
-    <string name="key_sound_wood_block_desc">Warm marimba tap, gentle on the ears</string>
-    <string name="key_sound_mechanical">Mechanical Key</string>
-    <string name="key_sound_mechanical_desc">Snappy double-click tactile switch</string>
-    <string name="key_sound_retro_bit">Retro 8-Bit</string>
-    <string name="key_sound_retro_bit_desc">Classic 8-bit handheld menu pip</string>
 
     <!-- Offline Messages -->
     <string name="scrape_offline">No internet connection. Connect to Wi-Fi or pick a local image.</string>

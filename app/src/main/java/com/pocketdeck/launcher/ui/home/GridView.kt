@@ -141,9 +141,9 @@ fun GridView(
                         isFavorite = game.id in favorites,
                         fastScrolling = fastScrolling,
                         prominentFocus = true,
-                        focusedScale = 1.07f,
-                        unfocusedScale = 0.98f,
-                        unfocusedAlpha = 1f,
+                        focusedScale = 1.09f,
+                        unfocusedScale = 0.94f,
+                        unfocusedAlpha = 0.72f,
                         onClick = {
                             if (focused) onLaunch(game) else onFocusChange(i)
                         },

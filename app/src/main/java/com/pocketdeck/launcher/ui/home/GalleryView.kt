@@ -515,7 +515,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
             .shadow(10.dp, CircleShape, ambientColor = DeckColors.CardShadow, spotColor = DeckColors.CardShadow)
             .clip(CircleShape)
             .background(DeckColors.DialogBg.copy(alpha = 0.92f))
-            .border(1.2.dp, DeckColors.Ruby.copy(alpha = 0.55f), CircleShape)
+            .border(0.6.dp, DeckColors.Ruby.copy(alpha = 0.36f), CircleShape)
             .padding(horizontal = 14.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -550,7 +550,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(DeckColors.Surface)
-                    .border(0.8.dp, DeckColors.DialogBorder, CircleShape)
+                    .border(0.5.dp, DeckColors.DialogBorder, CircleShape)
                     .padding(horizontal = 7.dp, vertical = 1.5.dp),
             )
         }

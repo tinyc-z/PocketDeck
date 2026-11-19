@@ -71,6 +71,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.FileTask
 import com.pocketdeck.launcher.data.FileTaskKind
 import com.pocketdeck.launcher.data.FileTaskSource
@@ -240,8 +242,9 @@ fun LanServiceControlDialog(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                DeckIcon(DeckIcons.Radio, tint = DeckColors.Ruby, size = 20.dp)
                 Text(
-                    "📡  ${stringResource(R.string.lan_service_title)}",
+                    stringResource(R.string.lan_service_title),
                     style = DeckType.menuTitle,
                     color = DeckColors.TextPrimary,
                     modifier = Modifier.weight(1f),
@@ -279,12 +282,12 @@ fun LanServiceControlDialog(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(DeckColors.Ruby.copy(alpha = 0.08f))
-                            .border(1.5.dp, DeckColors.Ruby, RoundedCornerShape(12.dp))
+                            .border(0.9.dp, DeckColors.Ruby, RoundedCornerShape(12.dp))
                             .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            "📥  ${stringResource(R.string.lan_incoming_title)}",
+                            "${stringResource(R.string.lan_incoming_title)}",
                             style = DeckType.settingsValue.copy(fontWeight = FontWeight.Bold),
                             color = DeckColors.Ruby,
                         )
@@ -328,7 +331,7 @@ fun LanServiceControlDialog(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (picked) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.DialogBg)
                                     .border(
-                                        width = if (picked) 1.5.dp else 1.dp,
+                                        width = if (picked) 0.9.dp else 0.6.dp,
                                         color = if (picked) DeckColors.Ruby else DeckColors.DialogBorder,
                                         shape = RoundedCornerShape(8.dp),
                                     )
@@ -360,7 +363,7 @@ fun LanServiceControlDialog(
                                 modifier = Modifier
                                     .clip(DeckShapes.menuButton)
                                     .background(DeckColors.DialogBg)
-                                    .border(1.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
+                                    .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
                                     .dpadNavItem(nav, "inc_reject") {
                                         onRejectIncoming(req.sessionId)
                                     }
@@ -392,16 +395,16 @@ fun LanServiceControlDialog(
                     } else 0f
                     val heading = when (tx.phase) {
                         TransferPhase.WaitingAccept -> stringResource(R.string.lan_tx_waiting, tx.peerName)
-                        TransferPhase.PinRequired -> "🔑  ${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
+                        TransferPhase.PinRequired -> "${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
                         TransferPhase.Transferring -> if (tx.direction == TransferDirection.Sending) {
                             stringResource(R.string.lan_tx_sending, tx.peerName)
                         } else {
                             stringResource(R.string.lan_tx_receiving, tx.peerName)
                         }
-                        TransferPhase.Completed -> "✅  ${stringResource(R.string.lan_tx_done)}"
+                        TransferPhase.Completed -> "${stringResource(R.string.lan_tx_done)}"
                         TransferPhase.Rejected -> stringResource(R.string.lan_tx_rejected, tx.peerName)
                         TransferPhase.Cancelled -> stringResource(R.string.lan_tx_cancelled)
-                        TransferPhase.Failed -> "⚠  ${stringResource(R.string.lan_tx_failed)}"
+                        TransferPhase.Failed -> "${stringResource(R.string.lan_tx_failed)}"
                     }
                     Column(
                         Modifier
@@ -409,7 +412,7 @@ fun LanServiceControlDialog(
                             .clip(RoundedCornerShape(12.dp))
                             .background(DeckColors.Surface)
                             .border(
-                                width = 1.5.dp,
+                                width = 0.9.dp,
                                 color = if (tx.phase == TransferPhase.Failed) Color(0xFFDC2626) else DeckColors.Ruby.copy(alpha = 0.7f),
                                 shape = RoundedCornerShape(12.dp),
                             )
@@ -469,7 +472,7 @@ fun LanServiceControlDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(DeckColors.Surface)
-                        .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
+                        .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
                         .padding(14.dp),
                 ) {
                     Row(
@@ -489,14 +492,14 @@ fun LanServiceControlDialog(
                             )
                         }
                         SmallPillButton(
-                            label = "🎲 ${stringResource(R.string.lan_device_random)}",
+                            label = stringResource(R.string.lan_device_random),
                             nav = nav,
                             navId = "rand_name",
                             onClick = onRandomizeDeviceName,
                         )
                         Spacer(Modifier.width(8.dp))
                         SmallPillButton(
-                            label = "✎ ${stringResource(R.string.lan_device_rename)}",
+                            label = stringResource(R.string.lan_device_rename),
                             accent = true,
                             nav = nav,
                             navId = "rename",
@@ -511,7 +514,7 @@ fun LanServiceControlDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(DeckColors.Surface)
-                        .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
+                        .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -548,7 +551,7 @@ fun LanServiceControlDialog(
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(if (selected) DeckColors.Ruby.copy(alpha = 0.10f) else DeckColors.DialogBg)
                                     .border(
-                                        width = if (selected) 1.5.dp else 1.dp,
+                                        width = if (selected) 0.9.dp else 0.6.dp,
                                         color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
                                         shape = RoundedCornerShape(10.dp),
                                     )
@@ -588,7 +591,7 @@ fun LanServiceControlDialog(
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (state.shareRunning) DeckColors.Ruby.copy(alpha = 0.06f) else DeckColors.Surface)
                         .border(
-                            width = if (state.shareRunning) 1.5.dp else 1.dp,
+                            width = if (state.shareRunning) 0.9.dp else 0.6.dp,
                             color = if (state.shareRunning) DeckColors.Ruby.copy(alpha = 0.7f) else DeckColors.DialogBorder,
                             shape = RoundedCornerShape(12.dp),
                         )
@@ -605,11 +608,18 @@ fun LanServiceControlDialog(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(
-                                "📤  ${stringResource(R.string.lan_share_title)}",
-                                style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
-                                color = if (state.shareRunning) DeckColors.Ruby else DeckColors.TextPrimary,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DeckIcon(
+                                    icon = DeckIcons.Send,
+                                    tint = if (state.shareRunning) DeckColors.Ruby else DeckColors.TextPrimary,
+                                    size = 17.dp,
+                                )
+                                Text(
+                                    stringResource(R.string.lan_share_title),
+                                    style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
+                                    color = if (state.shareRunning) DeckColors.Ruby else DeckColors.TextPrimary,
+                                )
+                            }
                             Text(
                                 if (state.shareRunning) {
                                     stringResource(
@@ -725,7 +735,7 @@ fun LanServiceControlDialog(
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (state.webRunning) DeckColors.Ruby.copy(alpha = 0.06f) else DeckColors.Surface)
                         .border(
-                            width = if (state.webRunning) 1.5.dp else 1.dp,
+                            width = if (state.webRunning) 0.9.dp else 0.6.dp,
                             color = if (state.webRunning) DeckColors.Ruby.copy(alpha = 0.7f) else DeckColors.DialogBorder,
                             shape = RoundedCornerShape(12.dp),
                         )
@@ -742,11 +752,18 @@ fun LanServiceControlDialog(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(
-                                "🌐  ${stringResource(R.string.lan_web_title)}",
-                                style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
-                                color = if (state.webRunning) DeckColors.Ruby else DeckColors.TextPrimary,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DeckIcon(
+                                    icon = DeckIcons.Globe,
+                                    tint = if (state.webRunning) DeckColors.Ruby else DeckColors.TextPrimary,
+                                    size = 17.dp,
+                                )
+                                Text(
+                                    stringResource(R.string.lan_web_title),
+                                    style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
+                                    color = if (state.webRunning) DeckColors.Ruby else DeckColors.TextPrimary,
+                                )
+                            }
                             Text(
                                 stringResource(R.string.lan_web_desc),
                                 style = DeckType.settingsLabel,
@@ -772,7 +789,7 @@ fun LanServiceControlDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(DeckColors.DialogBg)
-                                .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                                .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -817,7 +834,7 @@ fun LanServiceControlDialog(
                                             .size(28.dp)
                                             .clip(CircleShape)
                                             .background(iconTint.copy(alpha = 0.12f))
-                                            .border(1.dp, iconTint.copy(alpha = 0.45f), CircleShape)
+                                            .border(0.6.dp, iconTint.copy(alpha = 0.45f), CircleShape)
                                             .dpadNavItem(nav, "refresh_pwd", shape = CircleShape, onClick = onRefreshWebPassword),
                                         contentAlignment = Alignment.Center,
                                     ) {
@@ -856,7 +873,7 @@ fun LanServiceControlDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(DeckColors.DialogBg)
-                                .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                                .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -1010,7 +1027,7 @@ fun LanServiceControlDialog(
                                                     .padding(start = 15.dp)
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(txColor.copy(alpha = 0.08f))
-                                                    .border(1.dp, txColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                                    .border(0.6.dp, txColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
                                                     .padding(horizontal = 10.dp, vertical = 7.dp),
                                                 verticalArrangement = Arrangement.spacedBy(3.dp),
                                             ) {
@@ -1089,7 +1106,7 @@ fun LanServiceControlDialog(
                             horizontalArrangement = Arrangement.End,
                         ) {
                             SmallPillButton(
-                                label = "📋 ${stringResource(R.string.lan_web_history_btn, state.webTransferHistory.size)} →",
+                                label = "${stringResource(R.string.lan_web_history_btn, state.webTransferHistory.size)} →",
                                 accent = true,
                                 nav = nav,
                                 navId = "web_history",
@@ -1223,8 +1240,8 @@ fun ShareMethodDialog(
             HorizontalDivider(color = DeckColors.DialogBorder)
 
             val options = listOf(
-                Triple("📡", stringResource(R.string.lan_share_method_lan), stringResource(R.string.lan_share_method_lan_desc)),
-                Triple("📲", stringResource(R.string.lan_share_method_android), stringResource(R.string.lan_share_method_android_desc)),
+                Triple(DeckIcons.Radio, stringResource(R.string.lan_share_method_lan), stringResource(R.string.lan_share_method_lan_desc)),
+                Triple(DeckIcons.Send, stringResource(R.string.lan_share_method_android), stringResource(R.string.lan_share_method_android_desc)),
             )
             options.forEachIndexed { idx, (icon, title, desc) ->
                 val hl = focusIdx == idx
@@ -1234,7 +1251,7 @@ fun ShareMethodDialog(
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                         .border(
-                            width = if (hl) 1.5.dp else 1.dp,
+                            width = if (hl) 0.9.dp else 0.6.dp,
                             color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
                             shape = RoundedCornerShape(12.dp),
                         )
@@ -1245,7 +1262,7 @@ fun ShareMethodDialog(
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(icon, fontSize = 20.sp)
+                    DeckIcon(icon = icon, tint = if (hl) DeckColors.Ruby else DeckColors.TextPrimary, size = 20.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -1385,15 +1402,15 @@ fun SharePeerPickerDialog(
                     tx.phase == TransferPhase.Transferring
                 val headerText = when (tx.phase) {
                     TransferPhase.WaitingAccept -> stringResource(R.string.lan_tx_waiting, tx.peerName)
-                    TransferPhase.PinRequired -> "🔑  ${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
+                    TransferPhase.PinRequired -> "${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
                     TransferPhase.Transferring -> stringResource(
                         if (tx.direction == TransferDirection.Sending) R.string.lan_tx_sending else R.string.lan_tx_receiving,
                         tx.peerName,
                     )
-                    TransferPhase.Completed -> "✅  ${stringResource(R.string.lan_tx_done)}"
+                    TransferPhase.Completed -> "${stringResource(R.string.lan_tx_done)}"
                     TransferPhase.Rejected -> stringResource(R.string.lan_tx_rejected, tx.peerName)
                     TransferPhase.Cancelled -> stringResource(R.string.lan_tx_cancelled)
-                    TransferPhase.Failed -> "⚠  ${stringResource(R.string.lan_tx_failed)}"
+                    TransferPhase.Failed -> "${stringResource(R.string.lan_tx_failed)}"
                 }
                 val itemDisplay = if (tx.totalFiles > 1 && txActive) {
                     "(${tx.currentFileIndex}/${tx.totalFiles}) ${tx.fileName}"
@@ -1405,7 +1422,7 @@ fun SharePeerPickerDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                         .background(DeckColors.Surface)
-                        .border(1.2.dp, DeckColors.Ruby, RoundedCornerShape(10.dp))
+                        .border(0.75.dp, DeckColors.Ruby, RoundedCornerShape(10.dp))
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -1517,7 +1534,7 @@ fun SharePeerPickerDialog(
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                                     .border(
-                                        width = if (hl) 1.5.dp else 1.dp,
+                                        width = if (hl) 0.9.dp else 0.6.dp,
                                         color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
                                         shape = RoundedCornerShape(10.dp),
                                     )
@@ -1529,7 +1546,11 @@ fun SharePeerPickerDialog(
                                     .padding(horizontal = 14.dp, vertical = 11.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(if (peer.protocol == ShareProtocol.LocalSend) "📡" else "🎮", fontSize = 18.sp)
+                                DeckIcon(
+                                    icon = if (peer.protocol == ShareProtocol.LocalSend) DeckIcons.Radio else DeckIcons.Gamepad,
+                                    tint = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
+                                    size = 19.dp,
+                                )
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(
@@ -1622,7 +1643,7 @@ fun IncomingShareDialog(
                 .padding(22.dp),
         ) {
             Text(
-                "📥  ${stringResource(R.string.lan_incoming_title)}",
+                "${stringResource(R.string.lan_incoming_title)}",
                 style = DeckType.menuTitle,
                 color = DeckColors.TextPrimary,
             )
@@ -1639,7 +1660,7 @@ fun IncomingShareDialog(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .background(DeckColors.Surface)
-                    .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                    .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -1703,7 +1724,7 @@ fun IncomingShareDialog(
                         .clip(DeckShapes.menuButton)
                         .background(if (rejHl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                         .border(
-                            width = if (rejHl) 1.5.dp else 0.dp,
+                            width = if (rejHl) 0.9.dp else 0.dp,
                             color = if (rejHl) DeckColors.Ruby else Color.Transparent,
                             shape = DeckShapes.menuButton,
                         )
@@ -1720,7 +1741,7 @@ fun IncomingShareDialog(
                         .clip(DeckShapes.menuButton)
                         .background(DeckColors.Ruby)
                         .border(
-                            width = if (accHl) 2.dp else 0.dp,
+                            width = if (accHl) 1.dp else 0.dp,
                             color = if (accHl) DeckColors.TextPrimary else Color.Transparent,
                             shape = DeckShapes.menuButton,
                         )
@@ -1781,16 +1802,16 @@ fun ShareTransferDialog(
         ) {
             val heading = when (tx.phase) {
                 TransferPhase.WaitingAccept -> stringResource(R.string.lan_tx_waiting, tx.peerName)
-                TransferPhase.PinRequired -> "🔑  ${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
+                TransferPhase.PinRequired -> "${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
                 TransferPhase.Transferring -> if (tx.direction == TransferDirection.Sending) {
                     stringResource(R.string.lan_tx_sending, tx.peerName)
                 } else {
                     stringResource(R.string.lan_tx_receiving, tx.peerName)
                 }
-                TransferPhase.Completed -> "✅  ${stringResource(R.string.lan_tx_done)}"
+                TransferPhase.Completed -> "${stringResource(R.string.lan_tx_done)}"
                 TransferPhase.Rejected -> stringResource(R.string.lan_tx_rejected, tx.peerName)
                 TransferPhase.Cancelled -> stringResource(R.string.lan_tx_cancelled)
-                TransferPhase.Failed -> "⚠  ${stringResource(R.string.lan_tx_failed)}"
+                TransferPhase.Failed -> "${stringResource(R.string.lan_tx_failed)}"
             }
             Text(
                 heading,
@@ -1904,7 +1925,7 @@ private fun SmallPillButton(
             .clip(DeckShapes.tabPill)
             .background(bg)
             .border(
-                width = 1.dp,
+                width = 0.6.dp,
                 color = borderColor,
                 shape = DeckShapes.tabPill,
             )
@@ -1979,7 +2000,7 @@ fun WebTransferHistoryDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    "📋  ${stringResource(R.string.lan_web_history_title, history.size)}",
+                    "${stringResource(R.string.lan_web_history_title, history.size)}",
                     style = DeckType.menuTitle,
                     color = DeckColors.TextPrimary,
                     modifier = Modifier.weight(1f),
@@ -2040,7 +2061,7 @@ fun WebTransferHistoryDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(DeckColors.Surface)
-                                .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
+                                .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(10.dp))
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2100,7 +2121,7 @@ fun WebTransferHistoryDialog(
                             ) {
                                 if (openDir != null && onOpenFolder != null) {
                                     SmallPillButton(
-                                        label = "📂 ${stringResource(R.string.quick_share_history_jump_folder)}",
+                                        label = "${stringResource(R.string.quick_share_history_jump_folder)}",
                                         accent = true,
                                         swapAbxy = swapAbxy,
                                         keyBindings = keyBindings,
@@ -2135,7 +2156,7 @@ private fun LanActiveFileTasksCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(DeckColors.DialogBg)
-            .border(1.dp, DeckColors.Ruby.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+            .border(0.6.dp, DeckColors.Ruby.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2166,12 +2187,12 @@ private fun FileTaskItemRow(
     modifier: Modifier = Modifier,
 ) {
     val icon = when (task.kind) {
-        FileTaskKind.Compress -> "🗜"
-        FileTaskKind.Extract -> "📦"
-        FileTaskKind.Copy -> "📋"
-        FileTaskKind.Move -> "📦"
-        FileTaskKind.Delete -> "🗑"
-        FileTaskKind.Upload -> "📤"
+        FileTaskKind.Compress -> "ZIP"
+        FileTaskKind.Extract -> "EXT"
+        FileTaskKind.Copy -> "CP"
+        FileTaskKind.Move -> "MV"
+        FileTaskKind.Delete -> "DEL"
+        FileTaskKind.Upload -> "UP"
     }
     val kindLabel = stringResource(
         when (task.kind) {
@@ -2203,7 +2224,7 @@ private fun FileTaskItemRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(DeckColors.Ruby.copy(alpha = 0.07f))
-            .border(1.dp, DeckColors.Ruby.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .border(0.6.dp, DeckColors.Ruby.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
@@ -2301,7 +2322,7 @@ private fun TaskCancelCrossButton(
             .size(22.dp)
             .clip(CircleShape)
             .background(activeTint.copy(alpha = 0.12f))
-            .border(1.dp, activeTint.copy(alpha = 0.45f), CircleShape)
+            .border(0.6.dp, activeTint.copy(alpha = 0.45f), CircleShape)
             .gamepadClickable(swapAbxy, keyBindings, shape = CircleShape) {
                 if (enabled) onClick()
             },
@@ -2493,13 +2514,13 @@ internal fun LocalSendPinDialog(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                "🔑  ${stringResource(R.string.lan_pin_title)}",
+                "${stringResource(R.string.lan_pin_title)}",
                 style = DeckType.menuTitle,
                 color = DeckColors.TextPrimary,
             )
             Text(
                 if (challenge.wrongPin) {
-                    "⚠  ${stringResource(R.string.lan_pin_wrong)}"
+                    "${stringResource(R.string.lan_pin_wrong)}"
                 } else {
                     stringResource(R.string.lan_pin_desc, challenge.peerName)
                 },
@@ -2516,7 +2537,7 @@ internal fun LocalSendPinDialog(
                     .height(40.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(DeckColors.Surface)
-                    .border(1.2.dp, DeckColors.Ruby, RoundedCornerShape(8.dp))
+                    .border(0.75.dp, DeckColors.Ruby, RoundedCornerShape(8.dp))
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {

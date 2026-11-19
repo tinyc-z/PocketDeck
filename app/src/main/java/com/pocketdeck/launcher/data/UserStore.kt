@@ -49,19 +49,13 @@ enum class BackgroundStyle {
     Waves,       // 波浪动画
     Gradient,    // 渐变流动
     Particles,   // 粒子飘散
+    Aurora,      // 极光丝带
+    Topo,        // 等高线地形
+    DotMatrix,   // 微光点阵
     CoverBlur,   // 选中封面毛玻璃
     Static,      // 静态波浪
     Image,       // 自定义静态图片
     None,        // 纯色
-}
-
-/** 按键提示音风格预设。 */
-enum class KeySoundStyle {
-    CrispTick,   // 清脆触点（Switch 风格）
-    CrystalDrop, // 清透水滴（PSP / Steam Deck 风格）
-    WoodBlock,   // 温润木鱼（Wii 风格）
-    Mechanical,  // 机械青轴
-    RetroBit,    // 复古像素
 }
 
 /**
@@ -86,7 +80,7 @@ data class CustomLauncherPreset(
 )
 
 /**
- * 8 种预设主题色（覆盖标题、选中文字、选中边框、波浪与气泡背景等全链路视觉）。
+ * 12 种低疲劳主题色（覆盖标题、选中态、波浪/极光/等高线/点阵背景等全链路视觉）。
  */
 enum class ThemeAccent(
     val lightPrimary: Long,
@@ -96,14 +90,18 @@ enum class ThemeAccent(
     val lightTertiary: Long,
     val darkTertiary: Long,
 ) {
-    Ruby(0xFFB71C1C, 0xFFEF5350, 0xFFE65100, 0xFFFF7043, 0xFFF57C00, 0xFFFFB74D),
-    Ocean(0xFF1565C0, 0xFF42A5F5, 0xFF00838F, 0xFF26C6DA, 0xFF3949AB, 0xFF7986CB),
-    Emerald(0xFF00796B, 0xFF26A69A, 0xFF2E7D32, 0xFF66BB6A, 0xFF00838F, 0xFF4DD0E1),
-    Violet(0xFF6A1B9A, 0xFFBA68C8, 0xFF4527A0, 0xFF9575CD, 0xFFC2185B, 0xFFF06292),
-    Sunset(0xFFD84315, 0xFFFF8A65, 0xFFEF6C00, 0xFFFFB74D, 0xFFB71C1C, 0xFFEF5350),
-    Sakura(0xFFAD1457, 0xFFF06292, 0xFF8E24AA, 0xFFCE93D8, 0xFFE65100, 0xFFFFAB91),
-    Cyan(0xFF00838F, 0xFF26C6DA, 0xFF0277BD, 0xFF4FC3F7, 0xFF00695C, 0xFF80CBC4),
-    Gold(0xFF9E6B00, 0xFFFFCA28, 0xFFD84315, 0xFFFF8A65, 0xFF6D4C41, 0xFFFFE082),
+    Ruby(0xFFB52B33, 0xFFEA6B70, 0xFFD9643A, 0xFFF28B66, 0xFFE07A48, 0xFFF5B278),
+    Ocean(0xFF1E5FA8, 0xFF5CA4EC, 0xFF198296, 0xFF4CC3D8, 0xFF4258A8, 0xFF8395D9),
+    Emerald(0xFF157A6E, 0xFF44B3A4, 0xFF2D8659, 0xFF6BC28F, 0xFF1D8490, 0xFF62C5D3),
+    Violet(0xFF6B429E, 0xFFAF84DF, 0xFF5244A6, 0xFF9387DB, 0xFFA84274, 0xFFE07FA9),
+    Sunset(0xFFC4522D, 0xFFF0906C, 0xFFDC7830, 0xFFF4B374, 0xFFB83E44, 0xFFE87276),
+    Sakura(0xFFB0346A, 0xFFE97CA6, 0xFF8E48A8, 0xFFC792DF, 0xFFD46A50, 0xFFF2A48E),
+    Cyan(0xFF0E7C8B, 0xFF45C2D1, 0xFF1D74AB, 0xFF63BAE8, 0xFF147569, 0xFF72C4B8),
+    Gold(0xFF966B18, 0xFFE8BC58, 0xFFC46A32, 0xFFE89B6B, 0xFF785A3A, 0xFFDFC88A),
+    Sage(0xFF4A7C59, 0xFF81B29A, 0xFF5A8F7B, 0xFF9ACBB2, 0xFF396D6E, 0xFF72AFAF),
+    Slate(0xFF43618C, 0xFF7AA2D4, 0xFF5674A6, 0xFF98B6E4, 0xFF497A8A, 0xFF7FB3C4),
+    Terracotta(0xFFB55D3C, 0xFFE09172, 0xFFC87848, 0xFFECB082, 0xFF944E43, 0xFFCD8579),
+    Graphite(0xFF3F444E, 0xFFB4BCC8, 0xFF5F6775, 0xFF949DAA, 0xFF525A66, 0xFFCFD6E0),
 }
 
 object DefaultCategories {
@@ -183,8 +181,6 @@ data class UserData(
     val keyBindings: Map<KeyAction, Int> = emptyMap(),
     /** 按键音开关（默认开启）。 */
     val keySoundEnabled: Boolean = true,
-    /** 按键音风格预设。 */
-    val keySoundStyle: KeySoundStyle = KeySoundStyle.CrispTick,
     /** 主题色（8 种预设）。 */
     val themeAccent: ThemeAccent = ThemeAccent.Ruby,
     /** 字体 ID（"default" / "system_sans" / "system_serif" / "system_mono" / "file:<path>"）。 */
@@ -255,7 +251,6 @@ class UserStore(private val context: Context) {
         val customBackground = stringPreferencesKey("custom_background")
         val keyBindings = stringSetPreferencesKey("key_bindings")
         val keySoundEnabled = booleanPreferencesKey("key_sound_enabled")
-        val keySoundStyle = stringPreferencesKey("key_sound_style")
         val themeAccent = stringPreferencesKey("theme_accent")
         val fontId = stringPreferencesKey("font_id")
         val platformAspects = stringSetPreferencesKey("platform_aspects")
@@ -480,7 +475,6 @@ class UserStore(private val context: Context) {
             customBackground = this[K.customBackground],
             keyBindings = decodeKeyBindings(this[K.keyBindings]),
             keySoundEnabled = this[K.keySoundEnabled] ?: true,
-            keySoundStyle = enumOf(this[K.keySoundStyle], KeySoundStyle.CrispTick),
             themeAccent = enumOf(this[K.themeAccent], ThemeAccent.Ruby),
             fontId = this[K.fontId] ?: "default",
             platformAspects = decodeFloatMap(this[K.platformAspects]),
@@ -654,7 +648,6 @@ class UserStore(private val context: Context) {
         if (new.customBackground == null) p.remove(K.customBackground) else p[K.customBackground] = new.customBackground
         p[K.keyBindings] = encodeKeyBindings(new.keyBindings)
         p[K.keySoundEnabled] = new.keySoundEnabled
-        p[K.keySoundStyle] = new.keySoundStyle.name
         p[K.themeAccent] = new.themeAccent.name
         p[K.fontId] = new.fontId
         p[K.platformAspects] = encodeFloatMap(new.platformAspects)

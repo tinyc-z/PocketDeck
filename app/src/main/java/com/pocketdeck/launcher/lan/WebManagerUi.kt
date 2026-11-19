@@ -7,6 +7,12 @@ import org.json.JSONObject
  */
 internal object WebManagerUi {
 
+    private fun brandLogoSvg(sizePx: Int): String =
+        """<svg width="$sizePx" height="$sizePx" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="7.8" y="7.8" width="12.7" height="12.7" rx="3.4" fill="#E62A42"/><path fill="#FFFFFF" fill-rule="evenodd" d="M6.9 3.5H12.8A3.4 3.4 0 0 1 16.2 6.9V12.8A3.4 3.4 0 0 1 12.8 16.2H6.9A3.4 3.4 0 0 1 3.5 12.8V6.9A3.4 3.4 0 0 1 6.9 3.5ZM8.4 7.7Q8.4 7.1 9.0 7.4L12.4 9.3Q13.0 9.85 12.4 10.4L9.0 12.3Q8.4 12.6 8.4 12.0Z"/></svg>"""
+
+    private const val FAVICON_DATA_URI =
+        "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='6'%20fill='%23121117'/%3E%3Crect%20x='7.8'%20y='7.8'%20width='12.7'%20height='12.7'%20rx='3.4'%20fill='%23E62A42'/%3E%3Cpath%20fill='%23FFFFFF'%20fill-rule='evenodd'%20d='M6.9%203.5H12.8A3.4%203.4%200%200%201%2016.2%206.9V12.8A3.4%203.4%200%200%201%2012.8%2016.2H6.9A3.4%203.4%200%200%201%203.5%2012.8V6.9A3.4%203.4%200%200%201%206.9%203.5ZM8.4%207.7Q8.4%207.1%209.0%207.4L12.4%209.3Q13.0%209.85%2012.4%2010.4L9.0%2012.3Q8.4%2012.6%208.4%2012.0Z'/%3E%3C/svg%3E"
+
     private fun cssVars(theme: WebThemeConfig): String {
         val j = theme.toJson()
         val dark = j.getBoolean("isDark")
@@ -50,6 +56,7 @@ internal object WebManagerUi {
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>PocketDeck OS · Login</title>
+<link rel="icon" type="image/svg+xml" href="$FAVICON_DATA_URI"/>
 <style>
   :root { $vars }
   * { box-sizing:border-box; }
@@ -67,7 +74,7 @@ internal object WebManagerUi {
   .deck-card {
     width:100%; max-width:410px;
     background:var(--panel);
-    border:1.5px solid var(--border);
+    border:1px solid var(--border);
     border-radius:24px;
     padding:30px 28px 26px;
     box-shadow:0 24px 60px var(--shadow);
@@ -90,7 +97,7 @@ internal object WebManagerUi {
   .pin-wrap { position:relative; }
   input {
     width:100%; padding:14px 16px; border-radius:14px;
-    border:1.5px solid var(--border); background:var(--input-bg); color:var(--text);
+    border:1px solid var(--border); background:var(--input-bg); color:var(--text);
     font-size:24px; font-weight:700; letter-spacing:8px; text-align:center; outline:none;
     transition:border-color .15s, box-shadow .15s;
   }
@@ -117,12 +124,7 @@ internal object WebManagerUi {
 <div class="deck-card">
   <div class="logo-row">
     <div class="logo-badge">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="2" y="6" width="20" height="12" rx="4"/>
-        <path d="M7 10v4M5 12h4"/>
-        <circle cx="15.5" cy="11" r="1" fill="currentColor"/>
-        <circle cx="17.5" cy="13" r="1" fill="currentColor"/>
-      </svg>
+      ${brandLogoSvg(24)}
     </div>
     <div>
       <div class="brand-title">PocketDeck OS</div>
@@ -153,8 +155,8 @@ const LOGIN_I18N = {
     title: 'PocketDeck OS · 登录',
     prompt: '请输入掌机屏幕上显示的动态访问密码，连接后即可在浏览器管理游戏封面、元数据、标签分类与文件库。',
     btn: '登录',
-    lan: '🔒 局域网直连',
-    theme: '🎨 主题实时同步',
+    lan: '局域网直连',
+    theme: '主题实时同步',
     tooMany: s => '尝试过多，请 ' + s + ' 秒后重试',
     remain: n => '密码错误，还可尝试 ' + n + ' 次',
     invalid: '动态密码错误，请核对掌机屏幕',
@@ -164,8 +166,8 @@ const LOGIN_I18N = {
     title: 'PocketDeck OS · 登入',
     prompt: '請輸入掌機螢幕上顯示的動態存取密碼，連線後即可在瀏覽器管理遊戲封面、中繼資料、標籤分類與檔案庫。',
     btn: '登入',
-    lan: '🔒 區域網路直連',
-    theme: '🎨 主題即時同步',
+    lan: '區域網路直連',
+    theme: '主題即時同步',
     tooMany: s => '嘗試過多，請 ' + s + ' 秒後重試',
     remain: n => '密碼錯誤，還可嘗試 ' + n + ' 次',
     invalid: '動態密碼錯誤，請核對掌機螢幕',
@@ -175,8 +177,8 @@ const LOGIN_I18N = {
     title: 'PocketDeck OS · Login',
     prompt: 'Enter the dynamic PIN shown on your handheld screen to manage covers, metadata, categories, and files.',
     btn: 'Log In',
-    lan: '🔒 LAN Direct',
-    theme: '🎨 Live Theme Sync',
+    lan: 'LAN Direct',
+    theme: 'Live Theme Sync',
     tooMany: s => 'Too many attempts. Retry in ' + s + 's',
     remain: n => 'Incorrect PIN. ' + n + ' attempts left',
     invalid: 'Incorrect PIN. Check your handheld screen.',
@@ -274,6 +276,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>PocketDeck · Web Game Console</title>
+<link rel="icon" type="image/svg+xml" href="$FAVICON_DATA_URI"/>
 <style>
   :root { $vars }
   * { box-sizing:border-box; }
@@ -290,74 +293,73 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   }
   header {
     position:sticky; top:0; z-index:20;
-    background:var(--header-bg); backdrop-filter:blur(14px);
-    border-bottom:1.5px solid var(--border);
-    padding:12px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    background:var(--header-bg); backdrop-filter:blur(16px);
+    border-bottom:1px solid var(--border);
+    padding:11px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
   }
   .brand-wrap { display:flex; align-items:center; gap:11px; margin-right:auto; }
   .logo-sq {
-    width:36px; height:36px; border-radius:11px;
-    background:linear-gradient(135deg, var(--accent), var(--glow));
+    width:34px; height:34px; border-radius:10px;
+    background:#18131A;
     display:grid; place-items:center; color:#fff; flex-shrink:0;
-    box-shadow:0 6px 16px color-mix(in srgb, var(--accent) 32%, transparent);
   }
-  .brand { font-weight:800; font-size:16px; letter-spacing:-.2px; display:flex; align-items:center; gap:8px; }
+  .brand { font-weight:750; font-size:15.5px; letter-spacing:-.2px; display:flex; align-items:center; gap:8px; }
   .sub { font-size:12px; color:var(--muted); margin-top:1px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .conn-dot { width:8px; height:8px; border-radius:999px; display:inline-block; flex-shrink:0; }
-  .conn-dot.ok { background:var(--ok); box-shadow:0 0 6px color-mix(in srgb, var(--ok) 65%, transparent); }
-  .conn-dot.off { background:var(--danger); box-shadow:0 0 6px color-mix(in srgb, var(--danger) 65%, transparent); }
+  .conn-dot { width:7px; height:7px; border-radius:999px; display:inline-block; flex-shrink:0; }
+  .conn-dot.ok { background:var(--ok); }
+  .conn-dot.off { background:var(--danger); }
   .conn-off-txt { color:var(--danger); font-weight:600; }
   .tabs {
-    display:flex; background:var(--surf); padding:4px; border-radius:999px;
-    border:1px solid var(--border); gap:4px;
+    display:flex; background:var(--surf); padding:3px; border-radius:999px;
+    border:1px solid var(--border); gap:3px;
   }
   .tab {
     border:0; background:transparent; color:var(--muted);
-    padding:7px 15px; border-radius:999px; font-weight:700; font-size:13px;
-    cursor:pointer; transition:.15s;
+    padding:6px 14px; border-radius:999px; font-weight:600; font-size:12.5px;
+    cursor:pointer; transition:.14s; display:inline-flex; align-items:center; gap:6px;
   }
   .tab:hover { color:var(--text); }
   .tab.active {
-    background:linear-gradient(135deg, var(--accent), var(--glow));
+    background:var(--accent);
     color:#fff;
-    box-shadow:0 4px 12px color-mix(in srgb, var(--accent) 32%, transparent);
   }
   .btn {
     border:1px solid var(--border); background:var(--surf); color:var(--text);
-    padding:7px 12px; border-radius:11px; font-size:12.5px; font-weight:600;
-    cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:5px;
-    transition:.14s;
+    padding:7px 12px; border-radius:10px; font-size:12.5px; font-weight:600;
+    cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:6px;
+    transition:background .14s, border-color .14s, color .14s;
   }
-  .btn:hover:not(:disabled) { border-color:var(--accent); transform:translateY(-1px); }
-  .btn:disabled { opacity:.45; cursor:default; transform:none; }
+  .btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+  .btn:disabled { opacity:.45; cursor:default; }
   .btn.primary {
-    background:linear-gradient(135deg, var(--accent), var(--glow));
+    background:var(--accent);
     color:#fff; border-color:transparent;
-    box-shadow:0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent);
   }
-  .btn.danger { color:var(--danger); border-color:color-mix(in srgb, var(--danger) 38%, var(--border)); }
-  .btn.sm { padding:5px 10px; font-size:12px; border-radius:9px; }
+  .btn.primary:hover:not(:disabled) { opacity:.92; color:#fff; border-color:transparent; }
+  .btn.danger { color:var(--danger); border-color:color-mix(in srgb, var(--danger) 30%, var(--border)); }
+  .btn.danger:hover:not(:disabled) { border-color:var(--danger); color:var(--danger); }
+  .btn.sm { padding:5px 10px; font-size:12px; border-radius:8px; }
+  .ico { width:15px; height:15px; display:inline-block; vertical-align:middle; flex-shrink:0; }
 
   .wrap { max-width:1240px; margin:0 auto; padding:18px 20px 80px; }
 
-  /* Stats strip */
+  /* Stats strip (Flat modern) */
   .stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:16px; }
   .stat-card {
-    background:var(--panel); border:1px solid var(--border); border-radius:14px;
-    padding:12px 14px; display:flex; align-items:center; gap:10px;
-    box-shadow:0 4px 14px var(--shadow);
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:12px 14px; display:flex; align-items:center; gap:11px;
   }
   .stat-ico {
-    width:34px; height:34px; border-radius:10px;
-    background:color-mix(in srgb, var(--accent) 14%, transparent);
-    color:var(--accent); display:grid; place-items:center; font-size:16px; flex-shrink:0;
+    width:34px; height:34px; border-radius:9px;
+    background:color-mix(in srgb, var(--accent) 11%, transparent);
+    color:var(--accent); display:grid; place-items:center; flex-shrink:0;
   }
-  .stat-val { font-size:17px; font-weight:800; line-height:1.15; }
+  .stat-val { font-size:17px; font-weight:750; line-height:1.15; }
   .stat-lbl { font-size:11px; color:var(--muted); margin-top:2px; }
 
   .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center; }
   .search, select, input[type=text] {
-    padding:8px 12px; border-radius:11px; border:1px solid var(--border);
+    padding:8px 12px; border-radius:10px; border:1px solid var(--border);
     background-color:var(--input-bg); color:var(--text); outline:none; font-size:13px;
   }
   select {
@@ -371,18 +373,18 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .search { flex:1; min-width:200px; }
   .search:focus, select:focus, input[type=text]:focus { border-color:var(--accent); }
 
-  /* Games Grid */
+  /* Games Grid (Borderless flat elevation) */
   .game-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(178px, 1fr)); gap:14px; }
   .gcard {
-    background:var(--panel); border:1.5px solid var(--border); border-radius:16px;
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
     overflow:hidden; display:flex; flex-direction:column; cursor:pointer;
     transition:transform .16s, border-color .16s, box-shadow .16s;
-    box-shadow:0 6px 18px var(--shadow); position:relative;
+    position:relative;
   }
   .gcard:hover {
-    transform:translateY(-3px);
-    border-color:var(--accent);
-    box-shadow:0 12px 28px color-mix(in srgb, var(--accent) 20%, var(--shadow));
+    transform:translateY(-2px);
+    border-color:color-mix(in srgb, var(--accent) 45%, var(--border));
+    box-shadow:0 8px 22px var(--shadow);
   }
   .gcard.is-hidden { opacity:.62; }
   .gcover-box {
@@ -398,16 +400,17 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .gcover-fallback .tt { font-size:13px; font-weight:700; line-height:1.3; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
   .badge-plat {
     position:absolute; top:8px; left:8px;
-    background:rgba(0,0,0,.68); color:#fff; backdrop-filter:blur(6px);
+    background:rgba(16,16,22,.62); color:#fff; backdrop-filter:blur(6px);
     font-size:10px; font-weight:700; padding:3px 8px; border-radius:999px;
   }
   .badge-fav {
     position:absolute; top:8px; right:8px;
-    width:26px; height:26px; border-radius:999px;
-    background:rgba(0,0,0,.62); color:#fff; border:0; cursor:pointer;
-    display:grid; place-items:center; font-size:13px;
+    width:27px; height:27px; border-radius:999px;
+    background:rgba(16,16,22,.48); color:rgba(255,255,255,.85); border:1px solid rgba(255,255,255,.16);
+    backdrop-filter:blur(8px); cursor:pointer;
+    display:grid; place-items:center; transition:.15s;
   }
-  .badge-fav.on { background:var(--accent); color:#fff; }
+  .badge-fav.on { background:rgba(16,16,22,.56); color:var(--accent); border-color:color-mix(in srgb, var(--accent) 45%, rgba(255,255,255,.22)); }
   .gbody { padding:10px 12px 12px; display:flex; flex-direction:column; gap:4px; flex:1; }
   .gtitle { font-weight:700; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .gmeta { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -439,12 +442,12 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 
   /* Categories manager */
   .cat-banner {
-    background:var(--panel); border:1.5px solid var(--border); border-radius:16px;
+    background:var(--panel); border:1px solid var(--border); border-radius:16px;
     padding:14px 16px; margin-bottom:14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
   }
   .cat-row {
     display:flex; align-items:center; gap:12px;
-    background:var(--panel); border:1.5px solid var(--border); border-radius:14px;
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
     padding:12px 14px; cursor:grab; transition:opacity .15s, border-color .15s, box-shadow .15s;
     user-select:none;
   }
@@ -480,7 +483,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .prog > div { height:100%; width:0; background:linear-gradient(90deg, var(--accent), var(--glow)); transition:width .1s; }
   .batch-bar {
     position:sticky; bottom:14px; z-index:18;
-    background:var(--panel); border:1.5px solid var(--accent); border-radius:16px;
+    background:var(--panel); border:1px solid var(--accent); border-radius:16px;
     padding:10px 16px; margin-top:14px;
     display:none; align-items:center; gap:10px; flex-wrap:wrap;
     box-shadow:0 12px 32px var(--shadow);
@@ -496,13 +499,13 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .task-bar { width:100%; display:none; flex-direction:column; gap:8px; pointer-events:auto; max-height:48vh; overflow-y:auto; }
   .task-bar.show { display:flex; }
   .task-item {
-    background:var(--panel); border:1.5px solid var(--accent); border-radius:14px;
+    background:var(--panel); border:1px solid var(--accent); border-radius:14px;
     padding:10px 14px; box-shadow:0 12px 30px var(--shadow);
   }
   .task-top { display:flex; align-items:center; gap:10px; }
   .task-spin {
     width:15px; height:15px; border-radius:50%;
-    border:2px solid rgba(128,128,128,.25); border-top-color:var(--accent);
+    border:1px solid rgba(128,128,128,.25); border-top-color:var(--accent);
     animation:taskspin .8s linear infinite; flex-shrink:0;
   }
   @keyframes taskspin { to { transform:rotate(360deg); } }
@@ -514,13 +517,13 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .toast {
     pointer-events:auto; max-width:100%;
     background:var(--panel); color:var(--text);
-    border:1.5px solid var(--accent); padding:10px 16px; border-radius:12px;
+    border:1px solid var(--accent); padding:10px 16px; border-radius:12px;
     font-size:13px; font-weight:600; display:none;
     box-shadow:0 12px 30px var(--shadow);
   }
   .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.62); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; padding:18px; z-index:50; }
   .modal-bg.open { display:flex; }
-  .modal { width:min(840px, 100%); max-height:90vh; background:var(--panel); border:1.5px solid var(--border); border-radius:20px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.4); }
+  .modal { width:min(840px, 100%); max-height:90vh; background:var(--panel); border:1px solid var(--border); border-radius:20px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.4); }
   .modal-hd { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; font-weight:800; }
   .modal-bd { padding:18px; overflow:auto; flex:1; }
   .modal-ft { padding:12px 18px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
@@ -528,7 +531,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     position:fixed; right:20px; bottom:20px; width:min(680px, 92vw); height:420px;
     min-width:340px; min-height:220px; max-width:96vw; max-height:90vh;
     z-index:60; display:none; flex-direction:column; resize:both; overflow:hidden;
-    background:#0d1117; color:#c9d1d9; border:1.5px solid #30363d; border-radius:14px;
+    background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:14px;
     box-shadow:0 20px 54px rgba(0,0,0,.48);
   }
   .log-win.open { display:flex; }
@@ -575,7 +578,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .kv-k { font-size:11px; color:var(--muted); }
   .kv-v { font-size:13px; font-weight:700; margin-top:2px; word-break:break-word; }
   .cand-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(112px, 1fr)); gap:10px; margin-top:12px; }
-  .cand-item { border:1.5px solid var(--border); border-radius:10px; overflow:hidden; cursor:pointer; background:var(--surf); text-align:center; padding-bottom:6px; }
+  .cand-item { border:1px solid var(--border); border-radius:10px; overflow:hidden; cursor:pointer; background:var(--surf); text-align:center; padding-bottom:6px; }
   .cand-item:hover { border-color:var(--accent); }
   .cand-item img { width:100%; height:110px; object-fit:cover; display:block; }
   .cand-item span { font-size:10.5px; color:var(--muted); display:block; margin-top:4px; padding:0 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -585,12 +588,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 <header>
   <div class="brand-wrap">
     <div class="logo-sq">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="2" y="6" width="20" height="12" rx="4"/>
-        <path d="M7 10v4M5 12h4"/>
-        <circle cx="15.5" cy="11" r="1" fill="currentColor"/>
-        <circle cx="17.5" cy="13" r="1" fill="currentColor"/>
-      </svg>
+      ${brandLogoSvg(21)}
     </div>
     <div>
       <div class="brand">PocketDeck OS</div>
@@ -598,16 +596,16 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     </div>
   </div>
   <div class="tabs">
-    <button class="tab active" data-tab="games" data-i18n="tab_games">🎮 游戏库</button>
-    <button class="tab" data-tab="categories" data-i18n="tab_categories">🏷️ 标签分类</button>
-    <button class="tab" data-tab="files" data-i18n="tab_files">🗂️ 文件管理</button>
+    <button class="tab active" data-tab="games" data-i18n="tab_games">游戏库</button>
+    <button class="tab" data-tab="categories" data-i18n="tab_categories">标签分类</button>
+    <button class="tab" data-tab="files" data-i18n="tab_files">文件管理</button>
   </div>
   <select id="langSel" class="btn" onchange="setWebLang(this.value)" aria-label="Language">
     <option value="zh-CN">简体中文</option>
     <option value="zh-TW">繁體中文</option>
     <option value="en">English</option>
   </select>
-  <button class="btn" onclick="openScrapeLogsModal()" data-i18n="btn_logs">📋 请求日志</button>
+  <button class="btn" onclick="openScrapeLogsModal()" data-i18n="btn_logs">请求日志</button>
   <button class="btn" onclick="rescan()" data-i18n="btn_rescan">↻ 重新扫描</button>
   <button class="btn danger" onclick="logout()" data-i18n="btn_logout">退出登录</button>
 </header>
@@ -660,11 +658,11 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       <input id="fileFilter" class="search" style="min-width:140px;" data-i18n-ph="files_filter_ph" placeholder="过滤当前目录…" oninput="renderFiles()"/>
       <button id="mkdirBtn" class="btn" onclick="mkdirPrompt()" disabled data-i18n="files_mkdir">+ 新建文件夹</button>
       <label class="btn primary" id="pickUploadLbl" style="display:none">
-        <span data-i18n="files_upload">📤 上传文件</span>
+        <span data-i18n="files_upload">上传文件</span>
         <input id="fileInput" type="file" multiple style="display:none" onchange="uploadFiles(this.files)"/>
       </label>
       <label class="btn" id="pickDirUploadLbl" style="display:none">
-        <span data-i18n="files_upload_dir">📁 上传文件夹</span>
+        <span data-i18n="files_upload_dir">上传文件夹</span>
         <input id="dirInput" type="file" webkitdirectory multiple style="display:none" onchange="uploadFolderFiles(this.files)"/>
       </label>
     </div>
@@ -688,8 +686,8 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       <strong id="batchCountText">已选 0 项</strong>
       <button class="btn sm" onclick="openBatchTransfer('move')" data-i18n="batch_move">移动…</button>
       <button class="btn sm" onclick="openBatchTransfer('copy')" data-i18n="batch_copy">复制…</button>
-      <button class="btn sm primary" onclick="compressSelected()" data-i18n="batch_zip">🗜️ 打包 ZIP</button>
-      <button class="btn sm danger" onclick="batchDeleteSelected()" data-i18n="batch_del">🗑 批量删除</button>
+      <button class="btn sm primary" onclick="compressSelected()" data-i18n="batch_zip">打包 ZIP</button>
+      <button class="btn sm danger" onclick="batchDeleteSelected()" data-i18n="batch_del">批量删除</button>
       <button class="btn sm" style="margin-left:auto;" onclick="clearFileSelection()" data-i18n="batch_clear">取消选择</button>
     </div>
   </section>
@@ -738,9 +736,9 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 const I18N = {
   'zh-CN': {
     connecting: '正在连接掌机…',
-    tab_games: '🎮 游戏库',
-    tab_categories: '🏷️ 标签分类',
-    tab_files: '🗂️ 文件管理',
+    tab_games: '游戏库',
+    tab_categories: '标签分类',
+    tab_files: '文件管理',
     btn_rescan: '↻ 重新扫描',
     btn_logout: '退出登录',
     search_games_ph: '搜索游戏名、官方名、文件名、厂商、类型…',
@@ -763,15 +761,15 @@ const I18N = {
     sort_type: '按类型',
     files_filter_ph: '过滤当前目录…',
     files_mkdir: '+ 新建文件夹',
-    files_upload: '📤 上传文件',
-    files_upload_dir: '📁 上传文件夹',
+    files_upload: '上传文件',
+    files_upload_dir: '上传文件夹',
     dropzone_txt: '将 ROM 文件或整个平台文件夹拖放到此处，直接高速流式上传到当前目录',
     cancel_upload: '✕ 取消上传',
     files_select_all: '全选当前目录',
     batch_move: '移动…',
     batch_copy: '复制…',
-    batch_zip: '🗜️ 打包 ZIP',
-    batch_del: '🗑 批量删除',
+    batch_zip: '打包 ZIP',
+    batch_del: '批量删除',
     batch_clear: '取消选择',
     conn_off: 'Web 服务已断开（请在掌机端重新开启）',
     conn_lan_only: '仅局域网（无外网）',
@@ -831,16 +829,16 @@ const I18N = {
     sort_SizeDesc: '文件大小 大 → 小',
     sort_SizeAsc: '文件大小 小 → 大',
     page_title: 'PocketDeck · 掌机游戏库控制台',
-    storage_root: '🏠 存储根目录',
+    storage_root: '存储根目录',
     selected_n: '已选 {n} 项',
     dir_space: '可用 {free} / 共 {total}',
     no_cover: '无封面',
     no_cover_yet: '暂无封面',
     fav_on: '♥ 已收藏',
-    btn_fetch_meta: '✨ 掌机抓取封面与元数据',
-    btn_fetching_meta: '⏳ 掌机正在抓取…',
-    btn_pick_cover: '🖼️ 选择候选封面',
-    btn_upload_cover: '📁 上传封面',
+    btn_fetch_meta: '掌机刮削封面与元数据',
+    btn_fetching_meta: '掌机正在刮削…',
+    btn_pick_cover: '选择候选封面',
+    btn_upload_cover: '上传封面',
     btn_reset_cover: '恢复默认封面',
     kv_official: '官方名称',
     kv_release: '发行时间',
@@ -898,13 +896,13 @@ const I18N = {
     cat_del_confirm: '确认删除自定义分类「{name}」吗？（不会删除任何 ROM 文件）',
     cat_validate_fail: '校验失败: ',
     cat_synced: '已通过安全校验并同步到掌机',
-    task_compress: '🗜️ 正在打包 ZIP',
-    task_extract: '📦 正在解压',
-    task_copy: '📋 正在复制',
-    task_move: '📦 正在移动',
-    task_delete: '🗑️ 正在删除',
-    task_upload: '📤 正在上传',
-    task_other: '⏳ 正在处理',
+    task_compress: '正在打包 ZIP',
+    task_extract: '正在解压',
+    task_copy: '正在复制',
+    task_move: '正在移动',
+    task_delete: '正在删除',
+    task_upload: '正在上传',
+    task_other: '正在处理',
     task_cancelled: '已取消：',
     task_fail: '操作失败（{title}）：{err}',
     task_unknown_err: '未知错误',
@@ -931,23 +929,23 @@ const I18N = {
     msg_batch_del_fail: '批量删除失败: ',
     prompt_zip_name: '输入生成的 ZIP 文件名',
     msg_zip_fail: '打包失败: ',
-    arc_title: '🗜️ 压缩包 · ',
+    arc_title: '压缩包 · ',
     arc_parsing: '正在解析压缩包内容…',
     arc_extract_here: '解压到当前目录',
     arc_extract_dir: '解压到同名文件夹',
     arc_parse_fail: '解析失败: ',
     arc_count: '共 {n} 个条目',
     msg_extract_fail: '解压失败: ',
-    img_title: '🖼️ 图片预览 · ',
+    img_title: '图片预览 · ',
     btn_dl_orig: '下载原图',
-    audio_title: '🎵 音频播放 · ',
+    audio_title: '音频播放 · ',
     btn_dl_audio: '下载音频',
     txt_read_fail: '无法读取文本: ',
-    txt_title: '📝 编辑文本 · ',
+    txt_title: '编辑文本 · ',
     msg_file_saved: '已保存文件',
     msg_save_fail: '保存失败',
-    tx_copy_title: '📋 复制「{name}」到…',
-    tx_move_title: '📦 移动「{name}」到…',
+    tx_copy_title: '复制「{name}」到…',
+    tx_move_title: '移动「{name}」到…',
     tx_mkdir_here: '+ 在此处新建文件夹',
     tx_target_dir: '目标目录：',
     tx_pick_root: '根目录列表（请选择一个根目录）',
@@ -960,8 +958,8 @@ const I18N = {
     msg_upload_cancelled: '已取消上传',
     msg_upload_done: '上传完成（{n} 个文件）',
     uploading_pct: '正在上传 {i}/{total}：{name} · {pct}%',
-    btn_logs: '📋 请求日志',
-    logs_title: '📋 封面与元数据请求日志（实时）',
+    btn_logs: '刮削日志',
+    logs_title: '刮削请求日志（实时）',
     logs_empty: '暂无请求日志记录',
     logs_pause: '⏸ 暂停刷新',
     logs_resume: '▶ 继续实时',
@@ -976,9 +974,9 @@ const I18N = {
   },
   'zh-TW': {
     connecting: '正在連線掌機…',
-    tab_games: '🎮 遊戲庫',
-    tab_categories: '🏷️ 標籤分類',
-    tab_files: '🗂️ 檔案管理',
+    tab_games: '遊戲庫',
+    tab_categories: '標籤分類',
+    tab_files: '檔案管理',
     btn_rescan: '↻ 重新掃描',
     btn_logout: '登出',
     search_games_ph: '搜尋遊戲名稱、官方名稱、檔名、廠商、類型…',
@@ -1001,15 +999,15 @@ const I18N = {
     sort_type: '依類型',
     files_filter_ph: '過濾目前目錄…',
     files_mkdir: '+ 新建資料夾',
-    files_upload: '📤 上傳檔案',
-    files_upload_dir: '📁 上傳資料夾',
+    files_upload: '上傳檔案',
+    files_upload_dir: '上傳資料夾',
     dropzone_txt: '將 ROM 檔案或整個平台資料夾拖放至此，直接高速串流上傳到目前目錄',
     cancel_upload: '✕ 取消上傳',
     files_select_all: '全選目前目錄',
     batch_move: '移動…',
     batch_copy: '複製…',
-    batch_zip: '🗜️ 打包 ZIP',
-    batch_del: '🗑 批次刪除',
+    batch_zip: '打包 ZIP',
+    batch_del: '批次刪除',
     batch_clear: '取消選取',
     conn_off: 'Web 服務已中斷（請在掌機端重新開啟）',
     conn_lan_only: '僅區域網路（無外網）',
@@ -1069,16 +1067,16 @@ const I18N = {
     sort_SizeDesc: '檔案大小 大 → 小',
     sort_SizeAsc: '檔案大小 小 → 大',
     page_title: 'PocketDeck · 掌機遊戲庫控制台',
-    storage_root: '🏠 儲存根目錄',
+    storage_root: '儲存根目錄',
     selected_n: '已選 {n} 項',
     dir_space: '可用 {free} / 共 {total}',
     no_cover: '無封面',
     no_cover_yet: '暫無封面',
     fav_on: '♥ 已收藏',
-    btn_fetch_meta: '✨ 掌機抓取封面與中繼資料',
-    btn_fetching_meta: '⏳ 掌機正在抓取…',
-    btn_pick_cover: '🖼️ 選擇候選封面',
-    btn_upload_cover: '📁 上傳封面',
+    btn_fetch_meta: '掌機刮削封面與中繼資料',
+    btn_fetching_meta: '掌機正在刮削…',
+    btn_pick_cover: '選擇候選封面',
+    btn_upload_cover: '上傳封面',
     btn_reset_cover: '恢復預設封面',
     kv_official: '官方名稱',
     kv_release: '發行時間',
@@ -1136,13 +1134,13 @@ const I18N = {
     cat_del_confirm: '確認刪除自訂分類「{name}」嗎？（不會刪除任何 ROM 檔案）',
     cat_validate_fail: '校驗失敗: ',
     cat_synced: '已通過安全校驗並同步至掌機',
-    task_compress: '🗜️ 正在打包 ZIP',
-    task_extract: '📦 正在解壓縮',
-    task_copy: '📋 正在複製',
-    task_move: '📦 正在移動',
-    task_delete: '🗑️ 正在刪除',
-    task_upload: '📤 正在上傳',
-    task_other: '⏳ 正在處理',
+    task_compress: '正在打包 ZIP',
+    task_extract: '正在解壓縮',
+    task_copy: '正在複製',
+    task_move: '正在移動',
+    task_delete: '正在刪除',
+    task_upload: '正在上傳',
+    task_other: '正在處理',
     task_cancelled: '已取消：',
     task_fail: '操作失敗（{title}）：{err}',
     task_unknown_err: '未知錯誤',
@@ -1169,23 +1167,23 @@ const I18N = {
     msg_batch_del_fail: '批次刪除失敗: ',
     prompt_zip_name: '輸入產生的 ZIP 檔名',
     msg_zip_fail: '打包失敗: ',
-    arc_title: '🗜️ 壓縮檔 · ',
+    arc_title: '壓縮檔 · ',
     arc_parsing: '正在解析壓縮檔內容…',
     arc_extract_here: '解壓縮到目前目錄',
     arc_extract_dir: '解壓縮到同名資料夾',
     arc_parse_fail: '解析失敗: ',
     arc_count: '共 {n} 個項目',
     msg_extract_fail: '解壓縮失敗: ',
-    img_title: '🖼️ 圖片預覽 · ',
+    img_title: '圖片預覽 · ',
     btn_dl_orig: '下載原圖',
-    audio_title: '🎵 音訊播放 · ',
+    audio_title: '音訊播放 · ',
     btn_dl_audio: '下載音訊',
     txt_read_fail: '無法讀取文字: ',
-    txt_title: '📝 編輯文字 · ',
+    txt_title: '編輯文字 · ',
     msg_file_saved: '已儲存檔案',
     msg_save_fail: '儲存失敗',
-    tx_copy_title: '📋 複製「{name}」到…',
-    tx_move_title: '📦 移動「{name}」到…',
+    tx_copy_title: '複製「{name}」到…',
+    tx_move_title: '移動「{name}」到…',
     tx_mkdir_here: '+ 在此處新建資料夾',
     tx_target_dir: '目標目錄：',
     tx_pick_root: '根目錄列表（請選擇一個根目錄）',
@@ -1198,8 +1196,8 @@ const I18N = {
     msg_upload_cancelled: '已取消上傳',
     msg_upload_done: '上傳完成（{n} 個檔案）',
     uploading_pct: '正在上傳 {i}/{total}：{name} · {pct}%',
-    btn_logs: '📋 請求日誌',
-    logs_title: '📋 封面與中繼資料請求日誌（即時）',
+    btn_logs: '刮削日誌',
+    logs_title: '刮削請求日誌（即時）',
     logs_empty: '暫無請求日誌記錄',
     logs_pause: '⏸ 暫停重新整理',
     logs_resume: '▶ 繼續即時',
@@ -1214,9 +1212,9 @@ const I18N = {
   },
   en: {
     connecting: 'Connecting to handheld…',
-    tab_games: '🎮 Library',
-    tab_categories: '🏷️ Categories',
-    tab_files: '🗂️ Files',
+    tab_games: 'Library',
+    tab_categories: 'Categories',
+    tab_files: 'Files',
     btn_rescan: '↻ Rescan',
     btn_logout: 'Log Out',
     search_games_ph: 'Search title, official name, filename, developer, genre…',
@@ -1239,15 +1237,15 @@ const I18N = {
     sort_type: 'Type',
     files_filter_ph: 'Filter current folder…',
     files_mkdir: '+ New Folder',
-    files_upload: '📤 Upload Files',
-    files_upload_dir: '📁 Upload Folder',
+    files_upload: 'Upload Files',
+    files_upload_dir: 'Upload Folder',
     dropzone_txt: 'Drag & drop ROM files or platform folders here to stream directly to this directory',
     cancel_upload: '✕ Cancel Upload',
     files_select_all: 'Select all in folder',
     batch_move: 'Move…',
     batch_copy: 'Copy…',
-    batch_zip: '🗜️ Zip',
-    batch_del: '🗑 Delete',
+    batch_zip: 'Zip',
+    batch_del: 'Delete',
     batch_clear: 'Clear Selection',
     conn_off: 'Web service disconnected (re-enable on handheld)',
     conn_lan_only: 'LAN only (offline)',
@@ -1307,16 +1305,16 @@ const I18N = {
     sort_SizeDesc: 'Size Largest',
     sort_SizeAsc: 'Size Smallest',
     page_title: 'PocketDeck · Web Game Console',
-    storage_root: '🏠 Storage Roots',
+    storage_root: 'Storage Roots',
     selected_n: '{n} selected',
     dir_space: 'Free {free} / Total {total}',
     no_cover: 'No cover',
     no_cover_yet: 'No cover yet',
     fav_on: '♥ Favorited',
-    btn_fetch_meta: '✨ Fetch Cover & Metadata',
-    btn_fetching_meta: '⏳ Fetching on handheld…',
-    btn_pick_cover: '🖼️ Pick Candidate Cover',
-    btn_upload_cover: '📁 Upload Cover',
+    btn_fetch_meta: 'Scrape Cover & Metadata',
+    btn_fetching_meta: 'Scraping…',
+    btn_pick_cover: 'Pick Candidate Cover',
+    btn_upload_cover: 'Upload Cover',
     btn_reset_cover: 'Reset Default Cover',
     kv_official: 'Official Title',
     kv_release: 'Release Date',
@@ -1374,13 +1372,13 @@ const I18N = {
     cat_del_confirm: 'Delete custom category "{name}"? (No ROM files will be deleted)',
     cat_validate_fail: 'Validation failed: ',
     cat_synced: 'Validated and synced to handheld',
-    task_compress: '🗜️ Creating ZIP',
-    task_extract: '📦 Extracting',
-    task_copy: '📋 Copying',
-    task_move: '📦 Moving',
-    task_delete: '🗑️ Deleting',
-    task_upload: '📤 Uploading',
-    task_other: '⏳ Processing',
+    task_compress: 'Creating ZIP',
+    task_extract: 'Extracting',
+    task_copy: 'Copying',
+    task_move: 'Moving',
+    task_delete: 'Deleting',
+    task_upload: 'Uploading',
+    task_other: 'Processing',
     task_cancelled: 'Cancelled: ',
     task_fail: 'Failed ({title}): {err}',
     task_unknown_err: 'Unknown error',
@@ -1407,23 +1405,23 @@ const I18N = {
     msg_batch_del_fail: 'Batch delete failed: ',
     prompt_zip_name: 'Enter ZIP filename',
     msg_zip_fail: 'ZIP failed: ',
-    arc_title: '🗜️ Archive · ',
+    arc_title: 'Archive · ',
     arc_parsing: 'Reading archive entries…',
     arc_extract_here: 'Extract Here',
     arc_extract_dir: 'Extract to Folder',
     arc_parse_fail: 'Failed to read archive: ',
     arc_count: '{n} entries',
     msg_extract_fail: 'Extract failed: ',
-    img_title: '🖼️ Image Preview · ',
+    img_title: 'Image Preview · ',
     btn_dl_orig: 'Download Original',
-    audio_title: '🎵 Audio Player · ',
+    audio_title: 'Audio Player · ',
     btn_dl_audio: 'Download Audio',
     txt_read_fail: 'Failed to read text: ',
-    txt_title: '📝 Edit Text · ',
+    txt_title: 'Edit Text · ',
     msg_file_saved: 'File saved',
     msg_save_fail: 'Save failed',
-    tx_copy_title: '📋 Copy "{name}" to…',
-    tx_move_title: '📦 Move "{name}" to…',
+    tx_copy_title: 'Copy "{name}" to…',
+    tx_move_title: 'Move "{name}" to…',
     tx_mkdir_here: '+ New Folder Here',
     tx_target_dir: 'Destination: ',
     tx_pick_root: 'Storage Roots (pick a root folder)',
@@ -1436,8 +1434,8 @@ const I18N = {
     msg_upload_cancelled: 'Upload cancelled',
     msg_upload_done: 'Upload complete ({n} files)',
     uploading_pct: 'Uploading {i}/{total}: {name} · {pct}%',
-    btn_logs: '📋 Logs',
-    logs_title: '📋 Cover & Metadata Request Logs (Live)',
+    btn_logs: 'Scrape Logs',
+    logs_title: 'Scraping Request Logs (Live)',
     logs_empty: 'No request logs recorded yet',
     logs_pause: '⏸ Pause',
     logs_resume: '▶ Resume Live',
@@ -1777,17 +1775,36 @@ async function loadGames() {
   renderGames();
 }
 
+function svgIco(name, size) {
+  const s = size || 16;
+  const p = {
+    gamepad: '<rect x="2" y="6" width="20" height="12" rx="5"/><path d="M6 12h4M8 10v4"/><circle cx="15.5" cy="13" r=".7" fill="currentColor"/><circle cx="17.8" cy="11" r=".7" fill="currentColor"/>',
+    cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+    heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+    heartFill: '<path fill="currentColor" d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+    tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".75" fill="currentColor"/>',
+    drive: '<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+    folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+    file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+    archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+    image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+    music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+    type: '<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>'
+  }[name] || '';
+  return '<svg class="ico" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>';
+}
+
 function renderStats() {
   const platCount = new Set(games.map(g => g.platformId)).size;
   const favCount = games.filter(g => g.favorite).length;
   const customCats = catTabs.filter(t => t.type === 'Custom').length;
   const freeBytes = (deviceInfo.storage || []).reduce((acc, s) => acc + (s.freeBytes || 0), 0);
   el('statsGrid').innerHTML =
-    '<div class="stat-card"><div class="stat-ico">🎮</div><div><div class="stat-val">' + games.length + '</div><div class="stat-lbl">' + esc(tr('stat_games')) + '</div></div></div>' +
-    '<div class="stat-card"><div class="stat-ico">🕹️</div><div><div class="stat-val">' + platCount + '</div><div class="stat-lbl">' + esc(tr('stat_plats')) + '</div></div></div>' +
-    '<div class="stat-card"><div class="stat-ico">♥</div><div><div class="stat-val">' + favCount + '</div><div class="stat-lbl">' + esc(tr('stat_favs')) + '</div></div></div>' +
-    '<div class="stat-card"><div class="stat-ico">🏷️</div><div><div class="stat-val">' + customCats + '</div><div class="stat-lbl">' + esc(tr('stat_cats')) + '</div></div></div>' +
-    '<div class="stat-card"><div class="stat-ico">💾</div><div><div class="stat-val">' + (freeBytes ? fmtBytes(freeBytes) : '—') + '</div><div class="stat-lbl">' + esc(tr('stat_free')) + '</div></div></div>';
+    '<div class="stat-card"><div class="stat-ico">' + svgIco('gamepad', 17) + '</div><div><div class="stat-val">' + games.length + '</div><div class="stat-lbl">' + esc(tr('stat_games')) + '</div></div></div>' +
+    '<div class="stat-card"><div class="stat-ico">' + svgIco('cpu', 17) + '</div><div><div class="stat-val">' + platCount + '</div><div class="stat-lbl">' + esc(tr('stat_plats')) + '</div></div></div>' +
+    '<div class="stat-card"><div class="stat-ico">' + svgIco('heartFill', 16) + '</div><div><div class="stat-val">' + favCount + '</div><div class="stat-lbl">' + esc(tr('stat_favs')) + '</div></div></div>' +
+    '<div class="stat-card"><div class="stat-ico">' + svgIco('tag', 16) + '</div><div><div class="stat-val">' + customCats + '</div><div class="stat-lbl">' + esc(tr('stat_cats')) + '</div></div></div>' +
+    '<div class="stat-card"><div class="stat-ico">' + svgIco('drive', 16) + '</div><div><div class="stat-val">' + (freeBytes ? fmtBytes(freeBytes) : '—') + '</div><div class="stat-lbl">' + esc(tr('stat_free')) + '</div></div></div>';
 }
 
 function renderGames() {
@@ -1827,7 +1844,7 @@ function renderGames() {
         '<div class="gcover-box">' + cov +
           '<div class="gcover-fallback" ' + fbStyle + '><span class="tt">' + esc(g.title) + '</span></div>' +
           '<span class="badge-plat">' + esc(g.platformName) + '</span>' +
-          '<button class="badge-fav' + (g.favorite ? ' on' : '') + '" onclick="event.stopPropagation();toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ')" title="' + esc(tr('btn_fav')) + '">' + (g.favorite ? '♥' : '♡') + '</button>' +
+          '<button class="badge-fav' + (g.favorite ? ' on' : '') + '" onclick="event.stopPropagation();toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ')" title="' + esc(tr('btn_fav')) + '">' + svgIco(g.favorite ? 'heartFill' : 'heart', 14) + '</button>' +
         '</div>' +
         '<div class="gbody">' +
           '<div class="gtitle" title="' + esc(g.title) + '">' + esc(g.title) + '</div>' +
@@ -1872,7 +1889,7 @@ async function openGameDetail(id) {
   const safeId = encodeURIComponent(g.id);
   const customCats = catTabs.filter(t => t.type === 'Custom');
 
-  el('mTitle').textContent = '🎮 ' + g.title;
+  el('mTitle').textContent = g.title;
   el('mBody').innerHTML =
     '<div class="detail-hero">' +
       '<div class="detail-cover">' +
@@ -2443,7 +2460,7 @@ function renderFiles() {
     return;
   }
   listEl.innerHTML = entries.map(f => {
-    const icon = f.isDir ? '📁' : (f.isArchive ? '🗜️' : (f.isImage ? '🖼️' : (f.isAudio ? '🎵' : (f.isFont ? '🔤' : (f.isText ? '📝' : '📄')))));
+    const icon = f.isDir ? svgIco('folder', 16) : (f.isArchive ? svgIco('archive', 16) : (f.isImage ? svgIco('image', 16) : (f.isAudio ? svgIco('music', 16) : (f.isFont ? svgIco('type', 16) : svgIco('file', 16)))));
     const romTag = f.isRom ? '<span class="chip">ROM</span>' : '';
     const hiddenTag = (f.isRom && f.isHidden) ? '<span class="chip">' + esc(tr('hidden_tag')) + '</span>' : '';
     const typeTag = f.isArchive ? '<span class="chip">' + esc(tr('tag_zip')) + '</span>' : (f.isImage ? '<span class="chip">' + esc(tr('tag_img')) + '</span>' : (f.isAudio ? '<span class="chip">' + esc(tr('tag_audio')) + '</span>' : (f.isFont ? '<span class="chip">' + esc(tr('tag_font')) + '</span>' : (f.isText ? '<span class="chip">' + esc(tr('tag_text')) + '</span>' : ''))));
@@ -2589,7 +2606,7 @@ async function inspectArchive(path, name) {
   const entries = d.entries || [];
   el('mBody').innerHTML = '<div class="sub" style="margin-bottom:8px;">' + esc(tr('arc_count', { n: entries.length })) + '</div>' +
     '<div class="list">' + entries.slice(0, 300).map(e =>
-      '<div class="row" style="padding:7px 10px;"><span>' + (e.isDir ? '📁' : '📄') + '</span><span style="flex:1;font-size:12.5px;word-break:break-all;">' + esc(e.name) + '</span><span class="sub">' + (e.isDir ? '' : fmtBytes(e.size)) + '</span></div>'
+      '<div class="row" style="padding:7px 10px;"><span>' + (e.isDir ? svgIco('folder', 15) : svgIco('file', 15)) + '</span><span style="flex:1;font-size:12.5px;word-break:break-all;">' + esc(e.name) + '</span><span class="sub">' + (e.isDir ? '' : fmtBytes(e.size)) + '</span></div>'
     ).join('') + '</div>';
 }
 
@@ -2854,7 +2871,7 @@ async function renderTransferBrowser(dir) {
   const pathSet = new Set(transferPaths);
   const dirs = (data.entries || []).filter(e => e.isDir && !pathSet.has(e.path));
   const upHtml = data.dir ? '<div class="dir-pick" onclick="renderTransferBrowser(\'' + escJs(data.parent || '') + '\')"><span>' + esc(tr('files_up')) + '</span><span class="sub">..</span></div>' : '';
-  const listHtml = dirs.map(d => '<div class="dir-pick" onclick="renderTransferBrowser(\'' + escJs(d.path) + '\')"><span>📁 ' + esc(d.name) + '</span><span>›</span></div>').join('');
+  const listHtml = dirs.map(d => '<div class="dir-pick" onclick="renderTransferBrowser(\'' + escJs(d.path) + '\')"><span>' + esc(d.name) + '</span><span>›</span></div>').join('');
   const newFolderBtn = data.dir ? '<button class="btn sm" onclick="mkdirInTransfer()">' + esc(tr('tx_mkdir_here')) + '</button>' : '';
   el('mBody').innerHTML =
     '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap;">' +

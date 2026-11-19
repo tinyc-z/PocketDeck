@@ -245,7 +245,7 @@ fun AppsScreen(
         }
         add(Triple("ⓘ", infoLabel) { menuApp = null; openAppInfo(app) })
         if (!app.isSystemApp) {
-            add(Triple("🗑", uninstallLabel) { menuApp = null; uninstallApp(app) })
+            add(Triple("×", uninstallLabel) { menuApp = null; uninstallApp(app) })
         }
     }
 
@@ -388,7 +388,7 @@ fun AppsScreen(
                                 if (focused) {
                                     Modifier
                                         .background(DeckColors.Surface)
-                                        .border(1.5.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
+                                        .border(0.9.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
                                 } else {
                                     Modifier
                                 },
@@ -434,7 +434,7 @@ fun AppsScreen(
                                 if (focused) {
                                     Modifier
                                         .background(DeckColors.Surface)
-                                        .border(1.5.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
+                                        .border(0.9.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
                                 } else {
                                     Modifier
                                 },
@@ -480,7 +480,7 @@ fun AppsScreen(
                                 if (focused) {
                                     Modifier
                                         .background(DeckColors.Surface)
-                                        .border(1.5.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
+                                        .border(0.9.dp, DeckColors.CardBorder, RoundedCornerShape(12.dp))
                                 } else {
                                     Modifier
                                 },
@@ -596,7 +596,7 @@ fun AppsScreen(
                                 .clip(DeckShapes.menuButton)
                                 .background(bg)
                                 .border(
-                                    width = if (focused) 1.5.dp else 1.dp,
+                                    width = if (focused) 0.9.dp else 0.6.dp,
                                     color = if (focused) DeckColors.CardBorder else DeckColors.DialogBorder,
                                     shape = DeckShapes.menuButton,
                                 )
@@ -626,13 +626,13 @@ fun AppsScreen(
     }
 }
 
-/** 「游戏快传」内置应用图标：翠绿渐变底 + 双向高速传输箭头。 */
+/** 「游戏快传」旗舰扁平图标：深曜石松柏缎面 + 翡翠柔光 + 极简双翼折纸飞机。 */
 @Composable
 fun QuickShareAppIcon(
     size: Dp = 54.dp,
     modifier: Modifier = Modifier,
 ) {
-    val corner = size * 0.22f
+    val corner = size * 0.24f
     Canvas(
         modifier
             .size(size)
@@ -640,37 +640,57 @@ fun QuickShareAppIcon(
     ) {
         val w = this.size.width
         val h = this.size.height
+        // 深邃曜石青绿底面
         drawRect(
             brush = Brush.linearGradient(
-                colors = listOf(Color(0xFF10B981), Color(0xFF059669), Color(0xFF0F766E)),
+                colors = listOf(Color(0xFF132D2B), Color(0xFF0C1D1E), Color(0xFF091215)),
                 start = Offset(0f, 0f),
                 end = Offset(w, h),
             ),
         )
+        // 右上角克制翡翠微光
         drawCircle(
-            color = Color.White.copy(alpha = 0.16f),
-            radius = w * 0.45f,
-            center = Offset(w * 0.78f, h * 0.18f),
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0xFF34D399).copy(alpha = 0.26f), Color.Transparent),
+                center = Offset(w * 0.78f, h * 0.22f),
+                radius = w * 0.56f,
+            ),
+            radius = w * 0.56f,
+            center = Offset(w * 0.78f, h * 0.22f),
         )
-        val sw = (w * 0.08f).coerceAtLeast(2.5f)
-        // 右上发送箭头
-        val arrowUp = Path().apply {
-            moveTo(w * 0.30f, h * 0.40f)
-            lineTo(w * 0.72f, h * 0.40f)
-            moveTo(w * 0.56f, h * 0.25f)
-            lineTo(w * 0.72f, h * 0.40f)
-            lineTo(w * 0.56f, h * 0.54f)
+        // 左下微弱传输尾迹弧线
+        val trail = Path().apply {
+            moveTo(w * 0.20f, h * 0.74f)
+            quadraticTo(w * 0.30f, h * 0.66f, w * 0.38f, h * 0.62f)
         }
-        drawPath(arrowUp, color = Color.White, style = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        // 左下接收箭头
-        val arrowDown = Path().apply {
-            moveTo(w * 0.70f, h * 0.62f)
-            lineTo(w * 0.28f, h * 0.62f)
-            moveTo(w * 0.44f, h * 0.48f)
-            lineTo(w * 0.28f, h * 0.62f)
-            lineTo(w * 0.44f, h * 0.76f)
+        drawPath(
+            trail,
+            color = Color(0xFF34D399).copy(alpha = 0.45f),
+            style = Stroke(width = (w * 0.042f).coerceAtLeast(1.5f), cap = StrokeCap.Round),
+        )
+        // 主翼（纯白折纸飞机上翼）
+        val upperWing = Path().apply {
+            moveTo(w * 0.78f, h * 0.22f)
+            lineTo(w * 0.20f, h * 0.47f)
+            lineTo(w * 0.48f, h * 0.55f)
+            close()
         }
-        drawPath(arrowDown, color = Color.White.copy(alpha = 0.88f), style = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(upperWing, color = Color(0xFFF8FAFC))
+        // 次翼（翡翠渐变折纸飞机下翼）
+        val lowerWing = Path().apply {
+            moveTo(w * 0.78f, h * 0.22f)
+            lineTo(w * 0.48f, h * 0.55f)
+            lineTo(w * 0.58f, h * 0.78f)
+            close()
+        }
+        drawPath(
+            lowerWing,
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFF6EE7B7), Color(0xFF10B981)),
+                start = Offset(w * 0.48f, h * 0.28f),
+                end = Offset(w * 0.62f, h * 0.78f),
+            ),
+        )
     }
 }
 

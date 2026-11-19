@@ -67,6 +67,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
@@ -222,7 +224,7 @@ fun ScrapeLogsScreen(
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(DeckColors.Surface)
-                        .border(1.dp, DeckColors.DialogBorder, CircleShape)
+                        .border(0.6.dp, DeckColors.DialogBorder, CircleShape)
                         .soundClickable(onClick = onBack),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -274,7 +276,7 @@ fun ScrapeLogsScreen(
                     modifier = Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Surface)
-                        .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                        .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
                         .soundClickable { showExportDialog = true }
                         .padding(horizontal = 11.dp, vertical = 7.dp),
                 )
@@ -286,7 +288,7 @@ fun ScrapeLogsScreen(
                     modifier = Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Ruby.copy(alpha = 0.10f))
-                        .border(1.dp, DeckColors.Ruby.copy(alpha = 0.25f), DeckShapes.tabPill)
+                        .border(0.6.dp, DeckColors.Ruby.copy(alpha = 0.25f), DeckShapes.tabPill)
                         .soundClickable {
                             ScrapeLogStore.clear()
                             frozenLines = emptyList()
@@ -333,7 +335,7 @@ fun ScrapeLogsScreen(
                                     .clip(DeckShapes.tabPill)
                                     .background(if (selected) DeckColors.Ruby else DeckColors.Surface)
                                     .border(
-                                        1.dp,
+                                        0.6.dp,
                                         if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
                                         DeckShapes.tabPill,
                                     )
@@ -343,14 +345,12 @@ fun ScrapeLogsScreen(
                         }
                     }
                     val searchActive = searchOpen || query.isNotEmpty()
-                    Text(
-                        "🔍",
-                        fontSize = 13.sp,
+                    Box(
                         modifier = Modifier
                             .clip(DeckShapes.tabPill)
                             .background(if (searchActive) DeckColors.Ruby else DeckColors.Surface)
                             .border(
-                                1.dp,
+                                0.6.dp,
                                 if (searchActive) DeckColors.Ruby else DeckColors.DialogBorder,
                                 DeckShapes.tabPill,
                             )
@@ -362,8 +362,15 @@ fun ScrapeLogsScreen(
                                     searchOpen = true
                                 }
                             }
-                            .padding(horizontal = 11.dp, vertical = 5.dp),
-                    )
+                            .padding(horizontal = 11.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        DeckIcon(
+                            icon = DeckIcons.Search,
+                            tint = if (searchActive) DeckColors.Background else DeckColors.TextPrimary,
+                            size = 15.dp,
+                        )
+                    }
                     Text(
                         "${filteredLines.size}",
                         style = DeckType.metaLabel.copy(fontFamily = FontFamily.Monospace),
@@ -378,11 +385,11 @@ fun ScrapeLogsScreen(
                             .height(36.dp)
                             .clip(DeckShapes.tabPill)
                             .background(DeckColors.Surface)
-                            .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                            .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
                             .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("🔍", fontSize = 13.sp)
+                        DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 15.dp)
                         Spacer(Modifier.width(8.dp))
                         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (query.isEmpty()) {
@@ -427,7 +434,7 @@ fun ScrapeLogsScreen(
                     .padding(start = 20.dp, end = 20.dp, bottom = 16.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF0D1117))
-                    .border(1.dp, Color(0xFF30363D), RoundedCornerShape(12.dp)),
+                    .border(0.6.dp, Color(0xFF30363D), RoundedCornerShape(12.dp)),
             ) {
                 if (filteredLines.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -613,7 +620,7 @@ private fun ExportLogDirDialog(
                                 .clip(DeckShapes.tabPill)
                                 .background(if (active) DeckColors.Ruby else DeckColors.Surface)
                                 .border(
-                                    1.dp,
+                                    0.6.dp,
                                     if (active) DeckColors.Ruby else DeckColors.DialogBorder,
                                     DeckShapes.tabPill,
                                 )
@@ -653,7 +660,7 @@ private fun ExportLogDirDialog(
                                 .fillMaxWidth()
                                 .clip(DeckShapes.settingsDropdown)
                                 .background(DeckColors.Surface)
-                                .border(1.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
+                                .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
                                 .soundClickable { currentDir = parent }
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -678,12 +685,12 @@ private fun ExportLogDirDialog(
                                 .fillMaxWidth()
                                 .clip(DeckShapes.settingsDropdown)
                                 .background(DeckColors.Surface)
-                                .border(1.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
+                                .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
                                 .soundClickable { currentDir = sub }
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("📁", fontSize = 14.sp)
+                            DeckIcon(DeckIcons.Folder, tint = DeckColors.Ruby, size = 16.dp)
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 sub.name,
@@ -722,7 +729,7 @@ private fun ExportLogDirDialog(
                     Modifier
                         .clip(DeckShapes.menuButton)
                         .background(DeckColors.Surface)
-                        .border(1.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
+                        .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
                         .soundClickable(onClick = onDismiss)
                         .padding(horizontal = 18.dp, vertical = 11.dp),
                     contentAlignment = Alignment.Center,

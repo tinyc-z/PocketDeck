@@ -223,7 +223,7 @@ fun CategoryPlatformsDialog(
                                 },
                             )
                             .border(
-                                width = if (hl) 1.5.dp else 0.dp,
+                                width = if (hl) 0.9.dp else 0.dp,
                                 color = if (hl) DeckColors.Ruby else Color.Transparent,
                                 shape = DeckShapes.menuButton,
                             )
@@ -272,7 +272,7 @@ fun CategoryPlatformsDialog(
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
                         .border(
-                            width = if (cancelHl) 1.5.dp else 0.dp,
+                            width = if (cancelHl) 0.9.dp else 0.dp,
                             color = if (cancelHl) DeckColors.Ruby else Color.Transparent,
                             shape = DeckShapes.menuButton,
                         )
@@ -288,7 +288,7 @@ fun CategoryPlatformsDialog(
                         .clip(DeckShapes.menuButton)
                         .background(DeckColors.Ruby)
                         .border(
-                            width = if (okHl) 2.dp else 0.dp,
+                            width = if (okHl) 1.dp else 0.dp,
                             color = if (okHl) DeckColors.TextPrimary else Color.Transparent,
                             shape = DeckShapes.menuButton,
                         )
@@ -541,7 +541,7 @@ fun LauncherPickerDialog(
                                         .clip(DeckShapes.settingsDropdown)
                                         .background(if (isSel) DeckColors.Ruby.copy(alpha = 0.16f) else DeckColors.Background)
                                         .border(
-                                            width = if (isSel) 1.dp else 0.5.dp,
+                                            width = if (isSel) 0.6.dp else 0.5.dp,
                                             color = if (isSel) DeckColors.Ruby else DeckColors.DialogBorder,
                                             shape = DeckShapes.settingsDropdown,
                                         )
@@ -640,7 +640,7 @@ fun LauncherPickerDialog(
                                 .clip(DeckShapes.menuButton)
                                 .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                                 .border(
-                                    width = if (selected) 1.dp else 0.5.dp,
+                                    width = if (selected) 0.6.dp else 0.5.dp,
                                     color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
                                     shape = DeckShapes.menuButton,
                                 )
@@ -886,7 +886,7 @@ private fun LauncherOptionRow(
             .clip(DeckShapes.menuButton)
             .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
             .border(
-                width = if (selected) 1.dp else 0.5.dp,
+                width = if (selected) 0.6.dp else 0.5.dp,
                 color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
                 shape = DeckShapes.menuButton,
             )
@@ -1039,7 +1039,7 @@ private fun InstalledAppPickerDialog(
                             .clip(DeckShapes.menuButton)
                             .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
                             .border(
-                                width = if (hl) 1.5.dp else 0.dp,
+                                width = if (hl) 0.9.dp else 0.dp,
                                 color = if (hl) DeckColors.Ruby else Color.Transparent,
                                 shape = DeckShapes.menuButton,
                             )

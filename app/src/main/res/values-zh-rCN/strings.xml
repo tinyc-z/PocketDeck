@@ -145,15 +145,15 @@
     <string name="theme_dark">暗色</string>
 
     <!-- Scraping & Metadata -->
-    <string name="settings_scraping">封面与元数据</string>
-    <string name="scraping_cover_title">封面数据源</string>
-    <string name="scraping_cover_desc">按以下优先级顺序从已启用节点抓取封面，拖动 ≡ 可调整顺序。</string>
-    <string name="scraping_meta_title">游戏元数据服务商</string>
-    <string name="scraping_meta_desc">按以下优先级查询并合并已启用服务商的游戏信息，拖动 ≡ 可调整顺序。</string>
-    <string name="scraping_clear_cache">清除封面缓存并重新抓取</string>
-    <string name="scraping_refresh_meta">刷新全部游戏元数据</string>
-    <string name="scraping_view_logs">查看请求日志</string>
-    <string name="scrape_logs_title">封面与元数据请求日志</string>
+    <string name="settings_scraping">刮削源与日志</string>
+    <string name="scraping_cover_title">封面刮削源</string>
+    <string name="scraping_cover_desc">按优先级顺序从已启用节点刮削封面，拖动可调整顺序。</string>
+    <string name="scraping_meta_title">元数据刮削源</string>
+    <string name="scraping_meta_desc">按优先级刮削并合并已启用服务商的游戏信息，拖动可调整顺序。</string>
+    <string name="scraping_clear_cache">清除封面缓存并重新刮削</string>
+    <string name="scraping_refresh_meta">重新刮削全部游戏信息</string>
+    <string name="scraping_view_logs">查看刮削日志</string>
+    <string name="scrape_logs_title">刮削请求日志</string>
     <string name="scrape_logs_empty">暂无请求日志记录。</string>
     <string name="scrape_logs_clear">清空</string>
     <string name="scrape_logs_refresh">刷新</string>
@@ -220,8 +220,8 @@
     <string name="meta_src_wikidata_desc">开放知识图谱补充查询</string>
 
     <!-- Edit game scraping -->
-    <string name="edit_scrape_boxart">在线抓取封面</string>
-    <string name="scrape_title">在线抓取封面</string>
+    <string name="edit_scrape_boxart">在线刮削封面</string>
+    <string name="scrape_title">在线刮削封面</string>
     <string name="scrape_loading">正在从已启用节点查询…</string>
     <string name="scrape_empty">已启用的节点未找到匹配封面。</string>
 
@@ -243,7 +243,7 @@
     <string name="prop_package">应用包名</string>
     <string name="prop_file_name">文件名</string>
     <string name="prop_file_path">文件路径</string>
-    <string name="prop_sec_scraping">封面与识别来源</string>
+    <string name="prop_sec_scraping">刮削与识别来源</string>
     <string name="prop_meta_provider">元数据提供源</string>
     <string name="prop_meta_mode">元数据识别模式</string>
     <string name="prop_cover_provider">封面提供源</string>
@@ -320,8 +320,8 @@
     <string name="settings_custom_bg_pick">选择图片</string>
     <string name="settings_custom_bg_clear">清除</string>
     <string name="settings_custom_bg_none">未选择图片</string>
-    <string name="settings_key_sound">按键提示音</string>
-    <string name="settings_key_sound_desc">使用十字键或手柄操作时播放清脆按键音</string>
+    <string name="settings_key_sound">按键音效</string>
+    <string name="settings_key_sound_desc">开启操作与切换分类时的按键音效反馈</string>
     <string name="settings_keybindings">快捷键绑定</string>
     <string name="settings_keybindings_desc">选中操作按 A 即可重新绑定手柄按键。</string>
     <string name="settings_keybindings_reset">恢复默认按键</string>
@@ -354,6 +354,17 @@
     <string name="accent_sakura">樱花粉</string>
     <string name="accent_cyan">赛博青</string>
     <string name="accent_gold">流光金</string>
+    <string name="accent_sage">鼠尾草绿</string>
+    <string name="accent_slate">雾霾靛蓝</string>
+    <string name="accent_terracotta">暖陶土</string>
+    <string name="accent_graphite">极简石墨</string>
+
+    <!-- Reorganized Settings Sections -->
+    <string name="settings_sec_appearance">外观</string>
+    <string name="settings_sec_home">主页与状态栏</string>
+    <string name="settings_sec_library_scrape">游戏库与刮削</string>
+    <string name="settings_sec_controls">操控与音效</string>
+    <string name="settings_sec_system">系统与关于</string>
 
     <!-- Fonts -->
     <string name="settings_font">界面字体</string>
@@ -416,6 +427,12 @@
     <string name="bg_style_gradient_desc">随主题色缓慢呼吸的极光渐变</string>
     <string name="bg_style_particles">粒子飘散</string>
     <string name="bg_style_particles_desc">轻盈上浮并闪烁的主题光斑气泡</string>
+    <string name="bg_style_aurora">极光丝带</string>
+    <string name="bg_style_aurora_desc">斜向流动的多层柔和极光光带</string>
+    <string name="bg_style_topo">等高线地形</string>
+    <string name="bg_style_topo_desc">极细动态等高线波纹，简洁工业质感</string>
+    <string name="bg_style_dot_matrix">微光点阵</string>
+    <string name="bg_style_dot_matrix_desc">克制柔和的呼吸微点光波矩阵</string>
     <string name="bg_style_cover_blur">封面毛玻璃</string>
     <string name="bg_style_cover_blur_desc">以当前选中游戏封面为底色的虚化背景</string>
     <string name="bg_style_static">静态波浪</string>
@@ -424,19 +441,6 @@
     <string name="bg_style_image_desc">使用本地相册或存储中的图片作为背景</string>
     <string name="bg_style_none">纯色背景</string>
     <string name="bg_style_none_desc">仅显示主题纯色底面，无额外特效</string>
-
-    <!-- Key Sound Styles -->
-    <string name="settings_key_sound_style">按键音风格</string>
-    <string name="key_sound_crisp_tick">清脆触点</string>
-    <string name="key_sound_crisp_tick_desc">短促利落的掌机微动“嗒”声</string>
-    <string name="key_sound_crystal_drop">清透水滴</string>
-    <string name="key_sound_crystal_drop_desc">类似 PSP / Steam Deck 的晶莹清脆音</string>
-    <string name="key_sound_wood_block">温润木鱼</string>
-    <string name="key_sound_wood_block_desc">柔和圆润的木琴敲击声，久听不腻</string>
-    <string name="key_sound_mechanical">机械青轴</string>
-    <string name="key_sound_mechanical_desc">带段落感的清脆机械双响声</string>
-    <string name="key_sound_retro_bit">复古像素</string>
-    <string name="key_sound_retro_bit_desc">经典红白机 / GB 菜单双音提示</string>
 
     <!-- Offline Messages -->
     <string name="scrape_offline">当前无网络连接，请连网后重试或使用本地图片</string>

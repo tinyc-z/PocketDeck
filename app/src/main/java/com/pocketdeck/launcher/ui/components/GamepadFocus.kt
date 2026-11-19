@@ -108,7 +108,7 @@ fun Modifier.gamepadClickable(
         }
         .then(
             if (showFocusBorder && focused) {
-                Modifier.border(1.8.dp, DeckColors.Ruby, shape)
+                Modifier.border(1.dp, DeckColors.Ruby, shape)
             } else {
                 Modifier
             },
@@ -182,7 +182,7 @@ fun Modifier.dpadNavItem(
         .bringIntoViewRequester(bringIntoView)
         .then(
             if (showFocusBorder && isFocused) {
-                Modifier.border(1.8.dp, DeckColors.Ruby, shape)
+                Modifier.border(1.dp, DeckColors.Ruby, shape)
             } else {
                 Modifier
             },

@@ -62,6 +62,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.components.DeckIcon
+import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
@@ -291,7 +293,7 @@ fun QuickShareScreen(
                     Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Surface)
-                        .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                        .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
                         .padding(3.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -335,12 +337,12 @@ fun QuickShareScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(DeckColors.Ruby.copy(alpha = 0.08f))
-                                .border(1.5.dp, DeckColors.Ruby, RoundedCornerShape(14.dp))
+                                .border(0.9.dp, DeckColors.Ruby, RoundedCornerShape(14.dp))
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                "📥  ${stringResource(R.string.lan_incoming_title)}",
+                                "${stringResource(R.string.lan_incoming_title)}",
                                 style = DeckType.settingsValue.copy(fontWeight = FontWeight.Bold),
                                 color = DeckColors.Ruby,
                             )
@@ -383,7 +385,7 @@ fun QuickShareScreen(
                                         .clip(DeckShapes.settingsDropdown)
                                         .background(if (selected) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.DialogBg)
                                         .border(
-                                            width = if (selected) 1.5.dp else 1.dp,
+                                            width = if (selected) 0.9.dp else 0.6.dp,
                                             color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
                                             shape = DeckShapes.settingsDropdown,
                                         )
@@ -451,23 +453,23 @@ fun QuickShareScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(DeckColors.Surface)
-                                .border(1.5.dp, if (txActive) DeckColors.Ruby else DeckColors.DialogBorder, RoundedCornerShape(14.dp))
+                                .border(0.9.dp, if (txActive) DeckColors.Ruby else DeckColors.DialogBorder, RoundedCornerShape(14.dp))
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 val heading = when (tx.phase) {
                                     TransferPhase.WaitingAccept -> "⏳ ${stringResource(R.string.lan_tx_waiting, tx.peerName)}"
-                                    TransferPhase.PinRequired -> "🔑 ${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
+                                    TransferPhase.PinRequired -> "${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
                                     TransferPhase.Transferring -> if (tx.direction == TransferDirection.Sending) {
-                                        "📤 ${stringResource(R.string.lan_tx_sending, tx.peerName)}"
+                                        "${stringResource(R.string.lan_tx_sending, tx.peerName)}"
                                     } else {
-                                        "📥 ${stringResource(R.string.lan_tx_receiving, tx.peerName)}"
+                                        "${stringResource(R.string.lan_tx_receiving, tx.peerName)}"
                                     }
-                                    TransferPhase.Completed -> "✅ ${stringResource(R.string.lan_tx_done)}"
+                                    TransferPhase.Completed -> "${stringResource(R.string.lan_tx_done)}"
                                     TransferPhase.Rejected -> stringResource(R.string.lan_tx_rejected, tx.peerName)
                                     TransferPhase.Cancelled -> stringResource(R.string.lan_tx_cancelled)
-                                    TransferPhase.Failed -> "⚠ ${stringResource(R.string.lan_tx_failed)}"
+                                    TransferPhase.Failed -> "${stringResource(R.string.lan_tx_failed)}"
                                 }
                                 Text(
                                     heading,
@@ -509,7 +511,7 @@ fun QuickShareScreen(
                             .clip(RoundedCornerShape(14.dp))
                             .background(if (state.shareRunning) DeckColors.Ruby.copy(alpha = 0.06f) else DeckColors.Surface)
                             .border(
-                                width = if (state.shareRunning) 1.5.dp else 1.dp,
+                                width = if (state.shareRunning) 0.9.dp else 0.6.dp,
                                 color = if (state.shareRunning) DeckColors.Ruby.copy(alpha = 0.7f) else DeckColors.DialogBorder,
                                 shape = RoundedCornerShape(14.dp),
                             )
@@ -527,7 +529,7 @@ fun QuickShareScreen(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    "📤  ${stringResource(R.string.lan_share_title)}",
+                                    "${stringResource(R.string.lan_share_title)}",
                                     style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
                                     color = if (state.shareRunning) DeckColors.Ruby else DeckColors.TextPrimary,
                                 )
@@ -565,7 +567,7 @@ fun QuickShareScreen(
                                     if (state.peers.isEmpty()) stringResource(R.string.lan_share_peers_empty)
                                     else state.peers.joinToString("\n") { p ->
                                         val tag = if (p.protocol == ShareProtocol.LocalSend) "[LocalSend] " else "[PocketDeck] "
-                                        "📱 $tag${p.deviceName} (${p.model}) · ${p.ip}:${p.port}"
+                                        "$tag${p.deviceName} (${p.model}) · ${p.ip}:${p.port}"
                                     },
                                     style = DeckType.settingsLabel,
                                     color = DeckColors.TextPrimary,
@@ -630,7 +632,7 @@ fun QuickShareScreen(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
                             .background(DeckColors.Surface)
-                            .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(14.dp))
+                            .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(14.dp))
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
@@ -644,13 +646,13 @@ fun QuickShareScreen(
                                 )
                             }
                             Text(
-                                "🎲 ${stringResource(R.string.lan_device_random)}",
+                                "${stringResource(R.string.lan_device_random)}",
                                 style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
                                 color = DeckColors.TextPrimary,
                                 modifier = Modifier
                                     .clip(DeckShapes.tabPill)
                                     .background(DeckColors.Background)
-                                    .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                                    .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
                                     .dpadNavItem(nav, "rand_name", shape = DeckShapes.tabPill, onClick = onRandomizeDeviceName)
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                             )
@@ -683,7 +685,7 @@ fun QuickShareScreen(
                                 modifier = Modifier
                                     .clip(DeckShapes.tabPill)
                                     .background(DeckColors.Background)
-                                    .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                                    .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
                                     .dpadNavItem(nav, "refresh_nic", shape = DeckShapes.tabPill, onClick = onRefreshInterfaces)
                                     .padding(horizontal = 10.dp, vertical = 5.dp),
                             )
@@ -700,7 +702,7 @@ fun QuickShareScreen(
                                         .clip(DeckShapes.settingsDropdown)
                                         .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.DialogBg)
                                         .border(
-                                            width = if (selected) 1.5.dp else 1.dp,
+                                            width = if (selected) 0.9.dp else 0.6.dp,
                                             color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
                                             shape = DeckShapes.settingsDropdown,
                                         )
@@ -746,7 +748,7 @@ fun QuickShareScreen(
                         )
                         if (state.shareHistory.isNotEmpty()) {
                             Text(
-                                "🗑 ${stringResource(R.string.quick_share_history_clear)}",
+                                "${stringResource(R.string.quick_share_history_clear)}",
                                 style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
                                 color = Color(0xFFDC2626),
                                 modifier = Modifier
@@ -784,14 +786,14 @@ fun QuickShareScreen(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(DeckColors.Surface)
-                                        .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
+                                        .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
                                         .dpadNavItem(nav, "hist_$hIdx", shape = RoundedCornerShape(12.dp)) {
                                             detailItem = item
                                         }
                                         .padding(horizontal = 14.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text(if (item.fileCount > 1) "📦" else "📥", fontSize = 18.sp)
+                                    DeckIcon(icon = if (item.fileCount > 1) DeckIcons.Archive else DeckIcons.Send, tint = DeckColors.Ruby, size = 18.dp)
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -834,7 +836,7 @@ fun QuickShareScreen(
                                     val folderTarget = remember(item) { resolveHistoryFolderTarget(item) }
                                     if (folderTarget != null) {
                                         Text(
-                                            "📂 ${stringResource(R.string.quick_share_history_jump_folder)}",
+                                            "${stringResource(R.string.quick_share_history_jump_folder)}",
                                             style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
                                             color = DeckColors.Ruby,
                                             modifier = Modifier
@@ -1079,7 +1081,7 @@ private fun ShareHistoryDetailDialog(
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
                             .background(DeckColors.Surface)
-                            .border(1.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
+                            .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.settingsDropdown)
                             .padding(horizontal = 12.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -1130,13 +1132,13 @@ private fun ShareHistoryDetailDialog(
                                 }
                                 if (parentDir != null) {
                                     Text(
-                                        "📂 ${stringResource(R.string.quick_share_history_jump_folder)}",
+                                        "${stringResource(R.string.quick_share_history_jump_folder)}",
                                         style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
                                         color = DeckColors.TextPrimary,
                                         modifier = Modifier
                                             .clip(DeckShapes.tabPill)
                                             .background(DeckColors.DialogBg)
-                                            .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                                            .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
                                             .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill) {
                                                 onOpenFolder(parentDir, if (exists) file else null)
                                             }
@@ -1154,13 +1156,13 @@ private fun ShareHistoryDetailDialog(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (dialogFolderTarget != null) {
                     Text(
-                        "📂 ${stringResource(R.string.quick_share_history_open_folder)}",
+                        "${stringResource(R.string.quick_share_history_open_folder)}",
                         style = DeckType.menuButton,
                         color = DeckColors.TextPrimary,
                         modifier = Modifier
                             .clip(DeckShapes.menuButton)
                             .background(DeckColors.Surface)
-                            .border(1.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
+                            .border(0.6.dp, DeckColors.DialogBorder, DeckShapes.menuButton)
                             .gamepadClickable(swapAbxy, keyBindings) {
                                 onOpenFolder(dialogFolderTarget.first, dialogFolderTarget.second)
                             }

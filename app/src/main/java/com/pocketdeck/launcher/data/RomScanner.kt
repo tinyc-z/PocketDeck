@@ -93,22 +93,99 @@ object RomScanner {
     )
 
     /** 扫描多个根目录并合并：同一平台出现在多个目录时游戏合并到一个标签。 */
-    fun scanAll(roots: List<File>): Library {
-        val merged = HashMap<String, MutableMap<String, Game>>()
-        val platforms = LinkedHashMap<String, com.pocketdeck.launcher.data.model.Platform>()
+    fun scanAll(roots: List<File>): Library = scanAllProgressive(roots, emptySet(), null)
+
+    /**
+     * 渐进式扫描多个根目录：
+     * 1. 优先扫描 [priorityPlatformIds]（首个可见分类对应的平台目录），扫完后立即通过 [onProgress] 推送首屏结果；
+     * 2. 其余平台目录在后台分批扫描并增量合并推送，大幅缩短海量游戏首次冷启动白屏时间。
+     */
+    fun scanAllProgressive(
+        roots: List<File>,
+        priorityPlatformIds: Set<String> = emptySet(),
+        onProgress: ((Library) -> Unit)? = null,
+    ): Library {
+        val rootsKey = roots.joinToString(";") { it.path }
+        val merged = HashMap<String, LinkedHashMap<String, Game>>()
+        val platforms = LinkedHashMap<String, Platform>()
         val counts = LinkedHashMap<String, Int>()
+        roots.forEach { counts[it.path] = 0 }
+
+        fun addScanned(rootPath: String, plat: Platform, list: List<Game>) {
+            if (list.isEmpty()) return
+            val bucket = merged.getOrPut(plat.id) { LinkedHashMap() }
+            var added = 0
+            for (g in list) {
+                if (bucket.putIfAbsent(g.id, g) == null) added++
+            }
+            platforms.putIfAbsent(plat.id, plat)
+            counts[rootPath] = (counts[rootPath] ?: 0) + added
+        }
+
+        fun snapshot(): Library {
+            val games = HashMap<String, List<Game>>(merged.size * 2)
+            for ((pid, m) in merged) {
+                games[pid] = m.values.sortedWith { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title) }
+            }
+            val sortedPlats = platforms.values.sortedWith(compareBy({ PlatformCatalog.sortKey(it.id) }, { it.id }))
+            return Library(rootsKey, sortedPlats, games, LinkedHashMap(counts))
+        }
+
+        // 先轻量枚举各根目录下的平台子文件夹，按优先级分桶
+        val priorityTasks = ArrayList<Triple<File, File, Platform>>()
+        val normalTasks = ArrayList<Triple<File, File, Platform>>()
+        val rootMiscRoots = ArrayList<File>()
+
         for (root in roots) {
-            val lib = scan(root)
-            counts[root.path] = lib.games.values.sumOf { it.size }
-            lib.platforms.forEach { platforms.putIfAbsent(it.id, it) }
-            lib.games.forEach { (pid, list) ->
-                val m = merged.getOrPut(pid) { LinkedHashMap() }
-                list.forEach { m.putIfAbsent(it.id, it) }
+            val dirs = root.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }.orEmpty()
+            for (dir in dirs) {
+                if (dir.name.lowercase() in IGNORED_PLATFORM_DIRS) continue
+                val plat = PlatformCatalog.forFolder(dir.name)
+                val task = Triple(root, dir, plat)
+                if (plat.id in priorityPlatformIds) priorityTasks += task else normalTasks += task
+            }
+            if (PlatformCatalog.isKnown(root.name)) {
+                val plat = PlatformCatalog.forFolder(root.name)
+                val task = Triple(root, root, plat)
+                if (plat.id in priorityPlatformIds) priorityTasks += task else normalTasks += task
+            } else {
+                rootMiscRoots += root
             }
         }
-        val games = merged.mapValues { (_, m) -> m.values.sortedBy { it.title.lowercase() } }
-        val sorted = platforms.values.sortedWith(compareBy({ PlatformCatalog.sortKey(it.id) }, { it.id }))
-        return Library(roots.joinToString(";") { it.path }, sorted, games, counts)
+
+        // 阶段 1：优先扫完首个标签页对应的平台目录，立刻上屏
+        if (priorityTasks.isNotEmpty()) {
+            for ((root, dir, plat) in priorityTasks) {
+                addScanned(root.path, plat, scanPlatform(dir, plat.id))
+            }
+            if (onProgress != null && merged.isNotEmpty()) {
+                onProgress(snapshot())
+            }
+        }
+
+        // 阶段 2：其余平台目录按顺序分批扫描，每 4 个平台推送一次进度
+        var batchCount = 0
+        for ((root, dir, plat) in normalTasks) {
+            addScanned(root.path, plat, scanPlatform(dir, plat.id))
+            batchCount++
+            if (onProgress != null && batchCount % 4 == 0 && merged.isNotEmpty()) {
+                onProgress(snapshot())
+            }
+        }
+
+        // 阶段 3：扫描直接散落在根目录下的 ROM 文件
+        for (root in rootMiscRoots) {
+            val rootGames = scanPlatform(root, "misc")
+            for (g in rootGames) {
+                val ext = g.fileName.substringAfterLast('.', "").lowercase()
+                val inferredId = inferPlatformByExt(ext) ?: "misc"
+                val plat = PlatformCatalog.forFolder(inferredId)
+                val patched = if (g.platformId == plat.id) g else g.copy(platformId = plat.id)
+                addScanned(root.path, plat, listOf(patched))
+            }
+        }
+
+        return snapshot()
     }
 
     fun scan(root: File): Library {

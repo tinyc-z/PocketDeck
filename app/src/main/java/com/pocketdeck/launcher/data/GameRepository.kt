@@ -272,17 +272,58 @@ class GameRepository(
         val lastModifiedMs: Long,
     )
 
+    private val indexCache = LibraryIndexCache(context)
     private val refreshGen = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** 推断用户首页第一个可见分类涉及的平台 ID，用于无缓存冷启动时优先扫描首屏平台。 */
+    private fun firstVisiblePlatformIds(user: UserData): Set<String> {
+        val orderedCats = if (user.tabOrder.isNotEmpty()) {
+            val orderMap = user.tabOrder.withIndex().associate { it.value to it.index }
+            user.categories.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
+        } else {
+            user.categories
+        }
+        val firstVisible = orderedCats.firstOrNull { it.id !in user.hiddenTabs && it.sources.isNotEmpty() }
+        return firstVisible?.sources?.toSet() ?: setOf("nes", "snes", "gb", "gba")
+    }
 
     fun refresh() {
         val gen = refreshGen.incrementAndGet()
         scope.launch {
             _scanning.value = true
             try {
-                val roots = effectiveRoots(userStore.data.first())
+                val userData = userStore.data.first()
+                val roots = effectiveRoots(userData)
+                val rootsKey = roots.joinToString(";") { it.path }
+
+                // 阶段 1：冷启动命中本地二进制索引缓存 → < 30ms 秒开首屏
+                val hadWarmCache = if (scanned.value == null) {
+                    val cached = withContext(Dispatchers.IO) { indexCache.load(rootsKey) }
+                    if (cached != null && refreshGen.get() == gen) {
+                        scanned.value = cached
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    true
+                }
+
+                // 阶段 2：后台增量/渐进扫描真实磁盘（无缓存时优先扫首个可见标签平台并分段推送）
+                val priorityPlats = firstVisiblePlatformIds(userData)
                 val result = withContext(Dispatchers.IO) {
+                    val scannedLib = RomScanner.scanAllProgressive(
+                        roots = roots,
+                        priorityPlatformIds = priorityPlats,
+                        onProgress = if (!hadWarmCache) { partial ->
+                            if (refreshGen.get() == gen) {
+                                scanned.value = partial
+                            }
+                        } else null,
+                    )
                     cachedInstalledApps = queryInstalledLaunchableApps()
-                    RomScanner.scanAll(roots)
+                    indexCache.save(rootsKey, scannedLib)
+                    scannedLib
                 }
                 if (refreshGen.get() == gen) {
                     scanned.value = result
