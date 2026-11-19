@@ -38,15 +38,15 @@ PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI
 
 ---
 
-### 🌐 PocketDeck OS — Flat Minimalist Web Game Library Manager
+### 🌐 PocketDeck Web Console — Sunset Arcade Library Manager
 
 <div align="center">
-  <img src="docs/images/web-manager-showcase.jpg" alt="PocketDeck OS Web Manager & LocalSend Transfer" width="90%"/>
+  <img src="docs/images/web-manager-showcase.jpg" alt="PocketDeck Web Console & LocalSend Transfer" width="90%"/>
 </div>
 
 Turn any PC, Mac, or tablet browser on your LAN into a full **Web Game Library Console** (`http://<handheld-ip>:8686`) secured with a dynamic 4-digit PIN and brute-force rate limiting:
 
-- **Flat Minimalist UI & Dynamic Theme Sync**: Clean hairline borders and thin Lucide-style vector SVG icons that automatically mirror your handheld's **Light / Dark mode** and **12 Eye-Friendly Theme Accents** in real time.
+- **Sunset Arcade UI & Live Theme Sync**: Frosted sidebar, bottom device & storage card, pill filter chips, right-hand detail drawer, and brand-gradient placeholders that automatically mirror your handheld's **Light / Dark mode** and **8 Dual-Tone Gradient Themes** in real time.
 - **100% Handheld-Served Covers & Metadata**: Displays box art and full metadata served directly from the handheld (the browser never connects to external internet domains). Need an update? Trigger scraping on the handheld right from the browser modal, watch live floating scrape logs, or upload custom cover art.
 - **Visual Tag & Category Editor**: Drag-and-drop reordering, editing `NOW / FAVS / OTHER` aliases & sort orders, binding platforms to custom categories, and syncing directly to the handheld with strict server-side schema & bounds validation.
 - **Complete File & Archive Manager**: Clickable breadcrumbs, multi-select batch Move / Copy / Delete / Compress to ZIP, folder drag-and-drop upload (`webkitdirectory`), archive inspection & extraction (ZIP / 7Z / RAR / TAR), image/audio previews, and inline text/config editing.
@@ -68,8 +68,8 @@ Turn any PC, Mac, or tablet browser on your LAN into a full **Web Game Library C
   <img src="docs/images/v040-ui-showcase.jpg" alt="PocketDeck v0.4.0 Redesigned Settings, Launcher, Icons & Flat LAN UI" width="90%"/>
 </div>
 
-- **12 Eye-Friendly Theme Accents & 10 Backgrounds**: Curated low-fatigue palette including `Sage`, `Slate`, `Terracotta`, and `Graphite`, paired with `Waves`, `Gradient`, `Particles`, `Aurora Ribbons`, `Topographic`, `Dot Matrix`, `Cover Blur`, `Static Waves`, `Custom Image`, and `Solid Color` in full Light / Dark / System mode.
-- **Unified Thin Flat Iconography & 6-Section Settings**: Custom Lucide-style vector icon set across the entire app (zero skeuomorphic OS emojis), hairline borders, 2-column Status Bar toggle grid, and two-tier Launcher cards that never truncate platform names.
+- **8 Dual-Tone Gradient Themes & 7 Backgrounds**: Curated Sunset Arcade gradient themes (`Sunset`, `Berry`, `Ocean`, `Mint`, `Lemon`, `Sakura`, `Grape`, `Graphite`), paired with live-previewed `Sunset Flow`, `Pixel Drift`, `Retro Grid`, `Cover Glow`, `Aurora`, `Custom Image`, and `Solid` backgrounds in full Light / Dark / Auto mode, plus a `Reduce motion` toggle.
+- **Unified Gaming Icons & 7-Section Settings**: Matching sunset-coral brand icons across the App Launcher, Game Library, and Quick Share; full Lucide-style vector icon set; L1/R1 section switching across `Look · Home · Library · Covers · Emulators · Controls · System`; grouped white cards; and inline visual pickers.
 - **Custom Fonts & Tactile Dual-Tone Key Sounds**: Import `.ttf / .otf / .ttc` fonts and enjoy a single Key Sound toggle with **Mechanical Switch** audio on category switches and **Crisp Tick** on navigation/taps.
 - **Massive-Library Cold-Start Architecture**: Binary disk index cache (`Stale-While-Revalidate`) for near-instant cold boots, first-tab-first progressive ROM scanning on uncached drives, and bounded LRU tab caching for 30+ categories.
 - **Multi-Source Cover & Metadata Scraping + Live Logs**: Drag-to-reorder priority across **Libretro Thumbnails / DB**, **Hasheous (CRC32)**, **ArcadeItalia**, **Wikidata**, **ScreenScraper.fr**, **TheGamesDB**, and **IGDB**, with built-in searchable & exportable scraping logs.
