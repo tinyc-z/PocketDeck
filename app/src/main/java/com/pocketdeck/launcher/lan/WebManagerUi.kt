@@ -553,8 +553,9 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .drawer-cover {
     width:176px; height:176px; border-radius:16px; overflow:hidden;
     background:var(--brand); box-shadow:var(--shadow); margin-bottom:14px;
-    display:grid; place-items:center; color:#fff; font-weight:800; font-size:15px; padding:12px; text-align:center;
+    display:grid; place-items:center; color:#fff; font-weight:800; font-size:15px; text-align:center;
   }
+  .drawer-cover span { padding:14px; }
   .drawer-cover img { width:100%; height:100%; object-fit:cover; display:block; }
   .drawer-title { font-size:21px; font-weight:800; letter-spacing:-.3px; margin:0 0 10px; line-height:1.25; }
   .drawer-tags { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px; }
@@ -839,7 +840,7 @@ const I18N = {
     tab_files: '文件管理',
     btn_rescan: '↻ 重新扫描',
     btn_logout: '退出登录',
-    search_games_ph: '搜索游戏名、官方名、文件名、厂商、类型…',
+    search_games_ph: '搜索游戏',
     vis_all: '全部状态',
     vis_visible: '仅已显示',
     vis_fav: '仅收藏 ♥',
@@ -1077,7 +1078,7 @@ const I18N = {
     tab_files: '檔案管理',
     btn_rescan: '↻ 重新掃描',
     btn_logout: '登出',
-    search_games_ph: '搜尋遊戲名稱、官方名稱、檔名、廠商、類型…',
+    search_games_ph: '搜尋遊戲',
     vis_all: '全部狀態',
     vis_visible: '僅已顯示',
     vis_fav: '僅收藏 ♥',
@@ -1315,7 +1316,7 @@ const I18N = {
     tab_files: 'Files',
     btn_rescan: 'Rescan',
     btn_logout: 'Log Out',
-    search_games_ph: 'Search title, official name, filename, developer, genre…',
+    search_games_ph: 'Search games',
     vis_all: 'All Status',
     vis_visible: 'Visible Only',
     vis_fav: 'Favorites ♥',
