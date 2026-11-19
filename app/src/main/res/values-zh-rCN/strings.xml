@@ -689,6 +689,6 @@
     <string name="settings_group_actions">操作</string>
     <string name="settings_group_general">通用</string>
     <string name="settings_reduce_motion">减少动态效果</string>
-    <string name="settings_reduce_motion_desc">暂停背景动画，更省电</string>
+    <string name="settings_reduce_motion_desc">暂停背景动画并简化界面过渡、发光与阴影效果，更流畅省电</string>
     <string name="share_failed">分享失败</string>
 </resources>

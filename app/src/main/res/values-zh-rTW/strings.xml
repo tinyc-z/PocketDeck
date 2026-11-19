@@ -689,6 +689,6 @@
     <string name="settings_group_actions">操作</string>
     <string name="settings_group_general">一般</string>
     <string name="settings_reduce_motion">減少動態效果</string>
-    <string name="settings_reduce_motion_desc">暫停背景動畫，更省電</string>
+    <string name="settings_reduce_motion_desc">暫停背景動畫並簡化介面過渡、發光與陰影效果，更流暢省電</string>
     <string name="share_failed">分享失敗</string>
 </resources>

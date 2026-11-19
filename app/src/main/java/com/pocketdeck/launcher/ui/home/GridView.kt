@@ -5,6 +5,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,6 +31,7 @@ import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.ui.components.GameCoverCard
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import kotlin.math.abs
 
 const val GRID_COLUMNS = 5
@@ -57,8 +59,9 @@ fun GridView(
     }
 
     val gridState = rememberLazyGridState()
+    val reduceMotion = LocalReduceMotion.current
     var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(focusIndex, games.size) {
+    LaunchedEffect(focusIndex, games.size, reduceMotion) {
         if (focusIndex !in games.indices) return@LaunchedEffect
         val now = SystemClock.uptimeMillis()
         val rapidRepeat = fastScrolling || (now - lastScrollTriggerMs < 170L)
@@ -71,19 +74,23 @@ fun GridView(
             val itemCenter = itemInfo.offset.y + itemInfo.size.height / 2f
             val delta = itemCenter - viewportCenter
             if (abs(delta) > 6f) {
-                gridState.animateScrollBy(
-                    value = delta,
-                    animationSpec = if (rapidRepeat) {
-                        tween(durationMillis = 70, easing = LinearEasing)
-                    } else {
-                        tween(durationMillis = 180, easing = FastOutSlowInEasing)
-                    },
-                )
+                if (reduceMotion) {
+                    gridState.scrollBy(delta)
+                } else {
+                    gridState.animateScrollBy(
+                        value = delta,
+                        animationSpec = if (rapidRepeat) {
+                            tween(durationMillis = 70, easing = LinearEasing)
+                        } else {
+                            tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                        },
+                    )
+                }
             }
         } else {
             val halfVisible = (info.visibleItemsInfo.size / 2).coerceAtLeast(GRID_COLUMNS)
             val target = (focusIndex - halfVisible).coerceAtLeast(0)
-            if (rapidRepeat) {
+            if (rapidRepeat || reduceMotion) {
                 gridState.scrollToItem(target)
             } else {
                 gridState.animateScrollToItem(target)

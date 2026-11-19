@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
@@ -17,6 +18,9 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+
+/** 全局「减少动态效果」开关：开启时关闭过渡动画与多余光晕/投影，换取最低延迟与最佳帧率。 */
+val LocalReduceMotion = staticCompositionLocalOf { false }
 
 /**
  * Sunset Arcade 品牌视觉辅助：
@@ -109,6 +113,7 @@ fun Modifier.brandFocusRing(
     glow: Boolean = true,
 ): Modifier {
     if (!focused) return this
+    val effectiveGlow = glow && !LocalReduceMotion.current
     val p = LocalDeckColors.current
     val brandStart = p.brandStart
     val brandMid = p.brandMid
@@ -134,7 +139,7 @@ fun Modifier.brandFocusRing(
         val dropCorner = CornerRadius(r + 2.dp.toPx())
         val mainCorner = CornerRadius(r)
         onDrawBehind {
-            if (glow) {
+            if (effectiveGlow) {
                 drawRoundRect(
                     color = dropColor,
                     topLeft = dropOffset,

@@ -74,6 +74,7 @@ import com.pocketdeck.launcher.ui.components.PlatformBadge
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -132,17 +133,22 @@ fun GalleryView(
         animatedFocus.snapTo(focusIndex.toFloat())
     }
 
-    // 滚动动画：中等刚度 + 保留速度，长按左右键也能连续丝滑滑行
-    LaunchedEffect(focusIndex, isDragging) {
+    // 滚动动画：减少动态效果时立即 snapTo 零帧切换；常规模式用中等刚度弹簧
+    val reduceMotion = LocalReduceMotion.current
+    LaunchedEffect(focusIndex, isDragging, reduceMotion) {
         if (!isDragging) {
-            animatedFocus.animateTo(
-                focusIndex.toFloat(),
-                spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = 560f,
-                ),
-                initialVelocity = animatedFocus.velocity,
-            )
+            if (reduceMotion) {
+                animatedFocus.snapTo(focusIndex.toFloat())
+            } else {
+                animatedFocus.animateTo(
+                    focusIndex.toFloat(),
+                    spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = 560f,
+                    ),
+                    initialVelocity = animatedFocus.velocity,
+                )
+            }
         }
     }
 
@@ -189,10 +195,10 @@ fun GalleryView(
         val titleOffsetX = remember { Animatable(0f) }
         val titleAlpha = remember { Animatable(1f) }
         var prevTitleIndex by remember(listKey) { mutableStateOf(focusIndex) }
-        LaunchedEffect(listKey, focusIndex) {
+        LaunchedEffect(listKey, focusIndex, reduceMotion) {
             val prev = prevTitleIndex
             prevTitleIndex = focusIndex
-            if (fastScrolling || isDragging || prev == focusIndex) {
+            if (fastScrolling || isDragging || reduceMotion || prev == focusIndex) {
                 titleOffsetX.snapTo(0f)
                 titleAlpha.snapTo(1f)
             } else {
@@ -445,7 +451,8 @@ private fun MetaChipRow(
         return
     }
     val p = LocalDeckColors.current
-    val chipBg = if (p.isDark) Color(0xFF2B2138).copy(alpha = 0.74f) else Color.White.copy(alpha = 0.78f)
+    val reduceMotion = LocalReduceMotion.current
+    val chipBg = if (p.isDark) Color(0xFF2B2138).copy(alpha = if (reduceMotion) 0.92f else 0.74f) else Color.White.copy(alpha = if (reduceMotion) 0.96f else 0.78f)
     val chipBorder = if (p.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.85f)
     val chipShadow = if (p.isDark) Color(0x99000000) else Color(0x45782846)
     val chipText = if (p.isDark) Color(0xFFDED3E8) else p.textMeta
@@ -464,29 +471,35 @@ private fun MetaChipRow(
             Box(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .drawWithCache {
-                        val r = size.height / 2f
-                        val corner = CornerRadius(r, r)
-                        val dy1 = 2.5.dp.toPx()
-                        val dy2 = 5.dp.toPx()
-                        val pad2 = 1.5.dp.toPx()
-                        val sh1 = chipShadow.copy(alpha = if (p.isDark) 0.24f else 0.11f)
-                        val sh2 = chipShadow.copy(alpha = if (p.isDark) 0.14f else 0.06f)
-                        onDrawBehind {
-                            drawRoundRect(
-                                color = sh2,
-                                topLeft = Offset(-pad2, dy2),
-                                size = androidx.compose.ui.geometry.Size(size.width + pad2 * 2f, size.height),
-                                cornerRadius = corner,
-                            )
-                            drawRoundRect(
-                                color = sh1,
-                                topLeft = Offset(0f, dy1),
-                                size = size,
-                                cornerRadius = corner,
-                            )
-                        }
-                    }
+                    .then(
+                        if (reduceMotion) {
+                            Modifier
+                        } else {
+                            Modifier.drawWithCache {
+                                val r = size.height / 2f
+                                val corner = CornerRadius(r, r)
+                                val dy1 = 2.5.dp.toPx()
+                                val dy2 = 5.dp.toPx()
+                                val pad2 = 1.5.dp.toPx()
+                                val sh1 = chipShadow.copy(alpha = if (p.isDark) 0.24f else 0.11f)
+                                val sh2 = chipShadow.copy(alpha = if (p.isDark) 0.14f else 0.06f)
+                                onDrawBehind {
+                                    drawRoundRect(
+                                        color = sh2,
+                                        topLeft = Offset(-pad2, dy2),
+                                        size = androidx.compose.ui.geometry.Size(size.width + pad2 * 2f, size.height),
+                                        cornerRadius = corner,
+                                    )
+                                    drawRoundRect(
+                                        color = sh1,
+                                        topLeft = Offset(0f, dy1),
+                                        size = size,
+                                        cornerRadius = corner,
+                                    )
+                                }
+                            }
+                        },
+                    )
                     .background(chipBg, CircleShape)
                     .border(0.75.dp, chipBorder, CircleShape)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -629,6 +642,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
     val pad = if (placeAtTop) PaddingValues(top = 4.dp, start = 16.dp, end = 16.dp)
     else PaddingValues(bottom = 6.dp, start = 16.dp, end = 16.dp)
     val p = LocalDeckColors.current
+    val reduceMotion = LocalReduceMotion.current
     val hairline = remember(p.brandStart, p.brandMid, p.brandEnd) {
         Brush.horizontalGradient(listOf(p.brandStart, p.brandMid, p.brandEnd))
     }
@@ -639,15 +653,21 @@ internal fun BoxScope.FocusedGameFloatingPill(
             .zIndex(20f)
             .padding(pad)
             .widthIn(max = 460.dp)
-            .drawWithCache {
-                val r = size.height / 2f
-                val corner = CornerRadius(r, r)
-                val dy = 3.dp.toPx()
-                val sh = if (p.isDark) Color(0x55000000) else Color(0x28782846)
-                onDrawBehind {
-                    drawRoundRect(sh, topLeft = Offset(0f, dy), size = size, cornerRadius = corner)
-                }
-            }
+            .then(
+                if (reduceMotion) {
+                    Modifier
+                } else {
+                    Modifier.drawWithCache {
+                        val r = size.height / 2f
+                        val corner = CornerRadius(r, r)
+                        val dy = 3.dp.toPx()
+                        val sh = if (p.isDark) Color(0x55000000) else Color(0x28782846)
+                        onDrawBehind {
+                            drawRoundRect(sh, topLeft = Offset(0f, dy), size = size, cornerRadius = corner)
+                        }
+                    }
+                },
+            )
             .background(p.surface, CircleShape)
             .border(1.dp, hairline, CircleShape)
             .padding(start = 8.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
@@ -663,7 +683,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
             color = DeckColors.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = if (fastScrolling) {
+            modifier = if (fastScrolling || reduceMotion) {
                 Modifier.weight(1f, fill = false)
             } else {
                 Modifier

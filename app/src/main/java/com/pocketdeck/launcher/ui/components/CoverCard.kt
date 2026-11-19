@@ -80,6 +80,7 @@ import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.brandFocusRing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -233,10 +234,11 @@ fun CoverCard(
         }
     }
 
+    val reduceMotion = LocalReduceMotion.current
     val scaleState = if (useFocusAnim) {
         animateFloatAsState(
             targetValue = if (isFocused) focusedScale else unfocusedScale,
-            animationSpec = if (fastScrolling) snap() else spring(dampingRatio = 0.65f, stiffness = 420f),
+            animationSpec = if (fastScrolling || reduceMotion) snap() else spring(dampingRatio = 0.65f, stiffness = 420f),
             label = "coverScale",
         )
     } else {
@@ -245,15 +247,15 @@ fun CoverCard(
     val focusProgressState = if (useFocusAnim) {
         animateFloatAsState(
             targetValue = if (isFocused) 1f else 0f,
-            animationSpec = if (fastScrolling) snap() else spring(dampingRatio = 0.80f, stiffness = 480f),
+            animationSpec = if (fastScrolling || reduceMotion) snap() else spring(dampingRatio = 0.80f, stiffness = 480f),
             label = "coverFocus",
         )
     } else {
         null
     }
-    // 焦点卡由外层 brandFocusRing 绘制渐变环 + 柔和彩色阴影；非焦点卡使用轻量缓存投影，彻底避免 Android RenderNode 硬件 shadow 网格重算
+    // 焦点卡由外层 brandFocusRing 绘制渐变环 + 柔和彩色阴影；非焦点卡使用轻量缓存投影，减少动态效果时关闭阴影
     val cardShadowColor = DeckColors.CardShadow
-    val drawSoftShadow = !isFocused && !fastScrolling && height >= 64.dp
+    val drawSoftShadow = !isFocused && !fastScrolling && !reduceMotion && height >= 64.dp
 
     val density = LocalDensity.current
     val decodeBucketPx = remember(width, height, density.density) {

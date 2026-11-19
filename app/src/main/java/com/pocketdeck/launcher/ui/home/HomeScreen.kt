@@ -108,6 +108,7 @@ import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.InterFamily
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
 import com.pocketdeck.launcher.ui.theme.LocalDeckFontFamily
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.SystemFonts
 import com.pocketdeck.launcher.ui.theme.deckPalette
 import androidx.compose.ui.res.stringResource
@@ -116,6 +117,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -259,6 +261,7 @@ fun HomeScreen(
     val scrollCtrl = remember {
         object {
             var lastNavKeyMs: Long = 0L
+            var lastTabSwitchMs: Long = 0L
             var fastScrollJob: Job? = null
             var navAnimJob: Job? = null
         }
@@ -320,6 +323,7 @@ fun HomeScreen(
         LocalDeckColors provides palette,
         LocalDeckFontFamily provides fontFamily,
         LocalIsOnline provides isOnline,
+        LocalReduceMotion provides state.reduceMotion,
     ) {
     Box(
         modifier
@@ -347,21 +351,30 @@ fun HomeScreen(
                 }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
+                val isHomeTabSwitchKey = !hasChildFocusOverlay &&
+                    !state.showViewMenu &&
+                    !(state.searching && imeVisible) &&
+                    (
+                        GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings) ||
+                            GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) ||
+                            (state.viewMode == ViewMode.List && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight))
+                        )
+                if (isHomeTabSwitchKey) {
+                    val now = SystemClock.uptimeMillis()
+                    // 单按保持即时响应（防误触抖动 85ms），长按连发限速 170ms（约 6 格/秒），与顶栏胶囊滑动动画节拍匹配
+                    val minGap = if (event.nativeKeyEvent.repeatCount > 0) 170L else 85L
+                    if (now - scrollCtrl.lastTabSwitchMs < minGap) {
+                        return@onPreviewKeyEvent true
+                    }
+                    scrollCtrl.lastTabSwitchMs = now
+                }
+
                 if (state.keySoundEnabled &&
                     !capturingKeyBind &&
                     !imeVisible &&
                     KeySound.isNavOrGamepadKey(event, state.swapAbxy, state.keyBindings)
                 ) {
-                    val isTabSwitchKey = when {
-                        GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings) ||
-                            GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) ->
-                            !state.showViewMenu && !state.showSettings && !state.showApps &&
-                                state.menuGame == null && state.propertiesGame == null &&
-                                state.editingGame == null && !showLanControlFromStatusBar
-                        !hasChildFocusOverlay && !state.showViewMenu && state.viewMode == ViewMode.List &&
-                            (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> true
-                        else -> false
-                    }
+                    val isTabSwitchKey = isHomeTabSwitchKey
                     if (isTabSwitchKey) {
                         KeySound.playTabSwitch(context, true)
                     } else {
@@ -428,7 +441,7 @@ fun HomeScreen(
                     navAnimatingFlow.value = true
                     scrollCtrl.navAnimJob?.cancel()
                     scrollCtrl.navAnimJob = scope.launch {
-                        delay(320L)
+                        delay(220L)
                         navAnimatingFlow.value = false
                     }
                     val now = SystemClock.uptimeMillis()
@@ -581,25 +594,44 @@ fun HomeScreen(
             )
 
             // 搜索栏置顶在 TopBar 下方，不遮挡搜索结果和键盘区域
-            AnimatedVisibility(
-                visible = state.searching,
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
-                SearchBar(
-                    query = state.searchQuery,
-                    imeVisible = imeVisible,
-                    onQueryChange = { vm.setSearchQuery(it) },
-                    onFieldFocusChange = { searchFieldFocused = it },
-                    onHideKeyboard = { dismissSearchKeyboard() },
-                    onClose = {
-                        dismissSearchKeyboard()
-                        vm.toggleSearch()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+            if (state.reduceMotion) {
+                if (state.searching) {
+                    SearchBar(
+                        query = state.searchQuery,
+                        imeVisible = imeVisible,
+                        onQueryChange = { vm.setSearchQuery(it) },
+                        onFieldFocusChange = { searchFieldFocused = it },
+                        onHideKeyboard = { dismissSearchKeyboard() },
+                        onClose = {
+                            dismissSearchKeyboard()
+                            vm.toggleSearch()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            } else {
+                AnimatedVisibility(
+                    visible = state.searching,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    SearchBar(
+                        query = state.searchQuery,
+                        imeVisible = imeVisible,
+                        onQueryChange = { vm.setSearchQuery(it) },
+                        onFieldFocusChange = { searchFieldFocused = it },
+                        onHideKeyboard = { dismissSearchKeyboard() },
+                        onClose = {
+                            dismissSearchKeyboard()
+                            vm.toggleSearch()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
             }
 
             val topGap = when {
@@ -1173,6 +1205,29 @@ private fun HomeBackgroundSlot(
 ) {
     val isFastScrolling by fastScrollingFlow.collectAsState()
     val isNavAnimating by navAnimatingFlow.collectAsState()
+    var focusChangePaused by remember { mutableStateOf(false) }
+    LaunchedEffect(focusIndexFlow) {
+        var first = true
+        focusIndexFlow.collectLatest {
+            if (first) {
+                first = false
+            } else {
+                focusChangePaused = true
+                delay(220L)
+                focusChangePaused = false
+            }
+        }
+    }
+    var lastTab by remember { mutableIntStateOf(selectedTab) }
+    var tabChangePaused by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != lastTab) {
+            lastTab = selectedTab
+            tabChangePaused = true
+            delay(220L)
+            tabChangePaused = false
+        }
+    }
 
     val coverCandidates: List<Any>
     val knownIdx: Int?
@@ -1233,7 +1288,7 @@ private fun HomeBackgroundSlot(
         knownCoverIndex = knownIdx,
         apkPackage = apkPackage,
         customBackground = customBackground,
-        paused = staticPaused || isFastScrolling || isNavAnimating,
+        paused = staticPaused || isFastScrolling || isNavAnimating || focusChangePaused || tabChangePaused,
     )
 }
 

@@ -85,6 +85,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.coroutineScope
@@ -291,7 +292,8 @@ fun TopBar(
         }
     }
 
-    // 动态滑块胶囊状态：位置 X 与宽度 W 同步弹性过渡，并自动将选中标签滚入可视居中区
+    // 动态滑块胶囊状态：位置 X 与宽度 W 同步弹性过渡，并自动将选中标签滚入可视居中区；减少动态效果时直接瞬切
+    val reduceMotion = LocalReduceMotion.current
     val scrollState = rememberScrollState()
     val tabBounds = remember(tabs) { mutableStateMapOf<Int, Pair<Float, Float>>() }
     var pillHeightPx by remember { mutableFloatStateOf(0f) }
@@ -303,14 +305,14 @@ fun TopBar(
     val safeSelected = selectedIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
     val targetBounds = tabBounds[safeSelected]
 
-    LaunchedEffect(safeSelected, targetBounds, viewportWidthPx) {
+    LaunchedEffect(safeSelected, targetBounds, viewportWidthPx, reduceMotion) {
         val (tx, tw) = targetBounds ?: return@LaunchedEffect
         val scrollTarget = if (viewportWidthPx > 0) {
             (tx + tw / 2f - viewportWidthPx / 2f).roundToInt().coerceIn(0, scrollState.maxValue)
         } else {
             null
         }
-        if (!pillInitialized || pillW.value <= 0f) {
+        if (!pillInitialized || pillW.value <= 0f || reduceMotion) {
             pillX.snapTo(tx)
             pillW.snapTo(tw)
             pillInitialized = true
@@ -339,7 +341,7 @@ fun TopBar(
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 可滚动标签行 + 动态滑动缩放的渐变选中胶囊（仅在需要边缘渐变时启用离屏合成）
+        // 可滚动标签行 + 动态滑动缩放的渐变选中胶囊（减少动态效果时跳过离屏渐隐 FBO 与 3 层辉光）
         val palette = LocalDeckColors.current
         val brandStart = palette.brandStart
         val brandMid = palette.brandMid
@@ -347,8 +349,8 @@ fun TopBar(
         val tabGlow = palette.brandEnd
         val tabSelectedStyle = DeckType.tabSelected
         val tabInactiveStyle = DeckType.tabInactive.copy(fontWeight = FontWeight.SemiBold)
-        val fadeLeft by remember { derivedStateOf { scrollState.value > 2 } }
-        val fadeRight by remember { derivedStateOf { scrollState.value < scrollState.maxValue - 2 } }
+        val fadeLeft by remember { derivedStateOf { !reduceMotion && scrollState.value > 2 } }
+        val fadeRight by remember { derivedStateOf { !reduceMotion && scrollState.value < scrollState.maxValue - 2 } }
 
         Box(
             modifier = Modifier
@@ -389,16 +391,18 @@ fun TopBar(
                             val x = pillX.value
                             val y = (size.height - h) / 2f
                             val r = h / 2f
-                            val yOff = 2.dp.toPx()
-                            // 柔和彩色投影辉光（无离屏开销）
-                            for (step in 3 downTo 1) {
-                                val spread = step * 2.2.dp.toPx()
-                                drawRoundRect(
-                                    color = tabGlow.copy(alpha = 0.08f * (4 - step) / 3f),
-                                    topLeft = Offset(x - spread * 0.45f, y + yOff - spread * 0.25f),
-                                    size = Size(w + spread * 0.9f, h + spread * 0.8f),
-                                    cornerRadius = CornerRadius(r + spread * 0.4f, r + spread * 0.4f),
-                                )
+                            if (!reduceMotion) {
+                                val yOff = 2.dp.toPx()
+                                // 柔和彩色投影辉光（无离屏开销）
+                                for (step in 3 downTo 1) {
+                                    val spread = step * 2.2.dp.toPx()
+                                    drawRoundRect(
+                                        color = tabGlow.copy(alpha = 0.08f * (4 - step) / 3f),
+                                        topLeft = Offset(x - spread * 0.45f, y + yOff - spread * 0.25f),
+                                        size = Size(w + spread * 0.9f, h + spread * 0.8f),
+                                        cornerRadius = CornerRadius(r + spread * 0.4f, r + spread * 0.4f),
+                                    )
+                                }
                             }
                             drawRoundRect(
                                 brush = Brush.linearGradient(
@@ -420,11 +424,16 @@ fun TopBar(
                 ) {
                     tabs.forEachIndexed { i, tab ->
                         val selected = i == safeSelected
-                        val textColor by animateColorAsState(
-                            targetValue = if (selected) Color.White else DeckColors.TextLabel,
-                            animationSpec = tween(durationMillis = 180),
-                            label = "tabTextColor",
-                        )
+                        val targetTextColor = if (selected) Color.White else DeckColors.TextLabel
+                        val textColor = if (reduceMotion) {
+                            targetTextColor
+                        } else {
+                            animateColorAsState(
+                                targetValue = targetTextColor,
+                                animationSpec = tween(durationMillis = 180),
+                                label = "tabTextColor",
+                            ).value
+                        }
                         Box(
                             Modifier
                                 .onPlaced { coords ->

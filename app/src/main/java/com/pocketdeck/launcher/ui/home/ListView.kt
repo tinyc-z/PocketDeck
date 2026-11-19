@@ -9,6 +9,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -103,8 +105,9 @@ fun ListView(
         listOf(palette.brandStart, palette.brandMid, palette.brandEnd)
     }
     val listState = rememberLazyListState()
+    val reduceMotion = LocalReduceMotion.current
     var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(focusIndex, games.size) {
+    LaunchedEffect(focusIndex, games.size, reduceMotion) {
         if (focusIndex !in games.indices) return@LaunchedEffect
         val now = SystemClock.uptimeMillis()
         val rapidRepeat = fastScrolling || (now - lastScrollTriggerMs < 170L)
@@ -117,19 +120,23 @@ fun ListView(
             val itemCenter = itemInfo.offset + itemInfo.size / 2f
             val delta = itemCenter - viewportCenter
             if (abs(delta) > 4f) {
-                listState.animateScrollBy(
-                    value = delta,
-                    animationSpec = if (rapidRepeat) {
-                        tween(durationMillis = 65, easing = LinearEasing)
-                    } else {
-                        tween(durationMillis = 160, easing = FastOutSlowInEasing)
-                    },
-                )
+                if (reduceMotion) {
+                    listState.scrollBy(delta)
+                } else {
+                    listState.animateScrollBy(
+                        value = delta,
+                        animationSpec = if (rapidRepeat) {
+                            tween(durationMillis = 65, easing = LinearEasing)
+                        } else {
+                            tween(durationMillis = 160, easing = FastOutSlowInEasing)
+                        },
+                    )
+                }
             }
         } else {
             val halfVisible = (info.visibleItemsInfo.size / 2).coerceAtLeast(1)
             val target = (focusIndex - halfVisible).coerceAtLeast(0)
-            if (rapidRepeat) {
+            if (rapidRepeat || reduceMotion) {
                 listState.scrollToItem(target)
             } else {
                 listState.animateScrollToItem(target)

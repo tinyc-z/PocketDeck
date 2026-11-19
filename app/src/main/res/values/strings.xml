@@ -690,6 +690,6 @@
     <string name="settings_group_actions">Actions</string>
     <string name="settings_group_general">General</string>
     <string name="settings_reduce_motion">Reduce motion</string>
-    <string name="settings_reduce_motion_desc">Pause background animation</string>
+    <string name="settings_reduce_motion_desc">Pause background motion and trim UI transitions, glow, and shadows for smoother performance</string>
     <string name="share_failed">Share failed</string>
 </resources>

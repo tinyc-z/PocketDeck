@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.translate
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -45,6 +46,7 @@ fun BrandHeartBadge(
     shadow: Boolean = true,
 ) {
     val p = LocalDeckColors.current
+    val drawGlow = shadow && !LocalReduceMotion.current
     val heartPath = remember { Path() }
     Box(
         modifier
@@ -57,7 +59,7 @@ fun BrandHeartBadge(
                 )
                 val glowRadius = this.size.minDimension * 0.72f
                 val glowCenter = Offset(this.size.width / 2f, this.size.height / 2f + 1.5.dp.toPx())
-                val glowBrush = if (shadow) {
+                val glowBrush = if (drawGlow) {
                     Brush.radialGradient(
                         0f to p.brandEnd.copy(alpha = 0.34f),
                         0.65f to p.brandEnd.copy(alpha = 0.12f),
