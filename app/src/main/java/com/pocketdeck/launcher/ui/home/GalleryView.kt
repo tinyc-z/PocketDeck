@@ -153,16 +153,16 @@ fun GalleryView(
         }
     }
 
-    val titleDragAlpha by animateFloatAsState(
-        targetValue = if (isDragging) 0.45f else 1f,
+    val dragAlpha by animateFloatAsState(
+        targetValue = if (isDragging || fastScrolling) 0.45f else 1f,
         animationSpec = if (reduceMotion) snap() else tween(120),
         label = "titleDragAlpha",
     )
     val metaVisible = !isDragging && !fastScrolling
-    val metaAlpha by animateFloatAsState(
+    val metaChipsAlpha by animateFloatAsState(
         targetValue = if (metaVisible) 1f else 0f,
         animationSpec = if (reduceMotion) snap() else tween(if (metaVisible) 150 else 80),
-        label = "metaSettleAlpha",
+        label = "metaChipsAlpha",
     )
     val listKey = remember(games) { games.firstOrNull()?.id }
     val titleSlidePx = with(density) { 28.dp.roundToPx() }
@@ -228,7 +228,7 @@ fun GalleryView(
                     .weight(1f)
                     .graphicsLayer {
                         translationX = titleOffsetX.value
-                        alpha = titleDragAlpha * titleAlpha.value
+                        alpha = (if (isDragging) dragAlpha else 1f) * titleAlpha.value
                     },
             ) {
                 Text(
@@ -264,7 +264,7 @@ fun GalleryView(
                 .fillMaxWidth()
                 .padding(start = leftMargin + 1.dp, end = 22.dp)
                 .height(20.dp)
-                .graphicsLayer { alpha = metaAlpha },
+                .graphicsLayer { alpha = dragAlpha },
         )
 
         Spacer(Modifier.height(12.dp))
@@ -400,7 +400,7 @@ fun GalleryView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = leftMargin, end = 24.dp)
-                    .graphicsLayer { alpha = metaAlpha },
+                    .graphicsLayer { alpha = metaChipsAlpha },
             )
         }
     }
