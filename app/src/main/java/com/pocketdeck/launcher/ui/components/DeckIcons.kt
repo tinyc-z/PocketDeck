@@ -420,12 +420,12 @@ object DeckIcons {
         }
     }
 
-    /** 搜索（镜面朝右上、手柄朝左下，与游戏库 / 文件管理搜索按钮方向一致） */
+    /** 搜索（镜面左上、手柄右下，与全局搜索图标方向一致） */
     val Search: ImageVector by lazy {
         strokeIcon("Search", strokeWidth = 2.0f) {
             strokePath(strokeWidth = 2.0f) {
-                circle(13.25f, 10.75f, 7f)
-                moveTo(8.3f, 15.7f); lineTo(3.75f, 20.25f)
+                circle(10.75f, 10.75f, 7f)
+                moveTo(15.7f, 15.7f); lineTo(20.25f, 20.25f)
             }
         }
     }
