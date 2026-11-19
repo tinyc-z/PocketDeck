@@ -83,6 +83,7 @@ import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.brandBorder
 import com.pocketdeck.launcher.ui.theme.DeckShapes
@@ -304,7 +305,8 @@ fun DirBrowser(
     Box(
         Modifier
             .fillMaxSize()
-            .background(DeckColors.Background),
+            .background(DeckColors.Background)
+            .blockOverlayTouchThrough(),
     ) {
         Column(Modifier.fillMaxSize()) {
             Row(

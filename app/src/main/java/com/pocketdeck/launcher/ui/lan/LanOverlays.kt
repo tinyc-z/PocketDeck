@@ -105,6 +105,7 @@ import com.pocketdeck.launcher.ui.settings.NameDialog
 import com.pocketdeck.launcher.ui.settings.NameDialogSpec
 import com.pocketdeck.launcher.ui.settings.NameDialogState
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.delay
@@ -1571,6 +1572,7 @@ fun IncomingShareDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
+            .blockOverlayTouchThrough()
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -1737,6 +1739,7 @@ fun ShareTransferDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
+            .blockOverlayTouchThrough()
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->

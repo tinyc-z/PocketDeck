@@ -82,6 +82,7 @@ import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.brandBorder
 import com.pocketdeck.launcher.ui.theme.brandPillBackground
@@ -135,6 +136,7 @@ fun ImageViewerDialog(
         Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.88f))
+            .blockOverlayTouchThrough()
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -320,6 +322,7 @@ fun TextFileViewerEditorDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
+            .blockOverlayTouchThrough()
             .focusRequester(rootFr)
             .focusable()
             .onPreviewKeyEvent { event ->
