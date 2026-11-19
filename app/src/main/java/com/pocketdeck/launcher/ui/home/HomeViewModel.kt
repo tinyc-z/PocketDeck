@@ -39,7 +39,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-enum class MetaFieldKey { ReleaseDate, Genre, Developer, Publisher, FileSize }
+enum class MetaFieldKey { ReleaseDate, Developer, Publisher, FileSize }
 
 data class HomeUiState(
     val tabs: List<TabInfo> = emptyList(),
@@ -917,7 +917,6 @@ class HomeViewModel(
                 val cur = u.metaDisplay
                 val next = when (field) {
                     MetaFieldKey.ReleaseDate -> cur.copy(releaseDate = !cur.releaseDate)
-                    MetaFieldKey.Genre -> cur.copy(genre = !cur.genre)
                     MetaFieldKey.Developer -> cur.copy(developer = !cur.developer)
                     MetaFieldKey.Publisher -> cur.copy(publisher = !cur.publisher)
                     MetaFieldKey.FileSize -> cur.copy(fileSize = !cur.fileSize)

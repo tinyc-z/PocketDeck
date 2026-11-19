@@ -397,6 +397,32 @@ fun CoverCard(
             )
         }
 
+        // 左上角平台缩写胶囊（有封面图与无封面图统一显示，圆形气泡与极小卡片不显示）
+        if (shapeOverride != CircleShape && !centeredTitle && !platformLabel.isNullOrBlank() && height >= 76.dp) {
+            val compactTag = height < 120.dp
+            val tagBg = if (loadedSuccess) Color.Black.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.20f)
+            Box(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(if (compactTag) 6.dp else 10.dp)
+                    .clip(CircleShape)
+                    .background(tagBg)
+                    .padding(
+                        horizontal = if (compactTag) 6.dp else 8.dp,
+                        vertical = if (compactTag) 1.5.dp else 2.5.dp,
+                    ),
+            ) {
+                Text(
+                    text = platformLabel,
+                    fontFamily = DeckFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = if (compactTag) 7.sp else 9.sp,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+            }
+        }
+
         // 前卫收藏液态玻璃微章：熏黑玻璃透镜 + 柔光晕 + 渐变立体心形（方形置右上角避免遮挡底部标题；气泡置正下方）
         if (isFavorite && width >= 54.dp && height >= 54.dp) {
             val isCircle = shapeOverride == CircleShape
@@ -608,35 +634,13 @@ fun DefaultCoverArt(
                 )
             }
         } else {
-            // 盒装封面风格：左上平台小胶囊 + 底部游戏标题
+            // 盒装封面风格：左上角平台胶囊由外层 CoverCard 统一绘制，此处仅保留底部游戏标题
             Column(
                 Modifier
                     .fillMaxSize()
                     .padding(if (compact) 6.dp else 10.dp),
-                verticalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.Bottom,
             ) {
-                if (!platformLabel.isNullOrBlank() && cardHeight >= 76.dp) {
-                    Box(
-                        Modifier
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.20f))
-                            .padding(
-                                horizontal = if (compact) 6.dp else 8.dp,
-                                vertical = if (compact) 1.5.dp else 2.5.dp,
-                            ),
-                    ) {
-                        Text(
-                            text = platformLabel,
-                            fontFamily = DeckFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = if (compact) 7.sp else 9.sp,
-                            color = Color.White,
-                            maxLines = 1,
-                        )
-                    }
-                } else {
-                    Spacer(Modifier.height(1.dp))
-                }
 
                 Text(
                     text = title,

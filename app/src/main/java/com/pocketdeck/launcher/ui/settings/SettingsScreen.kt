@@ -2804,7 +2804,6 @@ private fun HomeElementsAndStatusBarBlock(
         ) {
             val items = listOf(
                 Triple(MetaFieldKey.ReleaseDate, stringResource(R.string.meta_release_date), state.metaDisplay.releaseDate),
-                Triple(MetaFieldKey.Genre, stringResource(R.string.meta_genre), state.metaDisplay.genre),
                 Triple(MetaFieldKey.Developer, stringResource(R.string.meta_developer), state.metaDisplay.developer),
                 Triple(MetaFieldKey.Publisher, stringResource(R.string.meta_publisher), state.metaDisplay.publisher),
                 Triple(MetaFieldKey.FileSize, stringResource(R.string.meta_file_size), state.metaDisplay.fileSize),

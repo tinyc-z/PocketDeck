@@ -955,31 +955,30 @@ private fun DrawScope.drawQuickShareLogo(color: Color) {
 private fun DrawScope.drawWebGlobeLogo(color: Color) {
     val w = size.width
     val h = size.height
-    val sw = (w * 0.115f).coerceAtLeast(1.25f)
-    val padX = w * 0.10f
-    val padY = h * 0.16f
-    val rectW = w - padX * 2f
-    val rectH = h - padY * 2f
-    val corner = w * 0.16f
-    // 外框圆角窗口
-    drawRoundRect(
+    val cx = w / 2f
+    val cy = h / 2f
+    val r = minOf(w, h) * 0.42f
+    val sw = (w * 0.11f).coerceAtLeast(1.2f)
+    // 外圆地球轮廓
+    drawCircle(
         color = color,
-        topLeft = Offset(padX, padY),
-        size = Size(rectW, rectH),
-        cornerRadius = CornerRadius(corner, corner),
+        radius = r,
+        center = Offset(cx, cy),
         style = Stroke(width = sw),
     )
-    // 顶部地址栏细横线
-    val barY = padY + rectH * 0.34f
+    // 赤道横线
     drawLine(
         color = color,
-        start = Offset(padX + sw * 0.4f, barY),
-        end = Offset(padX + rectW - sw * 0.4f, barY),
-        strokeWidth = sw * 0.88f,
+        start = Offset(cx - r, cy),
+        end = Offset(cx + r, cy),
+        strokeWidth = sw * 0.9f,
+        cap = StrokeCap.Round,
     )
-    // 左上角两个极简窗口微点
-    val dotR = (w * 0.048f).coerceAtLeast(0.8f)
-    val dotY = padY + rectH * 0.17f
-    drawCircle(color, radius = dotR, center = Offset(padX + rectW * 0.22f, dotY))
-    drawCircle(color, radius = dotR, center = Offset(padX + rectW * 0.38f, dotY))
+    // 经线椭圆（简洁单椭圆，小尺寸依然通透不拥挤）
+    drawOval(
+        color = color,
+        topLeft = Offset(cx - r * 0.48f, cy - r),
+        size = Size(r * 0.96f, r * 2f),
+        style = Stroke(width = sw * 0.9f),
+    )
 }

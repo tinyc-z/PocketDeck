@@ -399,7 +399,6 @@ internal fun GameMetadata?.toDisplayFields(
 ): List<Pair<String, String>> {
     val fields = buildList {
         if (visibility.releaseDate) this@toDisplayFields?.releaseDate?.let { add(labelReleaseDate to it) }
-        if (visibility.genre) this@toDisplayFields?.genre?.let { add(labelGenre to it) }
         if (visibility.developer) this@toDisplayFields?.developer?.let { add(labelDeveloper to it) }
         if (visibility.publisher) this@toDisplayFields?.publisher?.let { add(labelPublisher to it) }
         if (visibility.fileSize && fileSizeBytes > 0L) add(labelFileSize to formatFileSize(fileSizeBytes))
