@@ -1,17 +1,25 @@
 package com.pocketdeck.launcher.data
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
 
 /**
  * 封面与元数据请求日志存储（写入系统缓存临时目录 `cacheDir/logs/scrape.log`）。
- * 启动时读取一次磁盘日志到内存 [lines] 流，运行期新事件同步追加至内存流与文件，无需定时轮询读盘。
+ * 采用异步非阻塞 Channel + 批量刷盘，彻底避免高并发刮削时因同步写盘/截断文件阻塞 IO 线程池。
  */
 object ScrapeLogStore {
     private const val DIR_NAME = "logs"
@@ -22,26 +30,98 @@ object ScrapeLogStore {
 
     @Volatile
     private var logFile: File? = null
-    private val lock = Any()
-    private val timeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
-    private val SECRET_QUERY = Regex("""([?&](?:sspassword|devpassword|apikey|api_key|client_secret|password|token)=)([^&]+)""", RegexOption.IGNORE_CASE)
+    private val fileLock = Any()
+    private val memLock = Any()
+    private val ring = ArrayDeque<String>(MAX_MEMORY_LINES + 8)
+    private val timeFmt = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    }
+    private val SECRET_QUERY = Regex(
+        """([?&](?:sspassword|devpassword|apikey|api_key|client_secret|password|token)=)([^&]+)""",
+        RegexOption.IGNORE_CASE,
+    )
 
     private val _lines = MutableStateFlow<List<String>>(emptyList())
     val lines: StateFlow<List<String>> = _lines.asStateFlow()
 
+    private val writeChannel = Channel<String>(capacity = 512, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile
+    private var writerStarted = false
+
     fun init(context: Context) {
         if (logFile != null) return
-        synchronized(lock) {
+        synchronized(fileLock) {
             if (logFile == null) {
                 val dir = File(context.applicationContext.cacheDir, DIR_NAME)
                 dir.mkdirs()
                 val file = File(dir, FILE_NAME)
                 logFile = file
                 if (file.isFile) {
-                    _lines.value = runCatching {
+                    val loaded = runCatching {
                         file.readLines().asReversed().take(MAX_MEMORY_LINES)
                     }.getOrDefault(emptyList())
+                    synchronized(memLock) {
+                        ring.clear()
+                        loaded.forEach { ring.addLast(it) }
+                        _lines.value = loaded
+                    }
                 }
+            }
+        }
+        ensureWriterStarted()
+    }
+
+    private fun ensureWriterStarted() {
+        if (writerStarted) return
+        synchronized(fileLock) {
+            if (writerStarted) return
+            writerStarted = true
+            ioScope.launch {
+                val batch = ArrayList<String>(64)
+                while (true) {
+                    val first = writeChannel.receive()
+                    batch.clear()
+                    batch += first
+                    // 短暂合并连续并发日志，减少磁盘与 StateFlow 刷新频次
+                    delay(40L)
+                    while (batch.size < 128) {
+                        val next = writeChannel.tryReceive().getOrNull() ?: break
+                        batch += next
+                    }
+                    flushBatch(batch)
+                }
+            }
+        }
+    }
+
+    private fun flushBatch(batch: List<String>) {
+        if (batch.isEmpty()) return
+        synchronized(memLock) {
+            for (line in batch) {
+                ring.addFirst(line)
+                while (ring.size > MAX_MEMORY_LINES) ring.removeLast()
+            }
+            _lines.value = ring.toList()
+        }
+        val file = logFile ?: return
+        val payload = buildString(batch.size * 96) {
+            for (line in batch) {
+                append(line).append('\n')
+            }
+        }
+        synchronized(fileLock) {
+            runCatching {
+                file.parentFile?.mkdirs()
+                if (file.exists() && file.length() > MAX_BYTES) {
+                    val bytes = file.readBytes()
+                    val tailStart = (bytes.size - KEEP_BYTES).coerceAtLeast(0)
+                    val firstNewline = bytes.indexOf('\n'.code.toByte(), tailStart)
+                    val sliceFrom = if (firstNewline in tailStart until bytes.size) firstNewline + 1 else tailStart
+                    file.writeBytes(bytes.copyOfRange(sliceFrom, bytes.size))
+                }
+                file.appendText(payload)
             }
         }
     }
@@ -54,6 +134,8 @@ object ScrapeLogStore {
             "libretro" in host -> "libretro"
             "jsdelivr" in host -> "jsdelivr"
             "github" in host || "githubusercontent" in host -> "github"
+            "gametdb" in host -> "gametdb"
+            "steamgriddb" in host -> "steamgriddb"
             "hasheous" in host -> "hasheous"
             "arcadeitalia" in host -> "arcadeitalia"
             "wikidata" in host -> "wikidata"
@@ -77,8 +159,8 @@ object ScrapeLogStore {
         error: String? = null,
         elapsedMs: Long? = null,
     ) {
-        val file = logFile ?: return
-        val ts = synchronized(lock) { timeFmt.format(Date()) }
+        if (logFile == null) return
+        val ts = timeFmt.get()?.format(Date()) ?: ""
         val parts = ArrayList<String>(6)
         parts += "[$ts] [$category] [$node] $action"
         if (status != null) parts += "HTTP $status"
@@ -86,23 +168,7 @@ object ScrapeLogStore {
         if (!url.isNullOrBlank()) parts += "url=${sanitize(url)}"
         if (!result.isNullOrBlank()) parts += "result=${sanitize(result).replace('\n', ' ').take(180)}"
         if (!error.isNullOrBlank()) parts += "error=${sanitize(error).replace('\n', ' ').take(180)}"
-        val rawLine = parts.joinToString(" | ")
-        val diskLine = rawLine + "\n"
-
-        synchronized(lock) {
-            _lines.value = (listOf(rawLine) + _lines.value).take(MAX_MEMORY_LINES)
-            runCatching {
-                file.parentFile?.mkdirs()
-                if (file.exists() && file.length() > MAX_BYTES) {
-                    val bytes = file.readBytes()
-                    val tailStart = (bytes.size - KEEP_BYTES).coerceAtLeast(0)
-                    val firstNewline = bytes.indexOf('\n'.code.toByte(), tailStart)
-                    val sliceFrom = if (firstNewline in tailStart until bytes.size) firstNewline + 1 else tailStart
-                    file.writeBytes(bytes.copyOfRange(sliceFrom, bytes.size))
-                }
-                file.appendText(diskLine)
-            }
-        }
+        writeChannel.trySend(parts.joinToString(" | "))
     }
 
     private fun ByteArray.indexOf(target: Byte, fromIndex: Int): Int {
@@ -114,8 +180,11 @@ object ScrapeLogStore {
 
     /** 读取最新日志行（按时间倒序，最新在最前）。 */
     fun readRecentLines(limit: Int = 400): List<String> {
+        synchronized(memLock) {
+            if (ring.isNotEmpty()) return ring.take(limit)
+        }
         val file = logFile ?: return emptyList()
-        return synchronized(lock) {
+        return synchronized(fileLock) {
             if (!file.isFile) return@synchronized emptyList()
             runCatching {
                 file.readLines().asReversed().take(limit)
@@ -126,7 +195,7 @@ object ScrapeLogStore {
     /** 读取完整原始日志文本（供 Web 下载 / App 导出使用）。 */
     fun readRawText(): String {
         val file = logFile ?: return ""
-        return synchronized(lock) {
+        return synchronized(fileLock) {
             if (!file.isFile) return@synchronized ""
             runCatching { file.readText() }.getOrDefault("")
         }
@@ -153,11 +222,16 @@ object ScrapeLogStore {
     }
 
     fun clear() {
-        val file = logFile ?: return
-        synchronized(lock) {
+        synchronized(memLock) {
+            ring.clear()
             _lines.value = emptyList()
-            runCatching {
-                if (file.exists()) file.writeText("")
+        }
+        val file = logFile ?: return
+        ioScope.launch {
+            synchronized(fileLock) {
+                runCatching {
+                    if (file.exists()) file.writeText("")
+                }
             }
         }
     }

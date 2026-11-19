@@ -361,9 +361,9 @@ fun HomeScreen(
                         )
                 if (isHomeTabSwitchKey) {
                     val now = SystemClock.uptimeMillis()
-                    // 单按保持即时响应（防误触抖动 85ms），长按连发限速 170ms（约 6 格/秒），与顶栏胶囊滑动动画节拍匹配
-                    val minGap = if (event.nativeKeyEvent.repeatCount > 0) 170L else 85L
-                    if (now - scrollCtrl.lastTabSwitchMs < minGap) {
+                    // 单按零延迟；长按连发限速 60ms（约 16 格/秒），既保持疾速切换又让顶栏胶囊动画顺滑跟得上
+                    val minGap = if (event.nativeKeyEvent.repeatCount > 0) 60L else 0L
+                    if (minGap > 0L && now - scrollCtrl.lastTabSwitchMs < minGap) {
                         return@onPreviewKeyEvent true
                     }
                     scrollCtrl.lastTabSwitchMs = now

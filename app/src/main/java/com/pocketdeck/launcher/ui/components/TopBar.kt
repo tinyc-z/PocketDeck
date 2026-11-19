@@ -318,7 +318,7 @@ fun TopBar(
             pillInitialized = true
             if (scrollTarget != null) scrollState.scrollTo(scrollTarget)
         } else {
-            val pillSpec = spring<Float>(dampingRatio = 0.78f, stiffness = 460f)
+            val pillSpec = spring<Float>(dampingRatio = 0.86f, stiffness = 1100f)
             coroutineScope {
                 launch { pillX.animateTo(tx, pillSpec) }
                 launch { pillW.animateTo(tw, pillSpec) }
@@ -326,7 +326,7 @@ fun TopBar(
                     launch {
                         scrollState.animateScrollTo(
                             scrollTarget,
-                            tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                            tween(durationMillis = 120, easing = FastOutSlowInEasing),
                         )
                     }
                 }

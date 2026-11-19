@@ -511,6 +511,7 @@ fun ScraperCredentialDialog(
                 CredentialKind.ScreenScraper -> current.ssUser
                 CredentialKind.TheGamesDB -> current.tgdbKey
                 CredentialKind.IGDB -> current.igdbClientId
+                CredentialKind.SteamGridDB -> current.sgdbKey
             },
         )
     }
@@ -520,6 +521,7 @@ fun ScraperCredentialDialog(
                 CredentialKind.ScreenScraper -> current.ssPass
                 CredentialKind.TheGamesDB -> ""
                 CredentialKind.IGDB -> current.igdbClientSecret
+                CredentialKind.SteamGridDB -> ""
             },
         )
     }
@@ -528,16 +530,19 @@ fun ScraperCredentialDialog(
         CredentialKind.ScreenScraper -> stringResource(R.string.scraping_ss_title)
         CredentialKind.TheGamesDB -> stringResource(R.string.scraping_tgdb_title)
         CredentialKind.IGDB -> stringResource(R.string.scraping_igdb_title)
+        CredentialKind.SteamGridDB -> stringResource(R.string.scraping_sgdb_title)
     }
     val label1 = when (kind) {
         CredentialKind.ScreenScraper -> stringResource(R.string.scraping_ss_user)
         CredentialKind.TheGamesDB -> stringResource(R.string.scraping_tgdb_key)
         CredentialKind.IGDB -> stringResource(R.string.scraping_igdb_id)
+        CredentialKind.SteamGridDB -> stringResource(R.string.scraping_sgdb_key)
     }
     val label2 = when (kind) {
         CredentialKind.ScreenScraper -> stringResource(R.string.scraping_ss_pass)
         CredentialKind.TheGamesDB -> null
         CredentialKind.IGDB -> stringResource(R.string.scraping_igdb_secret)
+        CredentialKind.SteamGridDB -> null
     }
 
     fun applySave(clear: Boolean) {
@@ -547,6 +552,7 @@ fun ScraperCredentialDialog(
             CredentialKind.ScreenScraper -> current.copy(ssUser = v1, ssPass = v2)
             CredentialKind.TheGamesDB -> current.copy(tgdbKey = v1)
             CredentialKind.IGDB -> current.copy(igdbClientId = v1, igdbClientSecret = v2)
+            CredentialKind.SteamGridDB -> current.copy(sgdbKey = v1)
         }
         onSave(updated)
     }

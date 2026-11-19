@@ -178,8 +178,16 @@
     <string name="scraping_igdb_title">IGDB.com (Twitch) API</string>
     <string name="scraping_igdb_id">Client ID</string>
     <string name="scraping_igdb_secret">Client Secret</string>
+    <string name="scraping_sgdb_title">SteamGridDB API Key</string>
+    <string name="scraping_sgdb_key">API Key</string>
 
     <!-- Built-in cover & metadata nodes -->
+    <string name="node_libretro_boxarts">Libretro 官方封面</string>
+    <string name="node_libretro_boxarts_desc">官方封面庫（多鏡像自動容災）</string>
+    <string name="node_gametdb">GameTDB</string>
+    <string name="node_gametdb_desc">任天堂全系與 PS3 官方編號封面</string>
+    <string name="node_steamgriddb">SteamGridDB</string>
+    <string name="node_steamgriddb_desc">Switch/PC/獨立高清封面（需 API Key）</string>
     <string name="node_libretro_cdn">Libretro</string>
     <string name="node_libretro_cdn_desc">官方封面庫</string>
     <string name="node_libretro_jsdelivr">Libretro (jsDelivr)</string>
@@ -199,6 +207,9 @@
     <string name="node_igdb">IGDB.com</string>
     <string name="node_igdb_desc">需 Twitch 金鑰</string>
 
+    <string name="meta_src_libretro_db">Libretro DB</string>
+    <string name="meta_src_libretro_db_desc">No-Intro/Redump 中繼資料（多鏡像容災）</string>
+    <string name="meta_src_gametdb_desc">任天堂與 PS3 編號識別及中英日譯名</string>
     <string name="meta_src_libretro_jsdelivr">Libretro DB (jsDelivr CDN)</string>
     <string name="meta_src_libretro_jsdelivr_desc">No-Intro/Redump 中繼資料 CDN</string>
     <string name="meta_src_libretro_github">Libretro DB (GitHub)</string>
@@ -239,6 +250,7 @@
     <string name="prop_cover_source">封面來源位址</string>
 
     <string name="match_mode_crc32">CRC32 雜湊</string>
+    <string name="match_mode_serial_id">遊戲編號 / Serial ID</string>
     <string name="match_mode_exact_name">檔名精確比對</string>
     <string name="match_mode_title">清理標題比對</string>
     <string name="match_mode_api_hash">API ROM 雜湊</string>

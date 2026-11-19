@@ -359,6 +359,7 @@ class UserStore(private val context: Context) {
                 tgdbKey = o.optString("tgdbKey", ""),
                 igdbClientId = o.optString("igdbClientId", ""),
                 igdbClientSecret = o.optString("igdbClientSecret", ""),
+                sgdbKey = o.optString("sgdbKey", ""),
             )
         }.getOrDefault(ScraperCredentials())
 
@@ -368,6 +369,7 @@ class UserStore(private val context: Context) {
             .put("tgdbKey", c.tgdbKey)
             .put("igdbClientId", c.igdbClientId)
             .put("igdbClientSecret", c.igdbClientSecret)
+            .put("sgdbKey", c.sgdbKey)
             .toString()
 
         fun decodeKeyBindings(set: Set<String>?): Map<KeyAction, Int> =

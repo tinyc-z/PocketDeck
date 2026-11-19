@@ -200,6 +200,7 @@ class HomeViewModel(
             var lastLib: Library? = null
             var lastUser: UserData? = null
             var lastScanning: Boolean? = null
+            var lastOfficialNames: Map<String, String> = emptyMap()
             combine(
                 combine(repo.library, repo.user, repo.scanning) { lib, user, scanning ->
                     Triple(lib, user, scanning)
@@ -219,6 +220,15 @@ class HomeViewModel(
                     officialNames = officialNames,
                 )
             }.collect { data ->
+                if (data.officialNames !== lastOfficialNames) {
+                    val newlyResolved = data.officialNames.entries
+                        .filter { (id, name) -> lastOfficialNames[id] != name }
+                        .map { it.key }
+                    lastOfficialNames = data.officialNames
+                    if (newlyResolved.isNotEmpty()) {
+                        covers.onOfficialNamesResolved(newlyResolved)
+                    }
+                }
                 val u = data.user
                 if (u != null && u !== lastUser) {
                     covers.configure(u.coverSources, u.scraperCredentials)

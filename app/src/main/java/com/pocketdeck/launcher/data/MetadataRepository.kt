@@ -7,24 +7,25 @@ import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.Request
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
 enum class MetaMatchMode {
     Crc32Hash,
+    SerialId,
     ExactFilename,
     TitleMatch,
     ApiHash,
@@ -36,17 +37,18 @@ data class MetadataResolutionInfo(
     val providers: List<String> = emptyList(),
     val matchModes: List<MetaMatchMode> = emptyList(),
     val crc32: String? = null,
+    val serial: String? = null,
 )
 
 /**
- * 多服务商游戏元数据仓库（Release date / Genre / Developer / Publisher）。
+ * 多服务商游戏元数据仓库（Release date / Genre / Developer / Publisher / Official Name）。
  *
- * 支持按用户配置的优先级顺序查询并合并多个元数据服务商：
- * - Libretro DB (jsDelivr CDN / GitHub)
- * - Hasheous (ROM Hash)
- * - ArcadeItalia (MAME/FBNeo)
- * - Wikidata
- * - ScreenScraper.fr / TheGamesDB.net / IGDB.com
+ * 改进要点：
+ * - 单一 `libretro_db` 节点（jsDelivr → GitHub 故障转移，内存与 TSV 缓存减半，且不再丢弃无 CRC 光盘条目）
+ * - 支持 `gametdb`（任天堂全系 + PS3 Serial/标题/中文名离线索引）
+ * - 统一使用 [TitleNormalizer] + [CjkAliases] + 倒排词模糊打分
+ * - 统一通过 [RomIdentityExtractor] 读取无头 CRC32 / 7z CRC / CHD SHA1 / 光盘卡带 Serial
+ * - 批量合并 StateFlow 更新，杜绝海量游戏时的 O(N²) 整表拷贝与主线程重绘抖动
  */
 class MetadataRepository(
     context: Context,
@@ -59,6 +61,7 @@ class MetadataRepository(
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
     private val gameCache = ConcurrentHashMap<String, GameMetadata>()
     private val focusApiResolved = ConcurrentHashMap<String, Boolean>()
+    private val inFlightFocus = ConcurrentHashMap.newKeySet<String>()
 
     @Volatile
     private var providerConfigs: List<SourceItemConfig> = ScraperCatalog.defaultMetadataConfigs()
@@ -78,6 +81,13 @@ class MetadataRepository(
     private val _resolutionInfo = MutableStateFlow<Map<String, MetadataResolutionInfo>>(emptyMap())
     val resolutionInfo: StateFlow<Map<String, MetadataResolutionInfo>> = _resolutionInfo.asStateFlow()
 
+    // 批量合并增量更新，避免高频 resolveFocusGame 引发 O(N²) Map 拷贝
+    private val batchLock = Any()
+    private val pendingMeta = HashMap<String, GameMetadata>()
+    private val pendingNames = HashMap<String, String>()
+    private val pendingInfo = HashMap<String, MetadataResolutionInfo>()
+    private var batchFlushJob: Job? = null
+
     init {
         scope.launch {
             var prev = NetworkStatus.online.value
@@ -96,6 +106,7 @@ class MetadataRepository(
 
     private class MutableEntry(
         var comment: String = "",
+        var serial: String? = null,
         var year: String? = null,
         var month: String? = null,
         var genre: String? = null,
@@ -115,20 +126,79 @@ class MetadataRepository(
 
     private data class ResolvedRow(val officialName: String, val meta: GameMetadata)
     private data class TableHit(val row: ResolvedRow, val mode: MetaMatchMode)
+    private data class CachedRow(
+        val crc: String,
+        val serial: String,
+        val comment: String,
+        val meta: GameMetadata,
+    )
 
     private class SystemTable(
         val byCrc: Map<String, ResolvedRow>,
+        val bySerial: Map<String, ResolvedRow>,
         val byExact: Map<String, ResolvedRow>,
         val byTitle: Map<String, ResolvedRow>,
+        val byCompact: Map<String, ResolvedRow>,
+        val byToken: Map<String, List<ResolvedRow>>,
     ) {
-        fun find(baseName: String, title: String, crc: String?): TableHit? {
-            if (crc != null) {
-                byCrc[crc]?.let { return TableHit(it, MetaMatchMode.Crc32Hash) }
+        fun find(
+            baseName: String,
+            title: String,
+            crc: String?,
+            serial: String?,
+        ): TableHit? {
+            if (!crc.isNullOrBlank()) {
+                byCrc[crc.uppercase()]?.let { return TableHit(it, MetaMatchMode.Crc32Hash) }
             }
-            byExact[normalizeKey(baseName)]?.let { return TableHit(it, MetaMatchMode.ExactFilename) }
-            byTitle[normalizeTitle(baseName)]?.let { return TableHit(it, MetaMatchMode.TitleMatch) }
-            byTitle[normalizeTitle(title)]?.let { return TableHit(it, MetaMatchMode.TitleMatch) }
-            return null
+            if (!serial.isNullOrBlank()) {
+                val up = serial.uppercase()
+                (bySerial[up] ?: bySerial[up.replace("-", "")])?.let {
+                    return TableHit(it, MetaMatchMode.SerialId)
+                }
+            }
+            byExact[TitleNormalizer.exactKey(baseName)]?.let {
+                return TableHit(it, MetaMatchMode.ExactFilename)
+            }
+
+            val variants = TitleNormalizer.buildQueryVariants(baseName, title)
+            for (q in variants) {
+                val norm = TitleNormalizer.normalizedTitle(q)
+                if (norm.isNotEmpty()) {
+                    byTitle[norm]?.let { return TableHit(it, MetaMatchMode.TitleMatch) }
+                }
+                val comp = TitleNormalizer.compactKey(q)
+                if (comp.isNotEmpty()) {
+                    byCompact[comp]?.let { return TableHit(it, MetaMatchMode.TitleMatch) }
+                }
+            }
+
+            // 倒排词模糊匹配（防止细微标点或版本差异漏掉）
+            var bestRow: ResolvedRow? = null
+            var bestScore = 0.80
+            val evaluated = HashSet<String>(64)
+            for (q in variants.take(4)) {
+                val norm = TitleNormalizer.normalizedTitle(q)
+                val tokens = TitleNormalizer.tokenize(norm)
+                if (tokens.isEmpty()) continue
+                val counts = HashMap<ResolvedRow, Int>(32)
+                for (tok in tokens) {
+                    val bucket = byToken[tok] ?: continue
+                    if (bucket.size > 400) continue
+                    for (row in bucket) {
+                        counts[row] = (counts[row] ?: 0) + 1
+                    }
+                }
+                val minOverlap = if (tokens.size <= 2) 1 else 2
+                for ((row, cnt) in counts) {
+                    if (cnt < minOverlap || !evaluated.add(row.officialName)) continue
+                    val sim = TitleNormalizer.similarity(q, row.officialName)
+                    if (sim > bestScore) {
+                        bestScore = sim
+                        bestRow = row
+                    }
+                }
+            }
+            return bestRow?.let { TableHit(it, MetaMatchMode.TitleMatch) }
         }
     }
 
@@ -144,22 +214,28 @@ class MetadataRepository(
         if (changed) {
             gameCache.clear()
             focusApiResolved.clear()
+            clearPendingBatch()
             _metadata.value = emptyMap()
             _officialNames.value = emptyMap()
             _resolutionInfo.value = emptyMap()
         }
     }
 
+    /** 清空元数据缓存：内存瞬时生效，磁盘与数据库清理由 IO 线程执行，绝不阻塞主线程。 */
     fun clearCache() {
         systemTables.clear()
         gameCache.clear()
         focusApiResolved.clear()
         inFlightFocus.clear()
-        client.clearApiCache()
+        clearPendingBatch()
         _metadata.value = emptyMap()
         _officialNames.value = emptyMap()
         _resolutionInfo.value = emptyMap()
-        runCatching { cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+
+        scope.launch(Dispatchers.IO) {
+            client.clearApiCache()
+            runCatching { cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+        }
     }
 
     fun refreshAll(games: List<Game>, platformResolver: (Game) -> Platform?) {
@@ -169,37 +245,39 @@ class MetadataRepository(
         }
         gameCache.clear()
         focusApiResolved.clear()
-        client.clearApiCache()
+        clearPendingBatch()
         _metadata.value = emptyMap()
         _officialNames.value = emptyMap()
         _resolutionInfo.value = emptyMap()
-        ensureLoaded(games, platformResolver)
+        scope.launch(Dispatchers.IO) {
+            client.clearApiCache()
+            ensureLoaded(games, platformResolver)
+        }
     }
 
-    /** 预加载指定平台下可见游戏的元数据（先使用 DAT 与已缓存 API 结果，再按需补齐）。 */
+    /** 预加载指定平台下可见游戏的元数据（先使用 DAT / GameTDB 与已缓存 API 结果，再按需补齐）。 */
     fun ensureLoaded(games: List<Game>, platformResolver: (Game) -> Platform?) {
         if (games.isEmpty()) return
         val enabled = providerConfigs.filter { it.enabled }
         if (enabled.isEmpty()) return
+        val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
+        val useArcadeItalia = enabled.any { it.id == ScraperCatalog.MetaIds.ARCADEITALIA }
+
         scope.launch {
             val grouped = games.groupBy { platformResolver(it) }
             for ((platform, platGames) in grouped) {
                 val system = platform?.libretroSystem
-                if (!system.isNullOrBlank()) {
-                    for (p in enabled) {
-                        if (p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_JSDELIVR ||
-                            p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_GITHUB
-                        ) {
-                            getOrFetchTable(p.id, system)
-                        }
-                    }
+                if (useLibretroDb && !system.isNullOrBlank()) {
+                    getOrFetchLibretroTable(system)
+                }
+                if (useArcadeItalia && NetworkStatus.isOnline(appCtx)) {
+                    // 街机平台批量预取（每批 20 款仅 1 次 HTTP RTT）
+                    client.prefetchArcadeItaliaBatch(platGames.take(60), platform)
                 }
                 resolveGames(platGames, platform, queryApi = false)
             }
         }
     }
-
-    private val inFlightFocus = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /** 确保单个焦点游戏从全部已启用的服务商查询并合并元数据。 */
     fun resolveFocusGame(game: Game?, platform: Platform?) {
@@ -212,17 +290,12 @@ class MetadataRepository(
             return
         }
         val online = NetworkStatus.isOnline(appCtx)
+        val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
         scope.launch {
             try {
                 val system = platform?.libretroSystem
-                if (!system.isNullOrBlank()) {
-                    for (p in enabled) {
-                        if (p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_JSDELIVR ||
-                            p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_GITHUB
-                        ) {
-                            getOrFetchTable(p.id, system)
-                        }
-                    }
+                if (useLibretroDb && !system.isNullOrBlank()) {
+                    getOrFetchLibretroTable(system)
                 }
                 resolveGames(listOf(g), platform, queryApi = online)
                 if (online) {
@@ -243,14 +316,8 @@ class MetadataRepository(
         val enabled = providerConfigs.filter { it.enabled }
         if (enabled.isEmpty()) return@withContext false
         val system = platform?.libretroSystem
-        if (!system.isNullOrBlank()) {
-            for (p in enabled) {
-                if (p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_JSDELIVR ||
-                    p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_GITHUB
-                ) {
-                    getOrFetchTable(p.id, system)
-                }
-            }
+        if (enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB } && !system.isNullOrBlank()) {
+            getOrFetchLibretroTable(system)
         }
         val res = resolveSingleGame(
             g = game,
@@ -265,16 +332,12 @@ class MetadataRepository(
 
         gameCache[game.id] = res.meta
         focusApiResolved[game.id] = true
-        if (!res.meta.isEmpty) {
-            _metadata.update { it + (game.id to res.meta) }
-        }
-        val off = res.officialName
-        if (!off.isNullOrBlank()) {
-            _officialNames.update { it + (game.id to off) }
-        }
-        res.info?.let { info ->
-            _resolutionInfo.update { it + (game.id to info) }
-        }
+        enqueueBatchUpdate(
+            metaUpdates = if (!res.meta.isEmpty) mapOf(game.id to res.meta) else emptyMap(),
+            nameUpdates = res.officialName?.takeIf { it.isNotBlank() }?.let { mapOf(game.id to it) }.orEmpty(),
+            infoUpdates = res.info?.let { mapOf(game.id to it) }.orEmpty(),
+            immediate = true,
+        )
         true
     }
 
@@ -298,9 +361,16 @@ class MetadataRepository(
         var genre: String? = null
         var developer: String? = null
         var publisher: String? = null
-        var cachedCrc: String? = null
+        var identity: RomIdentityExtractor.Identity? = null
         val usedProviders = LinkedHashSet<String>()
         val usedModes = LinkedHashSet<MetaMatchMode>()
+
+        fun getIdentity(): RomIdentityExtractor.Identity {
+            identity?.let { return it }
+            val ext = client.extractIdentity(File(g.id), platform?.id)
+            identity = ext
+            return ext
+        }
 
         fun merge(providerId: String, mode: MetaMatchMode, name: String?, meta: GameMetadata) {
             var contributed = false
@@ -331,17 +401,16 @@ class MetadataRepository(
         for (provider in enabled) {
             if (isComplete()) break
             when (provider.id) {
-                ScraperCatalog.MetaIds.LIBRETRO_DB_JSDELIVR,
-                ScraperCatalog.MetaIds.LIBRETRO_DB_GITHUB -> {
+                ScraperCatalog.MetaIds.LIBRETRO_DB -> {
                     if (!system.isNullOrBlank()) {
-                        val table = systemTables[tableCacheKey(provider.id, system)]
+                        val table = systemTables[system]
                         if (table != null) {
-                            var hit = table.find(g.baseName, g.title, crc = cachedCrc)
-                            val allowCrc = queryApi || g.id.endsWith(".zip", ignoreCase = true)
-                            if (hit == null && cachedCrc == null && allowCrc) {
-                                cachedCrc = client.computeRomCrc32(File(g.id))
-                                if (cachedCrc != null) {
-                                    hit = table.find(g.baseName, g.title, cachedCrc)
+                            var hit = table.find(g.baseName, g.title, crc = identity?.crc32, serial = identity?.serial)
+                            val allowHeavyId = queryApi || g.id.endsWith(".zip", true) || g.id.endsWith(".7z", true)
+                            if (hit == null && identity == null && allowHeavyId) {
+                                val id = getIdentity()
+                                if (id.crc32 != null || id.serial != null) {
+                                    hit = table.find(g.baseName, g.title, id.crc32, id.serial)
                                 }
                             }
                             if (hit != null) {
@@ -350,9 +419,31 @@ class MetadataRepository(
                         }
                     }
                 }
+                ScraperCatalog.MetaIds.GAMETDB -> {
+                    if (client.gameTdb.supportsPlatform(platform?.id)) {
+                        val match = if (queryApi) {
+                            client.gameTdb.lookup(g, platform, allowDownload = true)
+                        } else {
+                            client.gameTdb.lookup(g, platform, allowDownload = false)
+                        }
+                        if (match != null && !match.hit.isEmpty) {
+                            val mode = if (match.bySerial) MetaMatchMode.SerialId else MetaMatchMode.TitleMatch
+                            merge(provider.id, mode, match.hit.officialName, match.hit.meta)
+                        }
+                    }
+                }
                 else -> {
+                    val desc = ScraperCatalog.metaDescriptor(provider.id)
+                    if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
                     val hit = if (queryApi) {
-                        client.queryProvider(provider.id, g, platform, cred, forceRefresh = forceApiRefresh)
+                        client.queryProvider(
+                            providerId = provider.id,
+                            game = g,
+                            platform = platform,
+                            cred = cred,
+                            forceRefresh = forceApiRefresh,
+                            officialNameHint = officialName,
+                        )
                     } else {
                         client.cachedHit(provider.id, g.id)
                     }
@@ -361,8 +452,12 @@ class MetadataRepository(
                             ScraperCatalog.MetaIds.HASHEOUS -> MetaMatchMode.ApiHash
                             ScraperCatalog.MetaIds.ARCADEITALIA -> MetaMatchMode.ApiRomName
                             ScraperCatalog.MetaIds.SCREENSCRAPER -> {
-                                if (cachedCrc == null) cachedCrc = client.computeRomCrc32(File(g.id))
-                                if (cachedCrc != null) MetaMatchMode.ApiHash else MetaMatchMode.ApiNameSearch
+                                val id = getIdentity()
+                                when {
+                                    id.serial != null -> MetaMatchMode.SerialId
+                                    id.crc32 != null || id.sha1 != null -> MetaMatchMode.ApiHash
+                                    else -> MetaMatchMode.ApiNameSearch
+                                }
                             }
                             else -> MetaMatchMode.ApiNameSearch
                         }
@@ -378,11 +473,12 @@ class MetadataRepository(
             developer = developer,
             publisher = publisher,
         )
-        val info = if (usedProviders.isNotEmpty() || cachedCrc != null) {
+        val info = if (usedProviders.isNotEmpty() || identity?.crc32 != null || identity?.serial != null) {
             MetadataResolutionInfo(
                 providers = usedProviders.toList(),
                 matchModes = usedModes.toList(),
-                crc32 = cachedCrc,
+                crc32 = identity?.crc32,
+                serial = identity?.serial,
             )
         } else {
             null
@@ -417,69 +513,128 @@ class MetadataRepository(
             res.info?.let { infoUpdates[g.id] = it }
         }
 
-        if (updates.isNotEmpty()) {
-            _metadata.update { it + updates }
-        }
-        if (nameUpdates.isNotEmpty()) {
-            _officialNames.update { it + nameUpdates }
-        }
-        if (infoUpdates.isNotEmpty()) {
-            _resolutionInfo.update { it + infoUpdates }
+        if (updates.isNotEmpty() || nameUpdates.isNotEmpty() || infoUpdates.isNotEmpty()) {
+            enqueueBatchUpdate(updates, nameUpdates, infoUpdates, immediate = games.size > 4)
         }
     }
 
-    private fun tableCacheKey(providerId: String, system: String): String = "$providerId::$system"
+    private fun clearPendingBatch() {
+        synchronized(batchLock) {
+            pendingMeta.clear()
+            pendingNames.clear()
+            pendingInfo.clear()
+            batchFlushJob?.cancel()
+            batchFlushJob = null
+        }
+    }
 
-    private suspend fun getOrFetchTable(providerId: String, system: String): SystemTable? {
-        val key = tableCacheKey(providerId, system)
-        systemTables[key]?.let { return it }
-        val lock = systemLocks.getOrPut(key) { Mutex() }
+    private fun enqueueBatchUpdate(
+        metaUpdates: Map<String, GameMetadata>,
+        nameUpdates: Map<String, String>,
+        infoUpdates: Map<String, MetadataResolutionInfo>,
+        immediate: Boolean,
+    ) {
+        synchronized(batchLock) {
+            pendingMeta.putAll(metaUpdates)
+            pendingNames.putAll(nameUpdates)
+            pendingInfo.putAll(infoUpdates)
+            if (immediate) {
+                batchFlushJob?.cancel()
+                batchFlushJob = null
+                flushBatchLocked()
+            } else if (batchFlushJob?.isActive != true) {
+                batchFlushJob = scope.launch {
+                    delay(140L)
+                    synchronized(batchLock) {
+                        batchFlushJob = null
+                        flushBatchLocked()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun flushBatchLocked() {
+        if (pendingMeta.isNotEmpty()) {
+            val delta = HashMap(pendingMeta)
+            pendingMeta.clear()
+            _metadata.value = _metadata.value + delta
+        }
+        if (pendingNames.isNotEmpty()) {
+            val delta = HashMap(pendingNames)
+            pendingNames.clear()
+            _officialNames.value = _officialNames.value + delta
+        }
+        if (pendingInfo.isNotEmpty()) {
+            val delta = HashMap(pendingInfo)
+            pendingInfo.clear()
+            _resolutionInfo.value = _resolutionInfo.value + delta
+        }
+    }
+
+    private suspend fun getOrFetchLibretroTable(system: String): SystemTable? {
+        systemTables[system]?.let { return it }
+        val lock = systemLocks.getOrPut(system) { Mutex() }
         return lock.withLock {
-            systemTables[key]?.let { return@withLock it }
+            systemTables[system]?.let { return@withLock it }
             withContext(Dispatchers.IO) {
-                val prefix = if (providerId == ScraperCatalog.MetaIds.LIBRETRO_DB_JSDELIVR) "jsd" else "gh"
-                val cacheFile = File(cacheDir, "v2_${prefix}_${sanitizeFileName(system)}.tsv")
+                val cacheFile = File(cacheDir, "v3_${sanitizeFileName(system)}.tsv")
                 val table = if (cacheFile.isFile && cacheFile.length() > 0) {
                     readCachedTsv(cacheFile)
                 } else if (NetworkStatus.isOnline(appCtx)) {
-                    fetchFromLibretro(providerId, system, cacheFile)
+                    fetchFromLibretroWithFailover(system, cacheFile)
                 } else {
                     null
                 }
                 if (table != null) {
-                    systemTables[key] = table
+                    systemTables[system] = table
                 }
                 table
             }
         }
     }
 
-    private suspend fun fetchFromLibretro(
-        providerId: String,
+    private suspend fun fetchFromLibretroWithFailover(
         system: String,
         cacheFile: File,
     ): SystemTable? = coroutineScope {
         val encodedSys = Uri.encode(system)
-        val baseUrl = if (providerId == ScraperCatalog.MetaIds.LIBRETRO_DB_JSDELIVR) {
-            "https://cdn.jsdelivr.net/gh/libretro/libretro-database@master/metadat"
-        } else {
-            "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat"
-        }
+        val mirrors = listOf(
+            "https://cdn.jsdelivr.net/gh/libretro/libretro-database@master/metadat",
+            "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat",
+        )
         val kinds = listOf("developer", "publisher", "genre", "releaseyear", "releasemonth")
+
+        // 优先走 jsDelivr；单个 kind 若遇到网络/5xx 故障自动回退 GitHub Raw（404 不重复请求）
         val parsed = kinds.map { kind ->
             async(Dispatchers.IO) {
-                kind to downloadDat("$baseUrl/$kind/$encodedSys.dat")
+                var res = downloadDat("${mirrors[0]}/$kind/$encodedSys.dat")
+                if (res.transientError) {
+                    res = downloadDat("${mirrors[1]}/$kind/$encodedSys.dat")
+                }
+                kind to res.entries
             }
         }.awaitAll()
 
         if (parsed.all { it.second.isEmpty() }) return@coroutineScope null
 
-        val merged = HashMap<String, MutableEntry>(4096)
+        val merged = LinkedHashMap<String, MutableEntry>(4096)
         val byTitleTemp = HashMap<String, MutableEntry>(2048)
+
         for ((kind, entries) in parsed) {
             for (e in entries) {
-                val target = merged.getOrPut(e.crc) { MutableEntry(comment = e.comment) }
+                // 修复：即使无 CRC（如 PS1/PS2/PSP/GC/Wii 光盘条目）也以 serial 或 title 为主键保留，不再丢弃！
+                val key = when {
+                    e.crc.isNotEmpty() -> "c:${e.crc}"
+                    e.serial.isNotEmpty() -> "s:${e.serial}"
+                    e.comment.isNotBlank() -> "n:${TitleNormalizer.exactKey(e.comment)}"
+                    else -> continue
+                }
+                val target = merged.getOrPut(key) {
+                    MutableEntry(comment = e.comment, serial = e.serial.takeIf { it.isNotEmpty() })
+                }
                 if (target.comment.isBlank() && e.comment.isNotBlank()) target.comment = e.comment
+                if (target.serial == null && e.serial.isNotEmpty()) target.serial = e.serial
                 when (kind) {
                     "developer" -> target.developer = e.value
                     "publisher" -> target.publisher = e.value
@@ -487,7 +642,7 @@ class MetadataRepository(
                     "releaseyear" -> target.year = e.value
                     "releasemonth" -> target.month = e.value
                 }
-                val titleKey = normalizeTitle(e.comment)
+                val titleKey = TitleNormalizer.normalizedTitle(e.comment)
                 if (titleKey.isNotEmpty()) {
                     val agg = byTitleTemp.getOrPut(titleKey) { MutableEntry(comment = e.comment) }
                     when (kind) {
@@ -504,7 +659,7 @@ class MetadataRepository(
 
         // 用同标题其他版本的字段补齐个别地区条目的缺失项
         for (entry in merged.values) {
-            val agg = byTitleTemp[normalizeTitle(entry.comment)] ?: continue
+            val agg = byTitleTemp[TitleNormalizer.normalizedTitle(entry.comment)] ?: continue
             if (entry.developer == null) entry.developer = agg.developer
             if (entry.publisher == null) entry.publisher = agg.publisher
             if (entry.genre == null) entry.genre = agg.genre
@@ -512,137 +667,194 @@ class MetadataRepository(
             if (entry.month == null) entry.month = agg.month
         }
 
+        val rows = ArrayList<CachedRow>(merged.size)
+        for ((key, entry) in merged) {
+            val m = entry.toMetadata()
+            if (m.isEmpty) continue
+            val crc = if (key.startsWith("c:")) key.removePrefix("c:") else ""
+            rows += CachedRow(crc = crc, serial = entry.serial.orEmpty(), comment = entry.comment, meta = m)
+        }
+        if (rows.isEmpty()) return@coroutineScope null
+
+        // 修复：只要有任一 DAT 维度成功拉取就写本地缓存，避免小众平台每次启动都重复联网拉取
         val succeededKinds = parsed.count { it.second.isNotEmpty() }
-        if (succeededKinds >= 3) {
+        if (succeededKinds >= 1) {
             runCatching {
                 val tmp = File(cacheDir, "${cacheFile.name}.tmp")
                 tmp.bufferedWriter().use { out ->
-                    for ((crc, entry) in merged) {
-                        val m = entry.toMetadata()
-                        if (m.isEmpty) continue
-                        out.append(crc).append('\t')
-                            .append(entry.comment.replace('\t', ' ')).append('\t')
-                            .append((m.releaseDate ?: "").replace('\t', ' ')).append('\t')
-                            .append((m.genre ?: "").replace('\t', ' ')).append('\t')
-                            .append((m.developer ?: "").replace('\t', ' ')).append('\t')
-                            .append((m.publisher ?: "").replace('\t', ' ')).append('\n')
+                    for (r in rows) {
+                        out.append(r.crc).append('\t')
+                            .append(r.serial.replace('\t', ' ')).append('\t')
+                            .append(r.comment.replace('\t', ' ')).append('\t')
+                            .append((r.meta.releaseDate ?: "").replace('\t', ' ')).append('\t')
+                            .append((r.meta.genre ?: "").replace('\t', ' ')).append('\t')
+                            .append((r.meta.developer ?: "").replace('\t', ' ')).append('\t')
+                            .append((r.meta.publisher ?: "").replace('\t', ' ')).append('\n')
                     }
                 }
                 tmp.renameTo(cacheFile)
             }
         }
 
-        buildTable(merged.map { (crc, e) -> Triple(crc, e.comment, e.toMetadata()) })
+        buildTable(rows)
     }
 
     private fun readCachedTsv(file: File): SystemTable? = runCatching {
-        val rows = ArrayList<Triple<String, String, GameMetadata>>(2048)
+        val rows = ArrayList<CachedRow>(2048)
         file.bufferedReader().useLines { lines ->
             for (line in lines) {
                 val parts = line.split('\t')
-                if (parts.size < 6) continue
+                if (parts.size < 7) continue
                 val meta = GameMetadata(
-                    releaseDate = parts[2].takeIf { it.isNotEmpty() },
-                    genre = parts[3].takeIf { it.isNotEmpty() },
-                    developer = parts[4].takeIf { it.isNotEmpty() },
-                    publisher = parts[5].takeIf { it.isNotEmpty() },
+                    releaseDate = parts[3].takeIf { it.isNotEmpty() },
+                    genre = parts[4].takeIf { it.isNotEmpty() },
+                    developer = parts[5].takeIf { it.isNotEmpty() },
+                    publisher = parts[6].takeIf { it.isNotEmpty() },
                 )
                 if (!meta.isEmpty) {
-                    rows += Triple(parts[0], parts[1], meta)
+                    rows += CachedRow(
+                        crc = parts[0],
+                        serial = parts[1],
+                        comment = parts[2],
+                        meta = meta,
+                    )
                 }
             }
         }
         if (rows.isEmpty()) null else buildTable(rows)
     }.getOrNull()
 
-    private fun buildTable(rows: List<Triple<String, String, GameMetadata>>): SystemTable {
+    private fun buildTable(rows: List<CachedRow>): SystemTable {
         val byCrc = HashMap<String, ResolvedRow>(rows.size)
+        val bySerial = HashMap<String, ResolvedRow>(rows.size / 4 + 16)
         val byExact = HashMap<String, ResolvedRow>(rows.size)
         val byTitle = HashMap<String, ResolvedRow>(rows.size)
-        for ((crc, comment, meta) in rows) {
-            if (meta.isEmpty) continue
-            val row = ResolvedRow(comment, meta)
-            byCrc.putIfAbsent(crc, row)
-            if (comment.isNotBlank()) {
-                byExact.putIfAbsent(normalizeKey(comment), row)
-                val titleKey = normalizeTitle(comment)
+        val byCompact = HashMap<String, ResolvedRow>(rows.size)
+        val byToken = HashMap<String, MutableList<ResolvedRow>>(rows.size)
+
+        for (r in rows) {
+            if (r.meta.isEmpty) continue
+            val row = ResolvedRow(r.comment, r.meta)
+            if (r.crc.isNotEmpty()) byCrc.putIfAbsent(r.crc.uppercase(), row)
+            if (r.serial.isNotEmpty()) {
+                val up = r.serial.uppercase()
+                bySerial.putIfAbsent(up, row)
+                bySerial.putIfAbsent(up.replace("-", ""), row)
+            }
+            if (r.comment.isNotBlank()) {
+                byExact.putIfAbsent(TitleNormalizer.exactKey(r.comment), row)
+                val titleKey = TitleNormalizer.normalizedTitle(r.comment)
                 if (titleKey.isNotEmpty()) {
                     val prev = byTitle[titleKey]
-                    if (prev == null || fieldCount(meta) > fieldCount(prev.meta)) {
+                    if (prev == null || fieldCount(r.meta) > fieldCount(prev.meta)) {
                         byTitle[titleKey] = row
+                    }
+                    val comp = TitleNormalizer.compactKey(r.comment)
+                    if (comp.isNotEmpty()) {
+                        val prevC = byCompact[comp]
+                        if (prevC == null || fieldCount(r.meta) > fieldCount(prevC.meta)) {
+                            byCompact[comp] = row
+                        }
+                    }
+                    for (tok in TitleNormalizer.tokenize(titleKey)) {
+                        byToken.getOrPut(tok) { ArrayList(4) }.add(row)
                     }
                 }
             }
         }
-        return SystemTable(byCrc, byExact, byTitle)
+        return SystemTable(byCrc, bySerial, byExact, byTitle, byCompact, byToken)
     }
 
-    private data class DatEntry(val comment: String, val value: String, val crc: String)
+    private data class DatEntry(
+        val comment: String,
+        val value: String,
+        val crc: String,
+        val serial: String,
+    )
 
-    private fun downloadDat(urlStr: String): List<DatEntry> {
+    private data class DatDownloadResult(
+        val entries: List<DatEntry>,
+        val transientError: Boolean,
+    )
+
+    private fun downloadDat(urlStr: String): DatDownloadResult {
         val t0 = System.currentTimeMillis()
         var code: Int? = null
         return try {
-            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                requestMethod = "GET"
-            }
-            code = conn.responseCode
-            if (code != HttpURLConnection.HTTP_OK) {
-                conn.disconnect()
-                ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "non-200")
-                return emptyList()
-            }
-            val list = ArrayList<DatEntry>(2048)
-            conn.inputStream.bufferedReader().use { reader ->
-                var inGame = false
-                var comment = ""
-                var value = ""
-                var crc = ""
-                reader.forEachLine { raw ->
-                    val line = raw.trim()
-                    when {
-                        line == "game (" -> {
-                            inGame = true
-                            comment = ""
-                            value = ""
-                            crc = ""
-                        }
-                        inGame && line == ")" -> {
-                            if (crc.isNotEmpty() && value.isNotEmpty()) {
-                                list += DatEntry(comment, value, crc.uppercase())
+            val req = Request.Builder()
+                .url(urlStr)
+                .header("User-Agent", USER_AGENT)
+                .build()
+            client.http.newCall(req).execute().use { resp ->
+                code = resp.code
+                if (code == 404) {
+                    ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "404 not found")
+                    return DatDownloadResult(emptyList(), transientError = false)
+                }
+                if (!resp.isSuccessful) {
+                    ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "HTTP $code")
+                    return DatDownloadResult(emptyList(), transientError = true)
+                }
+                val body = resp.body ?: return DatDownloadResult(emptyList(), transientError = true)
+                val list = ArrayList<DatEntry>(2048)
+                body.charStream().buffered().use { reader ->
+                    var inGame = false
+                    var comment = ""
+                    var nameFallback = ""
+                    var value = ""
+                    var crc = ""
+                    var serial = ""
+                    reader.forEachLine { raw ->
+                        val line = raw.trim()
+                        when {
+                            line == "game (" -> {
+                                inGame = true
+                                comment = ""
+                                nameFallback = ""
+                                value = ""
+                                crc = ""
+                                serial = ""
                             }
-                            inGame = false
-                        }
-                        inGame && line.startsWith("comment ") -> {
-                            comment = extractQuoted(line)
-                        }
-                        inGame && (line.startsWith("developer ") || line.startsWith("publisher ") ||
-                            line.startsWith("genre ") || line.startsWith("releaseyear ") ||
-                            line.startsWith("releasemonth ")) -> {
-                            value = extractQuoted(line)
-                        }
-                        inGame && line.startsWith("rom (") -> {
-                            val match = CRC_REGEX.find(line)
-                            if (match != null) crc = match.groupValues[1]
+                            inGame && line == ")" -> {
+                                val title = comment.ifBlank { nameFallback }
+                                if (value.isNotEmpty() && (crc.isNotEmpty() || serial.isNotEmpty() || title.isNotBlank())) {
+                                    list += DatEntry(title, value, crc.uppercase(), serial.uppercase())
+                                }
+                                inGame = false
+                            }
+                            inGame && line.startsWith("comment ") -> {
+                                comment = extractQuoted(line)
+                            }
+                            inGame && line.startsWith("name ") -> {
+                                nameFallback = extractQuoted(line)
+                            }
+                            inGame && (
+                                line.startsWith("developer ") || line.startsWith("publisher ") ||
+                                    line.startsWith("genre ") || line.startsWith("releaseyear ") ||
+                                    line.startsWith("releasemonth ")
+                                ) -> {
+                                value = extractQuoted(line)
+                            }
+                            inGame && line.startsWith("rom (") -> {
+                                CRC_REGEX.find(line)?.let { crc = it.groupValues[1] }
+                                SERIAL_REGEX.find(line)?.let { serial = it.groupValues[1] }
+                            }
                         }
                     }
                 }
+                ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${list.size} entries")
+                DatDownloadResult(list, transientError = false)
             }
-            conn.disconnect()
-            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${list.size} entries")
-            list
         } catch (t: Throwable) {
             ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
-            emptyList()
+            DatDownloadResult(emptyList(), transientError = true)
         }
     }
 
     private companion object {
+        const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
         val CRC_REGEX = Regex("""\bcrc\s+([0-9A-Fa-f]{8})\b""")
-        val TAGS_REGEX = Regex("""\s*[(\[][^)\]]*[)\]]""")
-        val NON_ALNUM = Regex("""[^a-z0-9一-鿿]+""")
+        val SERIAL_REGEX = Regex("""\bserial\s+"([^"]+)"""")
         val MONTHS = arrayOf(
             "Jan", "Feb", "Mar", "Apr", "May", "Jun",
             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -652,28 +864,6 @@ class MetadataRepository(
             val start = line.indexOf('"')
             val end = line.lastIndexOf('"')
             return if (start >= 0 && end > start) line.substring(start + 1, end) else ""
-        }
-
-        fun normalizeKey(s: String): String =
-            s.lowercase().replace('_', ' ').replace(NON_ALNUM, " ").trim()
-
-        fun normalizeTitle(s: String): String {
-            var clean = s.replace('_', ' ').replace(TAGS_REGEX, "").trim()
-            val comma = clean.indexOf(", ")
-            if (comma > 0) {
-                val tail = clean.substring(comma + 2)
-                if (tail.startsWith("The", ignoreCase = true) ||
-                    tail.startsWith("A ", ignoreCase = true) ||
-                    tail.equals("A", ignoreCase = true) ||
-                    tail.startsWith("An ", ignoreCase = true) ||
-                    tail.equals("An", ignoreCase = true)
-                ) {
-                    val article = tail.substringBefore(' ').substringBefore(':').substringBefore(" -")
-                    val rest = tail.removePrefix(article)
-                    clean = "$article ${clean.substring(0, comma)}$rest"
-                }
-            }
-            return clean.lowercase().replace(NON_ALNUM, " ").trim()
         }
 
         fun formatReleaseDate(year: String?, month: String?): String? {

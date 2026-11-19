@@ -179,8 +179,16 @@
     <string name="scraping_igdb_title">IGDB.com (Twitch) API</string>
     <string name="scraping_igdb_id">Client ID</string>
     <string name="scraping_igdb_secret">Client Secret</string>
+    <string name="scraping_sgdb_title">SteamGridDB API Key</string>
+    <string name="scraping_sgdb_key">API Key</string>
 
     <!-- Built-in cover & metadata nodes -->
+    <string name="node_libretro_boxarts">Libretro Boxarts</string>
+    <string name="node_libretro_boxarts_desc">Official box art (CDN auto-failover)</string>
+    <string name="node_gametdb">GameTDB</string>
+    <string name="node_gametdb_desc">Nintendo &amp; PS3 serial box art</string>
+    <string name="node_steamgriddb">SteamGridDB</string>
+    <string name="node_steamgriddb_desc">Switch, PC &amp; indie grids (API key)</string>
     <string name="node_libretro_cdn">Libretro</string>
     <string name="node_libretro_cdn_desc">Official box art</string>
     <string name="node_libretro_jsdelivr">Libretro (jsDelivr)</string>
@@ -200,6 +208,9 @@
     <string name="node_igdb">IGDB.com</string>
     <string name="node_igdb_desc">Needs Twitch key</string>
 
+    <string name="meta_src_libretro_db">Libretro DB</string>
+    <string name="meta_src_libretro_db_desc">No-Intro/Redump DAT (CDN failover)</string>
+    <string name="meta_src_gametdb_desc">Nintendo &amp; PS3 serial &amp; localized titles</string>
     <string name="meta_src_libretro_jsdelivr">Libretro DB (jsDelivr CDN)</string>
     <string name="meta_src_libretro_jsdelivr_desc">No-Intro/Redump DAT via CDN</string>
     <string name="meta_src_libretro_github">Libretro DB (GitHub)</string>
@@ -240,6 +251,7 @@
     <string name="prop_cover_source">Cover URI</string>
 
     <string name="match_mode_crc32">CRC32 hash</string>
+    <string name="match_mode_serial_id">Serial / Game ID</string>
     <string name="match_mode_exact_name">Exact filename</string>
     <string name="match_mode_title">Cleaned title</string>
     <string name="match_mode_api_hash">API ROM hash</string>

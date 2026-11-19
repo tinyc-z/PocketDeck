@@ -134,6 +134,7 @@ fun GamePropertiesDialog(
         metaInfo.matchModes.joinToString(", ") { mode ->
             when (mode) {
                 MetaMatchMode.Crc32Hash -> context.getString(R.string.match_mode_crc32)
+                MetaMatchMode.SerialId -> context.getString(R.string.match_mode_serial_id)
                 MetaMatchMode.ExactFilename -> context.getString(R.string.match_mode_exact_name)
                 MetaMatchMode.TitleMatch -> context.getString(R.string.match_mode_title)
                 MetaMatchMode.ApiHash -> context.getString(R.string.match_mode_api_hash)
@@ -157,6 +158,7 @@ fun GamePropertiesDialog(
         CoverMatchMode.IndexExact -> stringResource(R.string.match_mode_index_exact)
         CoverMatchMode.IndexFuzzy -> stringResource(R.string.match_mode_index_fuzzy)
         CoverMatchMode.DirectProbe -> stringResource(R.string.match_mode_direct_probe)
+        CoverMatchMode.SerialId -> stringResource(R.string.match_mode_serial_id)
         CoverMatchMode.ApiHash -> stringResource(R.string.match_mode_api_hash)
         CoverMatchMode.ApiSearch -> stringResource(R.string.match_mode_api_search)
         CoverMatchMode.AppIcon -> stringResource(R.string.match_mode_app_icon)

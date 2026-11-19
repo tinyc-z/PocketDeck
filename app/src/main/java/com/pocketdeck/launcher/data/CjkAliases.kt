@@ -1,0 +1,382 @@
+package com.pocketdeck.launcher.data
+
+/**
+ * 精选经典主机/掌机/街机中文译名 → 英文原名映射表。
+ * 解决中文汉化 ROM / 中文命名的经典游戏（如《恶魔城 晓月圆舞曲》《口袋妖怪 绿宝石》《塞尔达传说 缩小帽》）
+ * 无法在 Libretro / IGDB / TheGamesDB / GameTDB 命中封面与元数据的问题。
+ *
+ * 匹配策略：
+ * 1. 先按具体副标题/完整名精确或子串匹配（长词优先）；
+ * 2. 再按经典系列名 + 数字/副标题组合翻译，生成英文查询候选词。
+ */
+object CjkAliases {
+
+    /** 完整游戏名 / 具体副标题映射（优先匹配，精准度最高）。 */
+    private val EXACT_GAMES: List<Pair<String, String>> = listOf(
+        // 恶魔城 Castlevania
+        "恶魔城 晓月圆舞曲" to "Castlevania - Aria of Sorrow",
+        "晓月圆舞曲" to "Castlevania - Aria of Sorrow",
+        "恶魔城 白夜协奏曲" to "Castlevania - Harmony of Dissonance",
+        "白夜协奏曲" to "Castlevania - Harmony of Dissonance",
+        "恶魔城 月轮" to "Castlevania - Circle of the Moon",
+        "恶魔城 月下夜想曲" to "Castlevania - Symphony of the Night",
+        "月下夜想曲" to "Castlevania - Symphony of the Night",
+        "恶魔城 苍月的十字架" to "Castlevania - Dawn of Sorrow",
+        "苍月的十字架" to "Castlevania - Dawn of Sorrow",
+        "恶魔城 废墟的肖像" to "Castlevania - Portrait of Ruin",
+        "恶魔城 被夺走的刻印" to "Castlevania - Order of Ecclesia",
+        "恶魔城 血之轮回" to "Castlevania - Rondo of Blood",
+
+        // 宝可梦 / 口袋妖怪 Pokemon
+        "口袋妖怪 红宝石" to "Pokemon - Ruby Version",
+        "宝可梦 红宝石" to "Pokemon - Ruby Version",
+        "口袋妖怪 蓝宝石" to "Pokemon - Sapphire Version",
+        "宝可梦 蓝宝石" to "Pokemon - Sapphire Version",
+        "口袋妖怪 绿宝石" to "Pokemon - Emerald Version",
+        "宝可梦 绿宝石" to "Pokemon - Emerald Version",
+        "口袋妖怪 火红" to "Pokemon - FireRed Version",
+        "宝可梦 火红" to "Pokemon - FireRed Version",
+        "口袋妖怪 叶绿" to "Pokemon - LeafGreen Version",
+        "宝可梦 叶绿" to "Pokemon - LeafGreen Version",
+        "口袋妖怪 金" to "Pokemon - Gold Version",
+        "口袋妖怪 银" to "Pokemon - Silver Version",
+        "口袋妖怪 水晶" to "Pokemon - Crystal Version",
+        "口袋妖怪 黄" to "Pokemon - Yellow Version",
+        "口袋妖怪 皮卡丘" to "Pokemon - Yellow Version",
+        "口袋妖怪 红" to "Pokemon - Red Version",
+        "口袋妖怪 蓝" to "Pokemon - Blue Version",
+        "口袋妖怪 绿" to "Pokemon - Green Version",
+        "口袋妖怪 钻石" to "Pokemon - Diamond Version",
+        "口袋妖怪 珍珠" to "Pokemon - Pearl Version",
+        "口袋妖怪 白金" to "Pokemon - Platinum Version",
+        "口袋妖怪 心金" to "Pokemon - HeartGold Version",
+        "口袋妖怪 魂银" to "Pokemon - SoulSilver Version",
+        "口袋妖怪 黑2" to "Pokemon - Black Version 2",
+        "口袋妖怪 白2" to "Pokemon - White Version 2",
+        "口袋妖怪 黑" to "Pokemon - Black Version",
+        "口袋妖怪 白" to "Pokemon - White Version",
+        "口袋妖怪 不可思议的迷宫" to "Pokemon Mystery Dungeon",
+        "宝可梦 剑" to "Pokemon Sword",
+        "宝可梦 盾" to "Pokemon Shield",
+        "宝可梦 朱" to "Pokemon Scarlet",
+        "宝可梦 紫" to "Pokemon Violet",
+        "宝可梦 阿尔宙斯" to "Pokemon Legends: Arceus",
+
+        // 塞尔达传说 Zelda
+        "塞尔达传说 缩小帽" to "The Legend of Zelda - The Minish Cap",
+        "缩小帽" to "The Legend of Zelda - The Minish Cap",
+        "塞尔达传说 织梦岛" to "The Legend of Zelda - Link's Awakening",
+        "织梦岛" to "The Legend of Zelda - Link's Awakening",
+        "塞尔达传说 梦见岛" to "The Legend of Zelda - Link's Awakening",
+        "塞尔达传说 众神的三角力量" to "The Legend of Zelda - A Link to the Past",
+        "众神的三角力量" to "The Legend of Zelda - A Link to the Past",
+        "塞尔达传说 时之笛" to "The Legend of Zelda - Ocarina of Time",
+        "时之笛" to "The Legend of Zelda - Ocarina of Time",
+        "塞尔达传说 梅祖拉的假面" to "The Legend of Zelda - Majora's Mask",
+        "塞尔达传说 风之杖" to "The Legend of Zelda - The Wind Waker",
+        "塞尔达传说 黄昏公主" to "The Legend of Zelda - Twilight Princess",
+        "塞尔达传说 幻影沙漏" to "The Legend of Zelda - Phantom Hourglass",
+        "塞尔达传说 大地的汽笛" to "The Legend of Zelda - Spirit Tracks",
+        "塞尔达传说 时空之章" to "The Legend of Zelda - Oracle of Ages",
+        "塞尔达传说 大地之章" to "The Legend of Zelda - Oracle of Seasons",
+        "塞尔达传说 旷野之息" to "The Legend of Zelda: Breath of the Wild",
+        "塞尔达传说 荒野之息" to "The Legend of Zelda: Breath of the Wild",
+        "塞尔达传说 王国之泪" to "The Legend of Zelda: Tears of the Kingdom",
+
+        // 超级马里奥 / 马力欧 Mario
+        "超级马里奥世界" to "Super Mario World",
+        "超级马里奥兄弟3" to "Super Mario Bros. 3",
+        "超级马里奥兄弟2" to "Super Mario Bros. 2",
+        "超级马里奥兄弟" to "Super Mario Bros.",
+        "新超级马里奥兄弟" to "New Super Mario Bros.",
+        "超级马里奥64" to "Super Mario 64",
+        "超级马里奥银河" to "Super Mario Galaxy",
+        "超级马里奥奥德赛" to "Super Mario Odyssey",
+        "超级马里奥乐园2" to "Super Mario Land 2 - 6 Golden Coins",
+        "超级马里奥乐园" to "Super Mario Land",
+        "马里奥赛车" to "Mario Kart",
+        "马力欧卡丁车" to "Mario Kart",
+        "马里奥与路易吉" to "Mario & Luigi",
+        "纸片马里奥" to "Paper Mario",
+        "耀西岛" to "Super Mario World 2 - Yoshi's Island",
+        "马里奥医生" to "Dr. Mario",
+
+        // 火焰纹章 Fire Emblem
+        "火焰纹章 封印之剑" to "Fire Emblem - Fuuin no Tsurugi",
+        "封印之剑" to "Fire Emblem - Fuuin no Tsurugi",
+        "火焰纹章 烈火之剑" to "Fire Emblem",
+        "烈火之剑" to "Fire Emblem",
+        "火焰纹章 圣魔之光石" to "Fire Emblem - The Sacred Stones",
+        "圣魔之光石" to "Fire Emblem - The Sacred Stones",
+        "火焰纹章 圣战系谱" to "Fire Emblem - Seisen no Keifu",
+        "火焰纹章 觉醒" to "Fire Emblem Awakening",
+        "火焰纹章 风花雪月" to "Fire Emblem: Three Houses",
+        "火焰之纹章 外传" to "Fire Emblem Gaiden",
+
+        // 银河战士 / 密特罗德 Metroid
+        "银河战士 零点任务" to "Metroid - Zero Mission",
+        "零点任务" to "Metroid - Zero Mission",
+        "银河战士 融合" to "Metroid Fusion",
+        "超级银河战士" to "Super Metroid",
+        "密特罗德 生存恐惧" to "Metroid Dread",
+
+        // 黄金太阳 / 牧场物语 / 逆转裁判 / 星之卡比
+        "黄金太阳 失落的时代" to "Golden Sun - The Lost Age",
+        "黄金太阳2" to "Golden Sun - The Lost Age",
+        "黄金太阳" to "Golden Sun",
+        "牧场物语 矿石镇的伙伴们" to "Harvest Moon - Friends of Mineral Town",
+        "矿石镇的伙伴们" to "Harvest Moon - Friends of Mineral Town",
+        "逆转裁判3" to "Phoenix Wright - Ace Attorney - Trials and Tribulations",
+        "逆转裁判2" to "Phoenix Wright - Ace Attorney - Justice for All",
+        "逆转裁判" to "Phoenix Wright - Ace Attorney",
+        "星之卡比 镜之大迷宫" to "Kirby & The Amazing Mirror",
+        "镜之大迷宫" to "Kirby & The Amazing Mirror",
+        "星之卡比 梦之泉" to "Kirby - Nightmare in Dream Land",
+        "星之卡比 超级豪华版" to "Kirby Super Star",
+
+        // 经典 FC / SFC / GBA / PS1 / PSP 单作
+        "魂斗罗 力量" to "Contra Force",
+        "超级魂斗罗" to "Super C",
+        "魂斗罗" to "Contra",
+        "赤色要塞" to "Jackal",
+        "绿色兵团" to "Rush'n Attack",
+        "沙罗曼蛇" to "Life Force",
+        "坦克大战" to "Battle City",
+        "松鼠大作战2" to "Chip 'n Dale Rescue Rangers 2",
+        "松鼠大作战" to "Chip 'n Dale Rescue Rangers",
+        "雪人兄弟" to "Snow Bros.",
+        "泡泡龙" to "Bubble Bobble",
+        "马戏团" to "Circus Charlie",
+        "敲冰块" to "Ice Climber",
+        "气球大战" to "Balloon Fight",
+        "炸弹人" to "Bomberman",
+        "影子传说" to "The Legend of Kage",
+        "忍者神龟" to "Teenage Mutant Ninja Turtles",
+        "忍者龙剑传" to "Ninja Gaiden",
+        "双截龙" to "Double Dragon",
+        "三目童子" to "Mitsume ga Tooru",
+        "成龙之龙" to "Jackie Chan's Action Kung Fu",
+        "成龙踢馆" to "Kung Fu",
+        "西游记世界" to "Saiyuuki World",
+        "吞食天地2" to "Tenchi wo Kurau II",
+        "吞食天地" to "Destiny of an Emperor",
+        "封神榜" to "Feng Shen Bang",
+        "重装机兵" to "Metal Max",
+        "时空之轮" to "Chrono Trigger",
+        "圣剑传说" to "Secret of Mana",
+        "地球冒险3" to "Mother 3",
+        "地球冒险2" to "EarthBound",
+        "地球冒险" to "EarthBound Beginnings",
+        "光明力量" to "Shining Force",
+        "梦幻模拟战" to "Langrisser",
+        "皇家骑士团" to "Tactics Ogre",
+        "高级战争" to "Advance Wars",
+        "大战略" to "Daisenryaku",
+        "节奏天国" to "Rhythm Tengoku",
+        "瓦里奥制造" to "WarioWare, Inc. - Mega Microgame$",
+        "瓦里奥大陆" to "Wario Land",
+        "大金刚国度" to "Donkey Kong Country",
+        "大金刚" to "Donkey Kong",
+        "俄罗斯方块" to "Tetris",
+        "吃豆人" to "Pac-Man",
+        "恶魔战士" to "Darkstalkers",
+        "恐龙快打" to "Cadillacs and Dinosaurs",
+        "名将" to "Captain Commando",
+        "圆桌骑士" to "Knights of the Round",
+        "三国志2 吞食天地" to "Warriors of Fate",
+        "三国战纪" to "Knights of Valour",
+        "西游释厄传" to "Oriental Legend",
+        "彩京1945" to "Strikers 1945",
+        "怒首领蜂" to "DoDonPachi",
+        "雷电" to "Raiden",
+        "铁拳" to "Tekken",
+        "山脊赛车" to "Ridge Racer",
+        "实况足球" to "Pro Evolution Soccer",
+        "天使之翼" to "Captain Tsubasa",
+        "足球小将" to "Captain Tsubasa",
+        "幽游白书" to "Yu Yu Hakusho",
+        "七龙珠" to "Dragon Ball Z",
+        "龙珠Z" to "Dragon Ball Z",
+        "数码宝贝" to "Digimon",
+        "游戏王" to "Yu-Gi-Oh!",
+        "高达" to "Gundam",
+        "机动战士高达" to "Mobile Suit Gundam",
+        "空之轨迹" to "The Legend of Heroes: Trails in the Sky",
+        "零之轨迹" to "The Legend of Heroes: Trails from Zero",
+        "碧之轨迹" to "The Legend of Heroes: Trails to Azure",
+        "闪之轨迹" to "The Legend of Heroes: Trails of Cold Steel",
+        "战神 奥林匹斯之链" to "God of War - Chains of Olympus",
+        "战神 斯巴达之魂" to "God of War - Ghost of Sparta",
+        "战神" to "God of War",
+        "怪物猎人携带版3" to "Monster Hunter Portable 3rd",
+        "怪物猎人2G" to "Monster Hunter Freedom Unite",
+        "怪物猎人" to "Monster Hunter",
+        "真三国无双" to "Dynasty Warriors",
+        "战国无双" to "Samurai Warriors",
+        "无双大蛇" to "Warriors Orochi",
+        "生化危机" to "Resident Evil",
+        "寂静岭" to "Silent Hill",
+        "合金装备 和平行者" to "Metal Gear Solid - Peace Walker",
+        "合金装备" to "Metal Gear Solid",
+        "鬼泣" to "Devil May Cry",
+        "鬼武者" to "Onimusha",
+        "大神" to "Okami",
+        "汪达与巨像" to "Shadow of the Colossus",
+        "女神异闻录" to "Persona",
+        "真女神转生" to "Shin Megami Tensei",
+        "王国之心" to "Kingdom Hearts",
+        "北欧女神" to "Valkyrie Profile",
+        "幻想水浒传" to "Suikoden",
+        "异度装甲" to "Xenogears",
+        "异度神剑" to "Xenoblade Chronicles",
+        "传说系列" to "Tales of",
+        "宿命传说" to "Tales of Destiny",
+        "永恒传说" to "Tales of Eternia",
+        "幻想传说" to "Tales of Phantasia",
+        "动物森友会" to "Animal Crossing",
+        "动物之森" to "Animal Crossing",
+        "斯普拉遁" to "Splatoon",
+        "喷射战士" to "Splatoon",
+        "任天堂明星大乱斗" to "Super Smash Bros.",
+        "路易吉洋馆" to "Luigi's Mansion",
+        "皮克敏" to "Pikmin",
+        "猎天使魔女" to "Bayonetta",
+        "空洞骑士" to "Hollow Knight",
+        "蔚蓝" to "Celeste",
+        "星露谷物语" to "Stardew Valley",
+        "哈迪斯" to "Hades",
+        "死亡细胞" to "Dead Cells",
+        "茶杯头" to "Cuphead",
+        "以撒的结合" to "The Binding of Isaac",
+        "泰拉瑞亚" to "Terraria",
+        "我的世界" to "Minecraft",
+        "暗黑破坏神" to "Diablo",
+        "上古卷轴" to "The Elder Scrolls",
+        "巫师3" to "The Witcher 3",
+        "侠盗猎车手" to "Grand Theft Auto",
+        "极品飞车" to "Need for Speed",
+        "古墓丽影" to "Tomb Raider",
+        "波斯王子" to "Prince of Persia",
+        "刺客信条" to "Assassin's Creed",
+        "如龙" to "Yakuza",
+        "太鼓达人" to "Taiko no Tatsujin",
+        "初音未来" to "Hatsune Miku",
+        "弹丸论破" to "Danganronpa",
+        "命运石之门" to "Steins;Gate",
+        "秋之回忆" to "Memories Off",
+        "心跳回忆" to "Tokimeki Memorial",
+    ).sortedByDescending { it.first.length }
+
+    /** 系列词根映射（当具体副标题未命中时，保留尾部数字或代号拼接成英文系列查询）。 */
+    private val SERIES_PREFIXES: List<Pair<String, String>> = listOf(
+        "超级机器人大战" to "Super Robot Taisen",
+        "机器人大战" to "Super Robot Taisen",
+        "最终幻想" to "Final Fantasy",
+        "勇者斗恶龙" to "Dragon Quest",
+        "塞尔达传说" to "The Legend of Zelda",
+        "超级马里奥" to "Super Mario",
+        "超级马力欧" to "Super Mario",
+        "口袋妖怪" to "Pokemon",
+        "宝可梦" to "Pokemon",
+        "火焰之纹章" to "Fire Emblem",
+        "火焰纹章" to "Fire Emblem",
+        "恶魔城" to "Castlevania",
+        "合金弹头" to "Metal Slug",
+        "拳皇" to "The King of Fighters",
+        "街头霸王" to "Street Fighter",
+        "街霸" to "Street Fighter",
+        "侍魂" to "Samurai Shodown",
+        "饿狼传说" to "Fatal Fury",
+        "龙虎之拳" to "Art of Fighting",
+        "洛克人Zero" to "Mega Man Zero",
+        "洛克人X" to "Mega Man X",
+        "洛克人EXE" to "Mega Man Battle Network",
+        "洛克人" to "Mega Man",
+        "元祖洛克人" to "Mega Man",
+        "星之卡比" to "Kirby",
+        "银河战士" to "Metroid",
+        "密特罗德" to "Metroid",
+        "牧场物语" to "Harvest Moon",
+        "符文工房" to "Rune Factory",
+        "逆转裁判" to "Phoenix Wright",
+        "冒险岛" to "Adventure Island",
+        "索尼克" to "Sonic the Hedgehog",
+        "音速小子" to "Sonic the Hedgehog",
+        "三国志" to "Romance of the Three Kingdoms",
+        "信长之野望" to "Nobunaga's Ambition",
+        "大航海时代" to "Uncharted Waters",
+        "热血" to "Kunio-kun",
+        "伊苏" to "Ys",
+        "英雄传说" to "The Legend of Heroes",
+        "光明之魂" to "Shining Soul",
+        "光明与黑暗" to "Shining in the Darkness",
+        "梦幻之星" to "Phantasy Star",
+        "怒之铁拳" to "Streets of Rage",
+        "战斧" to "Golden Axe",
+        "兽王记" to "Altered Beast",
+        "超级忍" to "Shinobi",
+        "格兰蒂亚" to "Grandia",
+        "荒野兵器" to "Wild Arms",
+        "樱花大战" to "Sakura Wars",
+        "莎木" to "Shenmue",
+        "古惑狼" to "Crash Bandicoot",
+        "小龙斯派罗" to "Spyro",
+        "寄生前夜" to "Parasite Eve",
+        "恐龙危机" to "Dino Crisis",
+        "皇牌空战" to "Ace Combat",
+        "装甲核心" to "Armored Core",
+        "GT赛车" to "Gran Turismo",
+        "山脊赛车" to "Ridge Racer",
+        "啪嗒砰" to "Patapon",
+        "乐克乐克" to "LocoRoco",
+        "讨鬼传" to "Toukiden",
+        "噬神者" to "God Eater",
+        "零" to "Fatal Frame",
+        "卡普空" to "Capcom",
+    ).sortedByDescending { it.first.length }
+
+    private val TRAILING_NUM = Regex("""(\d{1,4}|[IVX]{1,4})$""")
+
+    /** 若 [raw] 包含中文字符，返回 0..3 条英文候选标题。 */
+    fun expandEnglishAliases(raw: String): List<String> {
+        if (raw.isBlank() || !containsCjk(raw)) return emptyList()
+        val cleaned = TitleNormalizer.stripRomTags(raw)
+            .replace(Regex("""[-:：·—_\s]+"""), " ")
+            .trim()
+        if (cleaned.isEmpty()) return emptyList()
+        val compact = cleaned.replace(" ", "")
+
+        val out = LinkedHashSet<String>(3)
+        for ((zh, en) in EXACT_GAMES) {
+            val zhCompact = zh.replace(" ", "")
+            if (cleaned.contains(zh, ignoreCase = true) || compact.contains(zhCompact, ignoreCase = true)) {
+                out += en
+                if (out.size >= 2) break
+            }
+        }
+        if (out.isEmpty()) {
+            for ((prefix, enSeries) in SERIES_PREFIXES) {
+                val pCompact = prefix.replace(" ", "")
+                val idx = compact.indexOf(pCompact, ignoreCase = true)
+                if (idx >= 0) {
+                    val tail = compact.substring(idx + pCompact.length).trim()
+                    val num = TRAILING_NUM.find(tail)?.groupValues?.getOrNull(1)
+                    if (!num.isNullOrBlank()) {
+                        out += "$enSeries $num"
+                    }
+                    out += enSeries
+                    break
+                }
+            }
+        }
+        return out.toList()
+    }
+
+    fun containsCjk(s: String): Boolean {
+        for (ch in s) {
+            val code = ch.code
+            if (code in 0x4E00..0x9FFF || code in 0x3400..0x4DBF) return true
+        }
+        return false
+    }
+}

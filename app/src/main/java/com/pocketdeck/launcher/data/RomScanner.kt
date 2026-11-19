@@ -311,17 +311,6 @@ object RomScanner {
         }.sortedBy { it.title.lowercase() }
     }
 
-    private val TAGS = Regex("""\s*[(\[][^)\]]*[)\]]""")
-    private val ARTICLE = Regex("""^(.+?), (The|A|An)(\s+-\s+.*|\s*:.*)?$""")
-    private val SPACES = Regex("""\s+""")
-
     /** "Legend of Zelda, The - Oracle of Ages (USA, Australia)" → "The Legend of Zelda - Oracle of Ages" */
-    fun cleanTitle(base: String): String {
-        var s = base.replace('_', ' ').replace(TAGS, "").trim()
-        ARTICLE.matchEntire(s)?.let { m ->
-            s = "${m.groupValues[2]} ${m.groupValues[1]}${m.groupValues[3]}"
-        }
-        s = s.replace(SPACES, " ").trim()
-        return s.ifEmpty { base }
-    }
+    fun cleanTitle(base: String): String = TitleNormalizer.stripRomTags(base)
 }

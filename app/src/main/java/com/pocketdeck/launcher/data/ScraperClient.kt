@@ -5,69 +5,132 @@ import android.net.Uri
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.FileInputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.Calendar
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
-import java.util.zip.CRC32
-import java.util.zip.ZipFile
+import java.util.concurrent.TimeUnit
 
 data class ScrapeHit(
     val officialName: String? = null,
     val meta: GameMetadata = GameMetadata(),
     val coverUrls: List<String> = emptyList(),
+    val matchedBySerial: Boolean = false,
 ) {
     val isEmpty: Boolean
         get() = officialName == null && meta.isEmpty && coverUrls.isEmpty()
 }
 
 /**
- * 共享的多源刮削客户端（Hasheous / ArcadeItalia / Wikidata / ScreenScraper / TheGamesDB / IGDB）。
- * 负责 ROM CRC32 计算、HTTP 请求与按游戏落盘缓存，避免 CoverSource 和 MetadataRepository 重复查询。
+ * 共享的多源刮削客户端：
+ * - 共享连接池化 [OkHttpClient]（HTTP/2 复用，供 CoverSource / MetadataRepository / GameTdbClient 共用）
+ * - [ScrapeDatabase] SQLite WAL 持久化 + 命中/负缓存/瞬时错误 TTL 分级管理
+ * - [RomIdentityExtractor] 无头 CRC32 / 7z 内层 CRC / CHD SHA1 / 光盘与卡带 Serial ID
+ * - `inFlight` `Deferred` 请求去重（MetadataRepository 与 CoverSource 绝不重复发包或写竞态）
+ * - 分服务商限流器（ScreenScraper 1 req/s、IGDB 4 req/s、其余 3~4 req/s）
+ * - 完整支持 GameTDB / Hasheous / ArcadeItalia / ScreenScraper / TheGamesDB / IGDB / SteamGridDB / Wikidata
  */
 class ScraperClient(context: Context) {
 
     private val appCtx = context.applicationContext.also { ScrapeLogStore.init(it) }
-    private val apiCacheDir = File(appCtx.cacheDir, "scraper_api").apply { mkdirs() }
-    private val crcCache = ConcurrentHashMap<String, String>()
-    private val memHits = ConcurrentHashMap<String, Any>()
+    val database = ScrapeDatabase(appCtx)
+    val identityExtractor = RomIdentityExtractor(database)
 
+    val http: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .connectionPool(ConnectionPool(8, 2, TimeUnit.MINUTES))
+        .build()
+
+    val gameTdb = GameTdbClient(appCtx, http, identityExtractor)
+
+    private val memHits = ConcurrentHashMap<String, CacheEntry>()
+    private val inFlight = ConcurrentHashMap<String, Deferred<ScrapeHit?>>()
+    private val rateLocks = ConcurrentHashMap<String, Mutex>()
+    private val lastRequestMs = ConcurrentHashMap<String, Long>()
+
+    private val igdbTokenMutex = Mutex()
     @Volatile
     private var igdbToken: String? = null
-
     @Volatile
     private var igdbTokenExpireMs: Long = 0L
+    @Volatile
+    private var igdbTokenCredKey: String = ""
+
+    private data class CacheEntry(
+        val hit: ScrapeHit?,
+        val expiresAtMs: Long,
+    )
+
+    private data class HttpResult(
+        val body: String?,
+        val statusCode: Int?,
+        val transientError: Boolean,
+    )
+
+    private data class QueryOutcome(
+        val hit: ScrapeHit?,
+        val transientError: Boolean = false,
+    )
 
     /** 仅查询内存命中的刮削缓存（O(1)，无任何磁盘 I/O，可安全在主线程调用）。 */
-    fun cachedHitInMemory(providerId: String, gameId: String): ScrapeHit? =
-        memHits["$providerId::$gameId"] as? ScrapeHit
+    fun cachedHitInMemory(providerId: String, gameId: String): ScrapeHit? {
+        val entry = memHits["$providerId::$gameId"] ?: return null
+        if (entry.expiresAtMs > 0L && entry.expiresAtMs < System.currentTimeMillis()) return null
+        return entry.hit
+    }
+
+    /** 检查是否已有有效缓存记录（包括未过期负缓存，避免重复触发网络请求）。 */
+    fun hasFreshCacheInMemory(providerId: String, gameId: String): Boolean {
+        val entry = memHits["$providerId::$gameId"] ?: return false
+        return entry.expiresAtMs == 0L || entry.expiresAtMs >= System.currentTimeMillis()
+    }
 
     fun cachedHit(providerId: String, gameId: String): ScrapeHit? {
         val key = "$providerId::$gameId"
-        val cached = memHits[key]
-        if (cached === MISS_SENTINEL) return null
-        if (cached is ScrapeHit) return cached
-        val file = cacheFile(providerId, gameId)
-        if (!file.isFile) {
-            memHits[key] = MISS_SENTINEL
-            return null
+        val now = System.currentTimeMillis()
+        memHits[key]?.let { entry ->
+            if (entry.expiresAtMs == 0L || entry.expiresAtMs >= now) {
+                return entry.hit
+            }
         }
-        val hit = readCachedHit(file)
-        if (hit == null) {
-            memHits[key] = MISS_SENTINEL
-            return null
-        }
-        memHits[key] = hit
+        val row = database.getScrapeHit(providerId, gameId, now) ?: return null
+        val hit = if (row.status == ScrapeDatabase.STATUS_HIT) row.hit else ScrapeHit()
+        memHits[key] = CacheEntry(hit = hit, expiresAtMs = row.expiresAtMs)
         return hit
     }
 
     fun clearApiCache() {
         memHits.clear()
-        apiCacheDir.listFiles()?.forEach { it.delete() }
+        identityExtractor.clearMemoryCache()
+        database.clearScrapeCache()
+        gameTdb.clearCache()
+        // 清理旧版本遗留的 scraper_api 零散 JSON 缓存目录
+        runCatching { File(appCtx.cacheDir, "scraper_api").deleteRecursively() }
     }
+
+    fun extractIdentity(file: File, platformId: String? = null): RomIdentityExtractor.Identity =
+        identityExtractor.extract(file, platformId)
+
+    fun computeRomCrc32(file: File, platformId: String? = null): String? =
+        identityExtractor.extract(file, platformId).crc32
 
     suspend fun queryProvider(
         providerId: String,
@@ -75,93 +138,184 @@ class ScraperClient(context: Context) {
         platform: Platform?,
         cred: ScraperCredentials,
         forceRefresh: Boolean = false,
+        officialNameHint: String? = null,
     ): ScrapeHit? {
-        if (!forceRefresh) {
-            cachedHit(providerId, game.id)?.let { return it }
-        }
-
-        val hit = when (providerId) {
-            ScraperCatalog.CoverIds.HASHEOUS -> queryHasheous(game)
-            ScraperCatalog.CoverIds.ARCADEITALIA -> queryArcadeItalia(game, platform)
-            ScraperCatalog.MetaIds.WIKIDATA -> queryWikidata(game)
-            ScraperCatalog.CoverIds.SCREENSCRAPER -> queryScreenScraper(game, platform, cred)
-            ScraperCatalog.CoverIds.THEGAMESDB -> queryTheGamesDb(game, cred)
-            ScraperCatalog.CoverIds.IGDB -> queryIgdb(game, cred)
-            else -> null
-        } ?: return null
-
-        // 强制刷新时若远端未命中，保留本地已有有效缓存，避免覆盖掉有效元数据
-        if (forceRefresh && hit.isEmpty && cachedHit(providerId, game.id)?.isEmpty == false) {
-            return hit
-        }
-
         val key = "$providerId::${game.id}"
-        memHits[key] = hit
-        writeCachedHit(cacheFile(providerId, game.id), hit)
-        return hit
+        if (!forceRefresh) {
+            val now = System.currentTimeMillis()
+            memHits[key]?.let { entry ->
+                if (entry.expiresAtMs == 0L || entry.expiresAtMs >= now) return entry.hit
+            }
+            val dbRow = withContext(Dispatchers.IO) { database.getScrapeHit(providerId, game.id, now) }
+            if (dbRow != null) {
+                val h = if (dbRow.status == ScrapeDatabase.STATUS_HIT) dbRow.hit else ScrapeHit()
+                memHits[key] = CacheEntry(h, dbRow.expiresAtMs)
+                return h
+            }
+        }
+
+        // 请求去重：相同 provider + gameId 若已有在途请求，直接复用其结果
+        val created = CompletableDeferred<ScrapeHit?>()
+        val existing = inFlight.putIfAbsent(key, created)
+        if (existing != null) {
+            return existing.await()
+        }
+
+        try {
+            val outcome = withContext(Dispatchers.IO) {
+                executeProviderQuery(providerId, game, platform, cred, officialNameHint)
+            }
+            val hit = outcome.hit
+            val now = System.currentTimeMillis()
+
+            // 强制刷新时若远端未命中，保留本地已有有效缓存，避免覆盖掉有效元数据
+            if (forceRefresh && (hit == null || hit.isEmpty)) {
+                val prev = cachedHit(providerId, game.id)
+                if (prev != null && !prev.isEmpty) {
+                    created.complete(prev)
+                    return prev
+                }
+            }
+
+            if (outcome.transientError) {
+                val exp = now + ScrapeDatabase.TTL_ERROR_MS
+                val empty = ScrapeHit()
+                memHits[key] = CacheEntry(empty, exp)
+                withContext(Dispatchers.IO) {
+                    database.putScrapeHit(providerId, game.id, empty, ScrapeDatabase.STATUS_ERROR, exp)
+                }
+                created.complete(null)
+                return null
+            }
+
+            if (hit != null) {
+                val isHit = !hit.isEmpty
+                val status = if (isHit) ScrapeDatabase.STATUS_HIT else ScrapeDatabase.STATUS_MISS
+                val exp = now + if (isHit) ScrapeDatabase.TTL_HIT_MS else ScrapeDatabase.TTL_MISS_MS
+                memHits[key] = CacheEntry(hit, exp)
+                withContext(Dispatchers.IO) {
+                    database.putScrapeHit(providerId, game.id, hit, status, exp)
+                }
+                created.complete(hit)
+                return hit
+            }
+
+            created.complete(null)
+            return null
+        } catch (t: Throwable) {
+            created.complete(null)
+            return null
+        } finally {
+            inFlight.remove(key, created)
+        }
     }
 
-    fun computeRomCrc32(file: File): String? {
-        crcCache[file.path]?.let { return it }
-        if (!file.isFile) return null
+    /** 批量查询 ArcadeItalia（单次 HTTP 请求最多合并 20 个街机 ROM 名，大幅降低 RTT）。 */
+    suspend fun prefetchArcadeItaliaBatch(games: List<Game>, platform: Platform?) {
+        val pid = platform?.id?.lowercase().orEmpty()
+        if (pid !in ARCADE_PLATFORMS) return
+        if (!NetworkStatus.isOnline(appCtx)) return
+        val pending = games.filter { !hasFreshCacheInMemory(ScraperCatalog.CoverIds.ARCADEITALIA, it.id) }
+        if (pending.isEmpty()) return
 
-        val result = runCatching {
-            if (file.extension.equals("zip", ignoreCase = true)) {
-                ZipFile(file).use { zip ->
-                    val entries = zip.entries()
-                    while (entries.hasMoreElements()) {
-                        val e = entries.nextElement()
-                        if (!e.isDirectory && e.crc >= 0) {
-                            return@runCatching "%08X".format(e.crc)
-                        }
-                    }
-                    null
-                }
-            } else {
-                if (file.length() > MAX_CRC_SIZE) return@runCatching null
-                val crc = CRC32()
-                FileInputStream(file).use { input ->
-                    val buf = ByteArray(16 * 1024)
-                    var first = true
-                    while (true) {
-                        val read = input.read(buf)
-                        if (read <= 0) break
-                        if (first) {
-                            first = false
-                            val isInes = file.extension.equals("nes", ignoreCase = true) &&
-                                read >= 16 && buf[0] == 'N'.code.toByte() && buf[1] == 'E'.code.toByte() &&
-                                buf[2] == 'S'.code.toByte() && buf[3] == 0x1A.toByte()
-                            if (isInes) {
-                                crc.update(buf, 16, read - 16)
-                                continue
-                            }
-                        }
-                        crc.update(buf, 0, read)
-                    }
-                }
-                "%08X".format(crc.value)
+        withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val toFetch = pending.filter {
+                database.getScrapeHit(ScraperCatalog.CoverIds.ARCADEITALIA, it.id, now) == null
             }
-        }.getOrNull()
+            for (chunk in toFetch.chunked(20)) {
+                throttle(ScraperCatalog.CoverIds.ARCADEITALIA, 260L)
+                val byRomLower = chunk.associateBy { it.baseName.lowercase() }
+                val namesParam = chunk.joinToString(";") { Uri.encode(it.baseName) }
+                val res = httpGet("https://adb.arcadeitalia.net/service_scraper.php?ajax=query_mame&game_name=$namesParam")
+                if (res.transientError || res.body == null) continue
+                val matched = HashMap<String, ScrapeHit>()
+                runCatching {
+                    val arr = JSONObject(res.body).optJSONArray("result") ?: return@runCatching
+                    for (i in 0 until arr.length()) {
+                        val item = arr.optJSONObject(i) ?: continue
+                        val rom = item.optString("game_name").lowercase()
+                        if (rom.isNotEmpty()) {
+                            parseArcadeItaliaItem(item)?.let { matched[rom] = it }
+                        }
+                    }
+                }
+                val ts = System.currentTimeMillis()
+                for ((romKey, game) in byRomLower) {
+                    val hit = matched[romKey] ?: ScrapeHit()
+                    val isHit = !hit.isEmpty
+                    val status = if (isHit) ScrapeDatabase.STATUS_HIT else ScrapeDatabase.STATUS_MISS
+                    val exp = ts + if (isHit) ScrapeDatabase.TTL_HIT_MS else ScrapeDatabase.TTL_MISS_MS
+                    memHits["${ScraperCatalog.CoverIds.ARCADEITALIA}::${game.id}"] = CacheEntry(hit, exp)
+                    database.putScrapeHit(ScraperCatalog.CoverIds.ARCADEITALIA, game.id, hit, status, exp)
+                }
+            }
+        }
+    }
 
-        if (result != null) crcCache[file.path] = result
-        return result
+    private suspend fun executeProviderQuery(
+        providerId: String,
+        game: Game,
+        platform: Platform?,
+        cred: ScraperCredentials,
+        officialNameHint: String?,
+    ): QueryOutcome = when (providerId) {
+        ScraperCatalog.CoverIds.GAMETDB -> queryGameTdb(game, platform)
+        ScraperCatalog.CoverIds.HASHEOUS -> queryHasheous(game, platform)
+        ScraperCatalog.CoverIds.ARCADEITALIA -> queryArcadeItalia(game, platform)
+        ScraperCatalog.MetaIds.WIKIDATA -> queryWikidata(game, officialNameHint)
+        ScraperCatalog.CoverIds.SCREENSCRAPER -> queryScreenScraper(game, platform, cred)
+        ScraperCatalog.CoverIds.THEGAMESDB -> queryTheGamesDb(game, platform, cred, officialNameHint)
+        ScraperCatalog.CoverIds.IGDB -> queryIgdb(game, platform, cred, officialNameHint)
+        ScraperCatalog.CoverIds.STEAMGRIDDB -> querySteamGridDb(game, cred, officialNameHint)
+        else -> QueryOutcome(null)
+    }
+
+    private suspend fun throttle(providerId: String, minIntervalMs: Long) {
+        val lock = rateLocks.getOrPut(providerId) { Mutex() }
+        lock.withLock {
+            val now = System.currentTimeMillis()
+            val prev = lastRequestMs[providerId] ?: 0L
+            val wait = prev + minIntervalMs - now
+            if (wait > 0L) delay(wait)
+            lastRequestMs[providerId] = System.currentTimeMillis()
+        }
+    }
+
+    // ───────────────────────── GameTDB ─────────────────────────
+
+    private suspend fun queryGameTdb(game: Game, platform: Platform?): QueryOutcome {
+        if (!gameTdb.supportsPlatform(platform?.id)) return QueryOutcome(ScrapeHit())
+        val match = gameTdb.lookup(game, platform, allowDownload = true)
+            ?: return QueryOutcome(ScrapeHit())
+        return QueryOutcome(match.hit.copy(matchedBySerial = match.bySerial))
     }
 
     // ───────────────────────── Hasheous ─────────────────────────
 
-    private fun queryHasheous(game: Game): ScrapeHit? {
-        val crc = computeRomCrc32(File(game.id)) ?: return null
-        val body = httpGet("https://hasheous.org/api/v1/Lookup/ByHash/crc/$crc?returnAllMetadata=true")
-            ?: return null
-        return runCatching {
-            val o = JSONObject(body)
+    private suspend fun queryHasheous(game: Game, platform: Platform?): QueryOutcome {
+        val identity = identityExtractor.extract(File(game.id), platform?.id)
+        val lookupUrl = when {
+            identity.crc32 != null -> "https://hasheous.org/api/v1/Lookup/ByHash/crc/${identity.crc32}?returnAllMetadata=true"
+            identity.sha1 != null -> "https://hasheous.org/api/v1/Lookup/ByHash/sha1/${identity.sha1}?returnAllMetadata=true"
+            else -> return QueryOutcome(ScrapeHit())
+        }
+        throttle(ScraperCatalog.CoverIds.HASHEOUS, 250L)
+        val res = httpGet(lookupUrl)
+        if (res.statusCode == 404) return QueryOutcome(ScrapeHit())
+        if (res.transientError || res.body == null) return QueryOutcome(null, transientError = true)
+
+        val hit = runCatching {
+            val o = JSONObject(res.body)
             val name = o.optString("name").takeIf { it.isNotBlank() }
             val sigGame = o.optJSONObject("signature")?.optJSONObject("game")
             val year = sigGame?.optString("year")?.takeIf { it.isNotBlank() }
             val publisher = o.optJSONObject("publisher")?.optString("name")?.takeIf { it.isNotBlank() }
                 ?: sigGame?.optString("publisher")?.takeIf { it.isNotBlank() }
 
-            val urls = LinkedHashSet<String>()
+            // 严格优先 BoxArt，其次 Logo，避免把透明横幅当主封面
+            val boxArts = LinkedHashSet<String>()
+            val otherImgs = LinkedHashSet<String>()
             val attrs = o.optJSONArray("attributes")
             if (attrs != null) {
                 for (i in 0 until attrs.length()) {
@@ -169,80 +323,101 @@ class ScraperClient(context: Context) {
                     val type = a.optString("attributeType")
                     val attrName = a.optString("attributeName")
                     val link = a.optString("link")
-                    if ((type == "ImageId" || attrName == "Logo" || attrName == "BoxArt") && link.startsWith("/")) {
-                        urls += "https://hasheous.org$link"
+                    if (!link.startsWith("/")) continue
+                    val full = "https://hasheous.org$link"
+                    when {
+                        attrName.equals("BoxArt", ignoreCase = true) ||
+                            attrName.contains("Box", ignoreCase = true) -> boxArts += full
+                        type == "ImageId" || attrName.equals("Logo", ignoreCase = true) -> otherImgs += full
                     }
                 }
             }
+            val urls = (boxArts + otherImgs).toList()
             ScrapeHit(
                 officialName = name,
                 meta = GameMetadata(releaseDate = year, publisher = publisher),
-                coverUrls = urls.toList(),
+                coverUrls = urls,
             )
-        }.getOrNull()
+        }.getOrNull() ?: return QueryOutcome(ScrapeHit())
+        return QueryOutcome(hit)
     }
 
     // ───────────────────────── ArcadeItalia ─────────────────────────
 
-    private fun queryArcadeItalia(game: Game, platform: Platform?): ScrapeHit? {
+    private suspend fun queryArcadeItalia(game: Game, platform: Platform?): QueryOutcome {
         val pid = platform?.id?.lowercase().orEmpty()
-        if (pid !in ARCADE_PLATFORMS) return ScrapeHit()
+        if (pid !in ARCADE_PLATFORMS) return QueryOutcome(ScrapeHit())
+        throttle(ScraperCatalog.CoverIds.ARCADEITALIA, 220L)
         val romName = Uri.encode(game.baseName)
-        val body = httpGet("https://adb.arcadeitalia.net/service_scraper.php?ajax=query_mame&game_name=$romName")
-            ?: return null
-        return runCatching {
-            val arr = JSONObject(body).optJSONArray("result") ?: return@runCatching ScrapeHit()
+        val res = httpGet("https://adb.arcadeitalia.net/service_scraper.php?ajax=query_mame&game_name=$romName")
+        if (res.transientError || res.body == null) return QueryOutcome(null, transientError = true)
+        val hit = runCatching {
+            val arr = JSONObject(res.body).optJSONArray("result") ?: return@runCatching ScrapeHit()
             if (arr.length() == 0) return@runCatching ScrapeHit()
-            val item = arr.getJSONObject(0)
-            val title = item.optString("title").takeIf { it.isNotBlank() }
-            val year = item.optString("year").takeIf { it.isNotBlank() }
-            val genre = item.optString("genre").takeIf { it.isNotBlank() }
-            val maker = item.optString("manufacturer").takeIf { it.isNotBlank() }
-            val urls = listOf(
-                item.optString("url_image_flyer"),
-                item.optString("url_image_title"),
-                item.optString("url_image_cabinet"),
-                item.optString("url_image_ingame"),
-            ).filter { it.startsWith("http") }
-
-            ScrapeHit(
-                officialName = title,
-                meta = GameMetadata(
-                    releaseDate = year,
-                    genre = genre,
-                    developer = maker,
-                    publisher = maker,
-                ),
-                coverUrls = urls,
-            )
-        }.getOrNull()
+            parseArcadeItaliaItem(arr.getJSONObject(0)) ?: ScrapeHit()
+        }.getOrDefault(ScrapeHit())
+        return QueryOutcome(hit)
     }
 
-    // ───────────────────────── Wikidata ─────────────────────────
+    private fun parseArcadeItaliaItem(item: JSONObject): ScrapeHit? {
+        val title = item.optString("title").takeIf { it.isNotBlank() }
+        val year = item.optString("year").takeIf { it.isNotBlank() }
+        val genre = item.optString("genre").takeIf { it.isNotBlank() }
+        val maker = item.optString("manufacturer").takeIf { it.isNotBlank() }
+        val urls = listOf(
+            item.optString("url_image_flyer"),
+            item.optString("url_image_title"),
+            item.optString("url_image_cabinet"),
+            item.optString("url_image_ingame"),
+        ).filter { it.startsWith("http") }
+        val hit = ScrapeHit(
+            officialName = title,
+            meta = GameMetadata(
+                releaseDate = year,
+                genre = genre,
+                developer = maker,
+                publisher = maker,
+            ),
+            coverUrls = urls,
+        )
+        return if (hit.isEmpty) null else hit
+    }
 
-    private fun queryWikidata(game: Game): ScrapeHit? {
-        val clean = cleanTitle(game.title.ifBlank { game.baseName })
-        if (clean.length < 2) return ScrapeHit()
-        val searchUrl = "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${Uri.encode(clean)}&language=en&format=json&limit=5"
-        val searchBody = httpGet(searchUrl) ?: return null
-        return runCatching {
-            val results = JSONObject(searchBody).optJSONArray("search") ?: return@runCatching ScrapeHit()
+    // ───────────────────────── Wikidata (默认关闭，支持多语言) ─────────────────────────
+
+    private suspend fun queryWikidata(game: Game, officialNameHint: String?): QueryOutcome {
+        val query = TitleNormalizer.bestApiSearchQuery(game.baseName, game.title, officialNameHint)
+        if (query.length < 2) return QueryOutcome(ScrapeHit())
+        throttle(ScraperCatalog.MetaIds.WIKIDATA, 300L)
+        val lang = if (CjkAliases.containsCjk(query)) "zh" else "en"
+        val searchUrl = "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${Uri.encode(query)}&language=$lang&uselang=en&format=json&limit=5"
+        val searchRes = httpGet(searchUrl)
+        if (searchRes.transientError || searchRes.body == null) return QueryOutcome(null, transientError = true)
+
+        val hit = runCatching {
+            val results = JSONObject(searchRes.body).optJSONArray("search") ?: return@runCatching ScrapeHit()
             var qid: String? = null
             var label: String? = null
+            var bestScore = 0.68
             for (i in 0 until results.length()) {
                 val r = results.getJSONObject(i)
                 val desc = r.optString("description").lowercase()
-                if ("video game" in desc || "arcade game" in desc || "computer game" in desc) {
+                if ("video game" !in desc && "arcade game" !in desc && "computer game" !in desc && "电子游戏" !in desc) {
+                    continue
+                }
+                val lbl = r.optString("label").takeIf { it.isNotBlank() } ?: continue
+                val sim = TitleNormalizer.similarity(query, lbl)
+                if (sim > bestScore) {
+                    bestScore = sim
                     qid = r.optString("id")
-                    label = r.optString("label").takeIf { it.isNotBlank() }
-                    break
+                    label = lbl
                 }
             }
             if (qid == null) return@runCatching ScrapeHit()
 
-            val entBody = httpGet("https://www.wikidata.org/w/api.php?action=wbgetentities&ids=$qid&props=claims&format=json")
-                ?: return@runCatching null
-            val claims = JSONObject(entBody).optJSONObject("entities")
+            val entRes = httpGet("https://www.wikidata.org/w/api.php?action=wbgetentities&ids=$qid&props=claims&format=json")
+            if (entRes.body == null) return@runCatching ScrapeHit()
+            val claims = JSONObject(entRes.body).optJSONObject("entities")
                 ?.optJSONObject(qid)?.optJSONObject("claims") ?: return@runCatching ScrapeHit()
 
             val devId = firstClaimEntityId(claims, "P178")
@@ -262,18 +437,28 @@ class ScraperClient(context: Context) {
                     publisher = pubId?.let { labels[it] },
                 ),
             )
-        }.getOrNull()
+        }.getOrDefault(ScrapeHit())
+        return QueryOutcome(hit)
     }
 
     private fun resolveWikidataLabels(ids: List<String>): Map<String, String> {
-        val body = httpGet(
-            "https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${ids.joinToString("|")}&props=labels&languages=en&format=json",
-        ) ?: return emptyMap()
+        val res = httpGet(
+            "https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${ids.joinToString("|")}&props=labels&languages=en|zh&format=json",
+        )
+        val body = res.body ?: return emptyMap()
         return runCatching {
             val entities = JSONObject(body).optJSONObject("entities") ?: return@runCatching emptyMap()
+            val preferZh = Locale.getDefault().language.equals("zh", ignoreCase = true)
             val map = HashMap<String, String>(ids.size)
             for (id in ids) {
-                val v = entities.optJSONObject(id)?.optJSONObject("labels")?.optJSONObject("en")?.optString("value")
+                val labels = entities.optJSONObject(id)?.optJSONObject("labels") ?: continue
+                val v = if (preferZh) {
+                    labels.optJSONObject("zh")?.optString("value")?.takeIf { it.isNotBlank() }
+                        ?: labels.optJSONObject("en")?.optString("value")
+                } else {
+                    labels.optJSONObject("en")?.optString("value")?.takeIf { it.isNotBlank() }
+                        ?: labels.optJSONObject("zh")?.optString("value")
+                }
                 if (!v.isNullOrBlank()) map[id] = v
             }
             map
@@ -282,13 +467,16 @@ class ScraperClient(context: Context) {
 
     // ───────────────────────── ScreenScraper.fr ─────────────────────────
 
-    private fun queryScreenScraper(
+    private suspend fun queryScreenScraper(
         game: Game,
         platform: Platform?,
         cred: ScraperCredentials,
-    ): ScrapeHit? {
-        if (cred.ssUser.isBlank() || cred.ssPass.isBlank()) return null
-        val crc = computeRomCrc32(File(game.id))
+    ): QueryOutcome {
+        if (cred.ssUser.isBlank() || cred.ssPass.isBlank()) return QueryOutcome(null)
+        // ScreenScraper 免费账号严格限制单线程并发，串行限流 1.1s 避免 429/430 封禁
+        throttle(ScraperCatalog.CoverIds.SCREENSCRAPER, 1100L)
+        val file = File(game.id)
+        val identity = identityExtractor.extract(file, platform?.id)
         val sysId = SCREENSCRAPER_SYSTEM_IDS[platform?.id?.lowercase()]
         val sb = StringBuilder("https://api.screenscraper.fr/api2/jeuInfos.php")
             .append("?ssid=").append(Uri.encode(cred.ssUser))
@@ -297,24 +485,44 @@ class ScraperClient(context: Context) {
             .append("&output=json")
             .append("&romtype=rom")
             .append("&romnom=").append(Uri.encode(game.fileName))
-        if (crc != null) sb.append("&crc=").append(crc)
+        if (game.fileSize > 0L) sb.append("&romtaille=").append(game.fileSize)
+        if (identity.crc32 != null) sb.append("&crc=").append(identity.crc32)
+        if (identity.sha1 != null) sb.append("&sha1=").append(identity.sha1)
+        if (identity.serial != null) sb.append("&serialnum=").append(Uri.encode(identity.serial))
         if (sysId != null) sb.append("&systemeid=").append(sysId)
 
-        val body = httpGet(sb.toString()) ?: return null
-        return runCatching {
-            val jeu = JSONObject(body).optJSONObject("response")?.optJSONObject("jeu")
+        val res = httpGet(sb.toString())
+        if (res.statusCode == 404) return QueryOutcome(ScrapeHit())
+        if (res.transientError || res.body == null) return QueryOutcome(null, transientError = true)
+
+        val hit = runCatching {
+            val jeu = JSONObject(res.body).optJSONObject("response")?.optJSONObject("jeu")
                 ?: return@runCatching ScrapeHit()
-            val name = extractSsText(jeu.optJSONArray("noms"))
-            val date = jeu.optJSONArray("dates")?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotBlank() }
-            val genre = jeu.optJSONArray("genres")?.optJSONObject(0)?.optJSONArray("noms")?.let(::extractSsText)
+            val preferZh = Locale.getDefault().language.equals("zh", ignoreCase = true)
+            // 修复：noms 数组字段是 "region"（非 "langue"），genres 内部才是 "langue"
+            val name = extractSsByRegion(jeu.optJSONArray("noms"), preferZh)
+            val date = extractSsByRegion(jeu.optJSONArray("dates"), preferZh)
+            val genre = jeu.optJSONArray("genres")?.optJSONObject(0)?.optJSONArray("noms")
+                ?.let { extractSsByLang(it, preferZh) }
             val dev = jeu.optJSONObject("developpeur")?.optString("text")?.takeIf { it.isNotBlank() }
             val pub = jeu.optJSONObject("editeur")?.optString("text")?.takeIf { it.isNotBlank() }
 
             val urls = LinkedHashSet<String>()
             val medias = jeu.optJSONArray("medias")
             if (medias != null) {
-                val preferred = listOf("box-2D", "box-2D-front", "box-3D", "ss", "sstitle")
-                for (type in preferred) {
+                val preferredTypes = listOf("box-2D", "box-2D-front", "box-3D", "ss", "sstitle")
+                val preferredRegions = if (preferZh) listOf("cn", "zh", "us", "wor", "jp", "eu") else listOf("us", "wor", "eu", "jp")
+                for (type in preferredTypes) {
+                    for (reg in preferredRegions) {
+                        for (i in 0 until medias.length()) {
+                            val m = medias.optJSONObject(i) ?: continue
+                            if (m.optString("type") == type && m.optString("region").equals(reg, ignoreCase = true)) {
+                                val u = m.optString("url")
+                                if (u.startsWith("http")) urls += u
+                            }
+                        }
+                    }
+                    // 兜底任意区域
                     for (i in 0 until medias.length()) {
                         val m = medias.optJSONObject(i) ?: continue
                         if (m.optString("type") == type) {
@@ -327,60 +535,145 @@ class ScraperClient(context: Context) {
             ScrapeHit(
                 officialName = name,
                 meta = GameMetadata(releaseDate = date, genre = genre, developer = dev, publisher = pub),
-                coverUrls = urls.toList(),
+                coverUrls = urls.take(4),
+                matchedBySerial = identity.serial != null,
             )
-        }.getOrNull()
+        }.getOrDefault(ScrapeHit())
+        return QueryOutcome(hit)
     }
 
     // ───────────────────────── TheGamesDB.net ─────────────────────────
 
-    private fun queryTheGamesDb(game: Game, cred: ScraperCredentials): ScrapeHit? {
-        if (cred.tgdbKey.isBlank()) return null
-        val q = cleanTitle(game.title.ifBlank { game.baseName })
-        val url = "https://api.thegamesdb.net/v1/Games/ByGameName?apikey=${Uri.encode(cred.tgdbKey)}&name=${Uri.encode(q)}&fields=publishers,genres,developers&include=boxart"
-        val body = httpGet(url) ?: return null
-        return runCatching {
-            val root = JSONObject(body)
+    private suspend fun queryTheGamesDb(
+        game: Game,
+        platform: Platform?,
+        cred: ScraperCredentials,
+        officialNameHint: String?,
+    ): QueryOutcome {
+        if (cred.tgdbKey.isBlank()) return QueryOutcome(null)
+        val q = TitleNormalizer.bestApiSearchQuery(game.baseName, game.title, officialNameHint)
+        if (q.length < 2) return QueryOutcome(ScrapeHit())
+        throttle(ScraperCatalog.CoverIds.THEGAMESDB, 260L)
+
+        val sb = StringBuilder("https://api.thegamesdb.net/v1/Games/ByGameName")
+            .append("?apikey=").append(Uri.encode(cred.tgdbKey))
+            .append("&name=").append(Uri.encode(q))
+            .append("&fields=publishers,genres,developers")
+            .append("&include=boxart,developers,publishers,genres")
+        TGDB_PLATFORM_IDS[platform?.id?.lowercase()]?.let { pid ->
+            sb.append("&filter[platform]=").append(pid)
+        }
+
+        val res = httpGet(sb.toString())
+        if (res.statusCode == 404) return QueryOutcome(ScrapeHit())
+        if (res.transientError || res.body == null) return QueryOutcome(null, transientError = true)
+
+        val hit = runCatching {
+            val root = JSONObject(res.body)
             val data = root.optJSONObject("data") ?: return@runCatching ScrapeHit()
             val gamesArr = data.optJSONArray("games") ?: return@runCatching ScrapeHit()
             if (gamesArr.length() == 0) return@runCatching ScrapeHit()
-            val g = gamesArr.getJSONObject(0)
+
+            // 按标题相似度挑选最佳匹配而非盲取 [0]
+            var bestGame: JSONObject? = null
+            var bestScore = 0.52
+            for (i in 0 until minOf(gamesArr.length(), 10)) {
+                val cand = gamesArr.optJSONObject(i) ?: continue
+                val t = cand.optString("game_title")
+                val s = TitleNormalizer.similarity(q, t)
+                if (s > bestScore) {
+                    bestScore = s
+                    bestGame = cand
+                }
+            }
+            val g = bestGame ?: gamesArr.getJSONObject(0)
             val gid = g.optInt("id").toString()
             val title = g.optString("game_title").takeIf { it.isNotBlank() }
             val rel = g.optString("release_date").takeIf { it.isNotBlank() }?.take(4)
 
             val include = root.optJSONObject("include")
+            val devMap = parseTgdbLookup(include?.optJSONObject("developers")?.optJSONObject("data"))
+            val pubMap = parseTgdbLookup(include?.optJSONObject("publishers")?.optJSONObject("data"))
+            val genreMap = parseTgdbLookup(include?.optJSONObject("genres")?.optJSONObject("data"))
+
+            val dev = firstLookupName(g.optJSONArray("developers"), devMap)
+            val pub = firstLookupName(g.optJSONArray("publishers"), pubMap)
+            val genre = firstLookupName(g.optJSONArray("genres"), genreMap)
+
             val boxart = include?.optJSONObject("boxart")
             val baseImg = boxart?.optJSONObject("base_url")?.optString("medium")
+                ?.takeIf { it.isNotBlank() }
                 ?: boxart?.optJSONObject("base_url")?.optString("thumb")
                 ?: ""
-            val urls = LinkedHashSet<String>()
+            val frontUrls = LinkedHashSet<String>()
+            val fallbackUrls = LinkedHashSet<String>()
             val imgArr = boxart?.optJSONObject("data")?.optJSONArray(gid)
             if (imgArr != null && baseImg.isNotBlank()) {
                 for (i in 0 until imgArr.length()) {
                     val img = imgArr.optJSONObject(i) ?: continue
                     if (img.optString("type") == "boxart") {
                         val fn = img.optString("filename")
-                        if (fn.isNotBlank()) urls += baseImg + fn
+                        if (fn.isBlank()) continue
+                        val side = img.optString("side").lowercase()
+                        if (side == "front" || side.isEmpty()) {
+                            frontUrls += baseImg + fn
+                        } else if (side != "back") {
+                            fallbackUrls += baseImg + fn
+                        }
                     }
                 }
             }
             ScrapeHit(
                 officialName = title,
-                meta = GameMetadata(releaseDate = rel),
-                coverUrls = urls.toList(),
+                meta = GameMetadata(releaseDate = rel, genre = genre, developer = dev, publisher = pub),
+                coverUrls = (frontUrls + fallbackUrls).toList(),
             )
-        }.getOrNull()
+        }.getOrDefault(ScrapeHit())
+        return QueryOutcome(hit)
+    }
+
+    private fun parseTgdbLookup(obj: JSONObject?): Map<String, String> {
+        if (obj == null) return emptyMap()
+        val out = HashMap<String, String>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val name = obj.optJSONObject(k)?.optString("name")?.takeIf { it.isNotBlank() }
+            if (name != null) out[k] = name
+        }
+        return out
+    }
+
+    private fun firstLookupName(ids: JSONArray?, lookup: Map<String, String>): String? {
+        if (ids == null || lookup.isEmpty()) return null
+        for (i in 0 until ids.length()) {
+            val idStr = ids.opt(i)?.toString() ?: continue
+            lookup[idStr]?.let { return it }
+        }
+        return null
     }
 
     // ───────────────────────── IGDB.com ─────────────────────────
 
-    private fun queryIgdb(game: Game, cred: ScraperCredentials): ScrapeHit? {
-        if (cred.igdbClientId.isBlank() || cred.igdbClientSecret.isBlank()) return null
-        val token = ensureIgdbToken(cred) ?: return null
-        val q = cleanTitle(game.title.ifBlank { game.baseName }).replace("\"", "")
-        val query = "search \"$q\"; fields name,first_release_date,genres.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,cover.image_id; limit 3;"
-        val body = httpPost(
+    private suspend fun queryIgdb(
+        game: Game,
+        platform: Platform?,
+        cred: ScraperCredentials,
+        officialNameHint: String?,
+    ): QueryOutcome {
+        if (cred.igdbClientId.isBlank() || cred.igdbClientSecret.isBlank()) return QueryOutcome(null)
+        val q = TitleNormalizer.bestApiSearchQuery(game.baseName, game.title, officialNameHint)
+            .replace("\"", "")
+        if (q.length < 2) return QueryOutcome(ScrapeHit())
+
+        val token = ensureIgdbToken(cred) ?: return QueryOutcome(null, transientError = true)
+        // IGDB 限制 4 req/s，间隔 260ms 稳定不触发 429
+        throttle(ScraperCatalog.CoverIds.IGDB, 260L)
+
+        val igdbPlatformId = IGDB_PLATFORM_IDS[platform?.id?.lowercase()]
+        val whereClause = if (igdbPlatformId != null) " where platforms = ($igdbPlatformId);" else ""
+        val query = "search \"$q\"; fields name,first_release_date,genres.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,cover.image_id;$whereClause limit 5;"
+        val res = httpPost(
             urlStr = "https://api.igdb.com/v4/games",
             body = query,
             headers = mapOf(
@@ -388,17 +681,35 @@ class ScraperClient(context: Context) {
                 "Authorization" to "Bearer $token",
                 "Accept" to "application/json",
             ),
-        ) ?: return null
-        return runCatching {
-            val arr = JSONArray(body)
+        )
+        if (res.statusCode == 401) {
+            igdbToken = null
+            igdbTokenExpireMs = 0L
+            return QueryOutcome(null, transientError = true)
+        }
+        if (res.transientError || res.body == null) return QueryOutcome(null, transientError = true)
+
+        val hit = runCatching {
+            val arr = JSONArray(res.body)
             if (arr.length() == 0) return@runCatching ScrapeHit()
-            val g = arr.getJSONObject(0)
+
+            var best: JSONObject? = null
+            var bestScore = 0.50
+            for (i in 0 until arr.length()) {
+                val cand = arr.optJSONObject(i) ?: continue
+                val sim = TitleNormalizer.similarity(q, cand.optString("name"))
+                if (sim > bestScore) {
+                    bestScore = sim
+                    best = cand
+                }
+            }
+            val g = best ?: arr.getJSONObject(0)
             val name = g.optString("name").takeIf { it.isNotBlank() }
             val ts = g.optLong("first_release_date", 0L)
             val year = if (ts > 0) {
-                val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+                val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
                 cal.timeInMillis = ts * 1000L
-                cal.get(java.util.Calendar.YEAR).toString()
+                cal.get(Calendar.YEAR).toString()
             } else null
 
             val genre = g.optJSONArray("genres")?.optJSONObject(0)?.optString("name")?.takeIf { it.isNotBlank() }
@@ -423,159 +734,272 @@ class ScraperClient(context: Context) {
                 meta = GameMetadata(releaseDate = year, genre = genre, developer = dev, publisher = pub),
                 coverUrls = urls,
             )
-        }.getOrNull()
+        }.getOrDefault(ScrapeHit())
+        return QueryOutcome(hit)
     }
 
-    private fun ensureIgdbToken(cred: ScraperCredentials): String? {
+    private suspend fun ensureIgdbToken(cred: ScraperCredentials): String? = igdbTokenMutex.withLock {
+        val credKey = "${cred.igdbClientId}:${cred.igdbClientSecret}"
         val now = System.currentTimeMillis()
-        igdbToken?.let { if (now < igdbTokenExpireMs) return it }
+        if (igdbToken != null && igdbTokenCredKey == credKey && now < igdbTokenExpireMs) {
+            return@withLock igdbToken
+        }
         val url = "https://id.twitch.tv/oauth2/token?client_id=${Uri.encode(cred.igdbClientId)}&client_secret=${Uri.encode(cred.igdbClientSecret)}&grant_type=client_credentials"
-        val body = httpPost(url, "", emptyMap()) ?: return null
-        return runCatching {
+        val res = httpPost(url, "", emptyMap())
+        val body = res.body ?: return@withLock null
+        runCatching {
             val o = JSONObject(body)
             val token = o.optString("access_token").takeIf { it.isNotBlank() } ?: return@runCatching null
             val expires = o.optLong("expires_in", 3600L)
             igdbToken = token
+            igdbTokenCredKey = credKey
             igdbTokenExpireMs = now + (expires - 60).coerceAtLeast(60) * 1000L
             token
         }.getOrNull()
     }
 
-    // ───────────────────────── HTTP & Cache Helpers ─────────────────────────
+    // ───────────────────────── SteamGridDB ─────────────────────────
 
-    private fun httpGet(urlStr: String): String? {
+    private suspend fun querySteamGridDb(
+        game: Game,
+        cred: ScraperCredentials,
+        officialNameHint: String?,
+    ): QueryOutcome {
+        if (cred.sgdbKey.isBlank()) return QueryOutcome(null)
+        val q = TitleNormalizer.bestApiSearchQuery(game.baseName, game.title, officialNameHint)
+        if (q.length < 2) return QueryOutcome(ScrapeHit())
+        throttle(ScraperCatalog.CoverIds.STEAMGRIDDB, 250L)
+
+        val headers = mapOf(
+            "Authorization" to "Bearer ${cred.sgdbKey}",
+            "Accept" to "application/json",
+        )
+        val searchUrl = "https://www.steamgriddb.com/api/v2/search/autocomplete/${Uri.encode(q)}"
+        val searchRes = httpGet(searchUrl, headers)
+        if (searchRes.statusCode == 404) return QueryOutcome(ScrapeHit())
+        if (searchRes.transientError || searchRes.body == null) return QueryOutcome(null, transientError = true)
+
+        val gameIdAndName = runCatching {
+            val data = JSONObject(searchRes.body).optJSONArray("data") ?: return@runCatching null
+            var bestId: Int? = null
+            var bestName: String? = null
+            var bestScore = 0.56
+            for (i in 0 until minOf(data.length(), 8)) {
+                val item = data.optJSONObject(i) ?: continue
+                val name = item.optString("name")
+                val sim = TitleNormalizer.similarity(q, name)
+                if (sim > bestScore) {
+                    bestScore = sim
+                    bestId = item.optInt("id")
+                    bestName = name
+                }
+            }
+            if (bestId != null) bestId to bestName else null
+        }.getOrNull() ?: return QueryOutcome(ScrapeHit())
+
+        val gridUrl = "https://www.steamgriddb.com/api/v2/grids/game/${gameIdAndName.first}?types=static&nsfw=false&humor=false&limit=6"
+        val gridRes = httpGet(gridUrl, headers)
+        if (gridRes.transientError || gridRes.body == null) return QueryOutcome(null, transientError = true)
+
+        val urls = runCatching {
+            val data = JSONObject(gridRes.body).optJSONArray("data") ?: return@runCatching emptyList<String>()
+            val out = LinkedHashSet<String>(4)
+            for (i in 0 until data.length()) {
+                val item = data.optJSONObject(i) ?: continue
+                val u = item.optString("thumb").takeIf { it.startsWith("http") }
+                    ?: item.optString("url").takeIf { it.startsWith("http") }
+                    ?: continue
+                out += u
+                if (out.size >= 4) break
+            }
+            out.toList()
+        }.getOrDefault(emptyList())
+
+        return QueryOutcome(ScrapeHit(officialName = gameIdAndName.second, coverUrls = urls))
+    }
+
+    // ───────────────────────── OkHttp Transport ─────────────────────────
+
+    private fun httpGet(urlStr: String, headers: Map<String, String> = emptyMap()): HttpResult {
         if (!NetworkStatus.isOnline(appCtx)) {
             ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, error = "offline")
-            return null
+            return HttpResult(null, null, transientError = true)
         }
         val t0 = System.currentTimeMillis()
         var code: Int? = null
         return try {
-            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8_000
-                readTimeout = 12_000
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", USER_AGENT)
-                setRequestProperty("Accept", "application/json")
-            }
-            try {
-                code = conn.responseCode
+            val rb = Request.Builder()
+                .url(urlStr)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+            headers.forEach { (k, v) -> rb.header(k, v) }
+            http.newCall(rb.build()).execute().use { resp ->
+                code = resp.code
                 val elapsed = System.currentTimeMillis() - t0
-                if (code !in 200..299) {
-                    val errBody = runCatching { conn.errorStream?.bufferedReader()?.readText()?.take(140) }.getOrNull()
-                    ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, status = code, elapsedMs = elapsed, error = errBody ?: "non-2xx")
-                    return null
+                val bodyText = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    val isTransient = code == 429 || code == 430 || (code != null && code!! >= 500) || code == 408
+                    ScrapeLogStore.log(
+                        "META",
+                        ScrapeLogStore.nodeFromUrl(urlStr),
+                        "GET",
+                        url = urlStr,
+                        status = code,
+                        elapsedMs = elapsed,
+                        error = bodyText.take(140).ifBlank { "HTTP $code" },
+                    )
+                    return HttpResult(null, code, transientError = isTransient)
                 }
-                val text = conn.inputStream.bufferedReader().use { it.readText() }
-                ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, status = code, elapsedMs = elapsed, result = "${text.length}B ${text.take(120)}")
-                text
-            } finally {
-                conn.disconnect()
+                ScrapeLogStore.log(
+                    "META",
+                    ScrapeLogStore.nodeFromUrl(urlStr),
+                    "GET",
+                    url = urlStr,
+                    status = code,
+                    elapsedMs = elapsed,
+                    result = "${bodyText.length}B ${bodyText.take(120)}",
+                )
+                HttpResult(bodyText, code, transientError = false)
             }
         } catch (t: Throwable) {
-            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
-            null
+            ScrapeLogStore.log(
+                "META",
+                ScrapeLogStore.nodeFromUrl(urlStr),
+                "GET",
+                url = urlStr,
+                status = code,
+                elapsedMs = System.currentTimeMillis() - t0,
+                error = "${t.javaClass.simpleName}: ${t.message}",
+            )
+            HttpResult(null, code, transientError = true)
         }
     }
 
-    private fun httpPost(urlStr: String, body: String, headers: Map<String, String>): String? {
+    private fun httpPost(urlStr: String, body: String, headers: Map<String, String>): HttpResult {
         if (!NetworkStatus.isOnline(appCtx)) {
             ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, error = "offline")
-            return null
+            return HttpResult(null, null, transientError = true)
         }
         val t0 = System.currentTimeMillis()
         var code: Int? = null
         return try {
-            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8_000
-                readTimeout = 12_000
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("User-Agent", USER_AGENT)
-                headers.forEach { (k, v) -> setRequestProperty(k, v) }
-            }
-            try {
-                if (body.isNotEmpty()) {
-                    conn.outputStream.bufferedWriter().use { it.write(body) }
-                }
-                code = conn.responseCode
+            val reqBody = body.toRequestBody(TEXT_PLAIN)
+            val rb = Request.Builder()
+                .url(urlStr)
+                .post(reqBody)
+                .header("User-Agent", USER_AGENT)
+            headers.forEach { (k, v) -> rb.header(k, v) }
+            http.newCall(rb.build()).execute().use { resp ->
+                code = resp.code
                 val elapsed = System.currentTimeMillis() - t0
-                if (code !in 200..299) {
-                    val errBody = runCatching { conn.errorStream?.bufferedReader()?.readText()?.take(140) }.getOrNull()
-                    ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, status = code, elapsedMs = elapsed, error = errBody ?: "non-2xx")
-                    return null
+                val bodyText = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    val isTransient = code == 429 || (code != null && code!! >= 500) || code == 408
+                    ScrapeLogStore.log(
+                        "META",
+                        ScrapeLogStore.nodeFromUrl(urlStr),
+                        "POST",
+                        url = urlStr,
+                        status = code,
+                        elapsedMs = elapsed,
+                        error = bodyText.take(140).ifBlank { "HTTP $code" },
+                    )
+                    return HttpResult(null, code, transientError = isTransient)
                 }
-                val text = conn.inputStream.bufferedReader().use { it.readText() }
-                ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, status = code, elapsedMs = elapsed, result = "${text.length}B ${text.take(120)}")
-                text
-            } finally {
-                conn.disconnect()
+                ScrapeLogStore.log(
+                    "META",
+                    ScrapeLogStore.nodeFromUrl(urlStr),
+                    "POST",
+                    url = urlStr,
+                    status = code,
+                    elapsedMs = elapsed,
+                    result = "${bodyText.length}B ${bodyText.take(120)}",
+                )
+                HttpResult(bodyText, code, transientError = false)
             }
         } catch (t: Throwable) {
-            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
-            null
-        }
-    }
-
-    private fun cacheFile(providerId: String, gameId: String): File {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(gameId.toByteArray(Charsets.UTF_8))
-            .take(12)
-            .joinToString("") { "%02x".format(it) }
-        return File(apiCacheDir, "${providerId}_$digest.json")
-    }
-
-    private fun readCachedHit(file: File): ScrapeHit? = runCatching {
-        val o = JSONObject(file.readText())
-        val urls = ArrayList<String>()
-        val arr = o.optJSONArray("coverUrls")
-        if (arr != null) {
-            for (i in 0 until arr.length()) urls += arr.getString(i)
-        }
-        ScrapeHit(
-            officialName = o.optString("officialName").takeIf { it.isNotEmpty() },
-            meta = GameMetadata(
-                releaseDate = o.optString("releaseDate").takeIf { it.isNotEmpty() },
-                genre = o.optString("genre").takeIf { it.isNotEmpty() },
-                developer = o.optString("developer").takeIf { it.isNotEmpty() },
-                publisher = o.optString("publisher").takeIf { it.isNotEmpty() },
-            ),
-            coverUrls = urls,
-        )
-    }.getOrNull()
-
-    private fun writeCachedHit(file: File, hit: ScrapeHit) {
-        runCatching {
-            val o = JSONObject()
-                .put("officialName", hit.officialName.orEmpty())
-                .put("releaseDate", hit.meta.releaseDate.orEmpty())
-                .put("genre", hit.meta.genre.orEmpty())
-                .put("developer", hit.meta.developer.orEmpty())
-                .put("publisher", hit.meta.publisher.orEmpty())
-                .put("coverUrls", JSONArray(hit.coverUrls))
-            val tmp = File(apiCacheDir, "${file.name}.tmp")
-            tmp.writeText(o.toString())
-            tmp.renameTo(file)
+            ScrapeLogStore.log(
+                "META",
+                ScrapeLogStore.nodeFromUrl(urlStr),
+                "POST",
+                url = urlStr,
+                status = code,
+                elapsedMs = System.currentTimeMillis() - t0,
+                error = "${t.javaClass.simpleName}: ${t.message}",
+            )
+            HttpResult(null, code, transientError = true)
         }
     }
 
     private companion object {
-        val MISS_SENTINEL = Any()
-        const val USER_AGENT = "PocketDeck/0.3 (Android Handheld Launcher)"
-        const val MAX_CRC_SIZE = 32L * 1024 * 1024
-        val TAGS_REGEX = Regex("""\s*[(\[][^)\]]*[)\]]""")
-        val ARCADE_PLATFORMS = setOf("arcade", "fbneo", "mame", "cps1", "cps2", "cps3", "neogeo")
+        const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
+        val TEXT_PLAIN = "text/plain; charset=utf-8".toMediaType()
 
-        val SCREENSCRAPER_SYSTEM_IDS = mapOf(
-            "nes" to 3, "fds" to 106, "snes" to 4, "sfc" to 4, "n64" to 14,
-            "gb" to 9, "gbc" to 10, "gba" to 12, "nds" to 15, "gamecube" to 13, "wii" to 16,
-            "mastersystem" to 2, "megadrive" to 1, "genesis" to 1, "gamegear" to 21,
-            "saturn" to 22, "dreamcast" to 23, "psx" to 57, "psp" to 61, "ps2" to 58,
-            "pcengine" to 31, "neogeo" to 142, "arcade" to 75, "fbneo" to 75, "mame" to 75,
+        val ARCADE_PLATFORMS = setOf(
+            "arcade", "fbneo", "mame", "cps1", "cps2", "cps3", "neogeo",
+            "pgm", "naomi", "atomiswave",
         )
 
-        fun cleanTitle(s: String): String =
-            s.replace('_', ' ').replace(TAGS_REGEX, "").replace(Regex("""\s+"""), " ").trim()
+        val SCREENSCRAPER_SYSTEM_IDS = mapOf(
+            // Nintendo
+            "nes" to 3, "fds" to 106, "snes" to 4, "sfc" to 4, "n64" to 14, "n64dd" to 122,
+            "gb" to 9, "gbc" to 10, "gba" to 12, "nds" to 15, "dsi" to 15, "3ds" to 17,
+            "virtualboy" to 11, "pokemini" to 211, "gamecube" to 13, "wii" to 16,
+            "wiiu" to 18, "switch" to 225, "gameandwatch" to 52,
+            // Sega
+            "mastersystem" to 2, "megadrive" to 1, "genesis" to 1, "gamegear" to 21,
+            "sg1000" to 109, "segacd" to 20, "sega32x" to 19, "saturn" to 22,
+            "dreamcast" to 23, "naomi" to 56, "atomiswave" to 53,
+            // Sony
+            "psx" to 57, "psp" to 61, "psvita" to 62, "ps2" to 58, "ps3" to 59,
+            // NEC / SNK / Bandai
+            "pcengine" to 31, "pcenginecd" to 114, "supergrafx" to 105, "pcfx" to 72,
+            "ngp" to 25, "ngpc" to 82, "neogeo" to 142, "neogeocd" to 70,
+            "wswan" to 45, "wswanc" to 46,
+            // Atari / Classic
+            "atari2600" to 26, "atari5200" to 40, "atari7800" to 41, "lynx" to 28,
+            "jaguar" to 27, "jaguarcd" to 171, "colecovision" to 48, "intellivision" to 115,
+            "vectrex" to 102, "odyssey2" to 104, "channelf" to 80, "supervision" to 207,
+            // Home Computers & Optical
+            "msx" to 113, "msx2" to 116, "c64" to 66, "amiga" to 64, "amigacd32" to 130,
+            "atarist" to 42, "zxspectrum" to 76, "amstradcpc" to 65, "x68000" to 79,
+            "pc98" to 208, "fmtowns" to 253, "3do" to 29, "cdi" to 133,
+            // Arcade & PC
+            "arcade" to 75, "fbneo" to 75, "mame" to 75, "cps1" to 6, "cps2" to 7, "cps3" to 8, "pgm" to 75,
+            "dos" to 135, "scummvm" to 123, "pico8" to 234, "tic80" to 222, "winlator" to 138,
+        )
+
+        val TGDB_PLATFORM_IDS = mapOf(
+            "nes" to 7, "fds" to 4936, "snes" to 6, "sfc" to 6, "n64" to 3,
+            "gb" to 4, "gbc" to 41, "gba" to 5, "nds" to 8, "3ds" to 4912,
+            "virtualboy" to 4918, "gamecube" to 2, "wii" to 9, "wiiu" to 38, "switch" to 4971,
+            "mastersystem" to 35, "megadrive" to 36, "genesis" to 18, "gamegear" to 20,
+            "segacd" to 21, "sega32x" to 33, "saturn" to 17, "dreamcast" to 16,
+            "psx" to 10, "psp" to 13, "psvita" to 39, "ps2" to 11, "ps3" to 12,
+            "pcengine" to 34, "pcenginecd" to 4955, "neogeo" to 24, "neogeocd" to 4956,
+            "ngp" to 4922, "ngpc" to 4923, "wswan" to 4925, "wswanc" to 4926,
+            "atari2600" to 22, "atari5200" to 26, "atari7800" to 27, "lynx" to 4924, "jaguar" to 28,
+            "3do" to 25, "arcade" to 23, "fbneo" to 23, "mame" to 23,
+            "dos" to 1, "winlator" to 1, "android" to 4916,
+        )
+
+        val IGDB_PLATFORM_IDS = mapOf(
+            "nes" to 18, "fds" to 51, "snes" to 19, "sfc" to 58, "n64" to 4,
+            "gb" to 33, "gbc" to 22, "gba" to 24, "nds" to 20, "dsi" to 159, "3ds" to 37,
+            "virtualboy" to 87, "gamecube" to 21, "wii" to 5, "wiiu" to 41, "switch" to 130,
+            "mastersystem" to 64, "megadrive" to 29, "genesis" to 29, "gamegear" to 35,
+            "sg1000" to 84, "segacd" to 78, "sega32x" to 30, "saturn" to 32, "dreamcast" to 23,
+            "psx" to 7, "psp" to 38, "psvita" to 46, "ps2" to 8, "ps3" to 9,
+            "pcengine" to 86, "pcenginecd" to 150, "supergrafx" to 128, "pcfx" to 274,
+            "neogeo" to 80, "neogeocd" to 136, "ngp" to 119, "ngpc" to 120,
+            "wswan" to 57, "wswanc" to 123,
+            "atari2600" to 59, "atari5200" to 66, "atari7800" to 60, "lynx" to 61, "jaguar" to 62,
+            "msx" to 27, "msx2" to 53, "c64" to 15, "amiga" to 16, "atarist" to 63,
+            "zxspectrum" to 26, "amstradcpc" to 25, "x68000" to 121, "pc98" to 149,
+            "3do" to 50, "cdi" to 117,
+            "arcade" to 52, "fbneo" to 52, "mame" to 52, "cps1" to 52, "cps2" to 52, "cps3" to 52, "pgm" to 52,
+            "dos" to 13, "winlator" to 6, "android" to 34,
+        )
 
         fun firstClaimEntityId(claims: JSONObject, prop: String): String? =
             claims.optJSONArray(prop)?.optJSONObject(0)?.optJSONObject("mainsnak")
@@ -586,17 +1010,35 @@ class ScraperClient(context: Context) {
             val t = claims.optJSONArray(prop)?.optJSONObject(0)?.optJSONObject("mainsnak")
                 ?.optJSONObject("datavalue")?.optJSONObject("value")?.optString("time")
                 ?: return null
-            // "+1995-03-11T00:00:00Z" -> "1995"
             val m = Regex("""[+-]?(\d{4})""").find(t) ?: return null
             return m.groupValues[1]
         }
 
-        fun extractSsText(arr: JSONArray?): String? {
+        fun extractSsByRegion(arr: JSONArray?, preferZh: Boolean): String? {
             if (arr == null) return null
-            for (lang in listOf("en", "us", "wor", "jp", "fr")) {
+            val order = if (preferZh) listOf("cn", "zh", "tw", "hk", "us", "wor", "ss", "eu", "jp")
+            else listOf("us", "wor", "ss", "eu", "jp", "fr")
+            for (reg in order) {
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
-                    if (o.optString("langue") == lang) {
+                    if (o.optString("region").equals(reg, ignoreCase = true)) {
+                        val t = o.optString("text").takeIf { it.isNotBlank() }
+                        if (t != null) return t
+                    }
+                }
+            }
+            return arr.optJSONObject(0)?.optString("text")?.takeIf { it.isNotBlank() }
+        }
+
+        fun extractSsByLang(arr: JSONArray?, preferZh: Boolean): String? {
+            if (arr == null) return null
+            val order = if (preferZh) listOf("zh", "cn", "en", "ja", "fr") else listOf("en", "us", "ja", "fr")
+            for (lang in order) {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    if (o.optString("langue").equals(lang, ignoreCase = true) ||
+                        o.optString("region").equals(lang, ignoreCase = true)
+                    ) {
                         val t = o.optString("text").takeIf { it.isNotBlank() }
                         if (t != null) return t
                     }
