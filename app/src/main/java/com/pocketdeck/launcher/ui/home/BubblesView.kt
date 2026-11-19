@@ -156,6 +156,12 @@ fun BubblesView(
                             val game = games[gameIdx]
                             val plat = platformOf(game)
                             val focused = gameIdx == focusIndex
+                            val itemOnClick = remember(game.id, gameIdx, focused, onLaunch, onFocusChange) {
+                                { if (focused) onLaunch(game) else onFocusChange(gameIdx) }
+                            }
+                            val itemOnLongPress = remember(game.id, onLongPress) {
+                                onLongPress?.let { cb -> { cb(game) } }
+                            }
 
                             GameCoverCard(
                                 game = game,
@@ -173,10 +179,8 @@ fun BubblesView(
                                 unfocusedAlpha = 0.72f,
                                 shapeOverride = CircleShape,
                                 centeredTitle = true,
-                                onClick = {
-                                    if (focused) onLaunch(game) else onFocusChange(gameIdx)
-                                },
-                                onLongPress = onLongPress?.let { cb -> { cb(game) } },
+                                onClick = itemOnClick,
+                                onLongPress = itemOnLongPress,
                             )
                         }
                     }

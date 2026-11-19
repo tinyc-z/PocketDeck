@@ -41,6 +41,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -175,7 +178,7 @@ fun GalleryView(
     val stepPx = (avgSmallW + spacingPx).coerceAtLeast(60f)
 
     Column(modifier) {
-        // 标题行：焦点游戏名（ExtraBold 23sp，与设计稿对齐）+ 右侧位置计数
+        // 标题行：单 Text + 轻量 graphicsLayer 滑动渐入，避免 AnimatedContent 反复创建销毁两个 Text 节点
         val titleStyle = DeckType.gameTitle.copy(
             fontWeight = FontWeight.ExtraBold,
             fontSize = 23.sp,
@@ -183,6 +186,23 @@ fun GalleryView(
             letterSpacing = (-0.25).sp,
         )
         val titleColor = DeckColors.TextPrimary
+        val titleOffsetX = remember { Animatable(0f) }
+        val titleAlpha = remember { Animatable(1f) }
+        var prevTitleIndex by remember(listKey) { mutableStateOf(focusIndex) }
+        LaunchedEffect(listKey, focusIndex) {
+            val prev = prevTitleIndex
+            prevTitleIndex = focusIndex
+            if (fastScrolling || isDragging || prev == focusIndex) {
+                titleOffsetX.snapTo(0f)
+                titleAlpha.snapTo(1f)
+            } else {
+                val dir = if (focusIndex >= prev) 1f else -1f
+                titleOffsetX.snapTo(dir * titleSlidePx * 0.55f)
+                titleAlpha.snapTo(0.25f)
+                launch { titleOffsetX.animateTo(0f, tween(150)) }
+                launch { titleAlpha.animateTo(1f, tween(140)) }
+            }
+        }
         Row(
             Modifier
                 .fillMaxWidth()
@@ -193,42 +213,18 @@ fun GalleryView(
             Box(
                 Modifier
                     .weight(1f)
-                    .graphicsLayer { alpha = if (isDragging) dragAlpha else 1f },
+                    .graphicsLayer {
+                        translationX = titleOffsetX.value
+                        alpha = (if (isDragging) dragAlpha else 1f) * titleAlpha.value
+                    },
             ) {
-                if (fastScrolling) {
-                    Text(
-                        focusedGame?.title.orEmpty(),
-                        style = titleStyle,
-                        color = titleColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    AnimatedContent(
-                        targetState = Triple(listKey, focusIndex, focusedGame?.title.orEmpty()),
-                        transitionSpec = {
-                            if (targetState.first != initialState.first) {
-                                fadeIn(tween(150)).togetherWith(fadeOut(tween(100)))
-                            } else {
-                                val dir = if (targetState.second >= initialState.second) 1 else -1
-                                (fadeIn(tween(170)) + slideInHorizontally(tween(190)) { dir * titleSlidePx })
-                                    .togetherWith(
-                                        fadeOut(tween(100)) + slideOutHorizontally(tween(130)) { -dir * (titleSlidePx / 2) },
-                                    )
-                                    .using(SizeTransform(clip = false))
-                            }
-                        },
-                        label = "galleryTitle",
-                    ) { (_, _, title) ->
-                        Text(
-                            title,
-                            style = titleStyle,
-                            color = titleColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+                Text(
+                    focusedGame?.title.orEmpty(),
+                    style = titleStyle,
+                    color = titleColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Spacer(Modifier.width(12.dp))
             Text(
@@ -309,7 +305,10 @@ fun GalleryView(
                     )
                 },
         ) {
-            val windowCenter by remember { derivedStateOf { animatedFocus.value.roundToInt() } }
+            // 按键切换直接以 focusIndex 为窗口中心，避免动画过半时触发全窗口二次重组；仅拖动期实时跟随
+            val windowCenter by remember(focusIndex, isDragging) {
+                derivedStateOf { if (isDragging) animatedFocus.value.roundToInt() else focusIndex }
+            }
             val windowStart = (windowCenter - 6).coerceAtLeast(0)
             val windowEnd = (windowCenter + 6).coerceAtMost(games.size - 1)
             val minScale = smallCardHeight / focusCardHeight
@@ -326,27 +325,17 @@ fun GalleryView(
                     val aspect = plat?.coverAspect ?: 1f
                     val cardFullW = focusCardHeight * aspect
                     val isCardFocused = i == focusIndex
-
-                    GameCoverCard(
-                        game = game,
-                        platform = plat,
-                        covers = covers,
-                        officialName = officialNames[game.id],
-                        width = cardFullW,
-                        height = focusCardHeight,
-                        isFocused = isCardFocused,
-                        isFavorite = game.id in favorites,
-                        fastScrolling = fastScrolling || isDragging,
-                        onClick = {
-                            if (isCardFocused) {
-                                onLaunch(game)
-                            } else {
-                                onFocusChange(i)
-                            }
-                        },
-                        onLongPress = onLongPress?.let { cb -> { cb(game) } },
-                        modifier = Modifier
-                            .zIndex(if (isCardFocused) 10f else (5f - abs(i - focusIndex)).coerceAtLeast(0f))
+                    val cardOnClick = remember(game.id, i, isCardFocused, onLaunch, onFocusChange) {
+                        {
+                            if (isCardFocused) onLaunch(game) else onFocusChange(i)
+                        }
+                    }
+                    val cardOnLongPress = remember(game.id, onLongPress) {
+                        onLongPress?.let { cb -> { cb(game) } }
+                    }
+                    val cardModifier = remember(i, isCardFocused, cardAspects, prefixSmallW, focusCardHPx, spacingPx, startXPx, minScale, alignY) {
+                        Modifier
+                            .zIndex(if (isCardFocused) 10f else 0f)
                             .graphicsLayer {
                                 val cur = animatedFocus.value
                                 val dist = i - cur
@@ -366,7 +355,22 @@ fun GalleryView(
                                 scaleX = s
                                 scaleY = s
                                 alpha = if (absDist > 5.5f) 0f else 1f
-                            },
+                            }
+                    }
+
+                    GameCoverCard(
+                        game = game,
+                        platform = plat,
+                        covers = covers,
+                        officialName = officialNames[game.id],
+                        width = cardFullW,
+                        height = focusCardHeight,
+                        isFocused = isCardFocused,
+                        isFavorite = game.id in favorites,
+                        fastScrolling = fastScrolling || isDragging,
+                        onClick = cardOnClick,
+                        onLongPress = cardOnLongPress,
+                        modifier = cardModifier,
                     )
                 }
             }
@@ -460,13 +464,29 @@ private fun MetaChipRow(
             Box(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .shadow(
-                        elevation = 8.dp,
-                        shape = CircleShape,
-                        ambientColor = chipShadow,
-                        spotColor = chipShadow,
-                        clip = false,
-                    )
+                    .drawWithCache {
+                        val r = size.height / 2f
+                        val corner = CornerRadius(r, r)
+                        val dy1 = 2.5.dp.toPx()
+                        val dy2 = 5.dp.toPx()
+                        val pad2 = 1.5.dp.toPx()
+                        val sh1 = chipShadow.copy(alpha = if (p.isDark) 0.24f else 0.11f)
+                        val sh2 = chipShadow.copy(alpha = if (p.isDark) 0.14f else 0.06f)
+                        onDrawBehind {
+                            drawRoundRect(
+                                color = sh2,
+                                topLeft = Offset(-pad2, dy2),
+                                size = androidx.compose.ui.geometry.Size(size.width + pad2 * 2f, size.height),
+                                cornerRadius = corner,
+                            )
+                            drawRoundRect(
+                                color = sh1,
+                                topLeft = Offset(0f, dy1),
+                                size = size,
+                                cornerRadius = corner,
+                            )
+                        }
+                    }
                     .background(chipBg, CircleShape)
                     .border(0.75.dp, chipBorder, CircleShape)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -619,7 +639,16 @@ internal fun BoxScope.FocusedGameFloatingPill(
             .zIndex(20f)
             .padding(pad)
             .widthIn(max = 460.dp)
-            .cardSurface(shape = CircleShape, elevation = 8.dp)
+            .drawWithCache {
+                val r = size.height / 2f
+                val corner = CornerRadius(r, r)
+                val dy = 3.dp.toPx()
+                val sh = if (p.isDark) Color(0x55000000) else Color(0x28782846)
+                onDrawBehind {
+                    drawRoundRect(sh, topLeft = Offset(0f, dy), size = size, cornerRadius = corner)
+                }
+            }
+            .background(p.surface, CircleShape)
             .border(1.dp, hairline, CircleShape)
             .padding(start = 8.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,

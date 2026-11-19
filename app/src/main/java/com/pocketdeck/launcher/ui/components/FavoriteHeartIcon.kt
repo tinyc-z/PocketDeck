@@ -49,31 +49,34 @@ fun BrandHeartBadge(
     Box(
         modifier
             .size(size)
-            .then(
-                if (shadow) {
-                    Modifier.shadow(
-                        elevation = size * 0.22f,
-                        shape = CircleShape,
-                        ambientColor = p.brandEnd,
-                        spotColor = p.brandEnd,
-                        clip = false,
-                    )
-                } else {
-                    Modifier
-                },
-            )
             .drawWithCache {
                 val brush = Brush.linearGradient(
                     listOf(p.brandStart, p.brandMid, p.brandEnd),
                     start = Offset.Zero,
                     end = Offset(this.size.width, this.size.height),
                 )
+                val glowRadius = this.size.minDimension * 0.72f
+                val glowCenter = Offset(this.size.width / 2f, this.size.height / 2f + 1.5.dp.toPx())
+                val glowBrush = if (shadow) {
+                    Brush.radialGradient(
+                        0f to p.brandEnd.copy(alpha = 0.34f),
+                        0.65f to p.brandEnd.copy(alpha = 0.12f),
+                        1f to Color.Transparent,
+                        center = glowCenter,
+                        radius = glowRadius,
+                    )
+                } else {
+                    null
+                }
                 val hw = this.size.minDimension * 0.54f
                 val hh = hw * 0.92f
                 buildModernHeartPath(heartPath, hw, hh)
                 val left = (this.size.width - hw) / 2f
                 val top = (this.size.height - hh) / 2f + hh * 0.02f
                 onDrawBehind {
+                    if (glowBrush != null) {
+                        drawCircle(glowBrush, radius = glowRadius, center = glowCenter)
+                    }
                     drawCircle(brush)
                     translate(left = left, top = top) {
                         drawPath(path = heartPath, color = Color.White, style = Fill)

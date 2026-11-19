@@ -138,6 +138,12 @@ fun GridView(
                     val aspect = plat?.coverAspect ?: 1f
                     val cellHeight = (cellWidth / aspect).coerceIn(66.dp, 134.dp)
                     val focused = i == focusIndex
+                    val itemOnClick = remember(game.id, i, focused, onLaunch, onFocusChange) {
+                        { if (focused) onLaunch(game) else onFocusChange(i) }
+                    }
+                    val itemOnLongPress = remember(game.id, onLongPress) {
+                        onLongPress?.let { cb -> { cb(game) } }
+                    }
 
                     GameCoverCard(
                         game = game,
@@ -153,10 +159,8 @@ fun GridView(
                         focusedScale = 1.09f,
                         unfocusedScale = 0.94f,
                         unfocusedAlpha = 0.72f,
-                        onClick = {
-                            if (focused) onLaunch(game) else onFocusChange(i)
-                        },
-                        onLongPress = onLongPress?.let { cb -> { cb(game) } },
+                        onClick = itemOnClick,
+                        onLongPress = itemOnLongPress,
                     )
                 }
             }

@@ -269,6 +269,20 @@ class CoverSource(
         platform: Platform?,
         officialName: String? = null,
     ): List<Any> {
+        // O(1) 快路径：已有自定义封面或已解析命中的缓存 URL 时直接返回，
+        // 避免主线程滚动期间每次重组都执行 stripTags/compactKey/索引检索与 36 次 Uri.encode
+        game.customCover?.let { custom ->
+            val f = File(custom)
+            candidateOrigins["${game.id}::$f"] = "custom" to CoverMatchMode.CustomFile
+            return listOf(f)
+        }
+        val cached = cachedUrl(game.id)
+        if (cached != null) {
+            val (prov, mode) = cachedOrigin(game.id, cached)
+            candidateOrigins["${game.id}::$cached"] = prov to mode
+            return listOf(cached)
+        }
+
         val out = ArrayList<Any>(16)
         val seen = HashSet<String>()
 
@@ -284,21 +298,14 @@ class CoverSource(
             addCandidate(url, providerId, mode)
         }
 
-        game.customCover?.let { addCandidate(File(it), "custom", CoverMatchMode.CustomFile) }
-
-        val cached = cachedUrl(game.id)
-        if (cached != null) {
-            val (prov, mode) = cachedOrigin(game.id, cached)
-            addUrl(cached, prov, mode)
-        }
-
-        val online = NetworkStatus.isOnline(appCtx)
+        val online = NetworkStatus.online.value
         val enabled = nodeConfigs.filter { it.enabled }
         val system = platform?.libretroSystem
         val index = system?.let { systemIndexes[it] }
         val queries = buildQueryVariants(game, officialName)
         val indexMatches = if (online) index?.findMatchesWithMode(queries).orEmpty() else emptyList()
-        val directNames = if (online) buildDirectNames(game, officialName) else emptyList()
+        // 仅当该平台 BoxartIndex 尚未加载时才生成盲猜 DirectProbe URL，避免已加载索引时产生大量必 404 的冗余构造与请求
+        val directNames = if (online && index == null) buildDirectNames(game, officialName) else emptyList()
 
         for (node in enabled) {
             when (node.id) {
@@ -518,12 +525,18 @@ class CoverSource(
     }
 
     fun rememberFailure(key: String, platform: Platform?) {
+        val hadCachedUrl = resolvedUrls.remove(key) != null
+        if (hadCachedUrl) {
+            prefs.edit().remove("url_$key").remove("meta_$key").apply()
+            _indexVersion.value += 1
+            return
+        }
         val prevFailed = failedKeys.put(key, true)
         if (_coverInfo.value.containsKey(key)) {
             _coverInfo.update { it - key }
         }
         if (prevFailed == true) return
-        if (!NetworkStatus.isOnline(appCtx)) return
+        if (!NetworkStatus.online.value) return
         val system = platform?.libretroSystem
         val allApiCached = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
             .all { client.cachedHitInMemory(it.id, key) != null }

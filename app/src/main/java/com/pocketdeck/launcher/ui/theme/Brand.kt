@@ -6,7 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -98,7 +98,7 @@ fun Modifier.cardSurface(
 
 /**
  * 手柄焦点环。[focused] 为 false 时不绘制任何东西（零开销）。
- * 环位于组件外侧 [gap] 处，宽度 [width]，并带一圈低透明度辉光。
+ * 使用 [drawWithCache] 缓存渐变 Brush 与几何参数，绘制期零对象分配。
  */
 @Composable
 fun Modifier.brandFocusRing(
@@ -110,36 +110,53 @@ fun Modifier.brandFocusRing(
 ): Modifier {
     if (!focused) return this
     val p = LocalDeckColors.current
-    return this.drawBehind {
+    val brandStart = p.brandStart
+    val brandMid = p.brandMid
+    val brandEnd = p.brandEnd
+    return this.drawWithCache {
         val g = gap.toPx()
         val w = width.toPx()
         val r = cornerRadius.toPx() + g + w / 2f
         val tl = Offset(-g - w / 2f, -g - w / 2f)
         val sz = Size(size.width + 2 * g + w, size.height + 2 * g + w)
         val brush = Brush.linearGradient(
-            listOf(p.brandStart, p.brandMid, p.brandEnd),
+            listOf(brandStart, brandMid, brandEnd),
             start = tl,
             end = Offset(tl.x + sz.width, tl.y + sz.height),
         )
-        if (glow) {
-            for (i in 1..3) {
-                val spread = w + i * 3.dp.toPx()
+        val mainStroke = Stroke(width = w)
+        val glowSpread = w + 5.5.dp.toPx()
+        val glowStroke = Stroke(width = glowSpread)
+        val glowColor = brandMid.copy(alpha = 0.14f)
+        val glowRadius = CornerRadius(r + (glowSpread - w) * 0.4f)
+        val dropOffset = Offset(tl.x, tl.y + 3.dp.toPx())
+        val dropColor = brandEnd.copy(alpha = 0.16f)
+        val dropCorner = CornerRadius(r + 2.dp.toPx())
+        val mainCorner = CornerRadius(r)
+        onDrawBehind {
+            if (glow) {
                 drawRoundRect(
-                    color = p.brandMid.copy(alpha = 0.10f / i),
-                    topLeft = Offset(tl.x - (spread - w) / 2f, tl.y - (spread - w) / 2f),
-                    size = Size(sz.width + spread - w, sz.height + spread - w),
-                    cornerRadius = CornerRadius(r + (spread - w) / 2f),
-                    style = Stroke(width = spread),
+                    color = dropColor,
+                    topLeft = dropOffset,
+                    size = sz,
+                    cornerRadius = dropCorner,
+                )
+                drawRoundRect(
+                    color = glowColor,
+                    topLeft = tl,
+                    size = sz,
+                    cornerRadius = glowRadius,
+                    style = glowStroke,
                 )
             }
+            drawRoundRect(
+                brush = brush,
+                topLeft = tl,
+                size = sz,
+                cornerRadius = mainCorner,
+                style = mainStroke,
+            )
         }
-        drawRoundRect(
-            brush = brush,
-            topLeft = tl,
-            size = sz,
-            cornerRadius = CornerRadius(r),
-            style = Stroke(width = w),
-        )
     }
 }
 

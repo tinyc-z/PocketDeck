@@ -164,6 +164,10 @@ class HomeViewModel(
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
+    /** 独立焦点索引流：方向键滚动游戏时只更新此流，避免整个 1200 行 HomeScreen 与顶栏/底栏跟随重组。 */
+    private val _focusIndex = MutableStateFlow(0)
+    val focusIndex: StateFlow<Int> = _focusIndex.asStateFlow()
+
     val fullLibrary: StateFlow<Library?> = repo.fullLibrary
     val filesRevision: StateFlow<Long> = repo.filesRevision
     val fileTasks = repo.fileTasks
@@ -324,11 +328,12 @@ class HomeViewModel(
             rawGames
         }
         val focusIdx = if (current.searching) {
-            current.focusIndex.coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
+            _focusIndex.value.coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
         } else {
-            _focusPerTab.getOrDefault(tab?.id.orEmpty(), current.focusIndex)
+            _focusPerTab.getOrDefault(tab?.id.orEmpty(), _focusIndex.value)
                 .coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
         }
+        _focusIndex.value = focusIdx
         val platformsById = lib.platforms.associateBy { it.id }
         val platform = tab?.let { lib.platform(it.id) }
 
@@ -669,7 +674,7 @@ class HomeViewModel(
         if (current.tabs.isEmpty()) return
         val clamped = index.coerceIn(0, current.tabs.lastIndex)
         current.tabs.getOrNull(current.selectedTab)?.let {
-            _focusPerTab[it.id] = current.focusIndex
+            _focusPerTab[it.id] = _focusIndex.value
         }
         _state.value = current.copy(selectedTab = clamped)
         recomputeFromRepo()
@@ -688,11 +693,12 @@ class HomeViewModel(
     fun setFocus(index: Int) {
         val s = _state.value
         val newIdx = index.coerceIn(0, (s.games.size - 1).coerceAtLeast(0))
-        if (newIdx == s.focusIndex) return
+        if (newIdx == _focusIndex.value) return
         if (!s.searching) {
             s.tabs.getOrNull(s.selectedTab)?.let { _focusPerTab[it.id] = newIdx }
         }
-        _state.value = s.copy(focusIndex = newIdx)
+        // 只更新独立 focusIndex 流，不拷贝 HomeUiState，避免主界面 1200 行全树重组
+        _focusIndex.value = newIdx
         val focusGame = s.games.getOrNull(newIdx)
         focusResolveJob?.cancel()
         if (focusGame != null) {
@@ -705,11 +711,12 @@ class HomeViewModel(
         }
     }
 
-    fun moveFocus(delta: Int) = setFocus(_state.value.focusIndex + delta)
+    fun moveFocus(delta: Int) = setFocus(_focusIndex.value + delta)
 
     fun toggleSearch() {
         val s = _state.value
         val nextSearching = !s.searching
+        _focusIndex.value = 0
         _state.value = s.copy(
             searching = nextSearching,
             searchQuery = if (!nextSearching) "" else s.searchQuery,
@@ -719,6 +726,7 @@ class HomeViewModel(
     }
 
     fun setSearchQuery(q: String) {
+        _focusIndex.value = 0
         _state.value = _state.value.copy(searchQuery = q, focusIndex = 0)
         recomputeFromRepo()
     }
@@ -1093,7 +1101,7 @@ class HomeViewModel(
         covers.clearCoverCache()
         metadataRepo.clearCache()
         val s = _state.value
-        s.games.getOrNull(s.focusIndex)?.let {
+        s.games.getOrNull(_focusIndex.value)?.let {
             covers.ensureGameScraped(it, s.platformFor(it))
             metadataRepo.resolveFocusGame(it, s.platformFor(it))
         }
@@ -1104,7 +1112,7 @@ class HomeViewModel(
         val allGames = lib.platforms.flatMap { lib.games[it.id].orEmpty() }
         val s = _state.value
         metadataRepo.refreshAll(allGames, s::platformFor)
-        s.games.getOrNull(s.focusIndex)?.let { metadataRepo.resolveFocusGame(it, s.platformFor(it)) }
+        s.games.getOrNull(_focusIndex.value)?.let { metadataRepo.resolveFocusGame(it, s.platformFor(it)) }
     }
 
     fun refresh() = repo.refresh()

@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -82,6 +83,9 @@ import com.pocketdeck.launcher.ui.theme.LocalDeckColors
 import com.pocketdeck.launcher.ui.theme.brandFocusRing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/** 全局网络连通性 CompositionLocal，由顶层 HomeScreen 统一订阅一次，避免每张封面卡片各自订阅 StateFlow。 */
+val LocalIsOnline = staticCompositionLocalOf { true }
 
 internal object AppIconCache {
     private val cache = LruCache<String, ImageBitmap>(64)
@@ -140,23 +144,26 @@ fun GameCoverCard(
             covers?.candidates(game, platform, officialName)
                 ?: listOfNotNull(game.customCover, game.localCover)
         }
-        knownIdx = remember(game.id, game.customCover, platform?.libretroSystem, indexVer) {
+        knownIdx = remember(game.id, game.customCover, platform?.libretroSystem, officialName, indexVer) {
             if (game.customCover != null) 0 else covers?.knownIndex(game.id, platform)
         }
     }
     val apkPackage = remember(game.id) {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) game.id.removePrefix(GameLauncher.APK_PREFIX) else null
     }
-    CoverCard(
-        candidates = candidates,
-        knownIndex = knownIdx,
-        onCandidateResolved = { idx ->
+    val stableOnCandidateResolved: (Int) -> Unit = remember(game.id, covers, candidates, platform) {
+        { idx: Int ->
             if (idx >= 0) {
                 covers?.rememberSuccess(game.id, candidates.getOrNull(idx))
             } else {
                 covers?.rememberFailure(game.id, platform)
             }
-        },
+        }
+    }
+    CoverCard(
+        candidates = candidates,
+        knownIndex = knownIdx,
+        onCandidateResolved = stableOnCandidateResolved,
         width = width,
         height = height,
         isFocused = isFocused,
@@ -207,7 +214,7 @@ fun CoverCard(
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
-    val shape = shapeOverride ?: if (isFocused) DeckShapes.focusCard else DeckShapes.smallCard
+    val shape = shapeOverride ?: DeckShapes.focusCard
     val context = LocalContext.current
     val view = LocalView.current
     val useFocusAnim = prominentFocus || focusedScale != 1f || unfocusedScale != 1f || unfocusedAlpha != 1f
@@ -244,15 +251,9 @@ fun CoverCard(
     } else {
         null
     }
-    // 无边框选中态仅通过柔和浮起阴影与微幅暗退突显焦点；快滚期间跳过离屏阴影重绘
-    // 焦点卡：品牌色柔光浮起阴影（快滚期跳过）；其余小卡：粉调软阴影
-    val elevation = when {
-        isFocused && !fastScrolling -> if (prominentFocus) 12.dp else 10.dp
-        isFocused -> 0.dp
-        else -> 2.dp
-    }
-    val ambientShadowColor = if (isFocused) DeckColors.BrandEnd else DeckColors.CardShadow
-    val spotShadowColor = if (isFocused) DeckColors.BrandMid else DeckColors.CardShadow
+    // 焦点卡由外层 brandFocusRing 绘制渐变环 + 柔和彩色阴影；非焦点卡使用轻量缓存投影，彻底避免 Android RenderNode 硬件 shadow 网格重算
+    val cardShadowColor = DeckColors.CardShadow
+    val drawSoftShadow = !isFocused && !fastScrolling && height >= 64.dp
 
     val density = LocalDensity.current
     val decodeBucketPx = remember(width, height, density.density) {
@@ -323,7 +324,7 @@ fun CoverCard(
 
     val dimColor = DeckColors.Background
     val isCircle = shapeOverride == CircleShape
-    val ringRadius = if (isCircle) maxOf(width, height) / 2 else if (isFocused) FOCUS_CARD_RADIUS else SMALL_CARD_RADIUS
+    val ringRadius = if (isCircle) maxOf(width, height) / 2 else FOCUS_CARD_RADIUS
     // 焦点卡外侧悬浮渐变收藏徽章（方形大卡）；其余情况徽章收在卡内
     val outerFavBadge = isFavorite && isFocused && !isCircle && width >= 120.dp && height >= 120.dp
 
@@ -331,18 +332,30 @@ fun CoverCard(
         modifier
             .then(focusAnimModifier)
             .size(width, height)
+            .then(
+                if (drawSoftShadow) {
+                    Modifier.drawWithCache {
+                        val cr = if (isCircle) size.minDimension / 2f else FOCUS_CARD_RADIUS.toPx()
+                        val corner = CornerRadius(cr, cr)
+                        val dy = 2.5.dp.toPx()
+                        val col = cardShadowColor.copy(alpha = 0.22f)
+                        onDrawBehind {
+                            if (isCircle) {
+                                drawCircle(col, radius = size.minDimension / 2f, center = Offset(size.width / 2f, size.height / 2f + dy))
+                            } else {
+                                drawRoundRect(col, topLeft = Offset(0f, dy), size = size, cornerRadius = corner)
+                            }
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .brandFocusRing(isFocused, cornerRadius = ringRadius),
     ) {
         Box(
             Modifier
                 .matchParentSize()
-                .then(
-                    if (elevation > 0.dp) {
-                        Modifier.shadow(elevation, shape, ambientColor = ambientShadowColor, spotColor = spotShadowColor)
-                    } else {
-                        Modifier
-                    },
-                )
                 .clip(shape)
                 .background(DeckColors.Surface)
                 .then(gestureModifier)
@@ -370,7 +383,7 @@ fun CoverCard(
             }
 
             // 顶层：快滚期只命中内存缓存（List 预览图支持盘缓存秒显，仅延后联网）；停下解锁后加载完整磁盘/网络封面
-            val isOnline by NetworkStatus.online.collectAsState()
+            val isOnline = LocalIsOnline.current
             if (currentModel != null) {
                 val request = remember(currentModel, isOnline, decodeBucketPx, loadUnlocked, allowDisk) {
                     ImageRequest.Builder(context)

@@ -16,8 +16,8 @@ import androidx.lifecycle.repeatOnLifecycle
  */
 internal const val BG_TIME_WRAP_SEC = 1200f
 
-/** 慢速效果（流光、极光、封面光）以 30Hz 推进时间即可，节省弱 GPU 的填充率。 */
-internal const val BG_STEP_SLOW = 1f / 30f
+/** 慢速效果（流光、极光、封面光）以 20Hz 推进时间已足够丝滑，降低弱 GPU / 掌机连续唤醒负载。 */
+internal const val BG_STEP_SLOW = 1f / 20f
 
 /**
  * 背景共享时间源（秒）。

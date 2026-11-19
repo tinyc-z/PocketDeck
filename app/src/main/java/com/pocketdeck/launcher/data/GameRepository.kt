@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -238,7 +239,7 @@ class GameRepository(
         }.distinctUntilChanged(),
     ) { lib, proj ->
         lib?.withAndroidGames(proj.user)?.applyUser(proj.user, includeHidden = true)
-    }.stateIn(scope, SharingStarted.Eagerly, null)
+    }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, null)
 
     /** 过滤已隐藏游戏的主页游戏库（直接从 fullLibrary 派生，不再重复扫描 Android 应用或重排序）。 */
     val library: StateFlow<Library?> = combine(
@@ -259,7 +260,7 @@ class GameRepository(
             }
             Library(full.root, filteredPlatforms, filteredGames, full.rootCounts)
         }
-    }.stateIn(scope, SharingStarted.Eagerly, null)
+    }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, null)
 
     @Volatile
     private var cachedInstalledApps: List<AndroidAppEntry> = emptyList()

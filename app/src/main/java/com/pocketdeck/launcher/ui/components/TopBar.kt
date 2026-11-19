@@ -74,7 +74,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
@@ -427,15 +427,15 @@ fun TopBar(
                         )
                         Box(
                             Modifier
-                                .onGloballyPositioned { coords ->
+                                .onPlaced { coords ->
                                     val left = coords.positionInParent().x
                                     val width = coords.size.width.toFloat()
                                     val prev = tabBounds[i]
-                                    if (prev == null || prev.first != left || prev.second != width) {
+                                    if (prev == null || kotlin.math.abs(prev.first - left) > 0.5f || kotlin.math.abs(prev.second - width) > 0.5f) {
                                         tabBounds[i] = left to width
                                     }
                                     val h = coords.size.height.toFloat()
-                                    if (h > 0f && pillHeightPx != h) {
+                                    if (h > 0f && kotlin.math.abs(pillHeightPx - h) > 0.5f) {
                                         pillHeightPx = h
                                     }
                                 }

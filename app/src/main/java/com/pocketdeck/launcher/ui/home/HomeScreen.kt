@@ -78,6 +78,7 @@ import com.pocketdeck.launcher.data.AppTheme
 import com.pocketdeck.launcher.data.BackgroundStyle
 import com.pocketdeck.launcher.data.ViewMode
 import com.pocketdeck.launcher.data.model.Game
+import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeySound
 import com.pocketdeck.launcher.launch.GameLauncher
@@ -85,6 +86,8 @@ import com.pocketdeck.launcher.ui.settings.LauncherRow
 import com.pocketdeck.launcher.ui.settings.ManageCallbacks
 import com.pocketdeck.launcher.ui.apps.AppsScreen
 import com.pocketdeck.launcher.ui.components.BottomBar
+import com.pocketdeck.launcher.data.NetworkStatus
+import com.pocketdeck.launcher.ui.components.LocalIsOnline
 import com.pocketdeck.launcher.ui.components.GameMenu
 import com.pocketdeck.launcher.ui.components.GamePropertiesDialog
 import com.pocketdeck.launcher.ui.components.SearchBar
@@ -109,6 +112,10 @@ import com.pocketdeck.launcher.ui.theme.SystemFonts
 import com.pocketdeck.launcher.ui.theme.deckPalette
 import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -246,20 +253,20 @@ fun HomeScreen(
         }
     }
 
-    var isFastScrolling by remember { mutableStateOf(false) }
-    var fastScrollTick by remember { mutableIntStateOf(0) }
-    var fastScrollSettleMs by remember { mutableLongStateOf(200L) }
-    var lastNavKeyMs by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(fastScrollTick) {
-        if (isFastScrolling) {
-            kotlinx.coroutines.delay(fastScrollSettleMs)
-            isFastScrolling = false
+    // 快滚/导航动画状态用 StateFlow + 协程 Job 管理，绝不在 HomeScreen 顶层读取，避免每次方向键触发 1200 行顶层全树重组
+    val fastScrollingFlow = remember { MutableStateFlow(false) }
+    val navAnimatingFlow = remember { MutableStateFlow(false) }
+    val scrollCtrl = remember {
+        object {
+            var lastNavKeyMs: Long = 0L
+            var fastScrollJob: Job? = null
+            var navAnimJob: Job? = null
         }
     }
 
     LaunchedEffect(state.selectedTab, state.viewMode, overlayOpen) {
-        isFastScrolling = false
+        scrollCtrl.fastScrollJob?.cancel()
+        fastScrollingFlow.value = false
     }
 
     val currentState by rememberUpdatedState(state)
@@ -282,73 +289,12 @@ fun HomeScreen(
 
     fun launchCurrentGame() {
         val s = currentState
-        s.games.getOrNull(s.focusIndex)?.let(launchGame)
+        s.games.getOrNull(vm.focusIndex.value)?.let(launchGame)
     }
 
     fun showCurrentGameMenu() {
-        state.games.getOrNull(state.focusIndex)?.let { vm.showMenu(it) }
-    }
-
-    val focusedGame = state.games.getOrNull(state.focusIndex)
-    var settledFocusGame by remember(state.selectedTab, state.games.firstOrNull()?.id) {
-        mutableStateOf(focusedGame)
-    }
-    if (!isFastScrolling || settledFocusGame == null) {
-        settledFocusGame = focusedGame
-    }
-    val coverIndexVer = if (state.backgroundStyle == BackgroundStyle.CoverGlow) {
-        vm.covers.indexVersion.collectAsState().value
-    } else {
-        0
-    }
-    val blurOfficialName = if (state.backgroundStyle == BackgroundStyle.CoverGlow) {
-        settledFocusGame?.let { state.officialNames[it.id] }
-    } else {
-        null
-    }
-    val blurResolvedSource = if (state.backgroundStyle == BackgroundStyle.CoverGlow) {
-        val map by vm.coverResolutionMap.collectAsState()
-        settledFocusGame?.let { map[it.id]?.source }
-    } else {
-        null
-    }
-    val blurCoverCandidates = remember(
-        settledFocusGame?.id,
-        settledFocusGame?.customCover,
-        settledFocusGame?.localCover,
-        blurOfficialName,
-        blurResolvedSource,
-        state.backgroundStyle,
-        coverIndexVer,
-    ) {
-        val g = settledFocusGame
-        if (g == null || state.backgroundStyle != BackgroundStyle.CoverGlow) emptyList()
-        else vm.covers.candidates(
-            g,
-            state.platformFor(g),
-            blurOfficialName,
-        )
-    }
-    val blurKnownIdx = remember(
-        settledFocusGame?.id,
-        settledFocusGame?.customCover,
-        blurResolvedSource,
-        state.backgroundStyle,
-        coverIndexVer,
-    ) {
-        val g = settledFocusGame
-        if (g == null || state.backgroundStyle != BackgroundStyle.CoverGlow) null
-        else if (g.customCover != null) 0
-        else vm.covers.knownIndex(g.id, state.platformFor(g))
-    }
-    val blurApkPackage = remember(settledFocusGame?.id, state.backgroundStyle) {
-        val g = settledFocusGame
-        if (g == null || state.backgroundStyle != BackgroundStyle.CoverGlow) null
-        else if (g.id.startsWith(GameLauncher.APK_PREFIX)) {
-            g.id.removePrefix(GameLauncher.APK_PREFIX)
-        } else {
-            null
-        }
+        val s = currentState
+        s.games.getOrNull(vm.focusIndex.value)?.let { vm.showMenu(it) }
     }
 
     val systemDark = isSystemInDarkTheme()
@@ -369,9 +315,11 @@ fun HomeScreen(
             ?: withContext(Dispatchers.IO) { SystemFonts.resolve(state.fontId) }
     }
 
+    val isOnline by NetworkStatus.online.collectAsState()
     CompositionLocalProvider(
         LocalDeckColors provides palette,
         LocalDeckFontFamily provides fontFamily,
+        LocalIsOnline provides isOnline,
     ) {
     Box(
         modifier
@@ -388,9 +336,12 @@ fun HomeScreen(
                             event.key == Key.DirectionUp || event.key == Key.DirectionDown
                 }
                 if (event.type == KeyEventType.KeyUp) {
-                    if (isGameScrollKey && isFastScrolling) {
-                        fastScrollSettleMs = 110L
-                        fastScrollTick += 1
+                    if (isGameScrollKey && fastScrollingFlow.value) {
+                        scrollCtrl.fastScrollJob?.cancel()
+                        scrollCtrl.fastScrollJob = scope.launch {
+                            delay(110L)
+                            fastScrollingFlow.value = false
+                        }
                     }
                     return@onPreviewKeyEvent false
                 }
@@ -474,13 +425,22 @@ fun HomeScreen(
                 }
 
                 if (isGameScrollKey) {
+                    navAnimatingFlow.value = true
+                    scrollCtrl.navAnimJob?.cancel()
+                    scrollCtrl.navAnimJob = scope.launch {
+                        delay(320L)
+                        navAnimatingFlow.value = false
+                    }
                     val now = SystemClock.uptimeMillis()
-                    val rapid = event.nativeKeyEvent.repeatCount > 0 || (now - lastNavKeyMs < 170L)
-                    lastNavKeyMs = now
+                    val rapid = event.nativeKeyEvent.repeatCount > 0 || (now - scrollCtrl.lastNavKeyMs < 170L)
+                    scrollCtrl.lastNavKeyMs = now
                     if (rapid) {
-                        isFastScrolling = true
-                        fastScrollSettleMs = 200L
-                        fastScrollTick += 1
+                        fastScrollingFlow.value = true
+                        scrollCtrl.fastScrollJob?.cancel()
+                        scrollCtrl.fastScrollJob = scope.launch {
+                            delay(200L)
+                            fastScrollingFlow.value = false
+                        }
                     }
                 }
 
@@ -505,7 +465,7 @@ fun HomeScreen(
                         when (state.viewMode) {
                             ViewMode.List -> vm.moveFocus(1)
                             ViewMode.Grid -> vm.moveFocus(GRID_COLUMNS)
-                            ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(state.focusIndex, state.games.size, 1))
+                            ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, 1))
                             ViewMode.Gallery -> Unit
                         }
                         true
@@ -514,7 +474,7 @@ fun HomeScreen(
                         when (state.viewMode) {
                             ViewMode.List -> vm.moveFocus(-1)
                             ViewMode.Grid -> vm.moveFocus(-GRID_COLUMNS)
-                            ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(state.focusIndex, state.games.size, -1))
+                            ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, -1))
                             ViewMode.Gallery -> Unit
                         }
                         true
@@ -555,14 +515,19 @@ fun HomeScreen(
                 }
             },
     ) {
-        // 底层背景效果
-        WaveBackground(
+        // 底层背景效果（独立重组边界：滚动暂停与 CoverGlow 焦点切换绝不触发 HomeScreen 重组）
+        HomeBackgroundSlot(
             style = state.backgroundStyle,
-            coverCandidates = blurCoverCandidates,
-            knownCoverIndex = blurKnownIdx,
-            apkPackage = blurApkPackage,
             customBackground = state.customBackground,
-            paused = state.reduceMotion || isFastScrolling || hasChildFocusOverlay,
+            staticPaused = state.reduceMotion || hasChildFocusOverlay,
+            selectedTab = state.selectedTab,
+            games = state.games,
+            officialNames = state.officialNames,
+            platformFor = state::platformFor,
+            vm = vm,
+            focusIndexFlow = vm.focusIndex,
+            fastScrollingFlow = fastScrollingFlow,
+            navAnimatingFlow = navAnimatingFlow,
         )
 
         // 主内容列
@@ -750,11 +715,12 @@ fun HomeScreen(
                         }
                         val stableOnFocusChange = remember(vm) { { idx: Int -> vm.setFocus(idx) } }
                         val stableOnLongPress = remember(vm) { { game: Game -> vm.showMenu(game) } }
-                        when (state.viewMode) {
-                        ViewMode.Gallery -> GalleryView(
+                        HomeContentSlot(
+                            viewMode = state.viewMode,
                             games = state.games,
                             platformOf = stablePlatformOf,
-                            focusIndex = state.focusIndex,
+                            focusIndexFlow = vm.focusIndex,
+                            fastScrollingFlow = fastScrollingFlow,
                             covers = vm.covers,
                             metadataMap = state.metadataMap,
                             officialNames = state.officialNames,
@@ -762,55 +728,10 @@ fun HomeScreen(
                             onFocusChange = stableOnFocusChange,
                             onLaunch = launchGame,
                             onLongPress = stableOnLongPress,
-                            fastScrolling = isFastScrolling,
                             showMetadata = state.showMetadata,
                             metaDisplay = state.metaDisplay,
-                            align = state.galleryAlign,
-                            modifier = Modifier.fillMaxSize(),
+                            galleryAlign = state.galleryAlign,
                         )
-                        ViewMode.List -> ListView(
-                            games = state.games,
-                            platformOf = stablePlatformOf,
-                            focusIndex = state.focusIndex,
-                            covers = vm.covers,
-                            metadataMap = state.metadataMap,
-                            officialNames = state.officialNames,
-                            favorites = state.favorites,
-                            onFocusChange = stableOnFocusChange,
-                            onLaunch = launchGame,
-                            onLongPress = stableOnLongPress,
-                            fastScrolling = isFastScrolling,
-                            showMetadata = state.showMetadata,
-                            metaDisplay = state.metaDisplay,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        ViewMode.Grid -> GridView(
-                            games = state.games,
-                            platformOf = stablePlatformOf,
-                            focusIndex = state.focusIndex,
-                            covers = vm.covers,
-                            officialNames = state.officialNames,
-                            favorites = state.favorites,
-                            onFocusChange = stableOnFocusChange,
-                            onLaunch = launchGame,
-                            onLongPress = stableOnLongPress,
-                            fastScrolling = isFastScrolling,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        ViewMode.Bubbles -> BubblesView(
-                            games = state.games,
-                            platformOf = stablePlatformOf,
-                            focusIndex = state.focusIndex,
-                            covers = vm.covers,
-                            officialNames = state.officialNames,
-                            favorites = state.favorites,
-                            onFocusChange = stableOnFocusChange,
-                            onLaunch = launchGame,
-                            onLongPress = stableOnLongPress,
-                            fastScrolling = isFastScrolling,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        }
                     }
                 }
             }
@@ -818,9 +739,6 @@ fun HomeScreen(
             if (state.bottomBar && !(state.searching && imeVisible)) {
                 val stableOnApps = remember(vm) { { vm.openApps() } }
                 val stableOnSettings = remember(vm) { { vm.toggleSettings() } }
-                val stableOnOptions = remember(state.games, state.focusIndex) {
-                    if (state.games.isNotEmpty()) ({ showCurrentGameMenu() }) else null
-                }
                 val stableOnViewSwitch = remember(vm) { { vm.openViewMenu() } }
                 val stableOnSearch = remember(vm) { { vm.toggleSearch() } }
                 val stableOnPlay = remember(launchGame) { { launchCurrentGame() } }
@@ -829,7 +747,7 @@ fun HomeScreen(
                     searching = state.searching,
                     onApps = stableOnApps,
                     onSettings = stableOnSettings,
-                    onOptions = stableOnOptions,
+                    onOptions = null,
                     onViewSwitch = stableOnViewSwitch,
                     onSearch = stableOnSearch,
                     onPlay = stableOnPlay,
@@ -1240,10 +1158,173 @@ fun HomeScreen(
 }
 
 @Composable
+private fun HomeBackgroundSlot(
+    style: BackgroundStyle,
+    customBackground: String?,
+    staticPaused: Boolean,
+    selectedTab: Int,
+    games: List<Game>,
+    officialNames: Map<String, String>,
+    platformFor: (Game) -> Platform?,
+    vm: HomeViewModel,
+    focusIndexFlow: StateFlow<Int>,
+    fastScrollingFlow: StateFlow<Boolean>,
+    navAnimatingFlow: StateFlow<Boolean>,
+) {
+    val isFastScrolling by fastScrollingFlow.collectAsState()
+    val isNavAnimating by navAnimatingFlow.collectAsState()
+
+    val coverCandidates: List<Any>
+    val knownIdx: Int?
+    val apkPackage: String?
+    if (style == BackgroundStyle.CoverGlow) {
+        val focusIndex by focusIndexFlow.collectAsState()
+        val focusedGame = games.getOrNull(focusIndex)
+        var settledFocusGame by remember(selectedTab, games.firstOrNull()?.id) {
+            mutableStateOf(focusedGame)
+        }
+        if (!isFastScrolling || settledFocusGame == null) {
+            settledFocusGame = focusedGame
+        }
+        val coverIndexVer = vm.covers.indexVersion.collectAsState().value
+        val blurOfficialName = settledFocusGame?.let { officialNames[it.id] }
+        val map by vm.coverResolutionMap.collectAsState()
+        val blurResolvedSource = settledFocusGame?.let { map[it.id]?.source }
+        coverCandidates = remember(
+            settledFocusGame?.id,
+            settledFocusGame?.customCover,
+            settledFocusGame?.localCover,
+            blurOfficialName,
+            blurResolvedSource,
+            coverIndexVer,
+        ) {
+            val g = settledFocusGame
+            if (g == null) emptyList()
+            else vm.covers.candidates(g, platformFor(g), blurOfficialName)
+        }
+        knownIdx = remember(
+            settledFocusGame?.id,
+            settledFocusGame?.customCover,
+            blurResolvedSource,
+            coverIndexVer,
+        ) {
+            val g = settledFocusGame
+            if (g == null) null
+            else if (g.customCover != null) 0
+            else vm.covers.knownIndex(g.id, platformFor(g))
+        }
+        apkPackage = remember(settledFocusGame?.id) {
+            val g = settledFocusGame
+            if (g != null && g.id.startsWith(GameLauncher.APK_PREFIX)) {
+                g.id.removePrefix(GameLauncher.APK_PREFIX)
+            } else {
+                null
+            }
+        }
+    } else {
+        coverCandidates = emptyList()
+        knownIdx = null
+        apkPackage = null
+    }
+
+    WaveBackground(
+        style = style,
+        coverCandidates = coverCandidates,
+        knownCoverIndex = knownIdx,
+        apkPackage = apkPackage,
+        customBackground = customBackground,
+        paused = staticPaused || isFastScrolling || isNavAnimating,
+    )
+}
+
+@Composable
+private fun HomeContentSlot(
+    viewMode: ViewMode,
+    games: List<Game>,
+    platformOf: (Game) -> Platform?,
+    focusIndexFlow: StateFlow<Int>,
+    fastScrollingFlow: StateFlow<Boolean>,
+    covers: com.pocketdeck.launcher.data.CoverSource,
+    metadataMap: Map<String, com.pocketdeck.launcher.data.model.GameMetadata>,
+    officialNames: Map<String, String>,
+    favorites: Set<String>,
+    onFocusChange: (Int) -> Unit,
+    onLaunch: (Game) -> Unit,
+    onLongPress: (Game) -> Unit,
+    showMetadata: Boolean,
+    metaDisplay: com.pocketdeck.launcher.data.MetadataDisplayConfig,
+    galleryAlign: com.pocketdeck.launcher.data.GalleryAlign,
+) {
+    val focusIndex by focusIndexFlow.collectAsState()
+    val isFastScrolling by fastScrollingFlow.collectAsState()
+    when (viewMode) {
+        ViewMode.Gallery -> GalleryView(
+            games = games,
+            platformOf = platformOf,
+            focusIndex = focusIndex,
+            covers = covers,
+            metadataMap = metadataMap,
+            officialNames = officialNames,
+            favorites = favorites,
+            onFocusChange = onFocusChange,
+            onLaunch = onLaunch,
+            onLongPress = onLongPress,
+            fastScrolling = isFastScrolling,
+            showMetadata = showMetadata,
+            metaDisplay = metaDisplay,
+            align = galleryAlign,
+            modifier = Modifier.fillMaxSize(),
+        )
+        ViewMode.List -> ListView(
+            games = games,
+            platformOf = platformOf,
+            focusIndex = focusIndex,
+            covers = covers,
+            metadataMap = metadataMap,
+            officialNames = officialNames,
+            favorites = favorites,
+            onFocusChange = onFocusChange,
+            onLaunch = onLaunch,
+            onLongPress = onLongPress,
+            fastScrolling = isFastScrolling,
+            showMetadata = showMetadata,
+            metaDisplay = metaDisplay,
+            modifier = Modifier.fillMaxSize(),
+        )
+        ViewMode.Grid -> GridView(
+            games = games,
+            platformOf = platformOf,
+            focusIndex = focusIndex,
+            covers = covers,
+            officialNames = officialNames,
+            favorites = favorites,
+            onFocusChange = onFocusChange,
+            onLaunch = onLaunch,
+            onLongPress = onLongPress,
+            fastScrolling = isFastScrolling,
+            modifier = Modifier.fillMaxSize(),
+        )
+        ViewMode.Bubbles -> BubblesView(
+            games = games,
+            platformOf = platformOf,
+            focusIndex = focusIndex,
+            covers = covers,
+            officialNames = officialNames,
+            favorites = favorites,
+            onFocusChange = onFocusChange,
+            onLaunch = onLaunch,
+            onLongPress = onLongPress,
+            fastScrolling = isFastScrolling,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
+@Composable
 private fun homeViewModel(): HomeViewModel {
     val app = LocalContext.current.applicationContext as PocketDeckApp
-    return viewModel(
-        factory = object : ViewModelProvider.Factory {
+    val factory = remember(app) {
+        object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
                 HomeViewModel(
@@ -1251,8 +1332,9 @@ private fun homeViewModel(): HomeViewModel {
                     app.container.covers,
                     app.container.metadata,
                 ) as T
-        },
-    )
+        }
+    }
+    return viewModel(factory = factory)
 }
 
 private fun openAllFilesAccessSettings(context: Context) {
