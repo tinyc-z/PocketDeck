@@ -123,6 +123,7 @@ import com.pocketdeck.launcher.ui.settings.NameDialog
 import com.pocketdeck.launcher.ui.settings.NameDialogSpec
 import com.pocketdeck.launcher.ui.settings.NameDialogState
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import com.pocketdeck.launcher.ui.theme.brandBackground
@@ -1221,6 +1222,7 @@ fun GameLibraryScreen(
         modifier
             .fillMaxSize()
             .background(DeckColors.Background)
+            .blockOverlayTouchThrough()
             .focusRequester(focusRequester)
             .focusProperties { canFocus = !overlayActive || actionMenu != null }
             .focusable()

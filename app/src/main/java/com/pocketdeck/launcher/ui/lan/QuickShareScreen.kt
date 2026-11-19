@@ -97,6 +97,7 @@ import com.pocketdeck.launcher.ui.settings.NameDialog
 import com.pocketdeck.launcher.ui.settings.NameDialogSpec
 import com.pocketdeck.launcher.ui.settings.NameDialogState
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.delay
@@ -223,6 +224,7 @@ fun QuickShareScreen(
         modifier
             .fillMaxSize()
             .background(DeckColors.Background)
+            .blockOverlayTouchThrough()
             .focusRequester(nav.rootFr)
             .focusProperties {
                 canFocus = !subOverlayOpen

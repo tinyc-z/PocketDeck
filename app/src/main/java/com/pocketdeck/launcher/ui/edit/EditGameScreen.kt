@@ -85,6 +85,7 @@ import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
 import com.pocketdeck.launcher.ui.settings.LauncherPickerDialog
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.brandBorder
@@ -171,6 +172,7 @@ fun EditGameScreen(
     Box(
         modifier
             .fillMaxSize()
+            .blockOverlayTouchThrough()
             .onPreviewKeyEvent { event ->
                 if (overlayOpen) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false

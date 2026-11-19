@@ -99,6 +99,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.pocketdeck.launcher.ui.library.GameLibraryAppIcon
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -278,6 +279,7 @@ fun AppsScreen(
         modifier
             .fillMaxSize()
             .background(DeckColors.Background)
+            .blockOverlayTouchThrough()
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->

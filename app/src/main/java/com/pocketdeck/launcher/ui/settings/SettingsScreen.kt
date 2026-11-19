@@ -76,6 +76,7 @@ import com.pocketdeck.launcher.ui.home.TabEntry
 import com.pocketdeck.launcher.ui.home.TabType
 import com.pocketdeck.launcher.ui.home.UncategorizedPlatformInfo
 import com.pocketdeck.launcher.ui.theme.SystemFonts
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -713,6 +714,7 @@ fun SettingsScreen(
         modifier
             .fillMaxSize()
             .settingsBackdrop()
+            .blockOverlayTouchThrough()
             .focusRequester(focusRequester)
             .focusProperties { canFocus = !isCovered }
             .focusable()

@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -199,3 +200,9 @@ fun Modifier.brandFocusRow(focused: Boolean, shape: Shape = RoundedCornerShape(D
 
 /** 便捷：在非 Composable 绘制作用域里取渐变色列表。 */
 fun DeckPalette.brandColors(): List<Color> = listOf(brandStart, brandMid, brandEnd)
+
+/**
+ * 拦截全屏覆盖页空白区域的触控事件，防止点击穿透到底层的 HomeScreen / AppsScreen
+ * 误触底层游戏封面或应用图标（同时不影响本页子控件的点击、滚动与焦点）。
+ */
+fun Modifier.blockOverlayTouchThrough(): Modifier = this.pointerInput(Unit) {}
