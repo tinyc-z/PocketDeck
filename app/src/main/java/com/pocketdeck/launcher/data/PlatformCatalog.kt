@@ -3,8 +3,7 @@ package com.pocketdeck.launcher.data
 import com.pocketdeck.launcher.data.model.Platform
 
 /**
- * 文件夹名 → 平台信息。文件夹命名沿用 ES-DE / Beacon / RetroArch 常见约定。
- * 列表顺序就是默认的标签顺序。
+ * 文件夹名 → 平台信息映射，列表顺序即为默认标签顺序。
  */
 object PlatformCatalog {
 
@@ -130,7 +129,7 @@ object PlatformCatalog {
         p(ANDROID_ID, "ANDROID", "Android Native Games", SQUARE, null, null),
     )
 
-    /** 常见文件夹别名映射到标准平台 ID（兼顾 ES-DE / Beacon / 中文玩家习惯命名）。 */
+    /** 常见文件夹别名映射到标准平台 ID（兼顾复古前端与中文玩家习惯命名）。 */
     private val ALIASES: Map<String, String> = mapOf(
         "fc" to "nes",
         "famicom" to "nes",

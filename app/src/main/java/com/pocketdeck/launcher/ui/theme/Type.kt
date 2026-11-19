@@ -11,7 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 
-/** Inter 可变字体（opsz + wght），和 Beacon 保持一致。 */
+/** Inter 可变字体（opsz + wght）。 */
 val InterFamily = FontFamily(
     Font(
         R.font.inter,

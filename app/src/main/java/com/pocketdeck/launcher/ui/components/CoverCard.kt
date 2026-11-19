@@ -547,7 +547,7 @@ fun DefaultCoverArt(
 private data class CoverPalette(val top: Color, val bottom: Color)
 
 private val DEFAULT_PALETTES = listOf(
-    CoverPalette(Color(0xFFB71C1C), Color(0xFF6D131C)), // Beacon Ruby
+    CoverPalette(Color(0xFFB71C1C), Color(0xFF6D131C)), // PocketDeck Ruby
     CoverPalette(Color(0xFF3949AB), Color(0xFF1E2758)), // Classic Indigo
     CoverPalette(Color(0xFF00796B), Color(0xFF00433B)), // Retro Teal
     CoverPalette(Color(0xFF5E35B1), Color(0xFF311B66)), // GameCube Violet

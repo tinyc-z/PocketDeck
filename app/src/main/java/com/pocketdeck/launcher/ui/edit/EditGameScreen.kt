@@ -91,7 +91,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Edit Game 页面：改名、查看 ROM 文件名、自选封面、Delete / Save，1:1 复刻 Beacon。
+ * Edit Game 页面：改名、查看 ROM 文件名、所属分类、自定义封面与 Delete / Save。
  */
 @Composable
 fun EditGameScreen(

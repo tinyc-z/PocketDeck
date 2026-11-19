@@ -32,7 +32,7 @@ import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
 
 /**
- * 视图切换弹出菜单：Gallery / List / Grid / Bubbles，1:1 复刻 Beacon。
+ * 视图切换弹出菜单：Gallery / List / Grid / Bubbles。
  */
 @Composable
 fun ViewModeMenu(
