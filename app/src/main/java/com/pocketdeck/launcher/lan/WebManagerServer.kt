@@ -82,6 +82,14 @@ data class WebThemeConfig(
             val rgb = (c.value shr 32).toInt() and 0xFFFFFF
             return String.format(Locale.US, "#%06X", rgb)
         }
+        /** 带透明度的颜色以 CSS rgba() 输出（accentSoft / flow 色块均含 alpha）。 */
+        fun rgba(c: androidx.compose.ui.graphics.Color): String {
+            if (c.alpha >= 0.999f) return hex(c)
+            val r = (c.red * 255f + 0.5f).toInt().coerceIn(0, 255)
+            val g = (c.green * 255f + 0.5f).toInt().coerceIn(0, 255)
+            val b = (c.blue * 255f + 0.5f).toInt().coerceIn(0, 255)
+            return String.format(Locale.US, "rgba(%d,%d,%d,%.3f)", r, g, b, c.alpha)
+        }
         return JSONObject().apply {
             put("isDark", isDark)
             put("accent", accent.name)
@@ -94,6 +102,17 @@ data class WebThemeConfig(
             put("border", hex(pal.dialogBorder))
             put("text", hex(pal.textPrimary))
             put("muted", hex(pal.textSecondary))
+            // Sunset Arcade 设计令牌：Web 端与掌机主题（含亮/暗）保持一致
+            put("label", hex(pal.textLabel))
+            put("brandStart", hex(pal.brandStart))
+            put("brandMid", hex(pal.brandMid))
+            put("brandEnd", hex(pal.brandEnd))
+            put("surfaceAlt", hex(pal.surfaceAlt))
+            put("line", hex(pal.line))
+            put("accentSoft", rgba(pal.accentSoft))
+            put("flowA", rgba(pal.flowA))
+            put("flowB", rgba(pal.flowB))
+            put("flowC", rgba(pal.flowC))
         }
     }
 }

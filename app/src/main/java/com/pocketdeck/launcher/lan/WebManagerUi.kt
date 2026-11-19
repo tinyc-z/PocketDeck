@@ -3,15 +3,15 @@ package com.pocketdeck.launcher.lan
 import org.json.JSONObject
 
 /**
- * PocketDeck Web 管理后台前端界面（游戏风格 UI，100% 自包含零外网请求，支持实时跟随 App 亮/暗主题与主题色）。
+ * PocketDeck Web Console（Sunset Arcade 设计语言，100% 自包含零外网请求，实时同步掌机主题与亮/暗模式）。
  */
 internal object WebManagerUi {
 
     private fun brandLogoSvg(sizePx: Int): String =
-        """<svg width="$sizePx" height="$sizePx" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="pdg" x1="2" y1="1" x2="22" y2="23" gradientUnits="userSpaceOnUse"><stop stop-color="#FF6B72"/><stop offset="1" stop-color="#C4243A"/></linearGradient></defs><rect width="24" height="24" rx="6" fill="url(#pdg)"/><path fill="#FFFFFF" fill-rule="evenodd" d="M6.8 6.8H17.2A3.8 3.8 0 0 1 21 10.6V13.4A3.8 3.8 0 0 1 17.2 17.2H6.8A3.8 3.8 0 0 1 3 13.4V10.6A3.8 3.8 0 0 1 6.8 6.8ZM9.6 9.1H14.4A1 1 0 0 1 15.4 10.1V13.4A1 1 0 0 1 14.4 14.4H9.6A1 1 0 0 1 8.6 13.4V10.1A1 1 0 0 1 9.6 9.1ZM5.7 10.6H6.5V11.6H7.5V12.4H6.5V13.4H5.7V12.4H4.7V11.6H5.7ZM18.1 11.2A0.78 0.78 0 1 1 18.09 11.2ZM16.7 12.8A0.78 0.78 0 1 1 16.69 12.8Z"/></svg>"""
+        """<svg width="$sizePx" height="$sizePx" viewBox="18 18 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="pdsg" x1="10" y1="4" x2="98" y2="104" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFB547"/><stop offset="0.48" stop-color="#FF5A5F"/><stop offset="1" stop-color="#E9327A"/></linearGradient><radialGradient id="pdhl" cx="30" cy="20" r="60" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFF" stop-opacity="0.3"/><stop offset="1" stop-color="#FFF" stop-opacity="0"/></radialGradient><linearGradient id="pdscr" x1="40" y1="33" x2="68" y2="54" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#5B2A86"/><stop offset="1" stop-color="#341A5C"/></linearGradient></defs><rect x="18" y="18" width="72" height="72" rx="18" fill="url(#pdsg)"/><rect x="18" y="18" width="72" height="72" rx="18" fill="url(#pdhl)"/><path fill="#9E1F4F" fill-opacity="0.22" d="M38,30 H70 A5,5 0 0 1 75,35 V73 A12,12 0 0 1 63,85 H38 A5,5 0 0 1 33,80 V35 A5,5 0 0 1 38,30 Z"/><path fill="#FFF" d="M38,27 H70 A5,5 0 0 1 75,32 V70 A12,12 0 0 1 63,82 H38 A5,5 0 0 1 33,77 V32 A5,5 0 0 1 38,27 Z"/><path fill="url(#pdscr)" d="M41,32 H67 A2.5,2.5 0 0 1 69.5,34.5 V52.5 A2.5,2.5 0 0 1 67,55 H41 A2.5,2.5 0 0 1 38.5,52.5 V34.5 A2.5,2.5 0 0 1 41,32 Z"/><path fill="#FFD84D" d="M48.4,37.1 h1.6 v1.6 h-1.6 Z M58,37.1 h1.6 v1.6 h-1.6 Z M50,38.7 h1.6 v1.6 h-1.6 Z M56.4,38.7 h1.6 v1.6 h-1.6 Z M48.4,40.3 h11.2 v1.6 h-11.2 Z M46.8,41.9 h3.2 v1.6 h-3.2 Z M51.6,41.9 h4.8 v1.6 h-4.8 Z M58,41.9 h3.2 v1.6 h-3.2 Z M45.2,43.5 h17.6 v1.6 h-17.6 Z M45.2,45.1 h1.6 v1.6 h-1.6 Z M48.4,45.1 h11.2 v1.6 h-11.2 Z M61.2,45.1 h1.6 v1.6 h-1.6 Z M45.2,46.7 h1.6 v1.6 h-1.6 Z M48.4,46.7 h1.6 v1.6 h-1.6 Z M58,46.7 h1.6 v1.6 h-1.6 Z M61.2,46.7 h1.6 v1.6 h-1.6 Z M50,48.3 h3.2 v1.6 h-3.2 Z M54.8,48.3 h3.2 v1.6 h-3.2 Z"/><path fill="#3B1D5E" d="M43,60 h3.6 v4.2 h4.2 v3.6 h-4.2 v4.2 h-3.6 v-4.2 h-4.2 v-3.6 h4.2 Z"/><circle cx="66" cy="62.6" r="3" fill="#FF4F7B"/><circle cx="60" cy="67.4" r="3" fill="#FFB547"/><rect x="46" y="75" width="5" height="2" rx="1" fill="#C9B8D8"/><rect x="53.5" y="75" width="5" height="2" rx="1" fill="#C9B8D8"/></svg>"""
 
     private const val FAVICON_DATA_URI =
-        "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='6'%20fill='%23E5394B'/%3E%3Cpath%20fill='%23FFFFFF'%20fill-rule='evenodd'%20d='M6.8%206.8H17.2A3.8%203.8%200%200%201%2021%2010.6V13.4A3.8%203.8%200%200%201%2017.2%2017.2H6.8A3.8%203.8%200%200%201%203%2013.4V10.6A3.8%203.8%200%200%201%206.8%206.8ZM9.6%209.1H14.4A1%201%200%200%201%2015.4%2010.1V13.4A1%201%200%200%201%2014.4%2014.4H9.6A1%201%200%200%201%208.6%2013.4V10.1A1%201%200%200%201%209.6%209.1ZM5.7%2010.6H6.5V11.6H7.5V12.4H6.5V13.4H5.7V12.4H4.7V11.6H5.7ZM18.1%2011.2A0.78%200.78%200%201%201%2018.09%2011.2ZM16.7%2012.8A0.78%200.78%200%201%201%2016.69%2012.8Z'/%3E%3C/svg%3E"
+        "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='18%2018%2072%2072'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='0'%20x2='1'%20y2='1'%3E%3Cstop%20offset='0'%20stop-color='%23FFB547'/%3E%3Cstop%20offset='0.5'%20stop-color='%23FF5A5F'/%3E%3Cstop%20offset='1'%20stop-color='%23E9327A'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20x='18'%20y='18'%20width='72'%20height='72'%20rx='18'%20fill='url(%23g)'/%3E%3Cpath%20fill='%23FFF'%20d='M38,27H70A5,5,0,0,1,75,32V70A12,12,0,0,1,63,82H38A5,5,0,0,1,33,77V32A5,5,0,0,1,38,27Z'/%3E%3Crect%20x='39'%20y='32'%20width='30'%20height='23'%20rx='2.5'%20fill='%233B1D5E'/%3E%3Cpath%20fill='%233B1D5E'%20d='M43,60h3.6v4.2h4.2v3.6h-4.2v4.2h-3.6v-4.2h-4.2v-3.6h4.2Z'/%3E%3Ccircle%20cx='66'%20cy='62.6'%20r='3'%20fill='%23FF4F7B'/%3E%3Ccircle%20cx='60'%20cy='67.4'%20r='3'%20fill='%23FFB547'/%3E%3C/svg%3E"
 
     private fun cssVars(theme: WebThemeConfig): String {
         val j = theme.toJson()
@@ -25,24 +25,45 @@ internal object WebManagerUi {
         val border = j.getString("border")
         val text = j.getString("text")
         val muted = j.getString("muted")
-        val headerBg = if (dark) "rgba(22,22,28,.86)" else "rgba(255,255,255,.88)"
-        val cardGlow = if (dark) "rgba(0,0,0,.45)" else "rgba(18,24,40,.08)"
-        val inputBg = if (dark) "#101014" else "#FFFFFF"
+        val label = j.optString("label", muted)
+        val bStart = j.optString("brandStart", glow)
+        val bMid = j.optString("brandMid", primary)
+        val bEnd = j.optString("brandEnd", tertiary)
+        val surfAlt = j.optString("surfaceAlt", surf)
+        val line = j.optString("line", border)
+        val accSoft = j.optString("accentSoft", "rgba(232,62,108,0.12)")
+        val flowA = j.optString("flowA", "rgba(255,196,138,0.55)")
+        val flowB = j.optString("flowB", "rgba(255,157,181,0.50)")
+        val flowC = j.optString("flowC", "rgba(201,178,255,0.42)")
+        val sideBg = if (dark) "rgba(35,26,46,.68)" else "rgba(255,255,255,.62)"
+        val shadow = if (dark) "0 8px 24px rgba(0,0,0,.45)" else "0 6px 18px rgba(120,40,70,.09),0 1px 3px rgba(120,40,70,.06)"
+        val inputBg = if (dark) "#231A2E" else "#FFFFFF"
         return """
             --accent:$primary;
             --glow:$glow;
             --tertiary:$tertiary;
+            --brand-start:$bStart;
+            --brand-mid:$bMid;
+            --brand-end:$bEnd;
+            --brand:linear-gradient(120deg,$bStart 0%,$bMid 48%,$bEnd 100%);
             --bg:$bg;
             --panel:$panel;
             --surf:$surf;
-            --border:$border;
+            --surf-alt:$surfAlt;
+            --border:$line;
+            --line:$line;
             --text:$text;
             --muted:$muted;
-            --header-bg:$headerBg;
-            --shadow:$cardGlow;
+            --label:$label;
+            --accent-soft:$accSoft;
+            --flow-a:$flowA;
+            --flow-b:$flowB;
+            --flow-c:$flowC;
+            --side-bg:$sideBg;
+            --shadow:$shadow;
             --input-bg:$inputBg;
             --danger:#e11d48;
-            --ok:#10b981;
+            --ok:#1fa971;
             --warn:#f59e0b;
         """.trimIndent().replace("\n", "")
     }
@@ -51,138 +72,124 @@ internal object WebManagerUi {
         val vars = cssVars(theme)
         val darkAttr = if (theme.isDark) "1" else "0"
         return """<!doctype html>
-<html lang="zh-CN" data-dark="$darkAttr">
+<html lang="en" data-dark="$darkAttr">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>PocketDeck OS · Login</title>
+<title>PocketDeck · Login</title>
 <link rel="icon" type="image/svg+xml" href="$FAVICON_DATA_URI"/>
 <style>
   :root { $vars }
-  * { box-sizing:border-box; }
+  * { box-sizing:border-box; margin:0; padding:0; }
   body {
-    margin:0; min-height:100vh; display:grid; place-items:center;
+    min-height:100vh; display:grid; place-items:center;
     background:
-      radial-gradient(circle at 15% 15%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 46%),
-      radial-gradient(circle at 85% 85%, color-mix(in srgb, var(--glow) 15%, transparent), transparent 48%),
+      radial-gradient(circle at 12% 10%, var(--flow-a) 0%, transparent 46%),
+      radial-gradient(circle at 90% 35%, var(--flow-b) 0%, transparent 48%),
+      radial-gradient(circle at 45% 105%, var(--flow-c) 0%, transparent 50%),
       var(--bg);
     color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
     padding:20px;
     transition:background .25s ease, color .25s ease;
   }
   .deck-card {
-    width:100%; max-width:410px;
-    background:var(--panel);
-    border:1px solid var(--border);
+    width:100%; max-width:396px;
+    background:var(--surf);
+    border:1px solid var(--line);
     border-radius:24px;
-    padding:30px 28px 26px;
-    box-shadow:0 24px 60px var(--shadow);
-    position:relative; overflow:hidden;
+    padding:28px 26px 26px;
+    box-shadow:var(--shadow);
   }
-  .deck-card::before {
-    content:""; position:absolute; top:0; left:0; right:0; height:4px;
-    background:linear-gradient(90deg, var(--accent), var(--glow), var(--tertiary));
-  }
-  .logo-row { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
-  .logo-badge {
-    width:44px; height:44px; border-radius:14px;
-    background:linear-gradient(135deg, var(--accent), var(--glow));
-    display:grid; place-items:center; color:#fff; flex-shrink:0;
-    box-shadow:0 8px 20px color-mix(in srgb, var(--accent) 35%, transparent);
-  }
+  .logo-row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .logo-sq { width:44px; height:44px; border-radius:12px; overflow:hidden; flex-shrink:0; box-shadow:0 8px 20px color-mix(in srgb, var(--brand-end) 28%, transparent); }
   .brand-title { font-size:20px; font-weight:800; letter-spacing:-.3px; }
-  .brand-sub { font-size:12px; color:var(--muted); margin-top:2px; }
-  p { margin:0 0 20px; color:var(--muted); font-size:13px; line-height:1.55; }
-  .pin-wrap { position:relative; }
+  .brand-sub { font-size:12px; color:var(--label); font-weight:600; margin-top:1px; }
+  p { margin:0 0 18px; color:var(--muted); font-size:13.5px; line-height:1.5; }
   input {
     width:100%; padding:14px 16px; border-radius:14px;
-    border:1px solid var(--border); background:var(--input-bg); color:var(--text);
-    font-size:24px; font-weight:700; letter-spacing:8px; text-align:center; outline:none;
+    border:1.5px solid var(--line); background:var(--surf-alt); color:var(--text);
+    font-size:24px; font-weight:800; letter-spacing:10px; text-align:center; outline:none;
     transition:border-color .15s, box-shadow .15s;
   }
   input:focus {
-    border-color:var(--accent);
-    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+    border-color:var(--brand-mid);
+    background:var(--input-bg);
+    box-shadow:0 0 0 3px var(--accent-soft);
   }
   button {
-    width:100%; margin-top:16px; padding:13px; border:0; border-radius:14px;
-    background:linear-gradient(135deg, var(--accent), var(--glow));
+    width:100%; margin-top:14px; padding:13px; border:0; border-radius:14px;
+    background:var(--brand);
     color:#fff; font-weight:700; font-size:15px; cursor:pointer;
-    box-shadow:0 8px 22px color-mix(in srgb, var(--accent) 30%, transparent);
+    box-shadow:0 8px 20px color-mix(in srgb, var(--brand-end) 32%, transparent);
     transition:transform .12s, opacity .15s;
   }
   button:hover { transform:translateY(-1px); }
   button:active { transform:translateY(0); }
   button:disabled { opacity:.6; cursor:default; transform:none; }
   .err { margin-top:12px; color:var(--danger); font-size:13px; text-align:center; min-height:18px; font-weight:600; }
-  .hint-pills { display:flex; justify-content:center; gap:8px; margin-top:16px; }
-  .pill { font-size:11px; color:var(--muted); background:var(--surf); border:1px solid var(--border); padding:3px 10px; border-radius:999px; }
+  .lang-sel {
+    margin-left:auto; appearance:none; -webkit-appearance:none;
+    border:1px solid var(--line); background-color:var(--surf-alt); color:var(--text);
+    border-radius:999px; padding:6px 26px 6px 12px; font-size:12px; font-weight:600; cursor:pointer; outline:none;
+    background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 14px) 52%,calc(100% - 9px) 52%;
+    background-size:5px 5px; background-repeat:no-repeat;
+  }
 </style>
 </head>
 <body>
 <div class="deck-card">
   <div class="logo-row">
-    <div class="logo-badge">
-      ${brandLogoSvg(24)}
-    </div>
+    <div class="logo-sq">${brandLogoSvg(44)}</div>
     <div>
-      <div class="brand-title">PocketDeck OS</div>
-      <div class="brand-sub">Handheld Web Game Library</div>
+      <div class="brand-title">PocketDeck</div>
+      <div class="brand-sub" id="subTxt">Web Console</div>
     </div>
-    <select id="langSel" onchange="setLoginLang(this.value)" style="margin-left:auto;appearance:none;-webkit-appearance:none;-moz-appearance:none;border:1px solid var(--border);background-color:var(--surf);color:var(--text);border-radius:999px;padding:6px 30px 6px 12px;font-size:12px;cursor:pointer;outline:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;">
+    <select id="langSel" class="lang-sel" onchange="setLoginLang(this.value)">
+      <option value="en">English</option>
       <option value="zh-CN">简体中文</option>
       <option value="zh-TW">繁體中文</option>
-      <option value="en">English</option>
     </select>
   </div>
   <p id="promptTxt"></p>
   <form id="f">
-    <div class="pin-wrap">
-      <input id="pwd" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autofocus autocomplete="off"/>
-    </div>
+    <input id="pwd" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autofocus autocomplete="off"/>
     <button id="btn" type="submit"></button>
     <div id="err" class="err"></div>
   </form>
-  <div class="hint-pills">
-    <span id="pillLan" class="pill"></span>
-    <span id="pillTheme" class="pill"></span>
-  </div>
 </div>
 <script>
 const LOGIN_I18N = {
   'zh-CN': {
-    title: 'PocketDeck OS · 登录',
-    prompt: '请输入掌机屏幕上显示的动态访问密码，连接后即可在浏览器管理游戏封面、元数据、标签分类与文件库。',
+    title: 'PocketDeck · 登录',
+    sub: '网页控制台',
+    prompt: '输入掌机屏幕上显示的 4 位 PIN 码。',
     btn: '登录',
-    lan: '局域网直连',
-    theme: '主题实时同步',
     tooMany: s => '尝试过多，请 ' + s + ' 秒后重试',
-    remain: n => '密码错误，还可尝试 ' + n + ' 次',
-    invalid: '动态密码错误，请核对掌机屏幕',
-    conn: '连接失败，请确认与掌机在同一局域网'
+    remain: n => 'PIN 码错误，还可尝试 ' + n + ' 次',
+    invalid: 'PIN 码错误',
+    conn: '无法连接，请确认在同一局域网'
   },
   'zh-TW': {
-    title: 'PocketDeck OS · 登入',
-    prompt: '請輸入掌機螢幕上顯示的動態存取密碼，連線後即可在瀏覽器管理遊戲封面、中繼資料、標籤分類與檔案庫。',
+    title: 'PocketDeck · 登入',
+    sub: '網頁主控台',
+    prompt: '輸入掌機螢幕上顯示的 4 位 PIN 碼。',
     btn: '登入',
-    lan: '區域網路直連',
-    theme: '主題即時同步',
     tooMany: s => '嘗試過多，請 ' + s + ' 秒後重試',
-    remain: n => '密碼錯誤，還可嘗試 ' + n + ' 次',
-    invalid: '動態密碼錯誤，請核對掌機螢幕',
-    conn: '連線失敗，請確認與掌機在同一區域網路'
+    remain: n => 'PIN 碼錯誤，還可嘗試 ' + n + ' 次',
+    invalid: 'PIN 碼錯誤',
+    conn: '無法連線，請確認在同一區域網路'
   },
   en: {
-    title: 'PocketDeck OS · Login',
-    prompt: 'Enter the dynamic PIN shown on your handheld screen to manage covers, metadata, categories, and files.',
-    btn: 'Log In',
-    lan: 'LAN Direct',
-    theme: 'Live Theme Sync',
+    title: 'PocketDeck · Login',
+    sub: 'Web Console',
+    prompt: 'Enter the PIN shown on your device.',
+    btn: 'Log in',
     tooMany: s => 'Too many attempts. Retry in ' + s + 's',
-    remain: n => 'Incorrect PIN. ' + n + ' attempts left',
-    invalid: 'Incorrect PIN. Check your handheld screen.',
-    conn: 'Connection failed. Ensure you are on the same LAN.'
+    remain: n => 'Wrong PIN. ' + n + ' left',
+    invalid: 'Wrong PIN.',
+    conn: "Can't connect. Same network?"
   }
 };
 function detectWebLang() {
@@ -203,10 +210,9 @@ function setLoginLang(lang) {
   document.documentElement.lang = lang;
   document.title = L.title;
   document.getElementById('langSel').value = lang;
+  document.getElementById('subTxt').textContent = L.sub;
   document.getElementById('promptTxt').textContent = L.prompt;
   document.getElementById('btn').textContent = L.btn;
-  document.getElementById('pillLan').textContent = L.lan;
-  document.getElementById('pillTheme').textContent = L.theme;
 }
 setLoginLang(curLang);
 
@@ -214,17 +220,24 @@ function applyThemeObj(t){
   if(!t) return;
   const r = document.documentElement;
   r.dataset.dark = t.isDark ? '1' : '0';
+  const bs = t.brandStart || t.glow, bm = t.brandMid || t.primary, be = t.brandEnd || t.tertiary;
   r.style.setProperty('--accent', t.primary);
-  r.style.setProperty('--glow', t.glow);
-  r.style.setProperty('--tertiary', t.tertiary);
+  r.style.setProperty('--brand-start', bs);
+  r.style.setProperty('--brand-mid', bm);
+  r.style.setProperty('--brand-end', be);
+  r.style.setProperty('--brand', 'linear-gradient(120deg,' + bs + ' 0%,' + bm + ' 48%,' + be + ' 100%)');
   r.style.setProperty('--bg', t.bg);
-  r.style.setProperty('--panel', t.panel);
   r.style.setProperty('--surf', t.surf);
-  r.style.setProperty('--border', t.border);
+  r.style.setProperty('--surf-alt', t.surfaceAlt || t.surf);
+  r.style.setProperty('--line', t.line || t.border);
   r.style.setProperty('--text', t.text);
   r.style.setProperty('--muted', t.muted);
-  r.style.setProperty('--input-bg', t.isDark ? '#101014' : '#FFFFFF');
-  r.style.setProperty('--shadow', t.isDark ? 'rgba(0,0,0,.45)' : 'rgba(18,24,40,.08)');
+  r.style.setProperty('--label', t.label || t.muted);
+  r.style.setProperty('--accent-soft', t.accentSoft || 'rgba(232,62,108,0.12)');
+  if(t.flowA) r.style.setProperty('--flow-a', t.flowA);
+  if(t.flowB) r.style.setProperty('--flow-b', t.flowB);
+  if(t.flowC) r.style.setProperty('--flow-c', t.flowC);
+  r.style.setProperty('--input-bg', t.isDark ? '#231A2E' : '#FFFFFF');
 }
 setInterval(async ()=>{
   try{
@@ -240,7 +253,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   const password = document.getElementById('pwd').value.trim();
   if (!password) return;
   btn.disabled = true; err.textContent = '';
-  const L = LOGIN_I18N[curLang] || LOGIN_I18N['zh-CN'];
+  const L = LOGIN_I18N[curLang] || LOGIN_I18N['en'];
   try {
     const r = await fetch('/api/login', {
       method: 'POST',
@@ -249,13 +262,9 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     });
     const d = await r.json();
     if (r.ok && d.ok) { location.reload(); return; }
-    if (r.status === 429) {
-      err.textContent = L.tooMany(d.retryAfterSec || 30);
-    } else if (typeof d.remainingAttempts === 'number') {
-      err.textContent = L.remain(d.remainingAttempts);
-    } else {
-      err.textContent = L.invalid;
-    }
+    if (r.status === 429) err.textContent = L.tooMany(d.retryAfterSec || 30);
+    else if (typeof d.remainingAttempts === 'number') err.textContent = L.remain(d.remainingAttempts);
+    else err.textContent = L.invalid;
   } catch {
     err.textContent = L.conn;
   } finally {
@@ -271,426 +280,515 @@ document.getElementById('f').addEventListener('submit', async (e) => {
         val vars = cssVars(theme)
         val darkAttr = if (theme.isDark) "1" else "0"
         return """<!doctype html>
-<html lang="zh-CN" data-dark="$darkAttr">
+<html lang="en" data-dark="$darkAttr">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>PocketDeck · Web Game Console</title>
+<title>PocketDeck</title>
 <link rel="icon" type="image/svg+xml" href="$FAVICON_DATA_URI"/>
 <style>
   :root { $vars }
   * { box-sizing:border-box; }
   body {
-    margin:0;
-    background:
-      radial-gradient(ellipse 80% 45% at 15% 0%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 60%),
-      radial-gradient(ellipse 65% 40% at 90% 100%, color-mix(in srgb, var(--glow) 9%, transparent), transparent 60%),
-      var(--bg);
+    margin:0; min-height:100vh;
+    background:var(--bg);
     color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
     transition:background .25s ease, color .25s ease;
   }
-  header {
-    position:sticky; top:0; z-index:20;
-    background:var(--header-bg); backdrop-filter:blur(16px);
-    border-bottom:1px solid var(--border);
-    padding:11px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  .bg-flow { position:fixed; inset:0; pointer-events:none; z-index:0; overflow:hidden; }
+  .bg-flow i { position:absolute; border-radius:50%; filter:blur(90px); opacity:.85; }
+  .bg-flow .b1 { width:62vw; height:55vh; left:-14vw; top:-16vh; background:var(--flow-a); }
+  .bg-flow .b2 { width:56vw; height:52vh; right:-16vw; top:8vh; background:var(--flow-b); }
+  .bg-flow .b3 { width:54vw; height:48vh; left:22vw; bottom:-24vh; background:var(--flow-c); }
+
+  .shell { position:relative; z-index:1; display:flex; min-height:100vh; }
+  .side {
+    width:248px; flex-shrink:0;
+    position:sticky; top:0; height:100vh;
+    padding:22px 16px 18px;
+    display:flex; flex-direction:column; gap:5px;
+    background:var(--side-bg);
+    backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px);
+    border-right:1px solid var(--line);
   }
-  .brand-wrap { display:flex; align-items:center; gap:11px; margin-right:auto; }
-  .logo-sq {
-    width:34px; height:34px; border-radius:10px;
-    background:#18131A;
-    display:grid; place-items:center; color:#fff; flex-shrink:0;
+  .brand-wrap { display:flex; align-items:center; gap:12px; padding:2px 6px 20px; }
+  .logo-sq { width:40px; height:40px; border-radius:11px; overflow:hidden; flex-shrink:0; box-shadow:0 6px 16px color-mix(in srgb, var(--brand-end) 24%, transparent); }
+  .brand { font-weight:800; font-size:18px; letter-spacing:-.3px; line-height:1.15; }
+  .brand-sub { font-size:12px; color:var(--label); font-weight:600; margin-top:2px; }
+
+  .nav-item {
+    display:flex; align-items:center; gap:11px; height:42px; padding:0 13px;
+    border-radius:12px; border:0; background:transparent; width:100%;
+    color:var(--muted); font-size:14.5px; font-weight:600; cursor:pointer;
+    text-align:left; transition:background .15s, color .15s, box-shadow .15s;
   }
-  .brand { font-weight:750; font-size:15.5px; letter-spacing:-.2px; display:flex; align-items:center; gap:8px; }
-  .sub { font-size:12px; color:var(--muted); margin-top:1px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .conn-dot { width:7px; height:7px; border-radius:999px; display:inline-block; flex-shrink:0; }
+  .nav-item:hover { background:color-mix(in srgb, var(--surf) 70%, transparent); color:var(--text); }
+  .nav-item.active { background:var(--surf); color:var(--text); box-shadow:var(--shadow); }
+  .nav-item.active svg { color:var(--accent); }
+  .nav-cnt { margin-left:auto; font-size:12px; font-weight:700; color:var(--label); }
+
+  .side-spacer { flex:1; }
+  .more-wrap { position:relative; margin-bottom:10px; }
+  .more-pop {
+    display:none; position:absolute; left:0; right:0; bottom:46px; z-index:40;
+    background:var(--surf); border:1px solid var(--line); border-radius:16px;
+    box-shadow:0 16px 40px rgba(36,23,47,.18); padding:8px; flex-direction:column; gap:4px;
+  }
+  .more-pop.open { display:flex; }
+  .more-row {
+    display:flex; align-items:center; gap:9px; width:100%; padding:8px 10px;
+    border:0; border-radius:10px; background:transparent; color:var(--text);
+    font-size:13px; font-weight:600; cursor:pointer; text-align:left;
+  }
+  .more-row:hover { background:var(--surf-alt); }
+  .more-row.danger { color:var(--danger); }
+
+  .dev-card {
+    background:var(--surf); border:1px solid var(--line); border-radius:16px;
+    padding:13px 14px; box-shadow:var(--shadow); font-size:12.5px;
+  }
+  .dev-name { font-weight:800; font-size:14px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dev-status { margin-top:4px; color:var(--muted); font-size:12px; line-height:1.4; }
+  .conn-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
   .conn-dot.ok { background:var(--ok); }
   .conn-dot.off { background:var(--danger); }
-  .conn-off-txt { color:var(--danger); font-weight:600; }
-  .tabs {
-    display:flex; background:var(--surf); padding:3px; border-radius:999px;
-    border:1px solid var(--border); gap:3px;
+  .conn-off-txt { color:var(--danger); font-weight:700; }
+  .dev-bar { height:6px; border-radius:999px; background:var(--surf-alt); margin:10px 0 5px; overflow:hidden; }
+  .dev-bar i { display:block; height:100%; width:0%; background:var(--brand); border-radius:999px; transition:width .3s ease; }
+  .dev-store { font-size:11.5px; color:var(--label); font-weight:600; }
+
+  .main { flex:1; min-width:0; padding:26px 32px 64px; max-width:1360px; }
+  .page-top { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
+  .page-top h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-.4px; }
+  .page-sub { font-size:13.5px; color:var(--label); font-weight:600; margin-top:4px; }
+  .sub { font-size:12.5px; color:var(--muted); }
+  .ico { width:16px; height:16px; flex-shrink:0; display:inline-block; vertical-align:middle; }
+
+  .search-box {
+    margin-left:auto; display:flex; align-items:center; gap:9px;
+    width:310px; max-width:100%; height:42px; padding:0 13px;
+    border-radius:12px; background:var(--surf); border:1px solid var(--line);
+    box-shadow:var(--shadow); color:var(--label);
+    transition:border-color .15s, box-shadow .15s;
   }
-  .tab {
-    border:0; background:transparent; color:var(--muted);
-    padding:6px 14px; border-radius:999px; font-weight:600; font-size:12.5px;
-    cursor:pointer; transition:.14s; display:inline-flex; align-items:center; gap:6px;
+  .search-box:focus-within { border-color:var(--brand-mid); box-shadow:0 0 0 3px var(--accent-soft); }
+  .search-box input {
+    border:0; background:transparent; color:var(--text); font-size:14px;
+    outline:none; flex:1; min-width:0; padding:0;
   }
-  .tab:hover { color:var(--text); }
-  .tab.active {
-    background:var(--accent);
-    color:#fff;
-  }
+  .kbd { font-size:11px; font-weight:700; color:var(--label); border:1px solid var(--line); border-radius:6px; padding:1px 6px; }
+
   .btn {
-    border:1px solid var(--border); background:var(--surf); color:var(--text);
-    padding:7px 12px; border-radius:10px; font-size:12.5px; font-weight:600;
-    cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:6px;
-    transition:background .14s, border-color .14s, color .14s;
+    border:1px solid var(--line); background:var(--surf); color:var(--text);
+    padding:8px 14px; border-radius:11px; cursor:pointer; font-size:13px; font-weight:600;
+    text-decoration:none; display:inline-flex; align-items:center; gap:6px;
+    transition:all .14s; white-space:nowrap;
   }
-  .btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
-  .btn:disabled { opacity:.45; cursor:default; }
+  .btn:hover:not(:disabled) { border-color:var(--brand-mid); color:var(--accent); }
   .btn.primary {
-    background:var(--accent);
-    color:#fff; border-color:transparent;
+    background:var(--brand); color:#fff; border-color:transparent; font-weight:700;
+    box-shadow:0 6px 16px color-mix(in srgb, var(--brand-end) 28%, transparent);
   }
-  .btn.primary:hover:not(:disabled) { opacity:.92; color:#fff; border-color:transparent; }
-  .btn.danger { color:var(--danger); border-color:color-mix(in srgb, var(--danger) 30%, var(--border)); }
-  .btn.danger:hover:not(:disabled) { border-color:var(--danger); color:var(--danger); }
-  .btn.sm { padding:5px 10px; font-size:12px; border-radius:8px; }
-  .ico { width:15px; height:15px; display:inline-block; vertical-align:middle; flex-shrink:0; }
+  .btn.primary:hover:not(:disabled) { opacity:.94; color:#fff; transform:translateY(-1px); }
+  .btn.danger { color:var(--danger); border-color:color-mix(in srgb, var(--danger) 30%, var(--line)); }
+  .btn.danger:hover:not(:disabled) { background:color-mix(in srgb, var(--danger) 10%, transparent); border-color:var(--danger); color:var(--danger); }
+  .btn.sm { padding:6px 11px; font-size:12.5px; border-radius:10px; }
+  .btn:disabled { opacity:.42; cursor:default; transform:none; }
+  .pbtn { height:42px; padding:0 18px; border-radius:12px; font-size:14px; }
 
-  .wrap { max-width:1240px; margin:0 auto; padding:18px 20px 80px; }
-
-  /* Stats strip (Flat modern) */
-  .stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:16px; }
-  .stat-card {
-    background:var(--panel); border:1px solid var(--border); border-radius:12px;
-    padding:12px 14px; display:flex; align-items:center; gap:11px;
+  .filter-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:20px; }
+  .fchip {
+    height:34px; padding:0 14px; border-radius:999px;
+    background:var(--surf); border:1px solid var(--line);
+    color:var(--muted); font-size:13px; font-weight:600; cursor:pointer;
+    display:inline-flex; align-items:center; gap:5px; transition:all .14s;
   }
-  .stat-ico {
-    width:34px; height:34px; border-radius:9px;
-    background:color-mix(in srgb, var(--accent) 11%, transparent);
-    color:var(--accent); display:grid; place-items:center; flex-shrink:0;
+  .fchip:hover { color:var(--text); border-color:var(--brand-mid); }
+  .fchip.on { background:var(--brand); color:#fff; border-color:transparent; box-shadow:0 4px 12px color-mix(in srgb, var(--brand-end) 26%, transparent); }
+  .seg { margin-left:auto; display:inline-flex; background:var(--surf-alt); border:1px solid var(--line); border-radius:11px; padding:3px; gap:2px; }
+  .seg button {
+    border:0; background:transparent; color:var(--muted); padding:6px 13px;
+    border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; transition:all .14s;
   }
-  .stat-val { font-size:17px; font-weight:750; line-height:1.15; }
-  .stat-lbl { font-size:11px; color:var(--muted); margin-top:2px; }
+  .seg button.active { background:var(--surf); color:var(--text); box-shadow:0 2px 6px rgba(36,23,47,.08); }
 
-  .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
   .search, select, input[type=text] {
-    padding:8px 12px; border-radius:10px; border:1px solid var(--border);
-    background-color:var(--input-bg); color:var(--text); outline:none; font-size:13px;
+    border:1px solid var(--line); background:var(--surf); color:var(--text);
+    padding:8px 12px; border-radius:11px; font-size:13px; outline:none;
   }
   select {
-    appearance:none; -webkit-appearance:none; -moz-appearance:none;
-    padding:8px 34px 8px 14px; cursor:pointer;
-    background-image:linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-    background-position:calc(100% - 17px) 52%, calc(100% - 12px) 52%;
-    background-size:5px 5px, 5px 5px;
-    background-repeat:no-repeat;
+    appearance:none; -webkit-appearance:none; padding-right:30px; cursor:pointer;
+    background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 14px) 52%,calc(100% - 9px) 52%;
+    background-size:5px 5px; background-repeat:no-repeat;
   }
   .search { flex:1; min-width:200px; }
-  .search:focus, select:focus, input[type=text]:focus { border-color:var(--accent); }
+  .search:focus, select:focus, input[type=text]:focus { border-color:var(--brand-mid); box-shadow:0 0 0 3px var(--accent-soft); }
 
-  /* Games Grid (Borderless flat elevation) */
-  .game-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(178px, 1fr)); gap:14px; }
+  .game-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:18px; }
   .gcard {
-    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    background:var(--surf); border:1px solid var(--line); border-radius:16px;
     overflow:hidden; display:flex; flex-direction:column; cursor:pointer;
-    transition:transform .16s, border-color .16s, box-shadow .16s;
-    position:relative;
+    box-shadow:var(--shadow);
+    transition:transform .16s ease, box-shadow .16s ease, border-color .16s;
   }
-  .gcard:hover {
-    transform:translateY(-2px);
-    border-color:color-mix(in srgb, var(--accent) 45%, var(--border));
-    box-shadow:0 8px 22px var(--shadow);
-  }
-  .gcard.is-hidden { opacity:.62; }
-  .gcover-box {
-    width:100%; height:186px; background:var(--surf); position:relative;
-    display:grid; place-items:center; overflow:hidden;
-  }
+  .gcard:hover { transform:translateY(-3px); border-color:var(--brand-mid); box-shadow:0 14px 28px color-mix(in srgb, var(--brand-end) 18%, rgba(36,23,47,.12)); }
+  .gcard.is-hidden { opacity:.55; }
+  .gcover-box { position:relative; aspect-ratio:1/1; background:var(--surf-alt); overflow:hidden; display:grid; place-items:center; }
   .gcover-box img { width:100%; height:100%; object-fit:cover; display:block; }
   .gcover-fallback {
-    width:100%; height:100%; padding:14px;
-    background:linear-gradient(145deg, color-mix(in srgb, var(--accent) 75%, #111), color-mix(in srgb, var(--tertiary) 65%, #111));
-    color:#fff; display:flex; flex-direction:column; justify-content:flex-end; align-items:flex-start;
+    width:100%; height:100%; padding:14px; display:flex; flex-direction:column;
+    justify-content:flex-end; align-items:flex-start; text-align:left;
+    background:var(--brand); color:#fff;
   }
-  .gcover-fallback .tt { font-size:13px; font-weight:700; line-height:1.3; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .gcover-fallback .tt {
+    font-weight:800; font-size:15px; line-height:1.25;
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+    text-shadow:0 1px 4px rgba(0,0,0,.18);
+  }
   .badge-plat {
-    position:absolute; top:8px; left:8px;
-    background:rgba(16,16,22,.62); color:#fff; backdrop-filter:blur(6px);
-    font-size:10px; font-weight:700; padding:3px 8px; border-radius:999px;
+    position:absolute; top:9px; left:9px; padding:3px 8px; border-radius:7px;
+    font-size:11px; font-weight:800; letter-spacing:.4px;
+    background:rgba(36,23,47,.72); color:#fff; backdrop-filter:blur(6px);
   }
   .badge-fav {
-    position:absolute; top:8px; right:8px;
-    width:27px; height:27px; border-radius:999px;
-    background:rgba(16,16,22,.48); color:rgba(255,255,255,.85); border:1px solid rgba(255,255,255,.16);
-    backdrop-filter:blur(8px); cursor:pointer;
-    display:grid; place-items:center; transition:.15s;
+    position:absolute; top:9px; right:9px; width:30px; height:30px; border-radius:50%;
+    border:0; background:rgba(255,255,255,.92); color:#6E6176;
+    display:grid; place-items:center; cursor:pointer;
+    box-shadow:0 2px 8px rgba(36,23,47,.18); transition:transform .12s, background .15s;
   }
-  .badge-fav.on { background:rgba(16,16,22,.56); color:var(--accent); border-color:color-mix(in srgb, var(--accent) 45%, rgba(255,255,255,.22)); }
-  .gbody { padding:10px 12px 12px; display:flex; flex-direction:column; gap:4px; flex:1; }
-  .gtitle { font-weight:700; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .gmeta { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .gchips { display:flex; gap:5px; flex-wrap:wrap; margin-top:4px; }
+  .badge-fav:hover { transform:scale(1.08); }
+  .badge-fav.on { background:var(--brand); color:#fff; }
+  .gbody { padding:11px 13px 13px; }
+  .gtitle { font-weight:700; font-size:14px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .gmeta { font-size:12px; color:var(--label); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500; }
+
   .chip {
-    font-size:10.5px; padding:2px 7px; border-radius:999px; font-weight:600;
-    background:color-mix(in srgb, var(--accent) 13%, transparent); color:var(--accent);
+    display:inline-flex; align-items:center; gap:4px;
+    padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700;
+    background:var(--accent-soft); color:var(--accent);
   }
   .chip.warn { background:color-mix(in srgb, var(--warn) 16%, transparent); color:var(--warn); }
-  .chip.ok { background:color-mix(in srgb, var(--ok) 16%, transparent); color:var(--ok); }
-  .chip.muted { background:var(--surf); color:var(--muted); border:1px solid var(--border); }
+  .chip.muted { background:var(--surf-alt); color:var(--muted); }
 
-  /* List rows */
   .list { display:flex; flex-direction:column; gap:8px; }
   .row {
-    display:flex; align-items:center; gap:12px;
-    background:var(--panel); border:1px solid var(--border);
-    border-radius:14px; padding:10px 14px; box-shadow:0 3px 10px var(--shadow);
+    display:flex; align-items:center; gap:12px; padding:11px 14px;
+    border-radius:14px; background:var(--surf); border:1px solid var(--line);
+    box-shadow:0 2px 8px rgba(120,40,70,.05); transition:border-color .14s;
   }
-  .row:hover { border-color:color-mix(in srgb, var(--accent) 55%, var(--border)); }
+  .row:hover { border-color:var(--brand-mid); }
   .cover-sm {
-    width:46px; height:46px; border-radius:10px; object-fit:cover;
-    background:var(--surf); display:grid; place-items:center; font-size:11px; font-weight:700; color:var(--muted); flex-shrink:0;
+    width:46px; height:46px; border-radius:10px; object-fit:cover; background:var(--brand);
+    flex-shrink:0; display:grid; place-items:center; font-size:11px; color:#fff; font-weight:800;
   }
   .meta { flex:1; min-width:0; }
-  .title { font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
-  .desc { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
-  .actions { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .title { font-weight:700; font-size:14px; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .desc { font-size:12px; color:var(--muted); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; }
 
-  /* Categories manager */
   .cat-banner {
-    background:var(--panel); border:1px solid var(--border); border-radius:16px;
-    padding:14px 16px; margin-bottom:14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:16px 18px; border-radius:16px; background:var(--surf);
+    border:1px solid var(--line); box-shadow:var(--shadow); margin-bottom:14px;
   }
   .cat-row {
-    display:flex; align-items:center; gap:12px;
-    background:var(--panel); border:1px solid var(--border); border-radius:14px;
-    padding:12px 14px; cursor:grab; transition:opacity .15s, border-color .15s, box-shadow .15s;
-    user-select:none;
+    display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:14px;
+    background:var(--surf); border:1px solid var(--line); cursor:grab; user-select:none;
+    box-shadow:0 2px 8px rgba(120,40,70,.05); transition:border-color .14s, opacity .14s;
   }
-  .cat-row:active { cursor:grabbing; }
-  .cat-row.dragging { opacity:.42; border-style:dashed; }
-  .cat-row.drop-above { box-shadow:0 -3px 0 0 var(--accent); border-top-color:var(--accent); }
-  .cat-row.drop-below { box-shadow:0 3px 0 0 var(--accent); border-bottom-color:var(--accent); }
-  .drag-handle {
-    color:var(--muted); font-size:16px; line-height:1; letter-spacing:-2px;
-    padding:4px 2px; flex-shrink:0; opacity:.75; cursor:grab;
-  }
-  .cat-row:hover .drag-handle { color:var(--accent); opacity:1; }
-  .cat-row.is-hidden { opacity:.58; }
-  .plat-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:8px; max-height:260px; overflow:auto; padding:4px 0; }
-  .plat-chk {
-    display:flex; align-items:center; gap:8px; padding:8px 10px;
-    border-radius:10px; border:1px solid var(--border); background:var(--surf); cursor:pointer; font-size:12.5px;
-  }
-  .plat-chk.checked { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .cat-row:hover { border-color:var(--brand-mid); }
+  .cat-row.dragging { opacity:.45; border-style:dashed; border-color:var(--brand-mid); }
+  .cat-row.drag-over { border-color:var(--brand-mid); box-shadow:0 0 0 2px var(--accent-soft); }
+  .cat-row.is-hidden { opacity:.55; }
+  .drag-handle { font-size:16px; color:var(--label); cursor:grab; padding:2px 4px; }
 
-  /* File Manager */
-  .crumbs { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:8px 12px; background:var(--panel); border:1px solid var(--border); border-radius:12px; margin-bottom:12px; font-size:12.5px; }
-  .crumb { cursor:pointer; color:var(--accent); font-weight:600; }
-  .crumb:hover { text-decoration:underline; }
-  .row.flash-back { border-color:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); transition:border-color .25s, box-shadow .25s; }
-  .dropzone {
-    border:2px dashed var(--border); border-radius:16px; padding:18px;
-    text-align:center; color:var(--muted); margin-bottom:14px; transition:.15s;
-    background:color-mix(in srgb, var(--panel) 70%, transparent);
+  .crumbs { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .crumb {
+    border:1px solid var(--line); background:var(--surf); color:var(--muted);
+    padding:5px 12px; border-radius:999px; cursor:pointer; font-size:12.5px; font-weight:600;
   }
-  .dropzone.drag { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, transparent); color:var(--text); }
-  .prog { margin-top:8px; height:7px; background:var(--surf); border-radius:999px; overflow:hidden; display:none; }
-  .prog > div { height:100%; width:0; background:linear-gradient(90deg, var(--accent), var(--glow)); transition:width .1s; }
+  .crumb:hover { border-color:var(--brand-mid); color:var(--accent); }
+  .crumb.cur { background:var(--brand); color:#fff; border-color:transparent; cursor:default; }
+  .dropzone {
+    border:1.5px dashed color-mix(in srgb, var(--brand-mid) 55%, var(--line));
+    border-radius:16px; padding:20px; text-align:center; color:var(--muted);
+    background:color-mix(in srgb, var(--surf) 75%, transparent); margin-bottom:14px; transition:all .15s;
+  }
+  .dropzone.over { border-color:var(--brand-mid); background:var(--accent-soft); color:var(--accent); }
+  .prog { height:7px; border-radius:999px; background:var(--surf-alt); overflow:hidden; margin-top:10px; display:none; }
+  .prog > div { height:100%; width:0%; background:var(--brand); transition:width .12s; border-radius:999px; }
   .batch-bar {
-    position:sticky; bottom:14px; z-index:18;
-    background:var(--panel); border:1px solid var(--accent); border-radius:16px;
-    padding:10px 16px; margin-top:14px;
-    display:none; align-items:center; gap:10px; flex-wrap:wrap;
-    box-shadow:0 12px 32px var(--shadow);
+    position:sticky; bottom:16px; z-index:25; margin-top:14px;
+    background:var(--surf); border:1.5px solid var(--brand-mid); border-radius:16px;
+    padding:10px 16px; display:none; align-items:center; gap:8px; flex-wrap:wrap;
+    box-shadow:0 16px 36px rgba(36,23,47,.2);
   }
   .batch-bar.show { display:flex; }
-  .float-dock {
-    position:fixed; right:20px; bottom:20px; z-index:60;
-    width:min(420px, calc(100vw - 32px));
-    display:flex; flex-direction:column; align-items:flex-end; gap:10px;
-    pointer-events:none; transition:bottom .18s ease;
-  }
-  .float-dock.lift { bottom:78px; }
-  .task-bar { width:100%; display:none; flex-direction:column; gap:8px; pointer-events:auto; max-height:48vh; overflow-y:auto; }
-  .task-bar.show { display:flex; }
-  .task-item {
-    background:var(--panel); border:1px solid var(--accent); border-radius:14px;
-    padding:10px 14px; box-shadow:0 12px 30px var(--shadow);
-  }
-  .task-top { display:flex; align-items:center; gap:10px; }
-  .task-spin {
-    width:15px; height:15px; border-radius:50%;
-    border:1px solid rgba(128,128,128,.25); border-top-color:var(--accent);
-    animation:taskspin .8s linear infinite; flex-shrink:0;
-  }
-  @keyframes taskspin { to { transform:rotate(360deg); } }
-  .task-prog { width:100%; height:5px; border-radius:999px; background:var(--surf); overflow:hidden; margin-top:7px; }
-  .task-prog > div { height:100%; background:linear-gradient(90deg, var(--accent), var(--glow)); transition:width .2s ease; }
-  .task-prog.indet > div { width:40%; animation:taskindet 1.2s ease-in-out infinite; }
-  @keyframes taskindet { 0%{transform:translateX(-110%);} 100%{transform:translateX(270%);} }
 
-  .toast {
-    pointer-events:auto; max-width:100%;
-    background:var(--panel); color:var(--text);
-    border:1px solid var(--accent); padding:10px 16px; border-radius:12px;
-    font-size:13px; font-weight:600; display:none;
-    box-shadow:0 12px 30px var(--shadow);
+  .modal-bg {
+    position:fixed; inset:0; background:rgba(23,17,31,.38); backdrop-filter:blur(4px);
+    display:none; align-items:center; justify-content:center; z-index:50; padding:20px;
   }
-  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.62); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; padding:18px; z-index:50; }
   .modal-bg.open { display:flex; }
-  .modal { width:min(840px, 100%); max-height:90vh; background:var(--panel); border:1px solid var(--border); border-radius:20px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.4); }
-  .modal-hd { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; font-weight:800; }
-  .modal-bd { padding:18px; overflow:auto; flex:1; }
-  .modal-ft { padding:12px 18px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
-  .log-win {
-    position:fixed; right:20px; bottom:20px; width:min(680px, 92vw); height:420px;
-    min-width:340px; min-height:220px; max-width:96vw; max-height:90vh;
-    z-index:60; display:none; flex-direction:column; resize:both; overflow:hidden;
-    background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:14px;
-    box-shadow:0 20px 54px rgba(0,0,0,.48);
+  .modal-bg.drawer-mode { justify-content:flex-end; align-items:stretch; padding:20px; }
+  .modal {
+    width:100%; max-width:680px; max-height:90vh; background:var(--surf);
+    border:1px solid var(--line); border-radius:22px; overflow:hidden;
+    display:flex; flex-direction:column; box-shadow:0 30px 80px rgba(36,23,47,.28);
   }
-  .log-win.open { display:flex; }
-  .log-win.min { height:auto !important; min-height:0 !important; resize:none; width:360px !important; }
-  .log-win.min .log-win-bd { display:none; }
-  .log-win-hd {
-    display:flex; align-items:center; gap:8px; padding:9px 12px;
-    background:#161b22; border-bottom:1px solid #30363d; cursor:move; user-select:none;
-    font-size:12.5px; font-weight:700; color:#e6edf3; flex-shrink:0;
+  .modal-bg.drawer-mode .modal { max-width:416px; max-height:none; height:100%; border-radius:22px; }
+  .modal-hd {
+    padding:16px 20px; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:10px; font-weight:800; font-size:17px;
   }
-  .log-win-bd { display:flex; flex-direction:column; flex:1; min-height:0; padding:8px 10px 6px; gap:7px; }
-  .log-win-bar { display:flex; align-items:center; gap:5px; flex-wrap:wrap; flex-shrink:0; }
-  .log-win-btn {
-    border:1px solid #30363d; background:#21262d; color:#c9d1d9;
-    border-radius:7px; padding:4px 8px; font-size:11.5px; font-weight:600; cursor:pointer;
-    white-space:nowrap; line-height:1.25;
+  .modal-bd { padding:18px 20px; overflow:auto; flex:1; }
+  .modal-ft {
+    padding:13px 20px; border-top:1px solid var(--line);
+    display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; background:var(--surf);
   }
-  .log-win-btn:hover { border-color:#58a6ff; color:#fff; }
-  .log-win-btn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-  .log-win-btn.err { color:#f85149; border-color:rgba(248,81,73,.4); }
-  .log-win input.log-win-in {
-    flex:1 1 110px; min-width:90px; max-width:210px; width:140px; height:26px;
-    padding:3px 9px; border-radius:7px; margin:0;
-    border:1px solid #30363d; background:#010409; color:#e6edf3; font-size:11.5px; outline:none;
-  }
-  .log-win input.log-win-in::placeholder { color:#6e7681; }
-  .log-win input.log-win-in:focus { border-color:#58a6ff; }
-  .log-win-ft {
-    display:flex; align-items:center; gap:8px; flex-shrink:0;
-    padding:2px 14px 0 2px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:#6e7681;
-  }
-  .editor { width:100%; min-height:360px; background:var(--input-bg); color:var(--text); border:1px solid var(--border); border-radius:12px; padding:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; line-height:1.5; resize:vertical; }
-  .img-view { max-width:100%; max-height:68vh; display:block; margin:0 auto; border-radius:12px; background:var(--surf); }
-  .dir-pick { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid var(--border); border-radius:11px; background:var(--surf); margin-bottom:6px; cursor:pointer; }
-  .dir-pick:hover { border-color:var(--accent); }
 
-  /* Game detail modal */
-  .detail-hero { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:16px; }
-  .detail-cover { width:170px; height:210px; border-radius:14px; object-fit:cover; background:var(--surf); border:1px solid var(--border); flex-shrink:0; display:grid; place-items:center; overflow:hidden; }
-  .detail-cover img { width:100%; height:100%; object-fit:cover; }
-  .detail-info { flex:1; min-width:240px; }
-  .meta-kv { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-top:12px; }
-  .kv-box { background:var(--surf); border:1px solid var(--border); border-radius:10px; padding:8px 11px; }
-  .kv-k { font-size:11px; color:var(--muted); }
-  .kv-v { font-size:13px; font-weight:700; margin-top:2px; word-break:break-word; }
-  .cand-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(112px, 1fr)); gap:10px; margin-top:12px; }
-  .cand-item { border:1px solid var(--border); border-radius:10px; overflow:hidden; cursor:pointer; background:var(--surf); text-align:center; padding-bottom:6px; }
-  .cand-item:hover { border-color:var(--accent); }
-  .cand-item img { width:100%; height:110px; object-fit:cover; display:block; }
+  .drawer-cover {
+    width:176px; height:176px; border-radius:16px; overflow:hidden;
+    background:var(--brand); box-shadow:var(--shadow); margin-bottom:14px;
+    display:grid; place-items:center; color:#fff; font-weight:800; font-size:15px; padding:12px; text-align:center;
+  }
+  .drawer-cover img { width:100%; height:100%; object-fit:cover; display:block; }
+  .drawer-title { font-size:21px; font-weight:800; letter-spacing:-.3px; margin:0 0 10px; line-height:1.25; }
+  .drawer-tags { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px; }
+  .meta-kv { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0 14px; }
+  .kv-box { background:var(--surf-alt); border-radius:12px; padding:10px 12px; }
+  .kv-k { font-size:11.5px; color:var(--label); font-weight:600; }
+  .kv-v { font-size:13.5px; font-weight:700; margin-top:3px; word-break:break-word; color:var(--text); }
+  .drawer-acts { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 12px; }
+  .drawer-acts .btn { flex:1; justify-content:center; min-width:96px; }
+
+  .plat-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:7px; max-height:220px; overflow:auto; padding:2px; }
+  .plat-chk {
+    display:flex; align-items:center; gap:7px; padding:7px 10px; border-radius:10px;
+    border:1px solid var(--line); background:var(--surf-alt); font-size:12.5px; cursor:pointer;
+  }
+  .plat-chk.checked { border-color:var(--brand-mid); background:var(--accent-soft); color:var(--accent); font-weight:700; }
+
+  textarea.code {
+    width:100%; min-height:360px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:13px; line-height:1.5; background:var(--surf-alt); color:var(--text);
+    border:1px solid var(--line); border-radius:12px; padding:12px; outline:none;
+  }
+  .img-view { max-width:100%; max-height:66vh; display:block; margin:0 auto; border-radius:12px; }
+  .cand-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(108px, 1fr)); gap:10px; margin-top:12px; }
+  .cand-item { border:1px solid var(--line); border-radius:12px; overflow:hidden; cursor:pointer; background:var(--surf-alt); text-align:center; padding-bottom:6px; }
+  .cand-item:hover { border-color:var(--brand-mid); }
+  .cand-item img { width:100%; height:106px; object-fit:cover; display:block; }
   .cand-item span { font-size:10.5px; color:var(--muted); display:block; margin-top:4px; padding:0 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  .float-dock { position:fixed; right:20px; bottom:20px; z-index:90; display:flex; flex-direction:column; align-items:flex-end; gap:10px; max-width:min(420px, calc(100vw - 32px)); pointer-events:none; }
+  .float-dock > * { pointer-events:auto; }
+  .toast { background:var(--text); color:var(--bg); padding:10px 16px; border-radius:12px; font-size:13px; font-weight:600; display:none; box-shadow:0 12px 30px rgba(36,23,47,.3); max-width:100%; }
+  .toast.show { display:block; }
+  .task-bar { width:100%; min-width:300px; background:var(--surf); border:1px solid var(--line); border-radius:16px; padding:12px 14px; box-shadow:0 18px 42px rgba(36,23,47,.2); display:none; flex-direction:column; gap:10px; }
+  .task-bar.show { display:flex; }
+  .task-item { display:flex; flex-direction:column; gap:6px; }
+  .task-top { display:flex; align-items:center; gap:8px; }
+  .task-spin { width:14px; height:14px; border-radius:50%; border:2px solid var(--line); border-top-color:var(--brand-mid); animation:pdSpin .8s linear infinite; flex-shrink:0; }
+  @keyframes pdSpin { to { transform:rotate(360deg); } }
+  .task-prog { height:6px; border-radius:999px; background:var(--surf-alt); overflow:hidden; position:relative; }
+  .task-prog > div { height:100%; background:var(--brand); transition:width .18s ease; border-radius:999px; }
+  .task-prog.indet > div { width:40%; animation:pdIndet 1.2s ease-in-out infinite; }
+  @keyframes pdIndet { 0% { transform:translateX(-100%); } 100% { transform:translateX(260%); } }
+
+  .log-win { position:fixed; right:22px; bottom:22px; width:min(740px, calc(100vw - 32px)); height:min(500px, calc(100vh - 96px)); min-width:340px; min-height:200px; z-index:95; display:none; flex-direction:column; background:#14101C; color:#F2ECF7; border:1px solid #352946; border-radius:16px; box-shadow:0 24px 64px rgba(0,0,0,.55); resize:both; overflow:hidden; }
+  .log-win.open { display:flex; }
+  .log-win.min { height:auto !important; min-height:0 !important; resize:none; width:340px; }
+  .log-win.min .log-win-bd { display:none; }
+  .log-win-hd { display:flex; align-items:center; gap:8px; padding:10px 14px; background:#1E162A; border-bottom:1px solid #352946; cursor:move; user-select:none; font-size:13px; font-weight:700; }
+  .log-win-bd { flex:1; min-height:0; display:flex; flex-direction:column; padding:10px 12px; gap:8px; }
+  .log-win-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .log-win-btn { border:1px solid #3A2D4A; background:#231A30; color:#E8DFF0; border-radius:8px; padding:4px 9px; font-size:11.5px; font-weight:600; cursor:pointer; }
+  .log-win-btn:hover { border-color:var(--brand-mid); }
+  .log-win-btn.on { background:var(--brand); border-color:transparent; color:#fff; }
+  .log-win-btn.err { color:#ff7b72; }
+  .log-win-in { flex:1; min-width:120px; border:1px solid #3A2D4A; background:#120D1A; color:#F2ECF7; border-radius:8px; padding:4px 9px; font-size:12px; outline:none; }
+  .log-win-ft { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#9E8FB2; }
+
+  @media (max-width: 899px) {
+    .shell { flex-direction:column; }
+    .side { width:100%; height:auto; position:sticky; top:0; z-index:20; flex-direction:row; flex-wrap:wrap; align-items:center; padding:12px 16px; border-right:0; border-bottom:1px solid var(--line); }
+    .brand-wrap { padding:0 12px 0 0; }
+    .nav-item { width:auto; height:36px; padding:0 12px; }
+    .side-spacer, .dev-card { display:none; }
+    .more-wrap { margin:0 0 0 auto; }
+    .more-pop { left:auto; right:0; width:190px; top:42px; bottom:auto; }
+    .main { padding:18px 16px 64px; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <div class="brand-wrap">
-    <div class="logo-sq">
-      ${brandLogoSvg(21)}
-    </div>
-    <div>
-      <div class="brand">PocketDeck OS</div>
-      <div id="devInfo" class="sub" data-i18n="connecting">正在连接掌机…</div>
-    </div>
-  </div>
-  <div class="tabs">
-    <button class="tab active" data-tab="games" data-i18n="tab_games">游戏库</button>
-    <button class="tab" data-tab="categories" data-i18n="tab_categories">标签分类</button>
-    <button class="tab" data-tab="files" data-i18n="tab_files">文件管理</button>
-  </div>
-  <select id="langSel" class="btn" onchange="setWebLang(this.value)" aria-label="Language">
-    <option value="zh-CN">简体中文</option>
-    <option value="zh-TW">繁體中文</option>
-    <option value="en">English</option>
-  </select>
-  <button class="btn" onclick="openScrapeLogsModal()" data-i18n="btn_logs">请求日志</button>
-  <button class="btn" onclick="rescan()" data-i18n="btn_rescan">↻ 重新扫描</button>
-  <button class="btn danger" onclick="logout()" data-i18n="btn_logout">退出登录</button>
-</header>
-
-<div class="wrap">
-  <!-- TAB 1: GAMES -->
-  <section id="tab-games">
-    <div id="statsGrid" class="stats-grid"></div>
-    <div class="toolbar">
-      <input id="gSearch" class="search" data-i18n-ph="search_games_ph" placeholder="搜索游戏名、官方名、文件名、厂商、类型…" oninput="renderGames()"/>
-      <select id="gVis" onchange="renderGames()">
-        <option value="all" data-i18n="vis_all">全部状态</option>
-        <option value="visible" data-i18n="vis_visible">仅已显示</option>
-        <option value="fav" data-i18n="vis_fav">仅收藏 ♥</option>
-        <option value="hidden" data-i18n="vis_hidden">仅已隐藏</option>
-      </select>
-      <select id="gPlat" onchange="renderGames()"><option value="" data-i18n="plat_all">全部平台</option></select>
-      <select id="gCat" onchange="renderGames()"><option value="" data-i18n="cat_all">全部分类</option></select>
-      <div class="tabs" style="padding:3px;">
-        <button id="vmGrid" class="tab active" style="padding:5px 11px;font-size:12px;" onclick="setGameView('grid')" data-i18n="view_grid">封面网格</button>
-        <button id="vmList" class="tab" style="padding:5px 11px;font-size:12px;" onclick="setGameView('list')" data-i18n="view_list">详情列表</button>
+<div class="bg-flow"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+<div class="shell">
+  <aside class="side">
+    <div class="brand-wrap">
+      <div class="logo-sq">${brandLogoSvg(40)}</div>
+      <div>
+        <div class="brand">PocketDeck</div>
+        <div class="brand-sub" data-i18n="console_sub">Web Console</div>
       </div>
     </div>
-    <div id="gamesContainer"></div>
-  </section>
 
-  <!-- TAB 2: CATEGORIES -->
-  <section id="tab-categories" style="display:none">
-    <div class="cat-banner">
-      <div style="flex:1;min-width:220px;">
-        <div style="font-weight:800;font-size:15px;" data-i18n="cat_mgr_title">掌机首页标签分类管理</div>
-        <div class="sub" data-i18n="cat_mgr_desc">拖动左侧或整行卡片即可自由排序，编辑应用、显隐、删除或新建后将自动同步到掌机。</div>
-      </div>
-      <button class="btn primary" onclick="openNewCategoryModal()" data-i18n="cat_new">+ 新建分类</button>
-      <button class="btn" onclick="loadCategories()" data-i18n="cat_refresh">↺ 刷新</button>
-    </div>
-    <div id="catList" class="list"></div>
-  </section>
+    <button class="nav-item active" data-tab="games">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10a5 5 0 0 1 4.8 6.4l-1 3.4a2.8 2.8 0 0 1-4.9.9L14.5 16h-5l-1.4 1.7a2.8 2.8 0 0 1-4.9-.9l-1-3.4A5 5 0 0 1 7 7z"/></svg>
+      <span data-i18n="tab_games">Library</span>
+      <span id="navGamesCnt" class="nav-cnt"></span>
+    </button>
+    <button class="nav-item" data-tab="categories">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.4"/></svg>
+      <span data-i18n="tab_categories">Tabs &amp; Tags</span>
+      <span id="navCatsCnt" class="nav-cnt"></span>
+    </button>
+    <button class="nav-item" data-tab="files">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2.5h6.5A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>
+      <span data-i18n="tab_files">Files</span>
+    </button>
 
-  <!-- TAB 3: FILES -->
-  <section id="tab-files" style="display:none">
-    <div class="toolbar">
-      <button id="upBtn" class="btn" onclick="goParent()" disabled data-i18n="files_up">↩ 上级</button>
-      <select id="fileSort" onchange="renderFiles()">
-        <option value="name" data-i18n="sort_name">按名称</option>
-        <option value="size" data-i18n="sort_size">按大小</option>
-        <option value="modified" data-i18n="sort_modified">按修改时间</option>
-        <option value="type" data-i18n="sort_type">按类型</option>
-      </select>
-      <input id="fileFilter" class="search" style="min-width:140px;" data-i18n-ph="files_filter_ph" placeholder="过滤当前目录…" oninput="renderFiles()"/>
-      <button id="mkdirBtn" class="btn" onclick="mkdirPrompt()" disabled data-i18n="files_mkdir">+ 新建文件夹</button>
-      <label class="btn primary" id="pickUploadLbl" style="display:none">
-        <span data-i18n="files_upload">上传文件</span>
-        <input id="fileInput" type="file" multiple style="display:none" onchange="uploadFiles(this.files)"/>
-      </label>
-      <label class="btn" id="pickDirUploadLbl" style="display:none">
-        <span data-i18n="files_upload_dir">上传文件夹</span>
-        <input id="dirInput" type="file" webkitdirectory multiple style="display:none" onchange="uploadFolderFiles(this.files)"/>
-      </label>
-    </div>
-    <div id="crumbsBar" class="crumbs"></div>
-    <div id="dropzone" class="dropzone" style="display:none">
-      <span data-i18n="dropzone_txt">将 ROM 文件或整个平台文件夹拖放到此处，直接高速流式上传到当前目录</span>
-      <div id="progWrap" class="prog"><div id="progBar"></div></div>
-      <div id="progText" class="sub" style="margin-top:6px;"></div>
-      <div id="progCancel" style="display:none;margin-top:8px;">
-        <button class="btn sm danger" onclick="cancelWebUpload()" data-i18n="cancel_upload">✕ 取消上传</button>
+    <div class="side-spacer"></div>
+
+    <div class="more-wrap">
+      <button class="nav-item" onclick="toggleMoreMenu(event)">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>
+        <span data-i18n="nav_more">More</span>
+      </button>
+      <div id="morePop" class="more-pop">
+        <div style="padding:4px 6px;">
+          <select id="langSel" onchange="setWebLang(this.value)" style="width:100%;font-size:12.5px;padding:6px 28px 6px 10px;">
+            <option value="en">English</option>
+            <option value="zh-CN">简体中文</option>
+            <option value="zh-TW">繁體中文</option>
+          </select>
+        </div>
+        <button class="more-row" onclick="closeMoreMenu();openScrapeLogsModal()">
+          <span data-i18n="btn_logs">Logs</span>
+        </button>
+        <button class="more-row" onclick="closeMoreMenu();rescan()">
+          <span data-i18n="btn_rescan">Rescan</span>
+        </button>
+        <button class="more-row danger" onclick="closeMoreMenu();logout()">
+          <span data-i18n="btn_logout">Log out</span>
+        </button>
       </div>
     </div>
-    <div id="filesHeaderBar" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;">
-        <input type="checkbox" id="chkAllFiles" onchange="toggleSelectAllFiles(this.checked)"/> <span data-i18n="files_select_all">全选当前目录</span>
-      </label>
-      <span id="dirStorageInfo" class="sub"></span>
+
+    <div class="dev-card">
+      <div id="devName" class="dev-name">PocketDeck</div>
+      <div id="devInfo" class="dev-status" data-i18n="connecting">Connecting…</div>
+      <div class="dev-bar"><i id="devStorageBar"></i></div>
+      <div id="devStorageTxt" class="dev-store">—</div>
     </div>
-    <div id="filesList" class="list"></div>
-    <div id="batchBar" class="batch-bar">
-      <strong id="batchCountText">已选 0 项</strong>
-      <button class="btn sm" onclick="openBatchTransfer('move')" data-i18n="batch_move">移动…</button>
-      <button class="btn sm" onclick="openBatchTransfer('copy')" data-i18n="batch_copy">复制…</button>
-      <button class="btn sm primary" onclick="compressSelected()" data-i18n="batch_zip">打包 ZIP</button>
-      <button class="btn sm danger" onclick="batchDeleteSelected()" data-i18n="batch_del">批量删除</button>
-      <button class="btn sm" style="margin-left:auto;" onclick="clearFileSelection()" data-i18n="batch_clear">取消选择</button>
-    </div>
-  </section>
+  </aside>
+
+  <main class="main">
+    <section id="tab-games">
+      <div class="page-top">
+        <div>
+          <h1 data-i18n="tab_games">Library</h1>
+          <div id="statsGrid" class="page-sub"></div>
+        </div>
+        <div class="search-box">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oninput="renderGames()"/>
+          <span class="kbd">/</span>
+        </div>
+        <button class="btn primary pbtn" onclick="goUploadRoms()">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          <span data-i18n="btn_upload_roms">Upload ROMs</span>
+        </button>
+      </div>
+
+      <div style="display:none">
+        <select id="gVis" onchange="renderGames()"><option value="all"></option><option value="visible"></option><option value="fav"></option><option value="nocover"></option><option value="hidden"></option></select>
+        <select id="gPlat" onchange="renderGames()"><option value=""></option></select>
+        <select id="gCat" onchange="renderGames()"><option value=""></option></select>
+      </div>
+
+      <div class="filter-bar">
+        <div id="filterChips" style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;"></div>
+        <div class="seg">
+          <button id="vmGrid" class="active" onclick="setGameView('grid')" data-i18n="view_grid">Covers</button>
+          <button id="vmList" onclick="setGameView('list')" data-i18n="view_list">List</button>
+        </div>
+      </div>
+
+      <div id="gamesContainer"></div>
+    </section>
+
+    <section id="tab-categories" style="display:none">
+      <div class="page-top">
+        <div>
+          <h1 data-i18n="cat_mgr_title">Home tabs</h1>
+          <div class="page-sub" data-i18n="cat_mgr_desc">Drag to reorder. Changes sync instantly.</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;">
+          <button class="btn" onclick="loadCategories()" data-i18n="cat_refresh">Refresh</button>
+          <button class="btn primary" onclick="openNewCategoryModal()" data-i18n="cat_new">New category</button>
+        </div>
+      </div>
+      <div id="catList" class="list"></div>
+    </section>
+
+    <section id="tab-files" style="display:none">
+      <div class="page-top">
+        <div>
+          <h1 data-i18n="tab_files">Files</h1>
+          <div id="dirStorageInfo" class="page-sub"></div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="mkdirBtn" class="btn" onclick="mkdirPrompt()" disabled data-i18n="files_mkdir">New folder</button>
+          <label class="btn" id="pickDirUploadLbl" style="display:none">
+            <span data-i18n="files_upload_dir">Upload folder</span>
+            <input id="dirInput" type="file" webkitdirectory multiple style="display:none" onchange="uploadFolderFiles(this.files)"/>
+          </label>
+          <label class="btn primary" id="pickUploadLbl" style="display:none">
+            <span data-i18n="files_upload">Upload files</span>
+            <input id="fileInput" type="file" multiple style="display:none" onchange="uploadFiles(this.files)"/>
+          </label>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button id="upBtn" class="btn" onclick="goParent()" disabled data-i18n="files_up">Up</button>
+        <select id="fileSort" onchange="renderFiles()">
+          <option value="name" data-i18n="sort_name">Name</option>
+          <option value="size" data-i18n="sort_size">Size</option>
+          <option value="modified" data-i18n="sort_modified">Modified</option>
+          <option value="type" data-i18n="sort_type">Type</option>
+        </select>
+        <input id="fileFilter" class="search" style="min-width:160px;" data-i18n-ph="files_filter_ph" placeholder="Filter folder…" oninput="renderFiles()"/>
+      </div>
+      <div id="crumbsBar" class="crumbs"></div>
+      <div id="dropzone" class="dropzone" style="display:none">
+        <span data-i18n="dropzone_txt">Drop files or folders to upload</span>
+        <div id="progWrap" class="prog"><div id="progBar"></div></div>
+        <div id="progText" class="sub" style="margin-top:6px;"></div>
+        <div id="progCancel" style="display:none;margin-top:8px;">
+          <button class="btn sm danger" onclick="cancelWebUpload()" data-i18n="cancel_upload">Cancel</button>
+        </div>
+      </div>
+      <div id="filesHeaderBar" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;">
+          <input type="checkbox" id="chkAllFiles" onchange="toggleSelectAllFiles(this.checked)"/> <span data-i18n="files_select_all">Select all</span>
+        </label>
+      </div>
+      <div id="filesList" class="list"></div>
+      <div id="batchBar" class="batch-bar">
+        <strong id="batchCountText">0 selected</strong>
+        <button class="btn sm" onclick="openBatchTransfer('move')" data-i18n="batch_move">Move…</button>
+        <button class="btn sm" onclick="openBatchTransfer('copy')" data-i18n="batch_copy">Copy…</button>
+        <button class="btn sm primary" onclick="compressSelected()" data-i18n="batch_zip">Zip</button>
+        <button class="btn sm danger" onclick="batchDeleteSelected()" data-i18n="batch_del">Delete</button>
+        <button class="btn sm" style="margin-left:auto;" onclick="clearFileSelection()" data-i18n="batch_clear">Deselect</button>
+      </div>
+    </section>
+  </main>
 </div>
 
 <div id="floatDock" class="float-dock">
@@ -700,7 +798,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 
 <div id="modalBg" class="modal-bg" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-hd"><span id="mTitle" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><button class="btn sm" onclick="closeModal()">✕</button></div>
+    <div class="modal-hd"><span id="mTitle" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><button class="btn sm" onclick="closeModal()" aria-label="Close">✕</button></div>
     <div id="mBody" class="modal-bd"></div>
     <div id="mFoot" class="modal-ft"></div>
   </div>
@@ -709,9 +807,9 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 <div id="logWin" class="log-win">
   <div id="logWinHd" class="log-win-hd">
     <span id="logWinTitle" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
-    <span id="logLiveDot" style="color:#3fb950;font-size:11.5px;font-weight:700;">● LIVE</span>
-    <button id="logMinBtn" class="log-win-btn" onclick="toggleLogWinMin()" title="Minimize">—</button>
-    <button class="log-win-btn" onclick="closeScrapeLogsWin()" title="Close">✕</button>
+    <span id="logLiveDot" style="color:#3fb950;font-size:11.5px;font-weight:700;" data-i18n="logs_live">● LIVE</span>
+    <button id="logMinBtn" class="log-win-btn" onclick="toggleLogWinMin()">—</button>
+    <button id="logCloseBtn" class="log-win-btn" onclick="closeScrapeLogsWin()">✕</button>
   </div>
   <div class="log-win-bd">
     <div class="log-win-bar">
@@ -724,10 +822,10 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       <button class="log-win-btn" id="logDownloadBtn" onclick="downloadScrapeLogs()"></button>
       <button class="log-win-btn err" id="logClearBtn" onclick="clearScrapeLogs()"></button>
     </div>
-    <div id="logViewerBox" style="flex:1;min-height:0;overflow:auto;background:#010409;border:1px solid #21262d;border-radius:10px;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5;color:#c9d1d9;"></div>
+    <div id="logViewerBox" style="flex:1;min-height:0;overflow:auto;background:#0D0914;border:1px solid #2A2038;border-radius:10px;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5;color:#DDD2EA;"></div>
     <div class="log-win-ft">
       <span id="logPathTxt" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">cache/logs/scrape.log</span>
-      <span id="logCountTxt" style="color:#8b949e;flex-shrink:0;">0</span>
+      <span id="logCountTxt" style="color:#9E8FB2;flex-shrink:0;">0</span>
     </div>
   </div>
 </div>
@@ -735,7 +833,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 <script>
 const I18N = {
   'zh-CN': {
-    connecting: '正在连接掌机…',
+    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', logs_live: '● 实时', btn_find_cover: '查找封面', btn_pick_cover_short: '选封面', btn_upload_short: '上传', connecting: '连接中…',
     tab_games: '游戏库',
     tab_categories: '标签分类',
     tab_files: '文件管理',
@@ -973,7 +1071,7 @@ const I18N = {
     logs_f_err: '仅报错',
   },
   'zh-TW': {
-    connecting: '正在連線掌機…',
+    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', logs_live: '● 即時', btn_find_cover: '尋找封面', btn_pick_cover_short: '選封面', btn_upload_short: '上傳', connecting: '連線中…',
     tab_games: '遊戲庫',
     tab_categories: '標籤分類',
     tab_files: '檔案管理',
@@ -1211,11 +1309,11 @@ const I18N = {
     logs_f_err: '僅報錯',
   },
   en: {
-    connecting: 'Connecting to handheld…',
+    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', logs_live: '● LIVE', btn_find_cover: 'Find cover', btn_pick_cover_short: 'Pick cover', btn_upload_short: 'Upload', connecting: 'Connecting…',
     tab_games: 'Library',
-    tab_categories: 'Categories',
+    tab_categories: 'Tabs & Tags',
     tab_files: 'Files',
-    btn_rescan: '↻ Rescan',
+    btn_rescan: 'Rescan',
     btn_logout: 'Log Out',
     search_games_ph: 'Search title, official name, filename, developer, genre…',
     vis_all: 'All Status',
@@ -1224,32 +1322,32 @@ const I18N = {
     vis_hidden: 'Hidden Only',
     plat_all: 'All Platforms',
     cat_all: 'All Categories',
-    view_grid: 'Cover Grid',
-    view_list: 'Detail List',
-    cat_mgr_title: 'Home Tab & Category Manager',
+    view_grid: 'Covers',
+    view_list: 'List',
+    cat_mgr_title: 'Home tabs',
     cat_mgr_desc: 'Drag cards to reorder. Edits, visibility, deletions, and new categories sync automatically.',
-    cat_new: '+ New Category',
-    cat_refresh: '↺ Refresh',
-    files_up: '↩ Up',
+    cat_new: 'New category',
+    cat_refresh: 'Refresh',
+    files_up: 'Up',
     sort_name: 'Name',
     sort_size: 'Size',
     sort_modified: 'Modified',
     sort_type: 'Type',
     files_filter_ph: 'Filter current folder…',
-    files_mkdir: '+ New Folder',
+    files_mkdir: 'New folder',
     files_upload: 'Upload Files',
     files_upload_dir: 'Upload Folder',
     dropzone_txt: 'Drag & drop ROM files or platform folders here to stream directly to this directory',
-    cancel_upload: '✕ Cancel Upload',
-    files_select_all: 'Select all in folder',
+    cancel_upload: 'Cancel',
+    files_select_all: 'Select all',
     batch_move: 'Move…',
     batch_copy: 'Copy…',
     batch_zip: 'Zip',
     batch_del: 'Delete',
-    batch_clear: 'Clear Selection',
-    conn_off: 'Web service disconnected (re-enable on handheld)',
+    batch_clear: 'Deselect',
+    conn_off: 'Disconnected',
     conn_lan_only: 'LAN only (offline)',
-    conn_online: 'Connected · Online cover fetch ready',
+    conn_online: 'Connected',
     conn_restored: 'Handheld Web service reconnected',
     stat_games: 'Total Games',
     stat_plats: 'Platforms',
@@ -1304,18 +1402,18 @@ const I18N = {
     sort_ModifiedNewest: 'Modified Newest',
     sort_SizeDesc: 'Size Largest',
     sort_SizeAsc: 'Size Smallest',
-    page_title: 'PocketDeck · Web Game Console',
+    page_title: 'PocketDeck',
     storage_root: 'Storage Roots',
     selected_n: '{n} selected',
     dir_space: 'Free {free} / Total {total}',
     no_cover: 'No cover',
     no_cover_yet: 'No cover yet',
     fav_on: '♥ Favorited',
-    btn_fetch_meta: 'Scrape Cover & Metadata',
-    btn_fetching_meta: 'Scraping…',
-    btn_pick_cover: 'Pick Candidate Cover',
-    btn_upload_cover: 'Upload Cover',
-    btn_reset_cover: 'Reset Default Cover',
+    btn_fetch_meta: 'Find cover',
+    btn_fetching_meta: 'Searching…',
+    btn_pick_cover: 'Pick cover',
+    btn_upload_cover: 'Upload',
+    btn_reset_cover: 'Reset',
     kv_official: 'Official Title',
     kv_release: 'Release Date',
     kv_genre: 'Genre',
@@ -1434,11 +1532,11 @@ const I18N = {
     msg_upload_cancelled: 'Upload cancelled',
     msg_upload_done: 'Upload complete ({n} files)',
     uploading_pct: 'Uploading {i}/{total}: {name} · {pct}%',
-    btn_logs: 'Scrape Logs',
-    logs_title: 'Scraping Request Logs (Live)',
+    btn_logs: 'Logs',
+    logs_title: 'Logs',
     logs_empty: 'No request logs recorded yet',
     logs_pause: '⏸ Pause',
-    logs_resume: '▶ Resume Live',
+    logs_resume: 'Resume',
     logs_clear: 'Clear Logs',
     logs_download: '⬇ Download',
     logs_cleared: 'Logs cleared',
@@ -1550,34 +1648,93 @@ function applyThemeObj(t){
   if(!t) return;
   const r = document.documentElement;
   r.dataset.dark = t.isDark ? '1' : '0';
+  const bs = t.brandStart || t.glow, bm = t.brandMid || t.primary, be = t.brandEnd || t.tertiary;
   r.style.setProperty('--accent', t.primary);
   r.style.setProperty('--glow', t.glow);
   r.style.setProperty('--tertiary', t.tertiary);
+  r.style.setProperty('--brand-start', bs);
+  r.style.setProperty('--brand-mid', bm);
+  r.style.setProperty('--brand-end', be);
+  r.style.setProperty('--brand', 'linear-gradient(120deg,' + bs + ' 0%,' + bm + ' 48%,' + be + ' 100%)');
   r.style.setProperty('--bg', t.bg);
   r.style.setProperty('--panel', t.panel);
   r.style.setProperty('--surf', t.surf);
-  r.style.setProperty('--border', t.border);
+  r.style.setProperty('--surf-alt', t.surfaceAlt || t.surf);
+  r.style.setProperty('--border', t.line || t.border);
+  r.style.setProperty('--line', t.line || t.border);
   r.style.setProperty('--text', t.text);
   r.style.setProperty('--muted', t.muted);
-  r.style.setProperty('--header-bg', t.isDark ? 'rgba(22,22,28,.86)' : 'rgba(255,255,255,.88)');
-  r.style.setProperty('--shadow', t.isDark ? 'rgba(0,0,0,.45)' : 'rgba(18,24,40,.08)');
-  r.style.setProperty('--input-bg', t.isDark ? '#101014' : '#FFFFFF');
+  r.style.setProperty('--label', t.label || t.muted);
+  r.style.setProperty('--accent-soft', t.accentSoft || 'rgba(232,62,108,0.12)');
+  if(t.flowA) r.style.setProperty('--flow-a', t.flowA);
+  if(t.flowB) r.style.setProperty('--flow-b', t.flowB);
+  if(t.flowC) r.style.setProperty('--flow-c', t.flowC);
+  r.style.setProperty('--side-bg', t.isDark ? 'rgba(35,26,46,.68)' : 'rgba(255,255,255,.62)');
+  r.style.setProperty('--shadow', t.isDark ? '0 8px 24px rgba(0,0,0,.45)' : '0 6px 18px rgba(120,40,70,.09),0 1px 3px rgba(120,40,70,.06)');
+  r.style.setProperty('--input-bg', t.isDark ? '#231A2E' : '#FFFFFF');
 }
 let webConnected = true;
 function renderDevInfo(connected, hasInternet) {
   webConnected = connected;
+  const nameEl = el('devName');
+  if (nameEl) nameEl.textContent = deviceInfo.deviceName || 'PocketDeck';
   const box = el('devInfo');
-  if (!box) return;
-  const base = [deviceInfo.deviceName || '', deviceInfo.interface || ''].filter(Boolean).join(' · ');
-  if (!connected) {
-    box.innerHTML = '<span class="conn-dot off"></span>' +
-      (base ? esc(base) + ' · ' : '') +
-      '<span class="conn-off-txt">' + esc(tr('conn_off')) + '</span>';
-    return;
+  if (box) {
+    const net = [deviceInfo.interface || ''].filter(Boolean).join(' · ');
+    if (!connected) {
+      box.innerHTML = '<span class="conn-dot off"></span><span class="conn-off-txt">' + esc(tr('conn_off')) + '</span>' + (net ? ' · ' + esc(net) : '');
+    } else {
+      const netTxt = (hasInternet === false) ? tr('conn_lan_only') : tr('conn_online');
+      box.innerHTML = '<span class="conn-dot ok"></span><strong style="color:var(--ok)">' + esc(netTxt) + '</strong>' + (net ? ' · ' + esc(net) : '');
+    }
   }
-  const netTxt = (hasInternet === false) ? tr('conn_lan_only') : tr('conn_online');
-  box.innerHTML = '<span class="conn-dot ok"></span>' +
-    (base ? esc(base) + ' · ' : '') + esc(netTxt);
+  const stList = deviceInfo.storage || [];
+  const freeBytes = stList.reduce((a, x) => a + (x.freeBytes || 0), 0);
+  const totalBytes = stList.reduce((a, x) => a + (x.totalBytes || 0), 0);
+  const bar = el('devStorageBar');
+  const txt = el('devStorageTxt');
+  if (totalBytes > 0) {
+    const usedPct = Math.min(100, Math.max(4, Math.round(((totalBytes - freeBytes) / totalBytes) * 100)));
+    if (bar) bar.style.width = usedPct + '%';
+    if (txt) txt.textContent = tr('free_of_fmt', { free: fmtBytes(freeBytes), total: fmtBytes(totalBytes) });
+  } else if (freeBytes > 0) {
+    if (bar) bar.style.width = '35%';
+    if (txt) txt.textContent = fmtBytes(freeBytes);
+  }
+}
+function toggleMoreMenu(e) {
+  e.stopPropagation();
+  const m = el('morePop');
+  if (m) m.classList.toggle('open');
+}
+function closeMoreMenu() {
+  const m = el('morePop');
+  if (m) m.classList.remove('open');
+}
+document.addEventListener('click', closeMoreMenu);
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+    const gs = el('gSearch');
+    if (gs && curTab === 'games') { e.preventDefault(); gs.focus(); }
+  }
+  if (e.key === 'Escape') closeModal();
+});
+function switchNavTab(t) {
+  document.querySelectorAll('.side .nav-item[data-tab]').forEach(x => x.classList.toggle('active', x.dataset.tab === t));
+  curTab = t;
+  updateBatchBar();
+  el('tab-games').style.display = t === 'games' ? '' : 'none';
+  el('tab-categories').style.display = t === 'categories' ? '' : 'none';
+  el('tab-files').style.display = t === 'files' ? '' : 'none';
+  if (t === 'files' && !curDir) loadFiles('');
+  if (t === 'categories' && !catTabs.length) loadCategories();
+}
+function goUploadRoms() {
+  switchNavTab('files');
+  setTimeout(() => {
+    const fi = el('fileInput');
+    if (fi && curDir) fi.click();
+  }, 260);
 }
 let curTab = 'games';
 let lastKnownFilesRev = -1;
@@ -1731,18 +1888,7 @@ async function heartbeat() {
 }
 setInterval(heartbeat, 3000);
 
-document.querySelectorAll('header .tabs .tab').forEach(b => b.onclick = () => {
-  document.querySelectorAll('header .tabs .tab').forEach(x => x.classList.remove('active'));
-  b.classList.add('active');
-  const t = b.dataset.tab;
-  curTab = t;
-  updateBatchBar();
-  el('tab-games').style.display = t === 'games' ? '' : 'none';
-  el('tab-categories').style.display = t === 'categories' ? '' : 'none';
-  el('tab-files').style.display = t === 'files' ? '' : 'none';
-  if (t === 'files' && !curDir) loadFiles('');
-  if (t === 'categories' && !catTabs.length) loadCategories();
-});
+document.querySelectorAll('.side .nav-item[data-tab]').forEach(b => b.onclick = () => switchNavTab(b.dataset.tab));
 
 function setGameView(m) {
   gameViewMode = m;
@@ -1794,28 +1940,61 @@ function svgIco(name, size) {
   return '<svg class="ico" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>';
 }
 
+let activeFilterMode = 'all';
+let activeFilterPlat = '';
+
+function setFilterChip(mode, plat) {
+  activeFilterMode = mode || 'all';
+  activeFilterPlat = plat || '';
+  el('gVis').value = activeFilterMode;
+  el('gPlat').value = activeFilterPlat;
+  renderFilterChips();
+  renderGames();
+}
+
+function renderFilterChips() {
+  const box = el('filterChips');
+  if (!box) return;
+  const plats = [...new Set(games.map(g => g.platformName))].sort();
+  const hasHidden = games.some(g => g.hidden);
+  const chips = [
+    '<button class="fchip' + (activeFilterMode === 'all' && !activeFilterPlat ? ' on' : '') + '" onclick="setFilterChip(\'all\',\'\')">' + esc(tr('filter_all')) + '</button>'
+  ];
+  plats.forEach(p => {
+    const on = activeFilterMode === 'all' && activeFilterPlat === p;
+    chips.push('<button class="fchip' + (on ? ' on' : '') + '" onclick="setFilterChip(\'all\',\'' + escJs(p) + '\')">' + esc(p) + '</button>');
+  });
+  chips.push('<button class="fchip' + (activeFilterMode === 'fav' ? ' on' : '') + '" onclick="setFilterChip(\'fav\',\'\')">' + esc(tr('filter_fav')) + '</button>');
+  chips.push('<button class="fchip' + (activeFilterMode === 'nocover' ? ' on' : '') + '" onclick="setFilterChip(\'nocover\',\'\')">' + esc(tr('filter_nocover')) + '</button>');
+  if (hasHidden) {
+    chips.push('<button class="fchip' + (activeFilterMode === 'hidden' ? ' on' : '') + '" onclick="setFilterChip(\'hidden\',\'\')">' + esc(tr('filter_hidden')) + '</button>');
+  }
+  box.innerHTML = chips.join('');
+}
+
 function renderStats() {
   const platCount = new Set(games.map(g => g.platformId)).size;
   const favCount = games.filter(g => g.favorite).length;
-  const customCats = catTabs.filter(t => t.type === 'Custom').length;
-  const freeBytes = (deviceInfo.storage || []).reduce((acc, s) => acc + (s.freeBytes || 0), 0);
-  el('statsGrid').innerHTML =
-    '<div class="stat-card"><div class="stat-ico">' + svgIco('gamepad', 17) + '</div><div><div class="stat-val">' + games.length + '</div><div class="stat-lbl">' + esc(tr('stat_games')) + '</div></div></div>' +
-    '<div class="stat-card"><div class="stat-ico">' + svgIco('cpu', 17) + '</div><div><div class="stat-val">' + platCount + '</div><div class="stat-lbl">' + esc(tr('stat_plats')) + '</div></div></div>' +
-    '<div class="stat-card"><div class="stat-ico">' + svgIco('heartFill', 16) + '</div><div><div class="stat-val">' + favCount + '</div><div class="stat-lbl">' + esc(tr('stat_favs')) + '</div></div></div>' +
-    '<div class="stat-card"><div class="stat-ico">' + svgIco('tag', 16) + '</div><div><div class="stat-val">' + customCats + '</div><div class="stat-lbl">' + esc(tr('stat_cats')) + '</div></div></div>' +
-    '<div class="stat-card"><div class="stat-ico">' + svgIco('drive', 16) + '</div><div><div class="stat-val">' + (freeBytes ? fmtBytes(freeBytes) : '—') + '</div><div class="stat-lbl">' + esc(tr('stat_free')) + '</div></div></div>';
+  const sg = el('statsGrid');
+  if (sg) sg.textContent = tr('summary_fmt', { games: games.length, plats: platCount, favs: favCount });
+  const gc = el('navGamesCnt');
+  if (gc) gc.textContent = games.length ? String(games.length) : '';
+  const cc = el('navCatsCnt');
+  if (cc) cc.textContent = catTabs.length ? String(catTabs.length) : '';
+  renderFilterChips();
+  renderDevInfo(webConnected, deviceInfo.online);
 }
 
 function renderGames() {
   const q = el('gSearch').value.trim().toLowerCase();
-  const vis = el('gVis').value;
-  const plat = el('gPlat').value;
+  const vis = activeFilterMode;
+  const plat = activeFilterPlat;
   const catFilter = el('gCat').value;
   const list = games.filter(g => {
     if (vis === 'visible' && g.hidden) return false;
     if (vis === 'hidden' && !g.hidden) return false;
     if (vis === 'fav' && !g.favorite) return false;
+    if (vis === 'nocover' && g.hasCover) return false;
     if (plat && g.platformName !== plat) return false;
     if (catFilter && !(g.categories || []).includes(catFilter)) return false;
     if (q) {
@@ -1827,7 +2006,7 @@ function renderGames() {
   });
   const container = el('gamesContainer');
   if (!list.length) {
-    container.innerHTML = '<div class="sub" style="padding:24px 0;">' + esc(tr('no_games')) + '</div>';
+    container.innerHTML = '<div class="sub" style="padding:28px 0;">' + esc(tr('no_games')) + '</div>';
     return;
   }
 
@@ -1835,7 +2014,8 @@ function renderGames() {
     container.innerHTML = '<div class="game-grid">' + list.map(g => {
       const safeId = encodeURIComponent(g.id);
       const m = g.metadata || {};
-      const metaLine = [m.releaseDate, m.genre, m.developer].filter(Boolean).join(' · ') || (g.isRom ? fmtBytes(g.size) : 'Android App');
+      const year = m.releaseDate ? String(m.releaseDate).replace(/^.*?(\d{4}).*$/, '$1') : '';
+      const metaLine = [g.platformName, year || null, m.publisher || m.developer || null].filter(Boolean).join(' · ') || (g.isRom ? fmtBytes(g.size) : 'Android');
       const cov = g.hasCover
         ? '<img loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/>'
         : '';
@@ -1849,17 +2029,13 @@ function renderGames() {
         '<div class="gbody">' +
           '<div class="gtitle" title="' + esc(g.title) + '">' + esc(g.title) + '</div>' +
           '<div class="gmeta">' + esc(metaLine) + '</div>' +
-          '<div class="gchips">' +
-            (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
-            (m.publisher ? '<span class="chip muted">' + esc(m.publisher) + '</span>' : '') +
-          '</div>' +
         '</div></div>';
     }).join('') + '</div>';
   } else {
     container.innerHTML = '<div class="list">' + list.map(g => {
       const safeId = encodeURIComponent(g.id);
       const m = g.metadata || {};
-      const metaSummary = [m.releaseDate, m.genre, m.developer, m.publisher].filter(Boolean).join(' · ');
+      const metaSummary = [m.releaseDate, m.developer, m.publisher].filter(Boolean).join(' · ');
       const cov = g.hasCover
         ? '<img class="cover-sm" loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '"/>'
         : '<div class="cover-sm">' + esc(g.platformName) + '</div>';
@@ -1869,7 +2045,7 @@ function renderGames() {
             (g.favorite ? '<span class="chip">' + esc(tr('fav_tag')) + '</span>' : '') +
             (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
           '</div>' +
-          '<div class="desc">' + esc(g.platformName) + (g.isRom ? ' · ' + fmtBytes(g.size) : ' · Android App') + (metaSummary ? ' · ' + esc(metaSummary) : '') + '</div>' +
+          '<div class="desc">' + esc(g.platformName) + (g.isRom ? ' · ' + fmtBytes(g.size) : ' · Android') + (metaSummary ? ' · ' + esc(metaSummary) : '') + '</div>' +
         '</div>' +
         '<div class="actions">' +
           '<button class="btn sm" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' + esc(tr('btn_detail')) + '</button>' +
@@ -1889,63 +2065,57 @@ async function openGameDetail(id) {
   const safeId = encodeURIComponent(g.id);
   const customCats = catTabs.filter(t => t.type === 'Custom');
 
-  el('mTitle').textContent = g.title;
+  el('mTitle').textContent = g.platformName;
   el('mBody').innerHTML =
-    '<div class="detail-hero">' +
-      '<div class="detail-cover">' +
-        (g.hasCover
-          ? '<img id="detCoverImg" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.outerHTML=\'<div class=sub>' + esc(tr('no_cover')) + '</div>\'"/>'
-          : '<div class="sub">' + esc(tr('no_cover_yet')) + '</div>') +
-      '</div>' +
-      '<div class="detail-info">' +
-        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
-          '<span class="chip">' + esc(g.platformName) + ' · ' + esc(g.platformFullName || '') + '</span>' +
-          (g.favorite ? '<span class="chip">' + esc(tr('fav_on')) + '</span>' : '') +
-          (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
-        '</div>' +
-        '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
-          '<button class="btn sm primary" id="btnRefreshMeta" onclick="refreshGameMetaFromHandheld(\'' + escJs(g.id) + '\')">' + esc(tr('btn_fetch_meta')) + '</button>' +
-          '<button class="btn sm" onclick="scrapeCoverCandidates(\'' + escJs(g.id) + '\')">' + esc(tr('btn_pick_cover')) + '</button>' +
-          '<label class="btn sm">' + esc(tr('btn_upload_cover')) + '<input type="file" accept="image/*" style="display:none" onchange="uploadCustomCover(\'' + escJs(g.id) + '\', this.files[0])"/></label>' +
-          (g.hasCustomCover ? '<button class="btn sm" onclick="resetGameCover(\'' + escJs(g.id) + '\')">' + esc(tr('btn_reset_cover')) + '</button>' : '') +
-        '</div>' +
-        '<div class="meta-kv">' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_official')) + '</div><div class="kv-v">' + esc(g.officialName || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_release')) + '</div><div class="kv-v">' + esc(m.releaseDate || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_genre')) + '</div><div class="kv-v">' + esc(m.genre || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_dev')) + '</div><div class="kv-v">' + esc(m.developer || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_pub')) + '</div><div class="kv-v">' + esc(m.publisher || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_size_crc')) + '</div><div class="kv-v">' + (g.isRom ? fmtBytes(g.size) : fmtBytes(g.size) + ' (APK)') + (mInfo.crc32 ? ' · ' + esc(mInfo.crc32) : '') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_meta_src')) + '</div><div class="kv-v">' + esc((mInfo.providers || []).join(', ') || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_cover_src')) + '</div><div class="kv-v">' + esc(g.coverProvider || '—') + '</div></div>' +
-        '</div>' +
-      '</div>' +
+    '<div class="drawer-cover">' +
+      (g.hasCover
+        ? '<img id="detCoverImg" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.outerHTML=\'<span>' + esc(g.title) + '</span>\'"/>'
+        : '<span>' + esc(g.title) + '</span>') +
     '</div>' +
-    '<div style="margin-top:8px;padding-top:12px;border-top:1px solid var(--border);">' +
-      '<div style="font-weight:700;font-size:13px;margin-bottom:8px;">' + esc(tr('det_cats_title')) + '</div>' +
-      (customCats.length
-        ? '<div class="plat-grid" style="max-height:140px;">' + customCats.map(c => {
+    '<h2 class="drawer-title">' + esc(g.title) + '</h2>' +
+    '<div class="drawer-tags">' +
+      (g.favorite ? '<span class="chip">' + esc(tr('fav_on')) + '</span>' : '') +
+      '<span class="chip muted">' + esc(g.platformName) + (g.platformFullName ? ' · ' + esc(g.platformFullName) : '') + '</span>' +
+      (g.isRom ? '<span class="chip muted">' + fmtBytes(g.size) + '</span>' : '') +
+      (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
+    '</div>' +
+    '<div class="meta-kv">' +
+      '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_release')) + '</div><div class="kv-v">' + esc(m.releaseDate || '—') + '</div></div>' +
+      '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_genre')) + '</div><div class="kv-v">' + esc(m.genre || '—') + '</div></div>' +
+      '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_dev')) + '</div><div class="kv-v">' + esc(m.developer || '—') + '</div></div>' +
+      '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_pub')) + '</div><div class="kv-v">' + esc(m.publisher || '—') + '</div></div>' +
+    '</div>' +
+    '<div class="drawer-acts">' +
+      '<button class="btn primary" id="btnRefreshMeta" onclick="refreshGameMetaFromHandheld(\'' + escJs(g.id) + '\')">' + esc(tr('btn_find_cover')) + '</button>' +
+      '<button class="btn" onclick="scrapeCoverCandidates(\'' + escJs(g.id) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' +
+      '<label class="btn" style="justify-content:center;">' + esc(tr('btn_upload_short')) + '<input type="file" accept="image/*" style="display:none" onchange="uploadCustomCover(\'' + escJs(g.id) + '\', this.files[0])"/></label>' +
+      (g.hasCustomCover ? '<button class="btn" onclick="resetGameCover(\'' + escJs(g.id) + '\')">' + esc(tr('btn_reset_cover')) + '</button>' : '') +
+    '</div>' +
+    '<div id="candArea"></div>' +
+    (customCats.length
+      ? '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">' +
+          '<div style="font-weight:700;font-size:12.5px;color:var(--label);margin-bottom:8px;">' + esc(tr('det_cats_title')) + '</div>' +
+          '<div class="plat-grid" style="max-height:130px;">' + customCats.map(c => {
             const viaPlat = (c.sources || []).includes(g.platformId);
             const manual = (c.games || []).includes(g.id);
             const checked = viaPlat || manual;
             return '<label class="plat-chk' + (checked ? ' checked' : '') + '">' +
               '<input type="checkbox" class="gcat-chk" value="' + esc(c.id) + '" ' + (checked ? 'checked' : '') + ' ' + (viaPlat ? 'disabled' : 'onchange="saveGameCats(\'' + escJs(g.id) + '\')"') + '/>' +
               '<span>' + esc(c.name) + (viaPlat ? esc(tr('det_via_plat')) : '') + '</span></label>';
-          }).join('') + '</div>'
-        : '<div class="sub">' + esc(tr('det_no_cats')) + '</div>') +
-    '</div>' +
-    '<div id="candArea"></div>' +
-    '<div class="sub" style="margin-top:12px;word-break:break-all;">' + esc(tr('det_path')) + esc(g.id) + '</div>';
+          }).join('') + '</div></div>'
+      : '') +
+    '<div class="sub" style="margin-top:14px;word-break:break-all;font-size:11.5px;">' +
+      (mInfo.crc32 ? 'CRC32 ' + esc(mInfo.crc32) + ' · ' : '') + esc(g.id) +
+    '</div>';
 
   el('mFoot').innerHTML =
-    '<button class="btn" onclick="renameGame(\'' + escJs(g.id) + '\',\'' + escJs(g.title) + '\')">' + esc(tr('btn_rename')) + '</button>' +
-    '<button class="btn" onclick="toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ',true)">' + esc(g.favorite ? tr('btn_unfav') : ('♥ ' + tr('btn_fav'))) + '</button>' +
-    '<button class="btn" onclick="toggleHide(\'' + escJs(g.id) + '\',' + (!g.hidden) + ',true)">' + esc(g.hidden ? tr('btn_unhide') : tr('btn_hide')) + '</button>' +
-    (g.isRom ? '<a class="btn" href="/api/files/download?path=' + safeId + '">' + esc(tr('btn_dl_rom')) + '</a>' : '') +
-    (g.isRom ? '<button class="btn danger" onclick="deleteFile(\'' + escJs(g.id) + '\',\'' + escJs(g.fileName) + '\',true)">' + esc(tr('btn_del_file')) + '</button>' : '') +
-    '<button class="btn primary" onclick="closeModal()">' + esc(tr('btn_close')) + '</button>';
+    '<button class="btn sm" onclick="toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ',true)">' + esc(g.favorite ? tr('btn_unfav') : ('♥ ' + tr('btn_fav'))) + '</button>' +
+    '<button class="btn sm" onclick="renameGame(\'' + escJs(g.id) + '\',\'' + escJs(g.title) + '\')">' + esc(tr('btn_rename')) + '</button>' +
+    '<button class="btn sm" onclick="toggleHide(\'' + escJs(g.id) + '\',' + (!g.hidden) + ',true)">' + esc(g.hidden ? tr('btn_unhide') : tr('btn_hide')) + '</button>' +
+    (g.isRom ? '<a class="btn sm" href="/api/files/download?path=' + safeId + '">' + esc(tr('btn_dl')) + '</a>' : '') +
+    (g.isRom ? '<button class="btn sm danger" onclick="deleteFile(\'' + escJs(g.id) + '\',\'' + escJs(g.fileName) + '\',true)">' + esc(tr('btn_del_file')) + '</button>' : '');
 
-  el('modalBg').classList.add('open');
+  el('modalBg').classList.add('drawer-mode', 'open');
 }
 
 async function refreshGameMetaFromHandheld(id) {
@@ -2821,7 +2991,7 @@ function openScrapeLogsModal() {
 }
 
 function closeModal() {
-  el('modalBg').classList.remove('open');
+  el('modalBg').classList.remove('open', 'drawer-mode');
   el('mBody').innerHTML = '';
   el('mFoot').innerHTML = '';
 }
