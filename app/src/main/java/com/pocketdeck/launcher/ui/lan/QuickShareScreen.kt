@@ -37,8 +37,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -753,14 +756,27 @@ fun QuickShareScreen(
                         }
                     } else {
                         val fmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+                        // 后台 IO 线程批量检查历史记录对应文件是否仍存在于磁盘，避免 LazyColumn 滚动期间在主线程逐行 stat()
+                        val historyExistsMap by produceState(
+                            initialValue = emptyMap<String, Boolean>(),
+                            key1 = state.shareHistory,
+                        ) {
+                            value = withContext(Dispatchers.IO) {
+                                val map = HashMap<String, Boolean>(state.shareHistory.size)
+                                for (item in state.shareHistory) {
+                                    val paths = if (item.filePaths.isNotEmpty()) item.filePaths else listOf(item.filePath)
+                                    map[item.id] = paths.any { File(it).exists() }
+                                }
+                                map
+                            }
+                        }
                         LazyColumn(
                             Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             itemsIndexed(state.shareHistory, key = { _, it -> it.id }) { hIdx, item ->
-                                val paths = if (item.filePaths.isNotEmpty()) item.filePaths else listOf(item.filePath)
-                                val anyExists = paths.any { File(it).exists() }
+                                val anyExists = historyExistsMap[item.id] ?: true
                                 val timeStr = remember(item.receivedAtMs) { fmt.format(Date(item.receivedAtMs)) }
                                 Row(
                                     Modifier
@@ -872,8 +888,12 @@ fun QuickShareScreen(
 
         // 单条删除确认弹窗（支持仅删除记录 or 同时删除本地文件）
         deleteConfirmItem?.let { item ->
-            val paths = if (item.filePaths.isNotEmpty()) item.filePaths else listOf(item.filePath)
-            val hasDiskFiles = paths.any { File(it).isFile }
+            val hasDiskFiles by produceState(initialValue = true, key1 = item.id) {
+                value = withContext(Dispatchers.IO) {
+                    val paths = if (item.filePaths.isNotEmpty()) item.filePaths else listOf(item.filePath)
+                    paths.any { File(it).isFile }
+                }
+            }
             DeleteHistoryItemDialog(
                 item = item,
                 hasDiskFiles = hasDiskFiles,

@@ -5,10 +5,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -184,14 +184,17 @@ fun Modifier.brandFocusRing(
     }
 }
 
-/** 轻量描边版焦点（列表行等密集场景）：柔和底色 + 渐变细描边。 */
+/** 轻量描边版焦点（列表行等密集场景）：柔和底色 + 缓存渐变细描边。 */
 @Composable
 fun Modifier.brandFocusRow(focused: Boolean, shape: Shape = RoundedCornerShape(DeckBrand.RadiusM)): Modifier {
     if (!focused) return this
     val p = LocalDeckColors.current
+    val brush = remember(p.brandStart, p.brandMid, p.brandEnd) {
+        Brush.linearGradient(listOf(p.brandStart, p.brandMid, p.brandEnd))
+    }
     return this
         .background(p.surface, shape)
-        .border(1.5.dp, Brush.linearGradient(listOf(p.brandStart, p.brandMid, p.brandEnd)), shape)
+        .border(1.5.dp, brush, shape)
 }
 
 /** 便捷：在非 Composable 绘制作用域里取渐变色列表。 */

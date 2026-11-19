@@ -27,8 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -50,6 +50,7 @@ import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.brandFocusRing
 import com.pocketdeck.launcher.ui.theme.brandFocusRow
@@ -79,8 +80,10 @@ fun DeckSwitch(
     focused: Boolean = false,
 ) {
     val p = LocalDeckColors.current
+    val reduceMotion = LocalReduceMotion.current
     val context = LocalContext.current
-    val t by animateFloatAsState(if (checked) 1f else 0f, tween(160), label = "deckSwitch")
+    val targetT = if (checked) 1f else 0f
+    val t = if (reduceMotion) targetT else animateFloatAsState(targetT, tween(140), label = "deckSwitch").value
     val trackW = 42.dp
     val trackH = 24.dp
     val thumb = 18.dp
@@ -121,7 +124,16 @@ fun DeckSwitch(
             Modifier
                 .offset(x = 3.dp + travel * t)
                 .size(thumb)
-                .shadow(2.dp, CircleShape, clip = false)
+                .then(
+                    if (reduceMotion) Modifier
+                    else Modifier.drawBehind {
+                        drawCircle(
+                            color = Color(0x24000000),
+                            radius = size.minDimension / 2f,
+                            center = Offset(size.width / 2f, size.height / 2f + 1.dp.toPx()),
+                        )
+                    },
+                )
                 .background(Color.White, CircleShape),
         )
     }

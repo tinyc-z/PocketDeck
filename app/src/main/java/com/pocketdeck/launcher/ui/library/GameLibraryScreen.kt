@@ -281,6 +281,12 @@ private fun discoverStorageLocations(context: Context, romRoots: List<File>): Li
     return result
 }
 
+private data class FileRowMeta(
+    val isDir: Boolean,
+    val sizeText: String?,
+    val freeSpaceText: String?,
+)
+
 private sealed interface MoveTarget {
     val label: String
 
@@ -443,6 +449,8 @@ fun GameLibraryScreen(
     var storageLocations by remember { mutableStateOf<List<StorageLocation>>(emptyList()) }
     var currentDir by remember { mutableStateOf<File?>(null) }
     var fileEntries by remember { mutableStateOf<List<File>>(emptyList()) }
+    // 后台预计算的目录条目元信息（isDirectory / 文件大小 / 卷剩余空间），消除文件列表滚动时主线程逐行 stat()/statvfs()
+    var fileMetaMap by remember { mutableStateOf<Map<String, FileRowMeta>>(emptyMap()) }
     var dirRefreshTick by remember { mutableIntStateOf(0) }
     var lastLocalRefreshTick by remember { mutableIntStateOf(0) }
     var multiSelectMode by remember { mutableStateOf(false) }
@@ -516,8 +524,8 @@ fun GameLibraryScreen(
     LaunchedEffect(initialFilesDir, initialFocusFilePath) {
         val roots = onLoadRoots()
         romRoots = roots
-        storageLocations = discoverStorageLocations(context, roots)
-        val jumpTarget = initialFilesDir?.let(::File)?.takeIf { it.isDirectory }
+        storageLocations = withContext(Dispatchers.IO) { discoverStorageLocations(context, roots) }
+        val jumpTarget = initialFilesDir?.let(::File)?.takeIf { withContext(Dispatchers.IO) { it.isDirectory } }
         if (jumpTarget != null) {
             currentDir = jumpTarget
             pendingFocusPath = initialFocusFilePath
@@ -533,9 +541,9 @@ fun GameLibraryScreen(
             return@LaunchedEffect
         }
         val dir = currentDir
-        if (dir != null && !dir.exists()) {
+        if (dir != null && !withContext(Dispatchers.IO) { dir.exists() }) {
             var ancestor = dir.parentFile
-            while (ancestor != null && !ancestor.exists()) {
+            while (ancestor != null && !withContext(Dispatchers.IO) { ancestor!!.exists() }) {
                 ancestor = ancestor.parentFile
             }
             val topDirs = storageLocations.map { it.dir } + romRoots
@@ -554,7 +562,7 @@ fun GameLibraryScreen(
             fileSearching = true
             try {
                 if (dir == null) {
-                    storageLocations = discoverStorageLocations(context, romRoots)
+                    storageLocations = withContext(Dispatchers.IO) { discoverStorageLocations(context, romRoots) }
                 }
                 fileEntries = if (dir == null && !fileSearchRecursive) {
                     storageLocations.filter { loc ->
@@ -571,7 +579,7 @@ fun GameLibraryScreen(
             }
         } else if (dir == null) {
             fileSearching = false
-            storageLocations = discoverStorageLocations(context, romRoots)
+            storageLocations = withContext(Dispatchers.IO) { discoverStorageLocations(context, romRoots) }
             fileEntries = storageLocations.map { it.dir }
         } else {
             fileSearching = false
@@ -580,6 +588,21 @@ fun GameLibraryScreen(
                     .orEmpty()
                     .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
             }
+        }
+        val storagePathSet = storageLocations.mapTo(HashSet()) { it.dir.path }
+        val entriesSnapshot = fileEntries
+        fileMetaMap = withContext(Dispatchers.IO) {
+            val map = HashMap<String, FileRowMeta>(entriesSnapshot.size)
+            for (f in entriesSnapshot) {
+                val isDir = f.isDirectory
+                val isVol = dir == null && f.path in storagePathSet
+                map[f.path] = FileRowMeta(
+                    isDir = isDir,
+                    sizeText = if (!isDir) formatCompactSize(f.length()) else null,
+                    freeSpaceText = if (isVol) formatCompactSize(f.usableSpace) else null,
+                )
+            }
+            map
         }
         val upNow = dir != null && q.isEmpty()
         val targetPath = pendingFocusPath
@@ -1540,11 +1563,17 @@ fun GameLibraryScreen(
                     else -> Color(0xFFF59E0B)
                 }
                 val lanHl = focusZone == LibraryZone.Header && headerIdx == 1
-                val animTaskProgress by androidx.compose.animation.core.animateFloatAsState(
-                    targetValue = (taskProgress ?: 0f).coerceIn(0f, 1f),
-                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 200),
-                    label = "lib_lan_task_progress",
-                )
+                val targetTaskProgress = (taskProgress ?: 0f).coerceIn(0f, 1f)
+                val reduceMotion = com.pocketdeck.launcher.ui.theme.LocalReduceMotion.current
+                val animTaskProgress = if (reduceMotion) {
+                    targetTaskProgress
+                } else {
+                    androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = targetTaskProgress,
+                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 200),
+                        label = "lib_lan_task_progress",
+                    ).value
+                }
                 Row(
                     Modifier
                         .clip(DeckShapes.tabPill)
@@ -2069,18 +2098,20 @@ fun GameLibraryScreen(
                             val rowIdx = if (hasUp) fIdx + 1 else fIdx
                             val hl = focusZone == LibraryZone.List && rowIdx == selectedIdx
                             val checked = file.path in selectedPaths
-                            val matchedGame = fullLibrary?.byId?.get(file.path)?.takeIf { RomScanner.isPotentialRomFile(file, it.platformId) }
+                            val rowMeta = fileMetaMap[file.path]
+                            val isDir = rowMeta?.isDir ?: false
+                            val matchedGame = if (!isDir) fullLibrary?.byId?.get(file.path) else null
                             val storageLoc = if (dirNow == null) storageLocations.firstOrNull { it.dir.path == file.path } else null
-                            val isArchive = ArchiveManager.isArchive(file)
-                            val isImage = ArchiveManager.isImageFile(file)
-                            val isAudio = ArchiveManager.isAudioFile(file)
-                            val isFont = ArchiveManager.isFontFile(file)
-                            val isText = !file.isDirectory && !isArchive && !isImage && !isAudio && !isFont && ArchiveManager.isKnownTextFile(file)
+                            val isArchive = !isDir && ArchiveManager.isArchive(file)
+                            val isImage = !isDir && !isArchive && ArchiveManager.isImageFile(file)
+                            val isAudio = !isDir && !isArchive && !isImage && ArchiveManager.isAudioFile(file)
+                            val isFont = !isDir && !isArchive && !isImage && !isAudio && ArchiveManager.isFontFile(file)
+                            val isText = !isDir && !isArchive && !isImage && !isAudio && !isFont && ArchiveManager.isKnownTextFile(file)
                             val inSearchMode = fileSearchQuery.isNotBlank()
                             val label = storageLoc?.label ?: if (dirNow == null && !inSearchMode) file.path.replace(sdPath, "~") else file.name
                             val icon = when {
                                 storageLoc != null && !storageLoc.isRomRoot -> "SD"
-                                file.isDirectory -> "DIR"
+                                isDir -> "DIR"
                                 isArchive -> "ZIP"
                                 isImage -> "IMG"
                                 isAudio -> "AUD"
@@ -2106,7 +2137,7 @@ fun GameLibraryScreen(
                                         selectedIdx = rowIdx
                                         if (multiSelectMode && dirNow != null) {
                                             selectedPaths = if (checked) selectedPaths - file.path else selectedPaths + file.path
-                                        } else if (file.isDirectory) {
+                                        } else if (isDir) {
                                             enterDir(file)
                                         } else {
                                             openFileMenu(file)
@@ -2161,18 +2192,14 @@ fun GameLibraryScreen(
                                     } else null
 
                                     if (storageLoc != null && !inSearchMode) {
-                                        val freeStr = remember(file.path, filesRevision, dirRefreshTick) {
-                                            formatCompactSize(file.usableSpace)
-                                        }
+                                        val freeStr = rowMeta?.freeSpaceText
                                         val sub = listOfNotNull(
                                             file.path.replace(sdPath, "~"),
                                             freeStr?.let { stringResource(R.string.lib_storage_free_fmt, it) },
                                         ).joinToString(" · ")
                                         Text(sub, style = DeckType.metaLabel, color = DeckColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    } else if (!file.isDirectory) {
-                                        val sizeStr = remember(file.path, filesRevision, dirRefreshTick) {
-                                            formatCompactSize(file.length())
-                                        }
+                                    } else if (!isDir) {
+                                        val sizeStr = rowMeta?.sizeText
                                         val sub = listOfNotNull(relParent, sizeStr).joinToString(" · ")
                                         if (sub.isNotEmpty()) {
                                             Text(sub, style = DeckType.metaLabel, color = DeckColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -2181,7 +2208,7 @@ fun GameLibraryScreen(
                                         Text(relParent, style = DeckType.metaLabel, color = DeckColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
-                                if (file.isDirectory && !multiSelectMode) {
+                                if (isDir && !multiSelectMode) {
                                     if (dirNow != null) {
                                         Text(
                                             "···",

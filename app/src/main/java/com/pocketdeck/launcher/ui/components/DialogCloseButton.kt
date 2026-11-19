@@ -30,6 +30,7 @@ import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.brandFocusRing
+import com.pocketdeck.launcher.ui.theme.cardSurface
 
 /**
  * 弹窗面板容器：统一圆角底板 + 右上角等距（top == end）关闭（✕）图标按钮。
@@ -51,7 +52,7 @@ fun DialogPanelCard(
     val sheetShape = RoundedCornerShape(DeckBrand.RadiusXL)
     Box(
         modifier
-            .shadow(18.dp, sheetShape, ambientColor = DeckColors.CardShadow, spotColor = DeckColors.CardShadow, clip = false)
+            .cardSurface(sheetShape, elevation = 6.dp)
             .clip(sheetShape)
             .background(DeckColors.DialogBg)
             .clickable(enabled = false, onClick = {}),

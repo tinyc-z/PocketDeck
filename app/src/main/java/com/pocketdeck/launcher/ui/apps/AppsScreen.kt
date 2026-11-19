@@ -117,6 +117,11 @@ data class InstalledApp(
 /**
  * Apps 抽屉：5 列已安装应用网格 + 长按振动与菜单（打开 / 加入游戏库 / 应用信息 / 卸载）+ 左上返回 + 右上系统设置。
  */
+private object InstalledAppsCache {
+    @Volatile
+    var apps: List<InstalledApp> = emptyList()
+}
+
 @Composable
 fun AppsScreen(
     swapAbxy: Boolean,
@@ -137,31 +142,39 @@ fun AppsScreen(
     val focusRequester = remember { FocusRequester() }
     var focusIndex by remember { mutableIntStateOf(0) }
     val gridState = rememberLazyGridState()
-    var apps by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
+    var apps by remember { mutableStateOf(InstalledAppsCache.apps) }
     var refreshTick by remember { mutableIntStateOf(0) }
     var menuApp by remember { mutableStateOf<InstalledApp?>(null) }
     var menuSelection by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(refreshTick) {
-        apps = withContext(Dispatchers.IO) {
+        val loaded = withContext(Dispatchers.IO) {
             val pm = context.packageManager
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             val resolved = pm.queryIntentActivities(intent, 0)
+            val prevByPkg = InstalledAppsCache.apps.associateBy { it.packageName }
             val seen = HashSet<String>()
             resolved.mapNotNull { info ->
                 val ai = info.activityInfo?.applicationInfo
                 val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
                 if (pkg == context.packageName || !seen.add(pkg)) return@mapNotNull null
                 val label = info.loadLabel(pm)?.toString()?.trim().orEmpty().ifEmpty { pkg }
-                val bmp = runCatching {
-                    info.loadIcon(pm).toBitmap(128, 128).asImageBitmap()
-                }.getOrNull() ?: return@mapNotNull null
+                val cached = prevByPkg[pkg]
+                val bmp = if (cached != null && cached.label == label) {
+                    cached.icon
+                } else {
+                    runCatching {
+                        info.loadIcon(pm).toBitmap(128, 128).asImageBitmap()
+                    }.getOrNull() ?: return@mapNotNull null
+                }
                 val isSys = ai != null &&
                     (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
                     (ai.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
                 InstalledApp(pkg, label, bmp, isSys)
             }.sortedBy { it.label.lowercase() }
         }
+        InstalledAppsCache.apps = loaded
+        apps = loaded
         val totalItems = 2 + apps.size
         if (focusIndex >= totalItems) {
             focusIndex = (totalItems - 1).coerceAtLeast(0)
@@ -450,7 +463,7 @@ fun AppsScreen(
                         .widthIn(max = 340.dp)
                         .fillMaxWidth()
                         .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp)
-                        .shadow(18.dp, sheetShape, ambientColor = DeckColors.CardShadow, spotColor = DeckColors.CardShadow, clip = false)
+                        .cardSurface(sheetShape, elevation = 6.dp)
                         .clip(sheetShape)
                         .background(DeckColors.DialogBg)
                         .clickable(enabled = false, onClick = {})
