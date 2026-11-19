@@ -358,7 +358,8 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .dev-bar i { display:block; height:100%; width:0%; background:var(--brand); border-radius:999px; transition:width .3s ease; }
   .dev-store { font-size:11.5px; color:var(--label); font-weight:600; }
 
-  .main { flex:1; min-width:0; padding:26px 32px 64px; max-width:1360px; }
+  .main-wrap { flex:1; min-width:0; }
+  .main { width:100%; max-width:1360px; margin:0 auto; padding:26px 32px 64px; }
   .page-top { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
   .page-top h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-.4px; }
   .page-sub { font-size:13.5px; color:var(--label); font-weight:600; margin-top:4px; }
@@ -387,7 +388,8 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   }
   .btn:hover:not(:disabled) { border-color:var(--brand-mid); color:var(--accent); }
   .btn.primary {
-    background:var(--brand); color:#fff; border-color:transparent; font-weight:700;
+    background:var(--brand); background-origin:border-box; background-clip:border-box; background-repeat:no-repeat;
+    color:#fff; border-color:transparent; font-weight:700;
     box-shadow:0 6px 16px color-mix(in srgb, var(--brand-end) 28%, transparent);
   }
   .btn.primary:hover:not(:disabled) { opacity:.94; color:#fff; transform:translateY(-1px); }
@@ -405,7 +407,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     display:inline-flex; align-items:center; gap:5px; transition:all .14s;
   }
   .fchip:hover { color:var(--text); border-color:var(--brand-mid); }
-  .fchip.on { background:var(--brand); color:#fff; border-color:transparent; box-shadow:0 4px 12px color-mix(in srgb, var(--brand-end) 26%, transparent); }
+  .fchip.on { background:var(--brand); background-origin:border-box; background-clip:border-box; background-repeat:no-repeat; color:#fff; border-color:transparent; box-shadow:0 4px 12px color-mix(in srgb, var(--brand-end) 26%, transparent); }
   .seg { margin-left:auto; display:inline-flex; background:var(--surf-alt); border:1px solid var(--line); border-radius:11px; padding:3px; gap:2px; }
   .seg button {
     border:0; background:transparent; color:var(--muted); padding:6px 13px;
@@ -511,7 +513,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     padding:5px 12px; border-radius:999px; cursor:pointer; font-size:12.5px; font-weight:600;
   }
   .crumb:hover { border-color:var(--brand-mid); color:var(--accent); }
-  .crumb.cur { background:var(--brand); color:#fff; border-color:transparent; cursor:default; }
+  .crumb.cur { background:var(--brand); background-origin:border-box; background-clip:border-box; background-repeat:no-repeat; color:#fff; border-color:transparent; cursor:default; }
   .dropzone {
     border:1.5px dashed color-mix(in srgb, var(--brand-mid) 55%, var(--line));
     border-radius:16px; padding:20px; text-align:center; color:var(--muted);
@@ -529,42 +531,42 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .batch-bar.show { display:flex; }
 
   .modal-bg {
-    position:fixed; inset:0; background:rgba(23,17,31,.38); backdrop-filter:blur(4px);
+    position:fixed; inset:0; background:rgba(23,17,31,.40); backdrop-filter:blur(4px);
     display:none; align-items:center; justify-content:center; z-index:50; padding:20px;
   }
   .modal-bg.open { display:flex; }
-  .modal-bg.drawer-mode { justify-content:flex-end; align-items:stretch; padding:20px; }
   .modal {
-    width:100%; max-width:680px; max-height:90vh; background:var(--surf);
+    width:100%; max-width:650px; max-height:88vh; background:var(--surf);
     border:1px solid var(--line); border-radius:22px; overflow:hidden;
     display:flex; flex-direction:column; box-shadow:0 30px 80px rgba(36,23,47,.28);
   }
-  .modal-bg.drawer-mode .modal { max-width:416px; max-height:none; height:100%; border-radius:22px; }
   .modal-hd {
     padding:16px 20px; border-bottom:1px solid var(--line);
     display:flex; align-items:center; gap:10px; font-weight:800; font-size:17px;
   }
-  .modal-bd { padding:18px 20px; overflow:auto; flex:1; }
+  .modal-bd { padding:20px; overflow:auto; flex:1; }
   .modal-ft {
     padding:13px 20px; border-top:1px solid var(--line);
     display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; background:var(--surf);
   }
 
+  .detail-hero { display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap; margin-bottom:14px; }
   .drawer-cover {
-    width:176px; height:176px; border-radius:16px; overflow:hidden;
-    background:var(--brand); box-shadow:var(--shadow); margin-bottom:14px;
+    width:168px; height:168px; border-radius:16px; overflow:hidden; flex-shrink:0;
+    background:var(--brand); box-shadow:var(--shadow);
     display:grid; place-items:center; color:#fff; font-weight:800; font-size:15px; text-align:center;
   }
   .drawer-cover span { padding:14px; }
   .drawer-cover img { width:100%; height:100%; object-fit:cover; display:block; }
+  .detail-info { flex:1; min-width:220px; }
   .drawer-title { font-size:21px; font-weight:800; letter-spacing:-.3px; margin:0 0 10px; line-height:1.25; }
-  .drawer-tags { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px; }
+  .drawer-tags { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:12px; }
   .meta-kv { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0 14px; }
   .kv-box { background:var(--surf-alt); border-radius:12px; padding:10px 12px; }
   .kv-k { font-size:11.5px; color:var(--label); font-weight:600; }
   .kv-v { font-size:13.5px; font-weight:700; margin-top:3px; word-break:break-word; color:var(--text); }
-  .drawer-acts { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 12px; }
-  .drawer-acts .btn { flex:1; justify-content:center; min-width:96px; }
+  .drawer-acts { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .drawer-acts .btn { justify-content:center; }
 
   .plat-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:7px; max-height:220px; overflow:auto; padding:2px; }
   .plat-chk {
@@ -609,7 +611,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .log-win-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .log-win-btn { border:1px solid #3A2D4A; background:#231A30; color:#E8DFF0; border-radius:8px; padding:4px 9px; font-size:11.5px; font-weight:600; cursor:pointer; }
   .log-win-btn:hover { border-color:var(--brand-mid); }
-  .log-win-btn.on { background:var(--brand); border-color:transparent; color:#fff; }
+  .log-win-btn.on { background:var(--brand); background-origin:border-box; background-clip:border-box; background-repeat:no-repeat; border-color:transparent; color:#fff; }
   .log-win-btn.err { color:#ff7b72; }
   .log-win-in { flex:1; min-width:120px; border:1px solid #3A2D4A; background:#120D1A; color:#F2ECF7; border-radius:8px; padding:4px 9px; font-size:12px; outline:none; }
   .log-win-ft { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:#9E8FB2; }
@@ -688,6 +690,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     </div>
   </aside>
 
+  <div class="main-wrap">
   <main class="main">
     <section id="tab-games">
       <div class="page-top">
@@ -790,6 +793,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       </div>
     </section>
   </main>
+  </div>
 </div>
 
 <div id="floatDock" class="float-dock">
@@ -1642,6 +1646,10 @@ function toast(msg) {
 async function api(url, opts) {
   const r = await fetch(url, opts);
   if (r.status === 401) { location.reload(); throw new Error('unauthorized'); }
+  if (r.ok) {
+    lastAliveAt = Date.now();
+    hbFailCount = 0;
+  }
   return r;
 }
 
@@ -1853,15 +1861,25 @@ async function cancelFileTask(id, kind) {
   pollFileTasks();
 }
 
+let hbInFlight = false;
+let hbFailCount = 0;
+let lastAliveAt = Date.now();
+
 async function heartbeat() {
+  if (hbInFlight || document.hidden) return;
+  hbInFlight = true;
+  const busy = (typeof activeUploadCtrl !== 'undefined' && !!activeUploadCtrl) || hadActiveTasks;
+  const timeoutMs = busy ? 25000 : 15000;
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), 2200) : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   try {
     const r = await fetch('/api/theme', { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
     if (!r.ok) throw new Error('http_' + r.status);
     const d = await r.json();
     if (!d.ok) throw new Error('not_ok');
     if (d.authed === false) { location.reload(); return; }
+    hbFailCount = 0;
+    lastAliveAt = Date.now();
     applyThemeObj(d.theme);
     const wasOff = !webConnected;
     renderDevInfo(true, typeof d.online === 'boolean' ? d.online : deviceInfo.online);
@@ -1876,18 +1894,25 @@ async function heartbeat() {
       }
     }
     if (d.activeTaskCount > 0 || hadActiveTasks) pollFileTasks();
-  } catch {
-    if (webConnected) {
-      renderDevInfo(false, false);
-      toast(tr('conn_off'));
-    } else {
-      renderDevInfo(false, false);
+  } catch (err) {
+    if (Date.now() - lastAliveAt < 12000) return;
+    const isTimeout = err && err.name === 'AbortError';
+    const failThreshold = (busy || isTimeout) ? 6 : 3;
+    hbFailCount++;
+    if (hbFailCount >= failThreshold) {
+      if (webConnected) {
+        renderDevInfo(false, false);
+        toast(tr('conn_off'));
+      } else {
+        renderDevInfo(false, false);
+      }
     }
   } finally {
     if (timer) clearTimeout(timer);
+    hbInFlight = false;
   }
 }
-setInterval(heartbeat, 3000);
+setInterval(heartbeat, 5000);
 
 document.querySelectorAll('.side .nav-item[data-tab]').forEach(b => b.onclick = () => switchNavTab(b.dataset.tab));
 
@@ -2015,8 +2040,7 @@ function renderGames() {
     container.innerHTML = '<div class="game-grid">' + list.map(g => {
       const safeId = encodeURIComponent(g.id);
       const m = g.metadata || {};
-      const year = m.releaseDate ? String(m.releaseDate).replace(/^.*?(\d{4}).*$/, '$1') : '';
-      const metaLine = [g.platformName, year || null, m.publisher || m.developer || null].filter(Boolean).join(' · ') || (g.isRom ? fmtBytes(g.size) : 'Android');
+      const metaLine = [m.publisher || m.developer || null, m.releaseDate || null].filter(Boolean).join(' · ') || (g.isRom ? fmtBytes(g.size) : (m.genre || '—'));
       const cov = g.hasCover
         ? '<img loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/>'
         : '';
@@ -2029,7 +2053,7 @@ function renderGames() {
         '</div>' +
         '<div class="gbody">' +
           '<div class="gtitle" title="' + esc(g.title) + '">' + esc(g.title) + '</div>' +
-          '<div class="gmeta">' + esc(metaLine) + '</div>' +
+          '<div class="gmeta" title="' + esc(metaLine) + '">' + esc(metaLine) + '</div>' +
         '</div></div>';
     }).join('') + '</div>';
   } else {
@@ -2066,31 +2090,34 @@ async function openGameDetail(id) {
   const safeId = encodeURIComponent(g.id);
   const customCats = catTabs.filter(t => t.type === 'Custom');
 
-  el('mTitle').textContent = g.platformName;
+  el('mTitle').textContent = g.title;
   el('mBody').innerHTML =
-    '<div class="drawer-cover">' +
-      (g.hasCover
-        ? '<img id="detCoverImg" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.outerHTML=\'<span>' + esc(g.title) + '</span>\'"/>'
-        : '<span>' + esc(g.title) + '</span>') +
-    '</div>' +
-    '<h2 class="drawer-title">' + esc(g.title) + '</h2>' +
-    '<div class="drawer-tags">' +
-      (g.favorite ? '<span class="chip">' + esc(tr('fav_on')) + '</span>' : '') +
-      '<span class="chip muted">' + esc(g.platformName) + (g.platformFullName ? ' · ' + esc(g.platformFullName) : '') + '</span>' +
-      (g.isRom ? '<span class="chip muted">' + fmtBytes(g.size) + '</span>' : '') +
-      (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
+    '<div class="detail-hero">' +
+      '<div class="drawer-cover">' +
+        (g.hasCover
+          ? '<img id="detCoverImg" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.outerHTML=\'<span>' + esc(g.title) + '</span>\'"/>'
+          : '<span>' + esc(g.title) + '</span>') +
+      '</div>' +
+      '<div class="detail-info">' +
+        '<div class="drawer-tags">' +
+          (g.favorite ? '<span class="chip">' + esc(tr('fav_on')) + '</span>' : '') +
+          '<span class="chip muted">' + esc(g.platformName) + (g.platformFullName ? ' · ' + esc(g.platformFullName) : '') + '</span>' +
+          (g.isRom ? '<span class="chip muted">' + fmtBytes(g.size) + '</span>' : '') +
+          (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
+        '</div>' +
+        '<div class="drawer-acts">' +
+          '<button class="btn sm primary" id="btnRefreshMeta" onclick="refreshGameMetaFromHandheld(\'' + escJs(g.id) + '\')">' + esc(tr('btn_find_cover')) + '</button>' +
+          '<button class="btn sm" onclick="scrapeCoverCandidates(\'' + escJs(g.id) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' +
+          '<label class="btn sm" style="justify-content:center;">' + esc(tr('btn_upload_short')) + '<input type="file" accept="image/*" style="display:none" onchange="uploadCustomCover(\'' + escJs(g.id) + '\', this.files[0])"/></label>' +
+          (g.hasCustomCover ? '<button class="btn sm" onclick="resetGameCover(\'' + escJs(g.id) + '\')">' + esc(tr('btn_reset_cover')) + '</button>' : '') +
+        '</div>' +
+      '</div>' +
     '</div>' +
     '<div class="meta-kv">' +
       '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_release')) + '</div><div class="kv-v">' + esc(m.releaseDate || '—') + '</div></div>' +
       '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_genre')) + '</div><div class="kv-v">' + esc(m.genre || '—') + '</div></div>' +
       '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_dev')) + '</div><div class="kv-v">' + esc(m.developer || '—') + '</div></div>' +
       '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_pub')) + '</div><div class="kv-v">' + esc(m.publisher || '—') + '</div></div>' +
-    '</div>' +
-    '<div class="drawer-acts">' +
-      '<button class="btn primary" id="btnRefreshMeta" onclick="refreshGameMetaFromHandheld(\'' + escJs(g.id) + '\')">' + esc(tr('btn_find_cover')) + '</button>' +
-      '<button class="btn" onclick="scrapeCoverCandidates(\'' + escJs(g.id) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' +
-      '<label class="btn" style="justify-content:center;">' + esc(tr('btn_upload_short')) + '<input type="file" accept="image/*" style="display:none" onchange="uploadCustomCover(\'' + escJs(g.id) + '\', this.files[0])"/></label>' +
-      (g.hasCustomCover ? '<button class="btn" onclick="resetGameCover(\'' + escJs(g.id) + '\')">' + esc(tr('btn_reset_cover')) + '</button>' : '') +
     '</div>' +
     '<div id="candArea"></div>' +
     (customCats.length
@@ -2114,9 +2141,10 @@ async function openGameDetail(id) {
     '<button class="btn sm" onclick="renameGame(\'' + escJs(g.id) + '\',\'' + escJs(g.title) + '\')">' + esc(tr('btn_rename')) + '</button>' +
     '<button class="btn sm" onclick="toggleHide(\'' + escJs(g.id) + '\',' + (!g.hidden) + ',true)">' + esc(g.hidden ? tr('btn_unhide') : tr('btn_hide')) + '</button>' +
     (g.isRom ? '<a class="btn sm" href="/api/files/download?path=' + safeId + '">' + esc(tr('btn_dl')) + '</a>' : '') +
-    (g.isRom ? '<button class="btn sm danger" onclick="deleteFile(\'' + escJs(g.id) + '\',\'' + escJs(g.fileName) + '\',true)">' + esc(tr('btn_del_file')) + '</button>' : '');
+    (g.isRom ? '<button class="btn sm danger" onclick="deleteFile(\'' + escJs(g.id) + '\',\'' + escJs(g.fileName) + '\',true)">' + esc(tr('btn_del_file')) + '</button>' : '') +
+    '<button class="btn sm primary" onclick="closeModal()">' + esc(tr('btn_close')) + '</button>';
 
-  el('modalBg').classList.add('drawer-mode', 'open');
+  el('modalBg').classList.add('open');
 }
 
 async function refreshGameMetaFromHandheld(id) {
@@ -2992,7 +3020,7 @@ function openScrapeLogsModal() {
 }
 
 function closeModal() {
-  el('modalBg').classList.remove('open', 'drawer-mode');
+  el('modalBg').classList.remove('open');
   el('mBody').innerHTML = '';
   el('mFoot').innerHTML = '';
 }

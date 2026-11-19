@@ -498,6 +498,7 @@ fun DefaultCoverArt(
     appIcon: ImageBitmap? = null,
 ) {
     val p = LocalDeckColors.current
+    val tiny = cardHeight < 64.dp
     val compact = cardHeight < 120.dp
 
     Box(
@@ -512,11 +513,19 @@ fun DefaultCoverArt(
                     end = Offset(w, h),
                 )
                 // 手柄图标几何（白色线性），仅在尺寸变化时重算
-                val iconScale = if (compact) 0.40f else 0.34f
+                val iconScale = when {
+                    tiny -> 0.56f
+                    compact -> 0.40f
+                    else -> 0.34f
+                }
                 val gw = w * iconScale
                 val gh = gw * 0.62f
                 val gx = (w - gw) / 2f
-                val gy = if (centeredTitle) h * 0.20f else h * 0.30f
+                val gy = when {
+                    tiny -> (h - gh) / 2f
+                    centeredTitle -> h * 0.20f
+                    else -> h * 0.30f
+                }
                 val strokeW = (if (compact) 1.6f else 2.4f).dp.toPx()
                 val stroke = Stroke(width = strokeW)
                 val bodyCorner = CornerRadius(gh * 0.48f, gh * 0.48f)
@@ -552,7 +561,9 @@ fun DefaultCoverArt(
             )
         }
 
-        if (centeredTitle) {
+        if (tiny) {
+            // 极小列表缩略图仅展示居中图标，避免与外侧标题重叠
+        } else if (centeredTitle) {
             // 气泡或极小卡片：居中简洁显示标题
             Column(
                 Modifier

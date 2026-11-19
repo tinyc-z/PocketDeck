@@ -174,6 +174,23 @@ class HomeViewModel(
     private var initialTabPicked = false
     private var focusResolveJob: Job? = null
 
+    /**
+     * 活跃标签页排序列表 LRU 缓存（仅常驻最近访问的 5 个标签页），
+     * 避免 30+ 分类、上万款游戏场景下反复全量排序或常驻过多分类列表占用内存。
+     */
+    private data class TabGamesCacheKey(
+        val tabId: String,
+        val tabType: TabType,
+        val libIdentity: Int,
+        val sortOrder: CategorySortOrder?,
+        val listSignature: Int,
+    )
+
+    private val tabGamesLru = object : LinkedHashMap<TabGamesCacheKey, List<Game>>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TabGamesCacheKey, List<Game>>?): Boolean =
+            size > 5
+    }
+
     init {
         viewModelScope.launch {
             var lastLib: Library? = null
@@ -490,23 +507,6 @@ class HomeViewModel(
         return all.withIndex()
             .sortedBy { (i, t) -> order[t.id] ?: (100_000 + i) }
             .map { it.value }
-    }
-
-    /**
-     * 活跃标签页排序列表 LRU 缓存（仅常驻最近访问的 5 个标签页），
-     * 避免 30+ 分类、上万款游戏场景下反复全量排序或常驻过多分类列表占用内存。
-     */
-    private data class TabGamesCacheKey(
-        val tabId: String,
-        val tabType: TabType,
-        val libIdentity: Int,
-        val sortOrder: CategorySortOrder?,
-        val listSignature: Int,
-    )
-
-    private val tabGamesLru = object : LinkedHashMap<TabGamesCacheKey, List<Game>>(8, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TabGamesCacheKey, List<Game>>?): Boolean =
-            size > 5
     }
 
     private fun getGamesForTab(
