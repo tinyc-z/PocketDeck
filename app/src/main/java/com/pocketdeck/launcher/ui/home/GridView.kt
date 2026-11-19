@@ -18,21 +18,28 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.ui.components.GameCoverCard
 import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 const val GRID_COLUMNS = 5
 
@@ -51,6 +58,7 @@ fun GridView(
     onLaunch: (Game) -> Unit,
     onLongPress: ((Game) -> Unit)? = null,
     fastScrolling: Boolean = false,
+    idlePaused: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (games.isEmpty()) {
@@ -60,6 +68,24 @@ fun GridView(
 
     val gridState = rememberLazyGridState()
     val reduceMotion = LocalReduceMotion.current
+
+    // 选中卡片停稳 120ms 后的微幅 3D 立体倾斜呼吸（纯 graphicsLayer 零重组，幅度克制自然）
+    val cardIdleSeconds = remember { mutableFloatStateOf(0f) }
+    val cardIdleEnvelope = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(focusIndex, fastScrolling, reduceMotion, idlePaused, games.size) {
+        cardIdleSeconds.floatValue = 0f
+        cardIdleEnvelope.floatValue = 0f
+        if (reduceMotion || fastScrolling || idlePaused || games.isEmpty()) return@LaunchedEffect
+        delay(120L)
+        val startNs = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { nowNs ->
+                val sec = (nowNs - startNs) / 1_000_000_000f
+                cardIdleSeconds.floatValue = sec
+                cardIdleEnvelope.floatValue = (sec / 0.65f).coerceIn(0f, 1f)
+            }
+        }
+    }
     var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(focusIndex, games.size, reduceMotion) {
         if (focusIndex !in games.indices) return@LaunchedEffect
@@ -152,6 +178,25 @@ fun GridView(
                         onLongPress?.let { cb -> { cb(game) } }
                     }
 
+                    val cardTiltMod = if (focused && !reduceMotion) {
+                        Modifier
+                            .zIndex(1f)
+                            .graphicsLayer {
+                                val env = cardIdleEnvelope.floatValue
+                                if (env > 0f) {
+                                    val t = cardIdleSeconds.floatValue
+                                    val omegaY = (2f * PI.toFloat()) / 5.6f
+                                    val omegaX = (2f * PI.toFloat()) / 4.4f
+                                    rotationY = sin(t * omegaY) * 3.0f * env
+                                    rotationX = cos(t * omegaX) * 2.2f * env
+                                    translationY = sin(t * omegaX) * 0.8.dp.toPx() * env
+                                    cameraDistance = 12f * density
+                                }
+                            }
+                    } else {
+                        Modifier
+                    }
+
                     GameCoverCard(
                         game = game,
                         platform = plat,
@@ -166,6 +211,7 @@ fun GridView(
                         focusedScale = 1.09f,
                         unfocusedScale = 0.94f,
                         unfocusedAlpha = 0.72f,
+                        modifier = cardTiltMod,
                         onClick = itemOnClick,
                         onLongPress = itemOnLongPress,
                     )

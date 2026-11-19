@@ -1380,6 +1380,7 @@ private fun HomeContentSlot(
             onLaunch = onLaunch,
             onLongPress = onLongPress,
             fastScrolling = isFastScrolling,
+            idlePaused = idlePaused,
             modifier = Modifier.fillMaxSize(),
         )
         ViewMode.Bubbles -> BubblesView(
