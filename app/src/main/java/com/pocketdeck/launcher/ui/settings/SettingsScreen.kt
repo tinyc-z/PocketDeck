@@ -803,9 +803,9 @@ fun SettingsScreen(
                     when {
                         event.key == Key.DirectionUp -> browser.move(-1)
                         event.key == Key.DirectionDown -> browser.move(1)
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy) || event.key == Key.DirectionRight ->
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionRight ->
                             browser.confirm()?.let { manage.addDir(it); browsing = false }
-                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy) || event.key == Key.DirectionLeft ->
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionLeft ->
                             if (!browser.up()) browsing = false
                     }
                     return@onPreviewKeyEvent true
@@ -814,10 +814,10 @@ fun SettingsScreen(
                     when {
                         event.key == Key.DirectionUp -> m.move(-1)
                         event.key == Key.DirectionDown -> m.move(1)
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy) -> {
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
                             val item = m.items.getOrNull(m.index); menu = null; item?.action?.invoke()
                         }
-                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy) || event.key == Key.DirectionLeft -> menu = null
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionLeft -> menu = null
                     }
                     return@onPreviewKeyEvent true
                 }
@@ -857,12 +857,12 @@ fun SettingsScreen(
                     when {
                         event.key == Key.DirectionUp -> langPicker = (idx - 1).coerceAtLeast(0)
                         event.key == Key.DirectionDown -> langPicker = (idx + 1).coerceAtMost(AppLocale.CODES.size - 1)
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy) -> {
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
                             langPicker = null
                             val code = AppLocale.CODES[idx]
                             if (code != state.language) onLanguageChange(code)
                         }
-                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy) || event.key == Key.DirectionLeft ->
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionLeft ->
                             langPicker = null
                     }
                     return@onPreviewKeyEvent true

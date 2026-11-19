@@ -13,6 +13,8 @@ enum class KeyAction {
     Play,
     Back,
     Menu,
+    ViewMode,
+    Search,
 }
 
 /** 统一手柄按键映射（支持 Swap ABXY 与自定义按键绑定）。 */
@@ -30,6 +32,8 @@ object GamepadKeys {
         KeyAction.Play -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_B else KeyEvent.KEYCODE_BUTTON_A
         KeyAction.Back -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_A else KeyEvent.KEYCODE_BUTTON_B
         KeyAction.Menu -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_Y else KeyEvent.KEYCODE_BUTTON_X
+        KeyAction.ViewMode -> KeyEvent.KEYCODE_BUTTON_SELECT
+        KeyAction.Search -> KeyEvent.KEYCODE_BUTTON_START
     }
 
     /** 解析某操作当前生效的 Android keyCode（可能返回 [UNBOUND]）。 */
@@ -66,6 +70,8 @@ object GamepadKeys {
             KeyAction.NextTab -> key == Key.PageDown
             KeyAction.Apps -> key == Key.F1
             KeyAction.Settings -> key == Key.F2
+            KeyAction.ViewMode -> key == Key.F4
+            KeyAction.Search -> key == Key.F5 || key == Key.Search || key == Key.Slash
             KeyAction.Back -> false
         }
     }
@@ -111,6 +117,18 @@ object GamepadKeys {
         swapAbxy: Boolean,
         bindings: Map<KeyAction, Int> = emptyMap(),
     ): Boolean = matches(key, KeyAction.NextTab, bindings, swapAbxy)
+
+    fun isViewMode(
+        key: Key,
+        swapAbxy: Boolean,
+        bindings: Map<KeyAction, Int> = emptyMap(),
+    ): Boolean = matches(key, KeyAction.ViewMode, bindings, swapAbxy)
+
+    fun isSearch(
+        key: Key,
+        swapAbxy: Boolean,
+        bindings: Map<KeyAction, Int> = emptyMap(),
+    ): Boolean = matches(key, KeyAction.Search, bindings, swapAbxy)
 
     fun isBack(key: Key): Boolean = key == Key.Back || key == Key.Escape
 

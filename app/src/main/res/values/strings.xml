@@ -333,6 +333,8 @@
     <string name="key_action_play">Play / OK</string>
     <string name="key_action_back">Back</string>
     <string name="key_action_menu">Game menu</string>
+    <string name="key_action_view_mode">Switch view</string>
+    <string name="key_action_search">Search</string>
     <string name="keybind_capture_title">Bind “%s”</string>
     <string name="keybind_capture_prompt">Press a button…</string>
     <string name="keybind_current">Current:</string>

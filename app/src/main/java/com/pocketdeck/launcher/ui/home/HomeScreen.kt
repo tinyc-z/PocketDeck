@@ -528,11 +528,11 @@ fun HomeScreen(
                         vm.toggleSettings()
                         true
                     }
-                    event.key == Key.F4 || event.key == Key.ButtonSelect -> {
+                    GamepadKeys.isViewMode(event.key, state.swapAbxy, state.keyBindings) -> {
                         vm.openViewMenu()
                         true
                     }
-                    event.key == Key.F5 || event.key == Key.Search || event.key == Key.Slash -> {
+                    GamepadKeys.isSearch(event.key, state.swapAbxy, state.keyBindings) -> {
                         vm.toggleSearch()
                         true
                     }

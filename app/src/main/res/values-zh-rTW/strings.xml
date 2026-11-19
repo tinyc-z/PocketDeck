@@ -332,6 +332,8 @@
     <string name="key_action_play">開始 / 確認</string>
     <string name="key_action_back">返回</string>
     <string name="key_action_menu">遊戲選單</string>
+    <string name="key_action_view_mode">切換檢視</string>
+    <string name="key_action_search">搜尋</string>
     <string name="keybind_capture_title">綁定「%s」</string>
     <string name="keybind_capture_prompt">請按下按鍵…</string>
     <string name="keybind_current">目前按鍵：</string>
