@@ -261,7 +261,6 @@ fun HomeScreen(
     val scrollCtrl = remember {
         object {
             var lastNavKeyMs: Long = 0L
-            var lastTabSwitchMs: Long = 0L
             var fastScrollJob: Job? = null
             var navAnimJob: Job? = null
         }
@@ -359,15 +358,6 @@ fun HomeScreen(
                             GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) ||
                             (state.viewMode == ViewMode.List && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight))
                         )
-                if (isHomeTabSwitchKey) {
-                    val now = SystemClock.uptimeMillis()
-                    // 单按零延迟；长按连发限速 60ms（约 16 格/秒），既保持疾速切换又让顶栏胶囊动画顺滑跟得上
-                    val minGap = if (event.nativeKeyEvent.repeatCount > 0) 60L else 0L
-                    if (minGap > 0L && now - scrollCtrl.lastTabSwitchMs < minGap) {
-                        return@onPreviewKeyEvent true
-                    }
-                    scrollCtrl.lastTabSwitchMs = now
-                }
 
                 if (state.keySoundEnabled &&
                     !capturingKeyBind &&
