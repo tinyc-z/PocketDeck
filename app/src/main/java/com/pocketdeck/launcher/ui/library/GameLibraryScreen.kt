@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -1127,33 +1128,43 @@ fun GameLibraryScreen(
     }
 
     // Files Toolbar 动作列表（确保全键盘/手柄可达）
-    val filesToolbarActions: List<Pair<String, () -> Unit>> = if (!multiSelectMode) {
+    val filesToolbarActions: List<FilesToolbarAction> = if (!multiSelectMode) {
         buildList {
-            add("⌕" to {
-                if (fileSearchOpen) {
-                    fileSearchOpen = false
-                    fileSearchQuery = ""
-                    selectedIdx = 0
-                } else {
-                    fileSearchOpen = true
-                    fileSearchChipIdx = 0
-                }
-            })
+            add(
+                FilesToolbarAction(
+                    icon = DeckIcons.Search,
+                    active = fileSearchOpen || fileSearchQuery.isNotBlank(),
+                    onClick = {
+                        if (fileSearchOpen) {
+                            fileSearchOpen = false
+                            fileSearchQuery = ""
+                            selectedIdx = 0
+                        } else {
+                            fileSearchOpen = true
+                            fileSearchChipIdx = 0
+                        }
+                    },
+                ),
+            )
             if (currentDir != null) {
-                add("$storageLocationsLabel" to {
-                    pendingFocusPath = currentDir?.path
-                    fileSearchOpen = false
-                    fileSearchQuery = ""
-                    currentDir = null
-                    filesToolbarIdx = 0
-                })
-                add(stringResource(R.string.lib_new_folder) to ::openNewFolderDialog)
-                if (fileEntries.isNotEmpty()) {
-                    add("☑ ${stringResource(R.string.lib_multi_select)}" to {
-                        multiSelectMode = true
-                        selectedPaths = emptySet()
+                add(
+                    FilesToolbarAction(label = "$storageLocationsLabel") {
+                        pendingFocusPath = currentDir?.path
+                        fileSearchOpen = false
+                        fileSearchQuery = ""
+                        currentDir = null
                         filesToolbarIdx = 0
-                    })
+                    },
+                )
+                add(FilesToolbarAction(label = stringResource(R.string.lib_new_folder), onClick = ::openNewFolderDialog))
+                if (fileEntries.isNotEmpty()) {
+                    add(
+                        FilesToolbarAction(label = "☑ ${stringResource(R.string.lib_multi_select)}") {
+                            multiSelectMode = true
+                            selectedPaths = emptySet()
+                            filesToolbarIdx = 0
+                        },
+                    )
                 }
             }
         }
@@ -1162,17 +1173,21 @@ fun GameLibraryScreen(
     } else {
         buildList {
             val allChecked = fileEntries.isNotEmpty() && selectedPaths.size == fileEntries.size
-            add((if (allChecked) stringResource(R.string.lib_select_clear) else selectAllLabel) to {
-                selectedPaths = if (allChecked) emptySet() else fileEntries.map { it.path }.toSet()
-            })
+            add(
+                FilesToolbarAction(label = if (allChecked) stringResource(R.string.lib_select_clear) else selectAllLabel) {
+                    selectedPaths = if (allChecked) emptySet() else fileEntries.map { it.path }.toSet()
+                },
+            )
             if (selectedPaths.isNotEmpty()) {
-                add(stringResource(R.string.lib_batch_actions, selectedPaths.size) to ::openBatchMenu)
+                add(FilesToolbarAction(label = stringResource(R.string.lib_batch_actions, selectedPaths.size), onClick = ::openBatchMenu))
             }
-            add(exitMultiLabel to {
-                multiSelectMode = false
-                selectedPaths = emptySet()
-                filesToolbarIdx = 0
-            })
+            add(
+                FilesToolbarAction(label = exitMultiLabel) {
+                    multiSelectMode = false
+                    selectedPaths = emptySet()
+                    filesToolbarIdx = 0
+                },
+            )
         }
     }
 
@@ -1483,7 +1498,7 @@ fun GameLibraryScreen(
                                 }
                             }
                             LibraryZone.Filter -> triggerFilterChip(filterChipIdx)
-                            LibraryZone.FilesToolbar -> filesToolbarActions.getOrNull(filesToolbarIdx)?.second?.invoke()
+                            LibraryZone.FilesToolbar -> filesToolbarActions.getOrNull(filesToolbarIdx)?.onClick?.invoke()
                             LibraryZone.List -> {
                                 if (mode == LibraryMode.Games) {
                                     filteredGames.getOrNull(selectedIdx)?.let(::openGameMenu)
@@ -1675,7 +1690,7 @@ fun GameLibraryScreen(
                                 .padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 14.dp)
+                            DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 16.dp)
                             Spacer(Modifier.width(8.dp))
                             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                                 if (searchQuery.isEmpty()) {
@@ -1724,8 +1739,8 @@ fun GameLibraryScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         item {
-                            FilterChipPill(
-                                label = "⌕",
+                            FilterIconPill(
+                                icon = DeckIcons.Search,
                                 selected = gameSearchOpen || searchQuery.isNotBlank(),
                                 focused = focusZone == LibraryZone.Filter && filterChipIdx == 0,
                                 onClick = {
@@ -1925,19 +1940,48 @@ fun GameLibraryScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    filesToolbarActions.forEachIndexed { tIdx, (label, onClick) ->
+                    filesToolbarActions.forEachIndexed { tIdx, action ->
                         val tHl = focusZone == LibraryZone.FilesToolbar && filesToolbarIdx == tIdx
-                        Text(
-                            label,
-                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                            color = DeckColors.Ruby,
-                            modifier = Modifier
-                                .clip(DeckShapes.tabPill)
-                                .background(DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f))
-                                .brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
-                                .soundClickable(onClick = onClick)
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
+                        if (action.icon != null) {
+                            val active = action.active
+                            Box(
+                                Modifier
+                                    .clip(DeckShapes.tabPill)
+                                    .brandPillBackground(
+                                        selected = active,
+                                        shape = DeckShapes.tabPill,
+                                        unselectedColor = DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f),
+                                    )
+                                    .then(
+                                        if (active) {
+                                            if (tHl) Modifier.border(1.4.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill) else Modifier
+                                        } else {
+                                            Modifier.brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
+                                        },
+                                    )
+                                    .soundClickable(onClick = action.onClick)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                DeckIcon(
+                                    icon = action.icon,
+                                    tint = if (active) Color.White else DeckColors.Ruby,
+                                    size = 18.dp,
+                                )
+                            }
+                        } else {
+                            Text(
+                                action.label,
+                                style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                                color = DeckColors.Ruby,
+                                modifier = Modifier
+                                    .clip(DeckShapes.tabPill)
+                                    .background(DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f))
+                                    .brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
+                                    .soundClickable(onClick = action.onClick)
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                            )
+                        }
                     }
                 }
 
@@ -1966,7 +2010,7 @@ fun GameLibraryScreen(
                                 .padding(horizontal = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 14.dp)
+                            DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 16.dp)
                             Spacer(Modifier.width(8.dp))
                             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                                 if (fileSearchQuery.isEmpty()) {
@@ -2684,6 +2728,50 @@ private fun ModePill(
             .soundClickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp),
     )
+}
+
+private data class FilesToolbarAction(
+    val label: String = "",
+    val icon: ImageVector? = null,
+    val active: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun FilterIconPill(
+    icon: ImageVector,
+    selected: Boolean,
+    focused: Boolean = false,
+    accent: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val activeBg = if (accent) DeckColors.AccentSoft else DeckColors.PillSelected
+    val activeFg = if (accent) DeckColors.Ruby else DeckColors.PillText
+    Box(
+        modifier = Modifier
+            .clip(DeckShapes.tabPill)
+            .brandPillBackground(
+                selected = selected,
+                shape = DeckShapes.tabPill,
+                unselectedColor = if (focused) activeBg else DeckColors.Surface,
+            )
+            .then(
+                if (selected) {
+                    if (focused) Modifier.border(1.4.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill) else Modifier
+                } else {
+                    Modifier.brandBorder(active = focused, shape = DeckShapes.tabPill, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
+                },
+            )
+            .soundClickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        DeckIcon(
+            icon = icon,
+            tint = if (selected) Color.White else if (focused) activeFg else DeckColors.TextSecondary,
+            size = 18.dp,
+        )
+    }
 }
 
 @Composable

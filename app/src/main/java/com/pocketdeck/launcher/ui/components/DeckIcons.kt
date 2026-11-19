@@ -420,16 +420,12 @@ object DeckIcons {
         }
     }
 
-    /** 搜索 */
+    /** 搜索（镜面朝右上、手柄朝左下，与游戏库 / 文件管理搜索按钮方向一致） */
     val Search: ImageVector by lazy {
-        strokeIcon("Search") {
-            strokePath {
-                moveTo(11f, 4f)
-                curveTo(14.87f, 4f, 18f, 7.13f, 18f, 11f)
-                reflectiveCurveTo(14.87f, 18f, 11f, 18f)
-                reflectiveCurveTo(4f, 14.87f, 4f, 11f)
-                reflectiveCurveTo(7.13f, 4f, 11f, 4f)
-                moveTo(20.5f, 20.5f); lineTo(16.2f, 16.2f)
+        strokeIcon("Search", strokeWidth = 2.0f) {
+            strokePath(strokeWidth = 2.0f) {
+                circle(13.25f, 10.75f, 7f)
+                moveTo(8.3f, 15.7f); lineTo(3.75f, 20.25f)
             }
         }
     }
