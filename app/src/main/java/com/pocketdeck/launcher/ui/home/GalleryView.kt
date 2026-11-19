@@ -635,6 +635,8 @@ internal fun BoxScope.FocusedGameFloatingPill(
     total: Int,
     placeAtTop: Boolean,
     fastScrolling: Boolean = false,
+    showPlatformBadge: Boolean = true,
+    showFavoriteBadge: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     if (game == null) return
@@ -646,6 +648,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
     val hairline = remember(p.brandStart, p.brandMid, p.brandEnd) {
         Brush.horizontalGradient(listOf(p.brandStart, p.brandMid, p.brandEnd))
     }
+    val badgeLabel = if (showPlatformBadge) platform?.shortName?.takeIf { it.isNotBlank() } else null
 
     Row(
         modifier
@@ -670,11 +673,16 @@ internal fun BoxScope.FocusedGameFloatingPill(
             )
             .background(p.surface, CircleShape)
             .border(1.dp, hairline, CircleShape)
-            .padding(start = 8.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
+            .padding(
+                start = if (badgeLabel != null) 8.dp else 14.dp,
+                end = 14.dp,
+                top = 5.dp,
+                bottom = 5.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        platform?.shortName?.takeIf { it.isNotBlank() }?.let { shortName ->
-            PlatformBadge(label = shortName, compact = false)
+        if (badgeLabel != null) {
+            PlatformBadge(label = badgeLabel, compact = false)
             Spacer(Modifier.width(8.dp))
         }
         Text(
@@ -691,7 +699,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
                     .basicMarquee(iterations = Int.MAX_VALUE)
             },
         )
-        if (isFavorite) {
+        if (showFavoriteBadge && isFavorite) {
             Spacer(Modifier.width(7.dp))
             BrandHeartBadge(size = 16.dp, shadow = false)
         }

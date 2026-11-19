@@ -181,6 +181,8 @@ fun GridView(
             total = games.size,
             placeAtTop = placePillAtTop,
             fastScrolling = fastScrolling,
+            showPlatformBadge = false,
+            showFavoriteBadge = false,
         )
     }
 }
