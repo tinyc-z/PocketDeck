@@ -79,7 +79,6 @@ import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.launch.GameLauncher
-import com.pocketdeck.launcher.ui.apps.drawBackArrow
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
@@ -191,7 +190,6 @@ fun EditGameScreen(
                 .fillMaxSize()
                 .background(DeckColors.Background),
         ) {
-        val backTint = DeckColors.TextPrimary
         Row(
             Modifier
                 .fillMaxWidth()
@@ -202,10 +200,18 @@ fun EditGameScreen(
             Box(
                 Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onDismiss)
-                    .drawBehind { drawBackArrow(backTint) },
-            )
+                    .clip(CircleShape)
+                    .background(DeckColors.Surface)
+                    .border(0.6.dp, DeckColors.Line, CircleShape)
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center,
+            ) {
+                DeckIcon(
+                    icon = DeckIcons.ChevronLeft,
+                    tint = DeckColors.TextPrimary,
+                    size = 18.dp,
+                )
+            }
             Spacer(Modifier.width(12.dp))
             Text(
                 text = stringResource(R.string.edit_game),

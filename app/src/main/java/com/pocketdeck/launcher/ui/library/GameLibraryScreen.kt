@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,10 +28,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -84,6 +87,7 @@ import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.InlineExpandableSearchPill
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.data.Category
 import com.pocketdeck.launcher.data.CoverResolutionInfo
@@ -103,7 +107,6 @@ import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.lan.LanServerManager
 import com.pocketdeck.launcher.lan.QuickShareService
 import com.pocketdeck.launcher.launch.GameLauncher
-import com.pocketdeck.launcher.ui.apps.drawBackArrow
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
@@ -144,7 +147,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 enum class LibraryMode { Games, Files }
 enum class GamesFilter { All, Visible, Hidden, Uncategorized }
-private enum class LibraryZone { Header, Search, Filter, FilesToolbar, List }
+private enum class LibraryZone { Header, Filter, FilesToolbar, List }
 
 private data class ShareFileTarget(
     val files: List<File>,
@@ -433,7 +436,8 @@ fun GameLibraryScreen(
     var searchQuery by remember { mutableStateOf("") }
     LaunchedEffect(gameSearchOpen) {
         if (gameSearchOpen) {
-            delay(60)
+            runCatching { filterRowState.animateScrollToItem(0) }
+            delay(80)
             runCatching { searchFieldFr.requestFocus() }
         }
     }
@@ -442,7 +446,6 @@ fun GameLibraryScreen(
     var fileSearchRecursive by remember { mutableStateOf(false) }
     var fileSearchFieldFocused by remember { mutableStateOf(false) }
     val fileSearchFieldFr = remember { FocusRequester() }
-    var fileSearchChipIdx by remember { mutableIntStateOf(0) } // 0=Input, 1=Current dir, 2=Recursive
     var fileSearching by remember { mutableStateOf(false) }
     var selectedIdx by remember { mutableIntStateOf(0) }
 
@@ -1132,16 +1135,12 @@ fun GameLibraryScreen(
         buildList {
             add(
                 FilesToolbarAction(
-                    icon = DeckIcons.Search,
-                    active = fileSearchOpen || fileSearchQuery.isNotBlank(),
+                    isSearch = true,
                     onClick = {
-                        if (fileSearchOpen) {
-                            fileSearchOpen = false
-                            fileSearchQuery = ""
-                            selectedIdx = 0
-                        } else {
+                        if (!fileSearchOpen) {
                             fileSearchOpen = true
-                            fileSearchChipIdx = 0
+                        } else {
+                            runCatching { fileSearchFieldFr.requestFocus() }
                         }
                     },
                 ),
@@ -1213,11 +1212,10 @@ fun GameLibraryScreen(
     fun triggerFilterChip(idx: Int) {
         when (idx) {
             0 -> {
-                if (gameSearchOpen) {
-                    gameSearchOpen = false
-                    searchQuery = ""
-                } else {
+                if (!gameSearchOpen) {
                     gameSearchOpen = true
+                } else {
+                    runCatching { searchFieldFr.requestFocus() }
                 }
                 selectedIdx = 0
             }
@@ -1285,12 +1283,12 @@ fun GameLibraryScreen(
                     return@onPreviewKeyEvent when (event.key) {
                         Key.Escape, Key.Back -> {
                             focusRequester.requestFocus()
-                            focusZone = LibraryZone.Search
+                            focusZone = if (searchFieldFocused) LibraryZone.Filter else LibraryZone.FilesToolbar
                             true
                         }
                         Key.DirectionDown -> {
                             focusRequester.requestFocus()
-                            focusZone = if (searchFieldFocused) LibraryZone.Filter else LibraryZone.List
+                            focusZone = LibraryZone.List
                             true
                         }
                         else -> false
@@ -1353,11 +1351,6 @@ fun GameLibraryScreen(
                             LibraryZone.Header -> headerIdx = (headerIdx - 1).coerceAtLeast(0)
                             LibraryZone.Filter -> filterChipIdx = (filterChipIdx - 1).coerceAtLeast(0)
                             LibraryZone.FilesToolbar -> filesToolbarIdx = (filesToolbarIdx - 1).coerceAtLeast(0)
-                            LibraryZone.Search -> {
-                                if (mode == LibraryMode.Files) {
-                                    fileSearchChipIdx = (fileSearchChipIdx - 1).coerceAtLeast(0)
-                                }
-                            }
                             LibraryZone.List -> Unit
                         }
                         true
@@ -1371,11 +1364,6 @@ fun GameLibraryScreen(
                                     filesToolbarIdx = (filesToolbarIdx + 1).coerceAtMost(filesToolbarActions.lastIndex)
                                 }
                             }
-                            LibraryZone.Search -> {
-                                if (mode == LibraryMode.Files) {
-                                    fileSearchChipIdx = (fileSearchChipIdx + 1).coerceAtMost(2)
-                                }
-                            }
                             LibraryZone.List -> Unit
                         }
                         true
@@ -1383,19 +1371,7 @@ fun GameLibraryScreen(
                     event.key == Key.DirectionUp -> {
                         when (focusZone) {
                             LibraryZone.Header -> Unit
-                            LibraryZone.Search -> {
-                                focusZone = if (mode == LibraryMode.Files && filesToolbarActions.isNotEmpty()) {
-                                    filesToolbarIdx = filesToolbarIdx.coerceIn(0, filesToolbarActions.lastIndex)
-                                    LibraryZone.FilesToolbar
-                                } else {
-                                    LibraryZone.Header
-                                }
-                            }
-                            LibraryZone.Filter -> focusZone = if (gameSearchOpen || searchQuery.isNotBlank()) {
-                                LibraryZone.Search
-                            } else {
-                                LibraryZone.Header
-                            }
+                            LibraryZone.Filter -> focusZone = LibraryZone.Header
                             LibraryZone.FilesToolbar -> focusZone = LibraryZone.Header
                             LibraryZone.List -> {
                                 if (selectedIdx > 0) {
@@ -1403,7 +1379,6 @@ fun GameLibraryScreen(
                                 } else {
                                     focusZone = when {
                                         mode == LibraryMode.Games -> LibraryZone.Filter
-                                        fileSearchOpen -> LibraryZone.Search
                                         filesToolbarActions.isNotEmpty() -> {
                                             filesToolbarIdx = filesToolbarIdx.coerceIn(0, filesToolbarActions.lastIndex)
                                             LibraryZone.FilesToolbar
@@ -1419,31 +1394,16 @@ fun GameLibraryScreen(
                         when (focusZone) {
                             LibraryZone.Header -> {
                                 focusZone = when {
-                                    mode == LibraryMode.Games -> if (gameSearchOpen || searchQuery.isNotBlank()) {
-                                        LibraryZone.Search
-                                    } else {
-                                        LibraryZone.Filter
-                                    }
+                                    mode == LibraryMode.Games -> LibraryZone.Filter
                                     filesToolbarActions.isNotEmpty() -> {
                                         filesToolbarIdx = filesToolbarIdx.coerceIn(0, filesToolbarActions.lastIndex)
                                         LibraryZone.FilesToolbar
                                     }
-                                    fileSearchOpen -> LibraryZone.Search
                                     else -> LibraryZone.List
                                 }
                             }
                             LibraryZone.FilesToolbar -> {
-                                if (fileSearchOpen) {
-                                    focusZone = LibraryZone.Search
-                                } else if (activeItemCount > 0) {
-                                    focusZone = LibraryZone.List
-                                    selectedIdx = selectedIdx.coerceIn(0, activeItemCount - 1)
-                                }
-                            }
-                            LibraryZone.Search -> {
-                                if (mode == LibraryMode.Games) {
-                                    focusZone = LibraryZone.Filter
-                                } else if (activeItemCount > 0) {
+                                if (activeItemCount > 0) {
                                     focusZone = LibraryZone.List
                                     selectedIdx = selectedIdx.coerceIn(0, activeItemCount - 1)
                                 }
@@ -1480,23 +1440,6 @@ fun GameLibraryScreen(
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
                         when (focusZone) {
                             LibraryZone.Header -> triggerHeader(headerIdx)
-                            LibraryZone.Search -> {
-                                if (mode == LibraryMode.Games) {
-                                    searchFieldFr.requestFocus()
-                                } else {
-                                    when (fileSearchChipIdx) {
-                                        0 -> fileSearchFieldFr.requestFocus()
-                                        1 -> {
-                                            fileSearchRecursive = false
-                                            selectedIdx = 0
-                                        }
-                                        else -> {
-                                            fileSearchRecursive = true
-                                            selectedIdx = 0
-                                        }
-                                    }
-                                }
-                            }
                             LibraryZone.Filter -> triggerFilterChip(filterChipIdx)
                             LibraryZone.FilesToolbar -> filesToolbarActions.getOrNull(filesToolbarIdx)?.onClick?.invoke()
                             LibraryZone.List -> {
@@ -1534,7 +1477,6 @@ fun GameLibraryScreen(
     ) {
         Column(Modifier.fillMaxSize()) {
             // 顶部标题栏
-            val backTint = DeckColors.TextPrimary
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1546,12 +1488,18 @@ fun GameLibraryScreen(
                 Box(
                     Modifier
                         .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (backHl) DeckColors.AccentSoft else Color.Transparent)
-                        .brandBorder(active = backHl, shape = RoundedCornerShape(8.dp), activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
-                        .soundClickable(onClick = onDismiss)
-                        .drawBehind { drawBackArrow(backTint) },
-                )
+                        .clip(CircleShape)
+                        .background(if (backHl) DeckColors.AccentSoft else DeckColors.Surface)
+                        .brandBorder(active = backHl, shape = CircleShape, activeWidth = 1.3.dp, inactiveWidth = 0.6.dp)
+                        .soundClickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    DeckIcon(
+                        icon = DeckIcons.ChevronLeft,
+                        tint = if (backHl) DeckColors.Ruby else DeckColors.TextPrimary,
+                        size = 18.dp,
+                    )
+                }
                 Spacer(Modifier.width(10.dp))
                 GameLibraryAppIcon(size = 28.dp)
                 Spacer(Modifier.width(10.dp))
@@ -1671,89 +1619,44 @@ fun GameLibraryScreen(
             HorizontalDivider(color = DeckColors.Line, thickness = 1.dp)
 
             if (mode == LibraryMode.Games) {
-                Column(
-                    Modifier
+                // 内联可展开搜索胶囊 + 状态筛选 + 平台筛选
+                LazyRow(
+                    state = filterRowState,
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                        .padding(vertical = 10.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (gameSearchOpen || searchQuery.isNotBlank()) {
-                        val searchHl = focusZone == LibraryZone.Search || searchFieldFocused
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(36.dp)
-                                .clip(DeckShapes.tabPill)
-                                .background(DeckColors.Surface)
-                                .brandBorder(active = searchHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.6.dp)
-                                .clickable { searchFieldFr.requestFocus() }
-                                .padding(horizontal = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 16.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        stringResource(R.string.lib_search_hint),
-                                        style = DeckType.settingsLabel,
-                                        color = DeckColors.TextSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = { searchQuery = it; selectedIdx = 0 },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                    keyboardActions = KeyboardActions(onSearch = {
-                                        focusRequester.requestFocus()
-                                        focusZone = LibraryZone.List
-                                    }),
-                                    textStyle = DeckType.settingsValue.copy(color = DeckColors.TextPrimary),
-                                    cursorBrush = SolidColor(DeckColors.Ruby),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(searchFieldFr)
-                                        .onFocusChanged { searchFieldFocused = it.isFocused },
-                                )
-                            }
-                            if (searchQuery.isNotEmpty()) {
-                                Text(
-                                    "✕",
-                                    style = DeckType.settingsLabel,
-                                    color = DeckColors.TextSecondary,
-                                    modifier = Modifier
-                                        .clickable { searchQuery = ""; selectedIdx = 0 }
-                                        .padding(horizontal = 4.dp),
-                                )
-                            }
-                        }
+                    item(key = "search") {
+                        val searchExpanded = gameSearchOpen || searchQuery.isNotBlank()
+                        InlineExpandableSearchPill(
+                            expanded = searchExpanded,
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it; selectedIdx = 0 },
+                            placeholder = stringResource(R.string.lib_search_hint),
+                            onOpen = {
+                                gameSearchOpen = true
+                                selectedIdx = 0
+                            },
+                            onClose = {
+                                searchQuery = ""
+                                gameSearchOpen = false
+                                selectedIdx = 0
+                                runCatching { focusRequester.requestFocus() }
+                            },
+                            focusRequester = searchFieldFr,
+                            expandedWidth = 180.dp,
+                            focused = focusZone == LibraryZone.Filter && filterChipIdx == 0,
+                            fieldFocused = searchFieldFocused,
+                            onFieldFocusChange = { searchFieldFocused = it },
+                            onSearchAction = {
+                                focusRequester.requestFocus()
+                                focusZone = LibraryZone.List
+                            },
+                        )
                     }
-
-                    // 搜索开关 + 状态筛选 + 平台筛选
-                    LazyRow(
-                        state = filterRowState,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        item {
-                            FilterIconPill(
-                                icon = DeckIcons.Search,
-                                selected = gameSearchOpen || searchQuery.isNotBlank(),
-                                focused = focusZone == LibraryZone.Filter && filterChipIdx == 0,
-                                onClick = {
-                                    if (gameSearchOpen) {
-                                        gameSearchOpen = false
-                                        searchQuery = ""
-                                    } else {
-                                        gameSearchOpen = true
-                                    }
-                                    selectedIdx = 0
-                                },
-                            )
-                        }
                         item {
                             FilterChipPill(
                                 label = stringResource(R.string.lib_filter_all),
@@ -1809,7 +1712,6 @@ fun GameLibraryScreen(
                             )
                         }
                     }
-                }
 
                 if (filteredGames.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1940,151 +1842,93 @@ fun GameLibraryScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    filesToolbarActions.forEachIndexed { tIdx, action ->
-                        val tHl = focusZone == LibraryZone.FilesToolbar && filesToolbarIdx == tIdx
-                        if (action.icon != null) {
-                            val active = action.active
-                            Box(
-                                Modifier
-                                    .clip(DeckShapes.tabPill)
-                                    .brandPillBackground(
-                                        selected = active,
-                                        shape = DeckShapes.tabPill,
-                                        unselectedColor = DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f),
-                                    )
-                                    .then(
-                                        if (active) {
-                                            if (tHl) Modifier.border(1.4.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill) else Modifier
-                                        } else {
-                                            Modifier.brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
-                                        },
-                                    )
-                                    .soundClickable(onClick = action.onClick)
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                DeckIcon(
-                                    icon = action.icon,
-                                    tint = if (active) Color.White else DeckColors.Ruby,
-                                    size = 18.dp,
-                                )
-                            }
-                        } else {
-                            Text(
-                                action.label,
-                                style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                                color = DeckColors.Ruby,
-                                modifier = Modifier
-                                    .clip(DeckShapes.tabPill)
-                                    .background(DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f))
-                                    .brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
-                                    .soundClickable(onClick = action.onClick)
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                            )
-                        }
-                    }
-                }
-
-                if (fileSearchOpen || fileSearchQuery.isNotBlank()) {
-                    val fileSearchBoxHl = (focusZone == LibraryZone.Search && fileSearchChipIdx == 0) || fileSearchFieldFocused
                     Row(
                         Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp)
-                            .padding(bottom = 8.dp),
+                            .widthIn(max = 438.dp)
+                            .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Row(
-                            Modifier
-                                .weight(1f)
-                                .height(34.dp)
-                                .clip(DeckShapes.tabPill)
-                                .background(DeckColors.Surface)
-                                .brandBorder(active = fileSearchBoxHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.6.dp)
-                                .clickable {
-                                    focusZone = LibraryZone.Search
-                                    fileSearchChipIdx = 0
-                                    fileSearchFieldFr.requestFocus()
-                                }
-                                .padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 16.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                                if (fileSearchQuery.isEmpty()) {
-                                    Text(
-                                        stringResource(
-                                            if (fileSearchRecursive) R.string.lib_files_search_recursive_hint
-                                            else R.string.lib_files_search_hint,
-                                        ),
-                                        style = DeckType.settingsLabel,
-                                        color = DeckColors.TextSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                BasicTextField(
-                                    value = fileSearchQuery,
-                                    onValueChange = { fileSearchQuery = it; selectedIdx = 0 },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                    keyboardActions = KeyboardActions(onSearch = {
+                        filesToolbarActions.forEachIndexed { tIdx, action ->
+                            val tHl = focusZone == LibraryZone.FilesToolbar && filesToolbarIdx == tIdx
+                            if (action.isSearch) {
+                                val fileSearchExpanded = fileSearchOpen || fileSearchQuery.isNotBlank()
+                                InlineExpandableSearchPill(
+                                    expanded = fileSearchExpanded,
+                                    query = fileSearchQuery,
+                                    onQueryChange = { fileSearchQuery = it; selectedIdx = 0 },
+                                    placeholder = stringResource(
+                                        if (fileSearchRecursive) R.string.lib_files_search_recursive_hint
+                                        else R.string.lib_files_search_hint,
+                                    ),
+                                    onOpen = {
+                                        fileSearchOpen = true
+                                        selectedIdx = 0
+                                    },
+                                    onClose = {
+                                        fileSearchQuery = ""
+                                        fileSearchOpen = false
+                                        selectedIdx = 0
+                                        runCatching { focusRequester.requestFocus() }
+                                    },
+                                    focusRequester = fileSearchFieldFr,
+                                    expandedWidth = 186.dp,
+                                    focused = tHl,
+                                    fieldFocused = fileSearchFieldFocused,
+                                    onFieldFocusChange = { fileSearchFieldFocused = it },
+                                    onSearchAction = {
                                         focusRequester.requestFocus()
                                         focusZone = LibraryZone.List
-                                    }),
-                                    textStyle = DeckType.settingsValue.copy(color = DeckColors.TextPrimary),
-                                    cursorBrush = SolidColor(DeckColors.Ruby),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(fileSearchFieldFr)
-                                        .onFocusChanged { fileSearchFieldFocused = it.isFocused },
-                                )
-                            }
-                            if (fileSearching) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(13.dp),
-                                    strokeWidth = 1.8.dp,
-                                    color = DeckColors.Ruby,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                            }
-                            Text(
-                                "✕",
-                                style = DeckType.settingsLabel,
-                                color = DeckColors.TextSecondary,
-                                modifier = Modifier
-                                    .clickable {
-                                        if (fileSearchQuery.isNotEmpty()) {
-                                            fileSearchQuery = ""
-                                        } else {
-                                            fileSearchOpen = false
+                                    },
+                                    collapsedBackground = DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f),
+                                    collapsedIconTint = DeckColors.Ruby,
+                                    collapsedBorderColor = Color.Transparent,
+                                    collapsedBorderWidth = 0.dp,
+                                    trailingContent = {
+                                        if (fileSearching) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(12.dp),
+                                                strokeWidth = 1.6.dp,
+                                                color = DeckColors.Ruby,
+                                            )
+                                            Spacer(Modifier.width(4.dp))
                                         }
-                                        selectedIdx = 0
-                                    }
-                                    .padding(horizontal = 4.dp),
-                            )
+                                        Text(
+                                            text = stringResource(R.string.lib_files_search_multi_short),
+                                            style = DeckType.metaLabel.copy(
+                                                fontSize = 10.sp,
+                                                fontWeight = if (fileSearchRecursive) FontWeight.SemiBold else FontWeight.Medium,
+                                            ),
+                                            color = if (fileSearchRecursive) Color.White else DeckColors.TextSecondary,
+                                            modifier = Modifier
+                                                .clip(DeckShapes.tabPill)
+                                                .brandPillBackground(
+                                                    selected = fileSearchRecursive,
+                                                    shape = DeckShapes.tabPill,
+                                                    unselectedColor = DeckColors.Background,
+                                                )
+                                                .soundClickable {
+                                                    fileSearchRecursive = !fileSearchRecursive
+                                                    selectedIdx = 0
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                    },
+                                )
+                            } else {
+                                Text(
+                                    action.label,
+                                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                                    color = DeckColors.Ruby,
+                                    modifier = Modifier
+                                        .clip(DeckShapes.tabPill)
+                                        .background(DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f))
+                                        .brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
+                                        .soundClickable(onClick = action.onClick)
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                )
+                            }
                         }
-
-                        FilterChipPill(
-                            label = stringResource(R.string.lib_files_search_current),
-                            selected = !fileSearchRecursive,
-                            focused = focusZone == LibraryZone.Search && fileSearchChipIdx == 1,
-                            onClick = {
-                                fileSearchRecursive = false
-                                selectedIdx = 0
-                            },
-                        )
-                        FilterChipPill(
-                            label = stringResource(R.string.lib_files_search_multi),
-                            selected = fileSearchRecursive,
-                            focused = focusZone == LibraryZone.Search && fileSearchChipIdx == 2,
-                            onClick = {
-                                fileSearchRecursive = true
-                                selectedIdx = 0
-                            },
-                        )
                     }
                 }
 
@@ -2732,47 +2576,9 @@ private fun ModePill(
 
 private data class FilesToolbarAction(
     val label: String = "",
-    val icon: ImageVector? = null,
-    val active: Boolean = false,
+    val isSearch: Boolean = false,
     val onClick: () -> Unit,
 )
-
-@Composable
-private fun FilterIconPill(
-    icon: ImageVector,
-    selected: Boolean,
-    focused: Boolean = false,
-    accent: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val activeBg = if (accent) DeckColors.AccentSoft else DeckColors.PillSelected
-    val activeFg = if (accent) DeckColors.Ruby else DeckColors.PillText
-    Box(
-        modifier = Modifier
-            .clip(DeckShapes.tabPill)
-            .brandPillBackground(
-                selected = selected,
-                shape = DeckShapes.tabPill,
-                unselectedColor = if (focused) activeBg else DeckColors.Surface,
-            )
-            .then(
-                if (selected) {
-                    if (focused) Modifier.border(1.4.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill) else Modifier
-                } else {
-                    Modifier.brandBorder(active = focused, shape = DeckShapes.tabPill, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
-                },
-            )
-            .soundClickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        DeckIcon(
-            icon = icon,
-            tint = if (selected) Color.White else if (focused) activeFg else DeckColors.TextSecondary,
-            size = 18.dp,
-        )
-    }
-}
 
 @Composable
 private fun FilterChipPill(

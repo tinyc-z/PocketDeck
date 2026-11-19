@@ -479,6 +479,7 @@
     <string name="lib_files_search_recursive_hint">Search subfolders</string>
     <string name="lib_files_search_current">Current</string>
     <string name="lib_files_search_multi">Subfolders</string>
+    <string name="lib_files_search_multi_short">Deep</string>
     <string name="lib_files_search_empty">No matching files found</string>
     <string name="lib_files_rom_tag">ROM</string>
 

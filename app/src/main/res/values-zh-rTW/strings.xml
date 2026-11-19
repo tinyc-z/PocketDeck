@@ -478,6 +478,7 @@
     <string name="lib_files_search_recursive_hint">搜尋子資料夾</string>
     <string name="lib_files_search_current">目前目錄</string>
     <string name="lib_files_search_multi">多層搜尋</string>
+    <string name="lib_files_search_multi_short">多層</string>
     <string name="lib_files_search_empty">未找到相符的檔案或目錄</string>
     <string name="lib_files_rom_tag">遊戲</string>
 

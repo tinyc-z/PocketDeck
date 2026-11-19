@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.InlineExpandableSearchPill
 import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
@@ -302,122 +303,63 @@ fun ScrapeLogsScreen(
 
             HorizontalDivider(color = DeckColors.Line, thickness = 1.dp)
 
-            // 筛选与折叠搜索栏
-            Column(
+            // 筛选栏（内联可展开搜索胶囊 + 分类胶囊 + 条数）
+            Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
-                    Modifier.fillMaxWidth(),
+                    Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val chips = listOf(
-                            ScrapeLogFilter.All to stringResource(R.string.scrape_logs_filter_all),
-                            ScrapeLogFilter.Cover to stringResource(R.string.scrape_logs_filter_cover),
-                            ScrapeLogFilter.Meta to stringResource(R.string.scrape_logs_filter_meta),
-                            ScrapeLogFilter.Error to stringResource(R.string.scrape_logs_filter_err),
-                        )
-                        chips.forEach { (kind, label) ->
-                            val selected = filter == kind
-                            Text(
-                                label,
-                                style = DeckType.settingsLabel.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium),
-                                color = if (selected) Color.White else DeckColors.TextPrimary,
-                                modifier = Modifier
-                                    .clip(DeckShapes.tabPill)
-                                    .brandPillBackground(selected = selected, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
-                                    .then(if (selected) Modifier else Modifier.border(0.6.dp, DeckColors.Line, DeckShapes.tabPill))
-                                    .soundClickable { filter = kind }
-                                    .padding(horizontal = 13.dp, vertical = 6.dp),
-                            )
-                        }
-                    }
-                    val searchActive = searchOpen || query.isNotEmpty()
-                    Box(
-                        modifier = Modifier
-                            .clip(DeckShapes.tabPill)
-                            .brandPillBackground(selected = searchActive, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
-                            .then(if (searchActive) Modifier else Modifier.border(0.6.dp, DeckColors.Line, DeckShapes.tabPill))
-                            .soundClickable {
-                                if (searchActive) {
-                                    query = ""
-                                    searchOpen = false
-                                } else {
-                                    searchOpen = true
-                                }
-                            }
-                            .padding(horizontal = 11.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        DeckIcon(
-                            icon = DeckIcons.Search,
-                            tint = if (searchActive) DeckColors.Background else DeckColors.TextPrimary,
-                            size = 15.dp,
-                        )
-                    }
-                    Text(
-                        "${filteredLines.size}",
-                        style = DeckType.metaLabel.copy(fontFamily = FontFamily.Monospace),
-                        color = DeckColors.TextSecondary,
+                    val searchExpanded = searchOpen || query.isNotEmpty()
+                    InlineExpandableSearchPill(
+                        expanded = searchExpanded,
+                        query = query,
+                        onQueryChange = { query = it },
+                        placeholder = stringResource(R.string.scrape_logs_search_hint),
+                        onOpen = { searchOpen = true },
+                        onClose = {
+                            query = ""
+                            searchOpen = false
+                            runCatching { screenFr.requestFocus() }
+                        },
+                        focusRequester = searchFr,
+                        expandedWidth = 188.dp,
+                        onSearchAction = { runCatching { screenFr.requestFocus() } },
                     )
-                }
-
-                if (searchOpen || query.isNotEmpty()) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(36.dp)
-                            .clip(DeckShapes.tabPill)
-                            .background(DeckColors.Surface)
-                            .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        DeckIcon(DeckIcons.Search, tint = DeckColors.TextSecondary, size = 15.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                            if (query.isEmpty()) {
-                                Text(
-                                    stringResource(R.string.scrape_logs_search_hint),
-                                    style = DeckType.settingsLabel,
-                                    color = DeckColors.TextSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            BasicTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                singleLine = true,
-                                textStyle = DeckType.settingsValue.copy(color = DeckColors.TextPrimary),
-                                cursorBrush = SolidColor(DeckColors.Ruby),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(searchFr),
-                            )
-                        }
+                    val chips = listOf(
+                        ScrapeLogFilter.All to stringResource(R.string.scrape_logs_filter_all),
+                        ScrapeLogFilter.Cover to stringResource(R.string.scrape_logs_filter_cover),
+                        ScrapeLogFilter.Meta to stringResource(R.string.scrape_logs_filter_meta),
+                        ScrapeLogFilter.Error to stringResource(R.string.scrape_logs_filter_err),
+                    )
+                    chips.forEach { (kind, label) ->
+                        val selected = filter == kind
                         Text(
-                            "✕",
-                            style = DeckType.settingsLabel,
-                            color = DeckColors.TextSecondary,
+                            label,
+                            style = DeckType.settingsLabel.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium),
+                            color = if (selected) Color.White else DeckColors.TextSecondary,
                             modifier = Modifier
-                                .clickable {
-                                    if (query.isNotEmpty()) query = "" else searchOpen = false
-                                }
-                                .padding(horizontal = 4.dp),
+                                .clip(DeckShapes.tabPill)
+                                .brandPillBackground(selected = selected, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
+                                .then(if (selected) Modifier else Modifier.border(0.6.dp, DeckColors.Line, DeckShapes.tabPill))
+                                .soundClickable { filter = kind }
+                                .padding(horizontal = 13.dp, vertical = 6.dp),
                         )
                     }
                 }
+                Text(
+                    "${filteredLines.size}",
+                    style = DeckType.metaLabel.copy(fontFamily = FontFamily.Monospace),
+                    color = DeckColors.TextSecondary,
+                )
             }
 
             // 深色终端风实时日志列表
@@ -609,7 +551,7 @@ private fun ExportLogDirDialog(
                         Text(
                             sc.label,
                             style = DeckType.settingsLabel.copy(fontWeight = if (active) FontWeight.Bold else FontWeight.Medium),
-                            color = if (active) Color.White else DeckColors.TextPrimary,
+                            color = if (active) Color.White else DeckColors.TextSecondary,
                             modifier = Modifier
                                 .clip(DeckShapes.tabPill)
                                 .brandPillBackground(selected = active, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
