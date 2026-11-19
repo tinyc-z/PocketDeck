@@ -1,0 +1,1230 @@
+package com.pocketdeck.launcher.ui.home
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.pocketdeck.launcher.data.AppTheme
+import com.pocketdeck.launcher.data.BackgroundStyle
+import com.pocketdeck.launcher.data.CoverResolutionInfo
+import com.pocketdeck.launcher.data.CustomLauncherPreset
+import com.pocketdeck.launcher.data.GalleryAlign
+import com.pocketdeck.launcher.data.KeySoundStyle
+import com.pocketdeck.launcher.data.MetadataDisplayConfig
+import com.pocketdeck.launcher.data.MetadataResolutionInfo
+import com.pocketdeck.launcher.data.RomDir
+import com.pocketdeck.launcher.data.Category
+import com.pocketdeck.launcher.data.CategorySortOrder
+import com.pocketdeck.launcher.data.CoverSource
+import com.pocketdeck.launcher.data.GameRepository
+import com.pocketdeck.launcher.data.MetadataRepository
+import java.io.File
+import com.pocketdeck.launcher.data.PlatformCatalog
+import com.pocketdeck.launcher.data.ScraperCatalog
+import com.pocketdeck.launcher.data.ScraperCredentials
+import com.pocketdeck.launcher.data.SourceItemConfig
+import com.pocketdeck.launcher.data.SystemTabConfig
+import com.pocketdeck.launcher.data.ThemeAccent
+import com.pocketdeck.launcher.data.UserData
+import com.pocketdeck.launcher.data.ViewMode
+import com.pocketdeck.launcher.ui.theme.SystemFonts
+import com.pocketdeck.launcher.data.model.Game
+import com.pocketdeck.launcher.data.model.GameMetadata
+import com.pocketdeck.launcher.data.model.Library
+import com.pocketdeck.launcher.data.model.Platform
+import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.launch.GameLauncher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
+
+enum class MetaFieldKey { ReleaseDate, Genre, Developer, Publisher, FileSize }
+
+data class HomeUiState(
+    val tabs: List<TabInfo> = emptyList(),
+    val selectedTab: Int = 0,
+    val games: List<Game> = emptyList(),
+    val platformsById: Map<String, Platform> = emptyMap(),
+    val platform: Platform? = null,
+    val focusIndex: Int = 0,
+    val viewMode: ViewMode = ViewMode.Gallery,
+    val showMetadata: Boolean = true,
+    val metaDisplay: MetadataDisplayConfig = MetadataDisplayConfig(),
+    val bottomBar: Boolean = true,
+    val is12h: Boolean = false,
+    val swapAbxy: Boolean = false,
+    val searching: Boolean = false,
+    val searchQuery: String = "",
+    val menuGame: Game? = null,
+    val propertiesGame: Game? = null,
+    val editingGame: Game? = null,
+    val showApps: Boolean = false,
+    val showLibraryManager: Boolean = false,
+    val libraryManagerHiddenOnly: Boolean = false,
+    val libraryManagerInitialDir: String? = null,
+    val libraryManagerInitialFocusFile: String? = null,
+    val showViewMenu: Boolean = false,
+    val viewMenuIndex: Int = 0,
+    val scanning: Boolean = false,
+    val libraryLoaded: Boolean = false,
+    val favorites: Set<String> = emptySet(),
+    val showSettings: Boolean = false,
+    val romRoot: String? = null,
+    val backgroundStyle: BackgroundStyle = BackgroundStyle.Waves,
+    val theme: AppTheme = AppTheme.System,
+    val metadataMap: Map<String, GameMetadata> = emptyMap(),
+    val officialNames: Map<String, String> = emptyMap(),
+    val metaResolutionMap: Map<String, MetadataResolutionInfo> = emptyMap(),
+    val coverResolutionMap: Map<String, CoverResolutionInfo> = emptyMap(),
+    /** 状态栏图标显示控制 */
+    val showClock: Boolean = true,
+    val showBattery: Boolean = true,
+    val showWifi: Boolean = true,
+    val showBluetooth: Boolean = true,
+    val showMobileSignal: Boolean = true,
+    val showHeadset: Boolean = true,
+    val showAirplane: Boolean = true,
+    val showDnd: Boolean = true,
+    /** 每平台首选启动器 */
+    val platformLaunchers: Map<String, String> = emptyMap(),
+    /** 单游戏启动器覆盖 */
+    val gameLaunchers: Map<String, String> = emptyMap(),
+    val galleryAlign: GalleryAlign = GalleryAlign.Top,
+    /** 设置页标签管理：全部标签（含隐藏），按显示顺序。 */
+    val manageTabs: List<TabEntry> = emptyList(),
+    /** 用户配置的 ROM 目录；为空时为自动检测。 */
+    val romDirs: List<RomDirEntry> = emptyList(),
+    /** 自动检测到的目录（romDirs 为空时生效）。 */
+    val autoRoot: String? = null,
+    val categories: List<Category> = emptyList(),
+    val coverSources: List<SourceItemConfig> = ScraperCatalog.defaultCoverConfigs(),
+    val metadataSources: List<SourceItemConfig> = ScraperCatalog.defaultMetadataConfigs(),
+    val scraperCredentials: ScraperCredentials = ScraperCredentials(),
+    val hiddenIds: Set<String> = emptySet(),
+    val showAndroidGames: Boolean = true,
+    val androidGamePackages: Set<String> = emptySet(),
+    val excludedAndroidPackages: Set<String> = emptySet(),
+    val autoAndroidPackages: Set<String> = emptySet(),
+    val customBackground: String? = null,
+    val keyBindings: Map<KeyAction, Int> = emptyMap(),
+    val keySoundEnabled: Boolean = true,
+    val keySoundStyle: KeySoundStyle = KeySoundStyle.CrispTick,
+    val themeAccent: ThemeAccent = ThemeAccent.Ruby,
+    val fontId: String = SystemFonts.DEFAULT_ID,
+    val platformAspects: Map<String, Float> = emptyMap(),
+    val customLaunchers: List<CustomLauncherPreset> = emptyList(),
+    val systemTabs: Map<String, SystemTabConfig> = emptyMap(),
+    val uncategorizedPlatforms: List<UncategorizedPlatformInfo> = emptyList(),
+    val uncategorizedCount: Int = 0,
+) {
+    fun platformFor(game: Game): Platform =
+        platformsById[game.platformId] ?: PlatformCatalog.forFolder(game.platformId).let { p ->
+            val aspect = platformAspects[p.id]
+            if (aspect != null) p.copy(coverAspect = aspect) else p
+        }
+
+    fun effectiveLauncherFor(game: Game): String? =
+        gameLaunchers[game.id] ?: platformLaunchers[game.platformId]
+}
+
+data class UncategorizedPlatformInfo(
+    val platform: Platform,
+    val gameCount: Int,
+)
+
+data class TabInfo(
+    val id: String,
+    val label: String,
+    val type: TabType,
+    val followSystemLanguage: Boolean = true,
+)
+
+enum class TabType { Now, Favs, Custom, Other }
+
+/** 标签管理用的完整条目（包括被隐藏的）。 */
+data class TabEntry(
+    val id: String,
+    val label: String,
+    val type: TabType,
+    val hidden: Boolean,
+    /** 自定义分类合并进来的平台简称。 */
+    val includes: List<String> = emptyList(),
+    val gameCount: Int = 0,
+    val followSystemLanguage: Boolean = true,
+)
+
+/** 目录管理用的条目。 */
+data class RomDirEntry(val path: String, val enabled: Boolean, val count: Int?)
+
+class HomeViewModel(
+    private val repo: GameRepository,
+    val covers: CoverSource,
+    private val metadataRepo: MetadataRepository,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(HomeUiState())
+    val state: StateFlow<HomeUiState> = _state.asStateFlow()
+
+    val fullLibrary: StateFlow<Library?> = repo.fullLibrary
+
+    private val _focusPerTab = HashMap<String, Int>()
+    private var initialTabPicked = false
+    private var focusResolveJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            combine(
+                combine(repo.library, repo.user, repo.scanning) { lib, user, scanning ->
+                    Triple(lib, user, scanning)
+                },
+                combine(
+                    metadataRepo.metadata,
+                    metadataRepo.officialNames,
+                    metadataRepo.resolutionInfo,
+                    covers.coverInfo,
+                ) { metaMap, officialNames, metaRes, coverRes ->
+                    MetaBundle(metaMap, officialNames, metaRes, coverRes)
+                },
+            ) { (lib, user, scanning), meta ->
+                CombinedData(
+                    lib = lib,
+                    user = user,
+                    scanning = scanning,
+                    metaMap = meta.metaMap,
+                    officialNames = meta.officialNames,
+                    metaRes = meta.metaRes,
+                    coverRes = meta.coverRes,
+                )
+            }.collect { data ->
+                val u = data.user
+                if (u != null) {
+                    covers.configure(u.coverSources, u.scraperCredentials)
+                    metadataRepo.configure(u.metadataSources, u.scraperCredentials)
+                }
+                if (data.lib != null && u != null) {
+                    updateState(
+                        data.lib,
+                        u,
+                        data.scanning,
+                        data.metaMap,
+                        data.officialNames,
+                        data.metaRes,
+                        data.coverRes,
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        scanning = data.scanning,
+                        libraryLoaded = data.lib != null,
+                        theme = u?.theme ?: _state.value.theme,
+                        themeAccent = u?.themeAccent ?: _state.value.themeAccent,
+                        fontId = u?.fontId ?: _state.value.fontId,
+                        platformAspects = u?.platformAspects ?: _state.value.platformAspects,
+                        customLaunchers = u?.customLaunchers ?: _state.value.customLaunchers,
+                        systemTabs = u?.systemTabs ?: _state.value.systemTabs,
+                        backgroundStyle = u?.backgroundStyle ?: _state.value.backgroundStyle,
+                        customBackground = u?.customBackground ?: _state.value.customBackground,
+                        keyBindings = u?.keyBindings ?: _state.value.keyBindings,
+                        keySoundEnabled = u?.keySoundEnabled ?: _state.value.keySoundEnabled,
+                        keySoundStyle = u?.keySoundStyle ?: _state.value.keySoundStyle,
+                        viewMode = u?.viewMode ?: _state.value.viewMode,
+                        metaDisplay = u?.metaDisplay ?: _state.value.metaDisplay,
+                        metadataMap = data.metaMap,
+                        officialNames = data.officialNames,
+                        metaResolutionMap = data.metaRes,
+                        coverResolutionMap = data.coverRes,
+                    )
+                }
+            }
+        }
+        repo.refresh()
+    }
+
+    private data class MetaBundle(
+        val metaMap: Map<String, GameMetadata>,
+        val officialNames: Map<String, String>,
+        val metaRes: Map<String, MetadataResolutionInfo>,
+        val coverRes: Map<String, CoverResolutionInfo>,
+    )
+
+    private data class CombinedData(
+        val lib: Library?,
+        val user: UserData?,
+        val scanning: Boolean,
+        val metaMap: Map<String, GameMetadata>,
+        val officialNames: Map<String, String>,
+        val metaRes: Map<String, MetadataResolutionInfo>,
+        val coverRes: Map<String, CoverResolutionInfo>,
+    )
+
+    private fun updateState(
+        lib: Library,
+        user: UserData,
+        scanning: Boolean,
+        metaMap: Map<String, GameMetadata>,
+        officialNames: Map<String, String>,
+        metaRes: Map<String, MetadataResolutionInfo>,
+        coverRes: Map<String, CoverResolutionInfo>,
+    ) {
+        val manage = buildManageTabs(lib, user)
+        val tabs = manage.filter { !it.hidden }.map {
+            TabInfo(it.id, it.label, it.type, it.followSystemLanguage)
+        }
+        val current = _state.value
+        var tabIdx = current.selectedTab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
+        if (!initialTabPicked && tabs.isNotEmpty()) {
+            initialTabPicked = true
+            // 首次打开如果当前默认标签（NOW / FAVS）为空，自动跳到第一个有游戏的标签
+            if (getGamesForTab(tabs[tabIdx], lib, user, metaMap).isEmpty()) {
+                val nonEmpty = tabs.indexOfFirst { getGamesForTab(it, lib, user, metaMap).isNotEmpty() }
+                if (nonEmpty >= 0) tabIdx = nonEmpty
+            }
+        }
+        val tab = tabs.getOrNull(tabIdx)
+        val rawGames = getGamesForTab(tab, lib, user, metaMap)
+        val filteredGames = if (current.searching) {
+            if (current.searchQuery.isBlank()) emptyList() else applySearch(rawGames, current.searchQuery)
+        } else {
+            rawGames
+        }
+        val focusIdx = _focusPerTab.getOrDefault(tab?.id.orEmpty(), current.focusIndex)
+            .coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
+        val platformsById = lib.platforms.associateBy { it.id }
+        val platform = tab?.let { lib.platform(it.id) }
+
+        val categorizedPlatforms = user.categories.flatMap { it.sources }.toSet()
+        val categorizedGames = user.categories.flatMap { it.games }.toSet()
+        val uncategorizedGames = lib.byId.values.filter {
+            it.platformId !in categorizedPlatforms && it.id !in categorizedGames
+        }
+        val uncategorizedByPlatform = uncategorizedGames
+            .groupBy { it.platformId }
+            .entries
+            .map { (pid, list) ->
+                val plat = platformsById[pid] ?: PlatformCatalog.forFolder(pid).let { p ->
+                    val aspect = user.platformAspects[p.id]
+                    if (aspect != null) p.copy(coverAspect = aspect) else p
+                }
+                UncategorizedPlatformInfo(plat, list.size)
+            }
+            .sortedWith(compareBy({ PlatformCatalog.sortKey(it.platform.id) }, { it.platform.shortName }))
+
+        val autoAndroidPkgs = lib.games[PlatformCatalog.ANDROID_ID].orEmpty()
+            .map { it.id.removePrefix(GameLauncher.APK_PREFIX) }
+            .filter { it !in user.androidGamePackages }
+            .toSet()
+
+        val newState = current.copy(
+            tabs = tabs,
+            selectedTab = tabIdx,
+            games = filteredGames,
+            platformsById = platformsById,
+            platform = platform,
+            focusIndex = focusIdx,
+            viewMode = user.viewMode,
+            showMetadata = user.showMetadata,
+            metaDisplay = user.metaDisplay,
+            bottomBar = user.bottomBar,
+            is12h = user.clock12h,
+            swapAbxy = user.swapAbxy,
+            scanning = scanning,
+            libraryLoaded = true,
+            favorites = user.favorites,
+            romRoot = user.romRoot,
+            backgroundStyle = user.backgroundStyle,
+            theme = user.theme,
+            themeAccent = user.themeAccent,
+            fontId = user.fontId,
+            platformAspects = user.platformAspects,
+            customLaunchers = user.customLaunchers,
+            systemTabs = user.systemTabs,
+            uncategorizedPlatforms = uncategorizedByPlatform,
+            uncategorizedCount = uncategorizedGames.size,
+            metadataMap = metaMap,
+            officialNames = officialNames,
+            metaResolutionMap = metaRes,
+            coverResolutionMap = coverRes,
+            menuGame = current.menuGame?.let { lib.byId[it.id] ?: it },
+            propertiesGame = current.propertiesGame?.let { lib.byId[it.id] ?: it },
+            editingGame = current.editingGame?.let { lib.byId[it.id] ?: it },
+            showClock = user.showClock,
+            showBattery = user.showBattery,
+            showWifi = user.showWifi,
+            showBluetooth = user.showBluetooth,
+            showMobileSignal = user.showMobileSignal,
+            showHeadset = user.showHeadset,
+            showAirplane = user.showAirplane,
+            showDnd = user.showDnd,
+            platformLaunchers = user.platformLaunchers,
+            gameLaunchers = user.gameLaunchers,
+            galleryAlign = user.galleryAlign,
+            manageTabs = manage,
+            romDirs = user.romDirs.map { RomDirEntry(it.path, it.enabled, lib.rootCounts[it.path]) },
+            autoRoot = if (user.romDirs.isEmpty()) lib.root else null,
+            categories = user.categories,
+            coverSources = user.coverSources,
+            metadataSources = user.metadataSources,
+            scraperCredentials = user.scraperCredentials,
+            hiddenIds = user.hidden,
+            showAndroidGames = user.showAndroidGames,
+            androidGamePackages = user.androidGamePackages,
+            excludedAndroidPackages = user.excludedAndroidPackages,
+            autoAndroidPackages = autoAndroidPkgs,
+            customBackground = user.customBackground,
+            keyBindings = user.keyBindings,
+            keySoundEnabled = user.keySoundEnabled,
+            keySoundStyle = user.keySoundStyle,
+        )
+        _state.value = newState
+        preloadAssets(filteredGames, focusIdx, newState::platformFor)
+    }
+
+    private fun preloadAssets(
+        games: List<Game>,
+        focusIdx: Int,
+        platformResolver: (Game) -> Platform,
+    ) {
+        if (games.isEmpty()) return
+        // 为当前列表涉及的每个平台触发一次在线封面索引 & 元数据加载（支持 FAVS / NOW 混排）
+        val seenSystems = HashSet<String>()
+        for (g in games) {
+            val plat = platformResolver(g)
+            val sys = plat.libretroSystem
+            if (sys != null && seenSystems.add(sys)) {
+                covers.ensureIndexLoaded(plat)
+            }
+        }
+        val focusGame = games.getOrNull(focusIdx)
+        if (focusGame != null) {
+            val plat = platformResolver(focusGame)
+            metadataRepo.resolveFocusGame(focusGame, plat)
+            covers.ensureGameScraped(focusGame, plat)
+        }
+        metadataRepo.ensureLoaded(games, platformResolver)
+    }
+
+    private fun buildManageTabs(lib: Library, user: UserData): List<TabEntry> {
+        val categorizedPlatforms = user.categories.flatMap { it.sources }.toSet()
+        val categorizedGames = user.categories.flatMap { it.games }.toSet()
+        val nowCfg = user.systemTabs["now"] ?: SystemTabConfig()
+        val favsCfg = user.systemTabs["favs"] ?: SystemTabConfig()
+        val otherCfg = user.systemTabs["other"] ?: SystemTabConfig()
+
+        val nowCount = user.recents.count { it in lib.byId }
+        val favsCount = user.favorites.count { it in lib.byId }
+        val otherCount = lib.byId.values.count {
+            it.platformId !in categorizedPlatforms && it.id !in categorizedGames
+        }
+
+        val all = buildList {
+            add(
+                TabEntry(
+                    id = "now",
+                    label = nowCfg.customName.ifBlank { "NOW" },
+                    type = TabType.Now,
+                    hidden = !user.nowTab,
+                    gameCount = nowCount,
+                    followSystemLanguage = nowCfg.followSystemLanguage,
+                ),
+            )
+            add(
+                TabEntry(
+                    id = "favs",
+                    label = favsCfg.customName.ifBlank { "FAVS" },
+                    type = TabType.Favs,
+                    hidden = !user.favsTab,
+                    gameCount = favsCount,
+                    followSystemLanguage = favsCfg.followSystemLanguage,
+                ),
+            )
+            user.categories.forEach { c ->
+                val names = c.sources.map { sid -> lib.platform(sid)?.shortName ?: PlatformCatalog.forFolder(sid).shortName }
+                val catCount = (c.sources.flatMap { lib.games[it].orEmpty() } + c.games.mapNotNull { lib.byId[it] })
+                    .distinctBy { it.id }
+                    .size
+                add(
+                    TabEntry(
+                        id = c.id,
+                        label = c.name,
+                        type = TabType.Custom,
+                        hidden = c.id in user.hiddenTabs,
+                        includes = names,
+                        gameCount = catCount,
+                        followSystemLanguage = false,
+                    ),
+                )
+            }
+            add(
+                TabEntry(
+                    id = "other",
+                    label = otherCfg.customName.ifBlank { "OTHER" },
+                    type = TabType.Other,
+                    hidden = "other" in user.hiddenTabs,
+                    gameCount = otherCount,
+                    followSystemLanguage = otherCfg.followSystemLanguage,
+                ),
+            )
+        }
+        val order = user.tabOrder.withIndex().associate { it.value to it.index }
+        return all.withIndex()
+            .sortedBy { (i, t) -> order[t.id] ?: (100_000 + i) }
+            .map { it.value }
+    }
+
+    private fun getGamesForTab(
+        tab: TabInfo?,
+        lib: Library,
+        user: UserData,
+        metaMap: Map<String, GameMetadata> = emptyMap(),
+    ): List<Game> {
+        if (tab == null) return emptyList()
+        return when (tab.type) {
+            TabType.Now -> {
+                val raw = user.recents.mapNotNull { lib.byId[it] }
+                val order = user.systemTabs["now"]?.sortOrder
+                if (order != null) sortCategoryGames(raw, order, metaMap) else raw
+            }
+            TabType.Favs -> {
+                val raw = user.favorites.mapNotNull { lib.byId[it] }
+                val order = user.systemTabs["favs"]?.sortOrder ?: CategorySortOrder.TitleAsc
+                sortCategoryGames(raw, order, metaMap)
+            }
+            TabType.Custom -> {
+                val cat = user.categories.firstOrNull { it.id == tab.id } ?: return emptyList()
+                val raw = (cat.sources.flatMap { lib.games[it].orEmpty() } + cat.games.mapNotNull { lib.byId[it] })
+                    .distinctBy { it.id }
+                sortCategoryGames(raw, cat.sortOrder, metaMap)
+            }
+            TabType.Other -> {
+                val categorizedPlatforms = user.categories.flatMap { it.sources }.toSet()
+                val categorizedGames = user.categories.flatMap { it.games }.toSet()
+                val raw = lib.byId.values
+                    .filter { it.platformId !in categorizedPlatforms && it.id !in categorizedGames }
+                val order = user.systemTabs["other"]?.sortOrder ?: CategorySortOrder.TitleAsc
+                sortCategoryGames(raw, order, metaMap)
+            }
+        }
+    }
+
+    private fun sortCategoryGames(
+        games: List<Game>,
+        order: CategorySortOrder,
+        metaMap: Map<String, GameMetadata>,
+    ): List<Game> = when (order) {
+        CategorySortOrder.TitleAsc -> games.sortedBy { it.title.lowercase() }
+        CategorySortOrder.TitleDesc -> games.sortedByDescending { it.title.lowercase() }
+        CategorySortOrder.ReleaseNewest -> games.sortedWith(
+            compareBy<Game> { parseReleaseKey(metaMap[it.id]?.releaseDate) == null }
+                .thenByDescending { parseReleaseKey(metaMap[it.id]?.releaseDate) ?: 0 }
+                .thenBy { it.title.lowercase() },
+        )
+        CategorySortOrder.ReleaseOldest -> games.sortedWith(
+            compareBy<Game> { parseReleaseKey(metaMap[it.id]?.releaseDate) == null }
+                .thenBy { parseReleaseKey(metaMap[it.id]?.releaseDate) ?: Int.MAX_VALUE }
+                .thenBy { it.title.lowercase() },
+        )
+        CategorySortOrder.ModifiedNewest -> games.sortedWith(
+            compareByDescending<Game> { it.lastModifiedMs }
+                .thenBy { it.title.lowercase() },
+        )
+        CategorySortOrder.SizeDesc -> games.sortedWith(
+            compareBy<Game> { it.fileSize <= 0L }
+                .thenByDescending { it.fileSize }
+                .thenBy { it.title.lowercase() },
+        )
+        CategorySortOrder.SizeAsc -> games.sortedWith(
+            compareBy<Game> { it.fileSize <= 0L }
+                .thenBy { it.fileSize }
+                .thenBy { it.title.lowercase() },
+        )
+    }
+
+    private fun parseReleaseKey(raw: String?): Int? {
+        if (raw.isNullOrBlank()) return null
+        val yMatch = Regex("""\b(19\d{2}|20\d{2})\b""").find(raw) ?: return null
+        val year = yMatch.groupValues[1].toIntOrNull() ?: return null
+        val afterYear = raw.substring(yMatch.range.last + 1)
+        val nums = Regex("""\d{1,2}""").findAll(afterYear).mapNotNull { it.value.toIntOrNull() }.toList()
+        val month = nums.getOrNull(0)?.takeIf { it in 1..12 } ?: monthNameToNumber(raw) ?: 0
+        val day = nums.getOrNull(1)?.takeIf { it in 1..31 } ?: 0
+        return year * 10000 + month * 100 + day
+    }
+
+    private fun monthNameToNumber(raw: String): Int? {
+        val low = raw.lowercase()
+        val months = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+        val idx = months.indexOfFirst { it in low }
+        return if (idx >= 0) idx + 1 else null
+    }
+
+    private fun applySearch(games: List<Game>, query: String): List<Game> {
+        if (query.isBlank()) return games
+        val q = query.trim().lowercase()
+        return games.filter { it.title.lowercase().contains(q) }
+    }
+
+    fun selectTab(index: Int) {
+        val current = _state.value
+        if (current.tabs.isEmpty()) return
+        val clamped = index.coerceIn(0, current.tabs.lastIndex)
+        current.tabs.getOrNull(current.selectedTab)?.let {
+            _focusPerTab[it.id] = current.focusIndex
+        }
+        _state.value = current.copy(selectedTab = clamped)
+        recomputeFromRepo()
+    }
+
+    fun nextTab() {
+        val size = _state.value.tabs.size
+        if (size > 0) selectTab((_state.value.selectedTab + 1) % size)
+    }
+
+    fun prevTab() {
+        val size = _state.value.tabs.size
+        if (size > 0) selectTab((_state.value.selectedTab - 1 + size) % size)
+    }
+
+    fun setFocus(index: Int) {
+        val s = _state.value
+        val newIdx = index.coerceIn(0, (s.games.size - 1).coerceAtLeast(0))
+        if (newIdx == s.focusIndex) return
+        s.tabs.getOrNull(s.selectedTab)?.let { _focusPerTab[it.id] = newIdx }
+        _state.value = s.copy(focusIndex = newIdx)
+        val focusGame = s.games.getOrNull(newIdx)
+        focusResolveJob?.cancel()
+        if (focusGame != null) {
+            val plat = s.platformFor(focusGame)
+            focusResolveJob = viewModelScope.launch {
+                delay(100)
+                metadataRepo.resolveFocusGame(focusGame, plat)
+                covers.ensureGameScraped(focusGame, plat)
+            }
+        }
+    }
+
+    fun moveFocus(delta: Int) = setFocus(_state.value.focusIndex + delta)
+
+    fun toggleSearch() {
+        val s = _state.value
+        val nextSearching = !s.searching
+        _state.value = s.copy(
+            searching = nextSearching,
+            searchQuery = if (!nextSearching) "" else s.searchQuery,
+            focusIndex = 0,
+        )
+        recomputeFromRepo()
+    }
+
+    fun setSearchQuery(q: String) {
+        _state.value = _state.value.copy(searchQuery = q, focusIndex = 0)
+        recomputeFromRepo()
+    }
+
+    private fun recomputeFromRepo() {
+        val lib = repo.library.value ?: return
+        val user = repo.user.value ?: return
+        updateState(
+            lib,
+            user,
+            _state.value.scanning,
+            metadataRepo.metadata.value,
+            metadataRepo.officialNames.value,
+            metadataRepo.resolutionInfo.value,
+            covers.coverInfo.value,
+        )
+    }
+
+    fun showMenu(game: Game) { _state.value = _state.value.copy(menuGame = game) }
+    fun hideMenu() { _state.value = _state.value.copy(menuGame = null) }
+
+    fun openProperties(game: Game) {
+        _state.value = _state.value.copy(menuGame = null, propertiesGame = game)
+    }
+
+    fun closeProperties() {
+        _state.value = _state.value.copy(propertiesGame = null)
+    }
+
+    suspend fun computeCrc32(path: String): String? = metadataRepo.computeCrc32(path)
+
+    fun openEdit(game: Game) {
+        _state.value = _state.value.copy(menuGame = null, editingGame = game)
+    }
+
+    fun closeEdit() {
+        _state.value = _state.value.copy(editingGame = null)
+    }
+
+    fun saveGameEdits(id: String, name: String?, coverPath: String?) {
+        covers.forget(id)
+        viewModelScope.launch { repo.saveGameEdits(id, name, coverPath) }
+        _state.value = _state.value.copy(editingGame = null, menuGame = null)
+    }
+
+    fun toggleFavorite(id: String) {
+        viewModelScope.launch { repo.toggleFavorite(id) }
+    }
+
+    fun hideGame(id: String) {
+        viewModelScope.launch { repo.hide(id) }
+        _state.value = _state.value.copy(menuGame = null, editingGame = null)
+    }
+
+    fun addRecent(id: String) {
+        viewModelScope.launch { repo.addRecent(id) }
+    }
+
+    fun openViewMenu() {
+        val idx = ViewMode.entries.indexOf(_state.value.viewMode).coerceAtLeast(0)
+        _state.value = _state.value.copy(showViewMenu = true, viewMenuIndex = idx)
+    }
+
+    fun closeViewMenu() {
+        _state.value = _state.value.copy(showViewMenu = false)
+    }
+
+    fun moveViewMenu(delta: Int) {
+        val size = ViewMode.entries.size
+        val next = (_state.value.viewMenuIndex + delta + size) % size
+        _state.value = _state.value.copy(viewMenuIndex = next)
+    }
+
+    fun setViewMode(mode: ViewMode) {
+        _state.value = _state.value.copy(showViewMenu = false)
+        viewModelScope.launch { repo.updatePrefs { it.copy(viewMode = mode) } }
+    }
+
+    fun openApps() { _state.value = _state.value.copy(showApps = true) }
+    fun closeApps() { _state.value = _state.value.copy(showApps = false) }
+
+    fun openLibraryManager(
+        hiddenOnly: Boolean = false,
+        initialDirPath: String? = null,
+        initialFocusFilePath: String? = null,
+    ) {
+        _state.value = _state.value.copy(
+            showLibraryManager = true,
+            libraryManagerHiddenOnly = hiddenOnly,
+            libraryManagerInitialDir = initialDirPath,
+            libraryManagerInitialFocusFile = initialFocusFilePath,
+        )
+    }
+
+    fun closeLibraryManager() {
+        _state.value = _state.value.copy(
+            showLibraryManager = false,
+            libraryManagerInitialDir = null,
+            libraryManagerInitialFocusFile = null,
+        )
+    }
+
+    fun setGameCategories(gameId: String, categoryIds: Set<String>) {
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                val updated = u.categories.map { c ->
+                    val nextGames = if (c.id in categoryIds) {
+                        c.games + gameId
+                    } else {
+                        c.games - gameId
+                    }
+                    c.copy(games = nextGames)
+                }
+                u.copy(categories = updated)
+            }
+        }
+    }
+
+    suspend fun configuredRomRoots(): List<File> = repo.configuredRoots()
+
+    suspend fun renameFile(file: File, newName: String): Result<File> =
+        repo.renameFile(file, newName)
+
+    suspend fun moveFile(file: File, targetDir: File): Result<File> =
+        repo.moveFile(file, targetDir)
+
+    suspend fun moveEntries(entries: List<File>, targetDir: File): Result<Int> =
+        repo.moveEntries(entries, targetDir)
+
+    suspend fun copyFile(file: File, targetDir: File): Result<File> =
+        repo.copyFile(file, targetDir)
+
+    suspend fun copyEntries(entries: List<File>, targetDir: File): Result<Int> =
+        repo.copyEntries(entries, targetDir)
+
+    suspend fun deleteFile(file: File): Result<Unit> {
+        val res = repo.deleteFile(file)
+        if (res.isSuccess) {
+            _state.value = _state.value.copy(menuGame = null, editingGame = null, propertiesGame = null)
+        }
+        return res
+    }
+
+    suspend fun deleteEntries(entries: List<File>): Result<Int> {
+        val res = repo.deleteEntries(entries)
+        if (res.isSuccess) {
+            _state.value = _state.value.copy(menuGame = null, editingGame = null, propertiesGame = null)
+        }
+        return res
+    }
+
+    fun toggleSettings() {
+        _state.value = _state.value.copy(showSettings = !_state.value.showSettings)
+    }
+
+    fun toggleClock12h() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(clock12h = !it.clock12h) } }
+    }
+
+    fun toggleSwapAbxy() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(swapAbxy = !it.swapAbxy) } }
+    }
+
+    fun toggleNowTab() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(nowTab = !it.nowTab) } }
+    }
+
+    fun toggleFavsTab() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(favsTab = !it.favsTab) } }
+    }
+
+    fun toggleBottomBar() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(bottomBar = !it.bottomBar) } }
+    }
+
+    fun toggleShowMetadata() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(showMetadata = !it.showMetadata) } }
+    }
+
+    fun toggleMetaField(field: MetaFieldKey) {
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                val cur = u.metaDisplay
+                val next = when (field) {
+                    MetaFieldKey.ReleaseDate -> cur.copy(releaseDate = !cur.releaseDate)
+                    MetaFieldKey.Genre -> cur.copy(genre = !cur.genre)
+                    MetaFieldKey.Developer -> cur.copy(developer = !cur.developer)
+                    MetaFieldKey.Publisher -> cur.copy(publisher = !cur.publisher)
+                    MetaFieldKey.FileSize -> cur.copy(fileSize = !cur.fileSize)
+                }
+                u.copy(metaDisplay = next)
+            }
+        }
+    }
+
+    fun cycleGalleryAlign() {
+        viewModelScope.launch {
+            repo.updatePrefs {
+                val all = GalleryAlign.entries
+                it.copy(galleryAlign = all[(all.indexOf(it.galleryAlign) + 1) % all.size])
+            }
+        }
+    }
+
+    fun cycleBackground() {
+        viewModelScope.launch {
+            repo.updatePrefs {
+                val styles = BackgroundStyle.entries
+                val next = styles[(styles.indexOf(it.backgroundStyle) + 1) % styles.size]
+                it.copy(backgroundStyle = next)
+            }
+        }
+    }
+
+    fun setBackgroundStyle(style: BackgroundStyle) {
+        viewModelScope.launch {
+            repo.updatePrefs { it.copy(backgroundStyle = style) }
+        }
+    }
+
+    fun setCustomBackground(path: String?) {
+        viewModelScope.launch {
+            repo.updatePrefs {
+                it.copy(
+                    customBackground = path,
+                    backgroundStyle = if (path != null) BackgroundStyle.Image else it.backgroundStyle,
+                )
+            }
+        }
+    }
+
+    fun updateKeyBindings(bindings: Map<KeyAction, Int>) {
+        viewModelScope.launch { repo.updatePrefs { it.copy(keyBindings = bindings) } }
+    }
+
+    fun resetKeyBindings() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(keyBindings = emptyMap()) } }
+    }
+
+    fun toggleKeySound() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(keySoundEnabled = !it.keySoundEnabled) } }
+    }
+
+    fun setKeySoundStyle(style: KeySoundStyle) {
+        viewModelScope.launch { repo.updatePrefs { it.copy(keySoundStyle = style) } }
+    }
+
+    suspend fun refreshGameMetadata(game: Game): Boolean =
+        metadataRepo.refreshGame(game, _state.value.platformFor(game))
+
+    fun cycleViewMode() {
+        viewModelScope.launch {
+            repo.updatePrefs {
+                val modes = ViewMode.entries
+                val next = modes[(modes.indexOf(it.viewMode) + 1) % modes.size]
+                it.copy(viewMode = next)
+            }
+        }
+    }
+
+    fun setTheme(theme: AppTheme) {
+        viewModelScope.launch { repo.updatePrefs { it.copy(theme = theme) } }
+    }
+
+    fun cycleTheme() {
+        viewModelScope.launch {
+            repo.updatePrefs {
+                val all = AppTheme.entries
+                it.copy(theme = all[(all.indexOf(it.theme) + 1) % all.size])
+            }
+        }
+    }
+
+    fun setThemeAccent(accent: ThemeAccent) {
+        viewModelScope.launch { repo.updatePrefs { it.copy(themeAccent = accent) } }
+    }
+
+    fun setFontId(fontId: String) {
+        viewModelScope.launch { repo.updatePrefs { it.copy(fontId = fontId) } }
+    }
+
+    fun setPlatformAspect(platformId: String, aspect: Float?) {
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                val map = u.platformAspects.toMutableMap()
+                if (aspect == null) map.remove(platformId) else map[platformId] = aspect.coerceIn(0.40f, 2.20f)
+                u.copy(platformAspects = map)
+            }
+        }
+    }
+
+    fun saveCustomLauncherPreset(name: String, launcherId: String) {
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                val id = "preset:" + System.currentTimeMillis().toString(36)
+                val cleanName = name.trim().ifEmpty { launcherId }
+                u.copy(customLaunchers = u.customLaunchers + CustomLauncherPreset(id, cleanName, launcherId))
+            }
+        }
+    }
+
+    fun deleteCustomLauncherPreset(presetId: String) {
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                u.copy(customLaunchers = u.customLaunchers.filter { it.id != presetId })
+            }
+        }
+    }
+
+    // ───────────────────────── 刮削与元数据服务商 ─────────────────────────
+
+    fun toggleCoverSource(id: String) {
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                u.copy(coverSources = u.coverSources.map { if (it.id == id) it.copy(enabled = !it.enabled) else it })
+            }
+        }
+    }
+
+    fun moveCoverSource(fromIdx: Int, toIdx: Int) {
+        if (fromIdx == toIdx) return
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                val list = u.coverSources.toMutableList()
+                if (fromIdx !in list.indices || toIdx !in list.indices) return@updatePrefs u
+                list.add(toIdx, list.removeAt(fromIdx))
+                u.copy(coverSources = list)
+            }
+        }
+    }
+
+    fun toggleMetadataSource(id: String) {
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                u.copy(metadataSources = u.metadataSources.map { if (it.id == id) it.copy(enabled = !it.enabled) else it })
+            }
+        }
+    }
+
+    fun moveMetadataSource(fromIdx: Int, toIdx: Int) {
+        if (fromIdx == toIdx) return
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                val list = u.metadataSources.toMutableList()
+                if (fromIdx !in list.indices || toIdx !in list.indices) return@updatePrefs u
+                list.add(toIdx, list.removeAt(fromIdx))
+                u.copy(metadataSources = list)
+            }
+        }
+    }
+
+    fun updateScraperCredentials(cred: ScraperCredentials) {
+        viewModelScope.launch { repo.updatePrefs { it.copy(scraperCredentials = cred) } }
+    }
+
+    fun clearCoverCache() {
+        covers.clearCoverCache()
+        val s = _state.value
+        s.games.getOrNull(s.focusIndex)?.let { covers.ensureGameScraped(it, s.platformFor(it)) }
+    }
+
+    fun refreshAllMetadata() {
+        val lib = repo.library.value ?: return
+        val allGames = lib.platforms.flatMap { lib.games[it.id].orEmpty() }
+        val s = _state.value
+        metadataRepo.refreshAll(allGames, s::platformFor)
+        s.games.getOrNull(s.focusIndex)?.let { metadataRepo.resolveFocusGame(it, s.platformFor(it)) }
+    }
+
+    fun refresh() = repo.refresh()
+
+    // 状态栏图标开关
+    fun toggleShowClock() { viewModelScope.launch { repo.updatePrefs { it.copy(showClock = !it.showClock) } } }
+    fun toggleShowBattery() { viewModelScope.launch { repo.updatePrefs { it.copy(showBattery = !it.showBattery) } } }
+    fun toggleShowWifi() { viewModelScope.launch { repo.updatePrefs { it.copy(showWifi = !it.showWifi) } } }
+    fun toggleShowBluetooth() { viewModelScope.launch { repo.updatePrefs { it.copy(showBluetooth = !it.showBluetooth) } } }
+    fun toggleShowMobileSignal() { viewModelScope.launch { repo.updatePrefs { it.copy(showMobileSignal = !it.showMobileSignal) } } }
+    fun toggleShowHeadset() { viewModelScope.launch { repo.updatePrefs { it.copy(showHeadset = !it.showHeadset) } } }
+    fun toggleShowAirplane() { viewModelScope.launch { repo.updatePrefs { it.copy(showAirplane = !it.showAirplane) } } }
+    fun toggleShowDnd() { viewModelScope.launch { repo.updatePrefs { it.copy(showDnd = !it.showDnd) } } }
+
+    /** 设置某平台的首选启动器。emulatorId 为 null 时清除设置（使用自动检测）。 */
+    fun setPlatformLauncher(platformId: String, emulatorId: String?) {
+        viewModelScope.launch {
+            repo.updatePrefs {
+                val map = it.platformLaunchers.toMutableMap()
+                if (emulatorId == null) map.remove(platformId) else map[platformId] = emulatorId
+                it.copy(platformLaunchers = map)
+            }
+        }
+    }
+
+    /** 设置单个游戏的启动器覆盖（null 表示跟随平台设置）。 */
+    fun setGameLauncher(gameId: String, emulatorId: String?) {
+        viewModelScope.launch {
+            repo.updatePrefs {
+                val map = it.gameLaunchers.toMutableMap()
+                if (emulatorId == null) map.remove(gameId) else map[gameId] = emulatorId
+                it.copy(gameLaunchers = map)
+            }
+        }
+    }
+
+    fun unhideGame(id: String) {
+        viewModelScope.launch { repo.unhide(id) }
+    }
+
+    fun toggleShowAndroidGames() {
+        viewModelScope.launch { repo.updatePrefs { it.copy(showAndroidGames = !it.showAndroidGames) } }
+    }
+
+    fun toggleAppInGameLibrary(pkg: String, add: Boolean) {
+        viewModelScope.launch {
+            repo.updatePrefs { u ->
+                if (add) {
+                    u.copy(
+                        androidGamePackages = u.androidGamePackages + pkg,
+                        excludedAndroidPackages = u.excludedAndroidPackages - pkg,
+                    )
+                } else {
+                    u.copy(
+                        androidGamePackages = u.androidGamePackages - pkg,
+                        excludedAndroidPackages = u.excludedAndroidPackages + pkg,
+                    )
+                }
+            }
+        }
+    }
+
+    // ───────────────────────── 游戏目录管理 ─────────────────────────
+
+    private fun updateDirs(transform: (UserData) -> UserData) {
+        viewModelScope.launch {
+            repo.updatePrefs(transform)
+            repo.refresh()
+        }
+    }
+
+    fun addRomDir(path: String) = updateDirs { u ->
+        // 首次添加：保留当前自动检测到的目录，避免已有游戏消失
+        val base = if (u.romDirs.isEmpty()) {
+            val auto = repo.autoRoot(u)
+            if (java.io.File(auto).isDirectory) listOf(RomDir(auto)) else emptyList()
+        } else u.romDirs
+        if (base.any { it.path == path }) u.copy(romDirs = base)
+        else u.copy(romDirs = base + RomDir(path))
+    }
+
+    fun toggleRomDir(path: String) = updateDirs { u ->
+        u.copy(romDirs = u.romDirs.map { if (it.path == path) it.copy(enabled = !it.enabled) else it })
+    }
+
+    fun removeRomDir(path: String) = updateDirs { u ->
+        u.copy(romDirs = u.romDirs.filter { it.path != path })
+    }
+
+    // ───────────────────────── 标签 / 自定义分类 ─────────────────────────
+
+    private fun updateTabs(transform: (UserData) -> UserData) {
+        viewModelScope.launch { repo.updatePrefs(transform) }
+    }
+
+    /** 把标签 id 在完整顺序中移动 delta 位。 */
+    fun moveTab(id: String, delta: Int) {
+        val ids = _state.value.manageTabs.map { it.id }.toMutableList()
+        val from = ids.indexOf(id)
+        val to = from + delta
+        if (from < 0 || to !in ids.indices) return
+        ids.add(to, ids.removeAt(from))
+        updateTabs { it.copy(tabOrder = ids) }
+    }
+
+    /** 拖动排序：把标签从 fromIdx 移动到 toIdx。 */
+    fun moveTabTo(fromIdx: Int, toIdx: Int) {
+        if (fromIdx == toIdx) return
+        val ids = _state.value.manageTabs.map { it.id }.toMutableList()
+        if (fromIdx !in ids.indices || toIdx !in ids.indices) return
+        ids.add(toIdx, ids.removeAt(fromIdx))
+        updateTabs { it.copy(tabOrder = ids) }
+    }
+
+    fun toggleTabHidden(id: String) = updateTabs { u ->
+        when (id) {
+            "now" -> u.copy(nowTab = !u.nowTab)
+            "favs" -> u.copy(favsTab = !u.favsTab)
+            else -> u.copy(hiddenTabs = if (id in u.hiddenTabs) u.hiddenTabs - id else u.hiddenTabs + id)
+        }
+    }
+
+    fun updateSystemTab(id: String, customName: String, followSystemLanguage: Boolean) = updateTabs { u ->
+        val map = u.systemTabs.toMutableMap()
+        val existing = map[id]
+        val trimmed = customName.trim()
+        map[id] = SystemTabConfig(
+            customName = trimmed,
+            followSystemLanguage = if (trimmed.isEmpty()) true else followSystemLanguage,
+            sortOrder = existing?.sortOrder,
+        )
+        u.copy(systemTabs = map)
+    }
+
+    private fun insertCatBeforeOther(tabOrder: List<String>, id: String): List<String> =
+        if (tabOrder.isNotEmpty() && "other" in tabOrder) {
+            tabOrder.flatMap { if (it == "other") listOf(id, "other") else listOf(it) }
+        } else {
+            tabOrder
+        }
+
+    fun createCategory(name: String, sources: List<String> = emptyList()) {
+        val id = "cat:" + System.currentTimeMillis().toString(36)
+        updateTabs { u ->
+            val newCat = Category(id, name.trim().ifEmpty { "?" }, sources = sources.distinct())
+            u.copy(categories = u.categories + newCat, tabOrder = insertCatBeforeOther(u.tabOrder, id))
+        }
+    }
+
+    fun createCategoryForGame(name: String, gameId: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        val id = "cat:" + System.currentTimeMillis().toString(36)
+        updateTabs { u ->
+            val newCat = Category(id, trimmed, games = setOf(gameId))
+            u.copy(categories = u.categories + newCat, tabOrder = insertCatBeforeOther(u.tabOrder, id))
+        }
+    }
+
+    fun quickCreateCategoryForPlatform(platform: Platform) {
+        updateTabs { u ->
+            if (u.categories.any { platform.id in it.sources }) return@updateTabs u
+            val id = "cat:" + System.currentTimeMillis().toString(36)
+            val newCat = Category(id, platform.shortName, sources = listOf(platform.id))
+            u.copy(categories = u.categories + newCat, tabOrder = insertCatBeforeOther(u.tabOrder, id))
+        }
+    }
+
+    fun addPlatformToCategory(catId: String, platformId: String) = updateTabs { u ->
+        u.copy(
+            categories = u.categories.map { c ->
+                if (c.id == catId) c.copy(sources = (c.sources + platformId).distinct()) else c
+            },
+        )
+    }
+
+    fun setCategorySources(catId: String, sources: List<String>) = updateTabs { u ->
+        u.copy(categories = u.categories.map { if (it.id == catId) it.copy(sources = sources.distinct()) else it })
+    }
+
+    fun renameCategory(id: String, name: String) = updateTabs { u ->
+        u.copy(categories = u.categories.map { if (it.id == id) it.copy(name = name.trim().ifEmpty { it.name }) else it })
+    }
+
+    fun setCategorySortOrder(catId: String, sortOrder: CategorySortOrder?) = updateTabs { u ->
+        if (catId in setOf("now", "favs", "other")) {
+            val map = u.systemTabs.toMutableMap()
+            val cur = map[catId] ?: SystemTabConfig()
+            map[catId] = cur.copy(sortOrder = sortOrder)
+            u.copy(systemTabs = map)
+        } else if (sortOrder != null) {
+            u.copy(categories = u.categories.map { if (it.id == catId) it.copy(sortOrder = sortOrder) else it })
+        } else {
+            u
+        }
+    }
+
+    /** 删除分类（包含默认生成的 NES/SNES/GB/ANDROID）；所属平台自动归回 OTHER。 */
+    fun deleteCategory(id: String) = updateTabs { u ->
+        u.copy(
+            categories = u.categories.filter { it.id != id },
+            tabOrder = u.tabOrder.filter { it != id },
+            hiddenTabs = u.hiddenTabs - id,
+        )
+    }
+
+    /** 恢复默认标签顺序（不影响分类和隐藏状态）。 */
+    fun resetTabOrder() = updateTabs { it.copy(tabOrder = emptyList()) }
+
+    /** 把 srcId 分类合并进 dstId 分类。 */
+    fun mergeTab(srcId: String, dstId: String) {
+        if (srcId == dstId) return
+        val tabs = _state.value.manageTabs
+        val src = tabs.firstOrNull { it.id == srcId } ?: return
+        val dst = tabs.firstOrNull { it.id == dstId } ?: return
+        if (src.type != TabType.Custom || dst.type != TabType.Custom) return
+        val orderIds = tabs.map { it.id }
+        updateTabs { u ->
+            val srcCat = u.categories.firstOrNull { it.id == srcId } ?: return@updateTabs u
+            val cats = u.categories
+                .filter { it.id != srcId }
+                .map { c ->
+                    if (c.id == dstId) {
+                        c.copy(
+                            sources = (c.sources + srcCat.sources).distinct(),
+                            games = c.games + srcCat.games,
+                        )
+                    } else c
+                }
+            u.copy(
+                categories = cats,
+                tabOrder = orderIds.filter { it != srcId },
+                hiddenTabs = u.hiddenTabs - srcId,
+            )
+        }
+    }
+
+    fun toggleGameInCategory(catId: String, gameId: String) = updateTabs { u ->
+        u.copy(categories = u.categories.map { c ->
+            if (c.id != catId) c
+            else c.copy(games = if (gameId in c.games) c.games - gameId else c.games + gameId)
+        })
+    }
+}

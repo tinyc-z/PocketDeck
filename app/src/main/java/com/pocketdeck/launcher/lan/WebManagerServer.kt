@@ -1,0 +1,1565 @@
+package com.pocketdeck.launcher.lan
+
+import android.content.Context
+import android.os.Build
+import android.os.StatFs
+import com.pocketdeck.launcher.data.AppTheme
+import com.pocketdeck.launcher.data.ArchiveManager
+import com.pocketdeck.launcher.data.CategorySortOrder
+import com.pocketdeck.launcher.data.CoverSource
+import com.pocketdeck.launcher.data.GameRepository
+import com.pocketdeck.launcher.data.MetadataRepository
+import com.pocketdeck.launcher.data.NetworkStatus
+import com.pocketdeck.launcher.data.PlatformCatalog
+import com.pocketdeck.launcher.data.ThemeAccent
+import com.pocketdeck.launcher.data.UserData
+import com.pocketdeck.launcher.launch.GameLauncher
+import com.pocketdeck.launcher.ui.theme.deckPalette
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.net.URI
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+data class WebClientInfo(
+    val ip: String,
+    val userAgent: String,
+    val connectedAtMs: Long,
+    val lastActiveMs: Long,
+    val sessionCount: Int = 1,
+)
+
+data class WebThemeConfig(
+    val isDark: Boolean = false,
+    val accent: ThemeAccent = ThemeAccent.Ruby,
+) {
+    fun toJson(): JSONObject {
+        val pal = deckPalette(accent, isDark)
+        fun hex(c: androidx.compose.ui.graphics.Color): String {
+            val rgb = (c.value shr 32).toInt() and 0xFFFFFF
+            return String.format(Locale.US, "#%06X", rgb)
+        }
+        return JSONObject().apply {
+            put("isDark", isDark)
+            put("accent", accent.name)
+            put("primary", hex(pal.ruby))
+            put("glow", hex(pal.accentGlow))
+            put("tertiary", hex(pal.accentTertiary))
+            put("bg", hex(pal.background))
+            put("panel", hex(pal.dialogBg))
+            put("surf", hex(pal.surface))
+            put("border", hex(pal.dialogBorder))
+            put("text", hex(pal.textPrimary))
+            put("muted", hex(pal.textSecondary))
+        }
+    }
+}
+
+/**
+ * 局域网 Web 游戏库管理服务端（默认关闭，独立生命周期，每次启动生成 4 位动态访问密码 + 防暴力猜测限流）。
+ * - 封面与元数据 100% 由掌机自身提供/代抓缓存，Web 端不直连任何外网域名
+ * - 支持游戏风格 UI 与 App 亮/暗主题及主题色实时同步
+ * - 支持标签分类编辑同步（严格格式校验）与完整文件管理能力
+ */
+class WebManagerServer(
+    private val context: Context,
+    private val repo: GameRepository,
+    private val covers: CoverSource,
+    private val metadataRepo: MetadataRepository,
+) {
+    companion object {
+        const val DEFAULT_PORT = 8686
+        private const val SESSION_COOKIE = "pd_session"
+        private const val SESSION_TTL_MS = 12 * 60 * 60 * 1000L
+        private const val ATTEMPT_WINDOW_MS = 60_000L
+        private const val MAX_ATTEMPTS_PER_WINDOW = 5
+        private const val GLOBAL_WINDOW_MS = 5 * 60_000L
+        private const val MAX_GLOBAL_FAILURES = 15
+        private const val GLOBAL_LOCKOUT_MS = 120_000L
+        private const val MAX_COVER_UPLOAD_BYTES = 8 * 1024 * 1024L
+        private const val MAX_CANDIDATE_TOKENS = 200
+    }
+
+    private class SessionRecord(
+        val token: String,
+        val ip: String,
+        val userAgent: String,
+        val connectedAtMs: Long,
+        @Volatile var lastActiveMs: Long,
+        val expiresAtMs: Long,
+    )
+
+    private class IpAuthState {
+        val attemptTimestamps = ArrayDeque<Long>()
+        var consecutiveFailures: Int = 0
+        var lockedUntilMs: Long = 0L
+    }
+
+    private data class CoverCandidateToken(
+        val url: String,
+        val nodeId: String,
+        val createdMs: Long,
+    )
+
+    private val random = SecureRandom()
+    private var httpServer: HttpMiniServer? = null
+    private val sessions = ConcurrentHashMap<String, SessionRecord>()
+    private val candidateTokens = ConcurrentHashMap<String, CoverCandidateToken>()
+    private val authLock = Any()
+    private val ipAuthStates = HashMap<String, IpAuthState>()
+    private val globalFailures = ArrayDeque<Long>()
+    private var globalLockoutUntilMs = 0L
+
+    @Volatile
+    private var themeConfig = WebThemeConfig()
+
+    private val _connectedClients = MutableStateFlow<List<WebClientInfo>>(emptyList())
+    val connectedClients: StateFlow<List<WebClientInfo>> = _connectedClients.asStateFlow()
+
+    @Volatile
+    var dynamicPassword: String = generatePassword()
+        private set
+
+    @Volatile
+    var activeInterface: LanInterface? = null
+        private set
+
+    val isRunning: Boolean get() = httpServer != null
+    val boundPort: Int get() = httpServer?.boundPort ?: -1
+    val accessUrl: String?
+        get() {
+            val lan = activeInterface ?: return null
+            val port = boundPort
+            if (port <= 0) return null
+            return "http://${lan.ipAddress}:$port"
+        }
+
+    fun updateTheme(appTheme: AppTheme, accent: ThemeAccent, systemDark: Boolean) {
+        val isDark = when (appTheme) {
+            AppTheme.System -> systemDark
+            AppTheme.Light -> false
+            AppTheme.Dark -> true
+        }
+        themeConfig = WebThemeConfig(isDark = isDark, accent = accent)
+    }
+
+    fun start(lan: LanInterface, preferredPort: Int = DEFAULT_PORT): Int {
+        stop()
+        dynamicPassword = generatePassword()
+        sessions.clear()
+        candidateTokens.clear()
+        publishClients()
+        synchronized(authLock) {
+            ipAuthStates.clear()
+            globalFailures.clear()
+            globalLockoutUntilMs = 0L
+        }
+        val server = HttpMiniServer(lan.address, preferredPort) { req, res ->
+            handleRequest(req, res)
+        }
+        val port = server.start()
+        httpServer = server
+        activeInterface = lan
+        return port
+    }
+
+    fun stop() {
+        httpServer?.stop()
+        httpServer = null
+        activeInterface = null
+        sessions.clear()
+        candidateTokens.clear()
+        publishClients()
+    }
+
+    /** 刷新动态密码并立即吊销所有已有浏览器登录态。 */
+    fun refreshPassword(): String {
+        val next = generatePassword()
+        dynamicPassword = next
+        sessions.clear()
+        publishClients()
+        synchronized(authLock) {
+            ipAuthStates.clear()
+            globalFailures.clear()
+            globalLockoutUntilMs = 0L
+        }
+        return next
+    }
+
+    /** 主动断开指定 IP 的所有 Web 登录会话。 */
+    fun kickClient(ip: String) {
+        if (ip.isBlank()) return
+        var removed = false
+        val it = sessions.entries.iterator()
+        while (it.hasNext()) {
+            if (it.next().value.ip == ip) {
+                it.remove()
+                removed = true
+            }
+        }
+        if (removed) publishClients()
+    }
+
+    private fun generatePassword(): String =
+        String.format(Locale.US, "%04d", random.nextInt(10_000))
+
+    private fun isAuthenticated(req: HttpRequest): Boolean {
+        val token = req.cookies[SESSION_COOKIE] ?: return false
+        val rec = sessions[token] ?: return false
+        val now = System.currentTimeMillis()
+        if (now > rec.expiresAtMs) {
+            sessions.remove(token)
+            publishClients()
+            return false
+        }
+        val prevActive = rec.lastActiveMs
+        rec.lastActiveMs = now
+        if (now - prevActive > 5_000L) {
+            publishClients()
+        }
+        return true
+    }
+
+    private fun newSessionToken(req: HttpRequest): String {
+        val bytes = ByteArray(24)
+        random.nextBytes(bytes)
+        val token = bytes.joinToString("") { "%02x".format(it) }
+        val now = System.currentTimeMillis()
+        sessions[token] = SessionRecord(
+            token = token,
+            ip = req.remoteIp.ifBlank { "unknown" },
+            userAgent = summarizeUserAgent(req.headers["user-agent"].orEmpty()),
+            connectedAtMs = now,
+            lastActiveMs = now,
+            expiresAtMs = now + SESSION_TTL_MS,
+        )
+        publishClients()
+        return token
+    }
+
+    private fun publishClients() {
+        val now = System.currentTimeMillis()
+        val active = sessions.values.filter { now <= it.expiresAtMs }
+        val grouped = active.groupBy { it.ip }.map { (ip, recs) ->
+            WebClientInfo(
+                ip = ip,
+                userAgent = recs.maxByOrNull { it.lastActiveMs }?.userAgent.orEmpty(),
+                connectedAtMs = recs.minOf { it.connectedAtMs },
+                lastActiveMs = recs.maxOf { it.lastActiveMs },
+                sessionCount = recs.size,
+            )
+        }.sortedByDescending { it.lastActiveMs }
+        _connectedClients.value = grouped
+    }
+
+    private fun summarizeUserAgent(ua: String): String {
+        if (ua.isBlank()) return ""
+        val browser = when {
+            "Edg/" in ua -> "Edge"
+            "Chrome/" in ua -> "Chrome"
+            "Firefox/" in ua -> "Firefox"
+            "Safari/" in ua -> "Safari"
+            "curl/" in ua -> "curl"
+            else -> ua.take(24)
+        }
+        val os = when {
+            "Macintosh" in ua || "Mac OS" in ua -> "macOS"
+            "Windows" in ua -> "Windows"
+            "iPhone" in ua || "iPad" in ua -> "iOS"
+            "Android" in ua -> "Android"
+            "Linux" in ua -> "Linux"
+            else -> ""
+        }
+        return if (os.isNotEmpty() && browser != os) "$browser · $os" else browser
+    }
+
+    private fun isAllowedPostOrigin(req: HttpRequest): Boolean {
+        val host = req.headers["host"].orEmpty().trim().lowercase()
+        val origin = req.headers["origin"].orEmpty().trim()
+        if (origin.isNotEmpty() && host.isNotEmpty()) {
+            val auth = runCatching { URI(origin).authority?.lowercase() }.getOrNull() ?: return false
+            if (auth != host) return false
+        } else if (origin.isEmpty()) {
+            val referer = req.headers["referer"].orEmpty().trim()
+            if (referer.isNotEmpty() && host.isNotEmpty()) {
+                val auth = runCatching { URI(referer).authority?.lowercase() }.getOrNull() ?: return false
+                if (auth != host) return false
+            }
+        }
+        return true
+    }
+
+    private suspend fun handleRequest(req: HttpRequest, res: HttpResponseWriter) {
+        if (req.method == "POST" && !isAllowedPostOrigin(req)) {
+            res.sendJson(403, """{"ok":false,"error":"cross_origin_forbidden"}""")
+            return
+        }
+
+        if (req.method == "GET" && req.path == "/") {
+            if (isAuthenticated(req)) {
+                res.sendText(200, WebManagerUi.renderAppHtml(themeConfig), "text/html; charset=utf-8")
+            } else {
+                res.sendText(200, WebManagerUi.renderLoginHtml(themeConfig), "text/html; charset=utf-8")
+            }
+            return
+        }
+
+        if (req.method == "GET" && req.path == "/api/theme") {
+            val now = System.currentTimeMillis()
+            val authed = req.cookies[SESSION_COOKIE]?.let { sessions[it]?.let { r -> now <= r.expiresAtMs } } == true
+            res.sendJson(
+                200,
+                JSONObject()
+                    .put("ok", true)
+                    .put("theme", themeConfig.toJson())
+                    .put("online", NetworkStatus.isOnline(context))
+                    .put("authed", authed)
+                    .toString(),
+            )
+            return
+        }
+
+        if (req.method == "POST" && req.path == "/api/login") {
+            handleLogin(req, res)
+            return
+        }
+
+        if (req.method == "POST" && req.path == "/api/logout") {
+            val removed = req.cookies[SESSION_COOKIE]?.let { sessions.remove(it) } != null
+            if (removed) publishClients()
+            res.sendJson(
+                200,
+                """{"ok":true}""",
+                mapOf("Set-Cookie" to "$SESSION_COOKIE=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
+            )
+            return
+        }
+
+        if (!isAuthenticated(req)) {
+            res.sendJson(401, """{"ok":false,"error":"unauthorized"}""")
+            return
+        }
+
+        when {
+            req.method == "GET" && req.path == "/api/info" -> handleInfo(res)
+            req.method == "GET" && req.path == "/api/games" -> handleGames(res)
+            req.method == "GET" && req.path == "/api/cover" -> handleCover(req, res)
+            req.method == "GET" && req.path == "/api/cover-candidate" -> handleCoverCandidate(req, res)
+            req.method == "POST" && req.path == "/api/games/rename" -> handleGameRename(req, res)
+            req.method == "POST" && req.path == "/api/games/hide" -> handleGameHide(req, res)
+            req.method == "POST" && req.path == "/api/games/favorite" -> handleGameFavorite(req, res)
+            req.method == "POST" && req.path == "/api/games/categories" -> handleGameCategories(req, res)
+            req.method == "POST" && req.path == "/api/games/refresh-meta" -> handleGameRefreshMeta(req, res)
+            req.method == "POST" && req.path == "/api/games/scrape-covers" -> handleGameScrapeCovers(req, res)
+            req.method == "POST" && req.path == "/api/games/set-cover" -> handleGameSetCover(req, res)
+            req.method == "POST" && req.path == "/api/games/upload-cover" -> handleGameUploadCover(req, res)
+            req.method == "POST" && req.path == "/api/games/reset-cover" -> handleGameResetCover(req, res)
+            req.method == "GET" && req.path == "/api/categories" -> handleGetCategories(res)
+            req.method == "POST" && req.path == "/api/categories/save" -> handleSaveCategories(req, res)
+            req.method == "GET" && req.path == "/api/files" -> handleListFiles(req, res)
+            req.method == "GET" && req.path == "/api/files/download" -> handleDownload(req, res)
+            req.method == "GET" && req.path == "/api/files/raw" -> handleRawFile(req, res)
+            req.method == "GET" && req.path == "/api/files/text" -> handleReadText(req, res)
+            req.method == "POST" && req.path == "/api/files/text" -> handleWriteText(req, res)
+            req.method == "GET" && req.path == "/api/files/archive-entries" -> handleArchiveEntries(req, res)
+            req.method == "POST" && req.path == "/api/files/extract" -> handleExtract(req, res)
+            req.method == "POST" && req.path == "/api/files/compress" -> handleCompress(req, res)
+            req.method == "POST" && req.path == "/api/files/upload" -> handleUpload(req, res)
+            req.method == "POST" && req.path == "/api/files/mkdir" -> handleMkdir(req, res)
+            req.method == "POST" && req.path == "/api/files/rename" -> handleFileRename(req, res)
+            req.method == "POST" && req.path == "/api/files/move" -> handleFileMove(req, res)
+            req.method == "POST" && req.path == "/api/files/copy" -> handleFileCopy(req, res)
+            req.method == "POST" && req.path == "/api/files/delete" -> handleFileDelete(req, res)
+            req.method == "POST" && req.path == "/api/files/batch-move" -> handleBatchMove(req, res)
+            req.method == "POST" && req.path == "/api/files/batch-copy" -> handleBatchCopy(req, res)
+            req.method == "POST" && req.path == "/api/files/batch-delete" -> handleBatchDelete(req, res)
+            req.method == "POST" && req.path == "/api/rescan" -> {
+                repo.refresh()
+                res.sendJson(200, """{"ok":true}""")
+            }
+            else -> res.sendJson(404, """{"ok":false,"error":"not_found"}""")
+        }
+    }
+
+    private fun handleLogin(req: HttpRequest, res: HttpResponseWriter) {
+        val ip = req.remoteIp.ifBlank { "unknown" }
+        val now = System.currentTimeMillis()
+        synchronized(authLock) {
+            if (now < globalLockoutUntilMs) {
+                val sec = ((globalLockoutUntilMs - now + 999L) / 1000L).coerceAtLeast(1L)
+                res.sendJson(429, """{"ok":false,"error":"locked","retryAfterSec":$sec}""")
+                return
+            }
+            val ipState = ipAuthStates.getOrPut(ip) { IpAuthState() }
+            if (now < ipState.lockedUntilMs) {
+                val sec = ((ipState.lockedUntilMs - now + 999L) / 1000L).coerceAtLeast(1L)
+                res.sendJson(429, """{"ok":false,"error":"locked","retryAfterSec":$sec}""")
+                return
+            }
+            while (ipState.attemptTimestamps.isNotEmpty() && now - ipState.attemptTimestamps.first() > ATTEMPT_WINDOW_MS) {
+                ipState.attemptTimestamps.removeFirst()
+            }
+            if (ipState.attemptTimestamps.size >= MAX_ATTEMPTS_PER_WINDOW) {
+                val oldest = ipState.attemptTimestamps.first()
+                val waitMs = (ATTEMPT_WINDOW_MS - (now - oldest)).coerceAtLeast(1000L)
+                ipState.lockedUntilMs = maxOf(ipState.lockedUntilMs, now + waitMs)
+                val sec = (waitMs + 999L) / 1000L
+                res.sendJson(429, """{"ok":false,"error":"rate_limited","retryAfterSec":$sec}""")
+                return
+            }
+            ipState.attemptTimestamps.addLast(now)
+        }
+
+        val body = runCatching { JSONObject(req.readBodyUtf8(4096)) }.getOrNull()
+        val pwd = body?.optString("password", "").orEmpty().trim()
+        val expected = dynamicPassword
+        val match = pwd.length == expected.length &&
+            MessageDigest.isEqual(pwd.toByteArray(), expected.toByteArray())
+        if (!match) {
+            var lockedSec = 0L
+            var remaining = 0
+            synchronized(authLock) {
+                val failNow = System.currentTimeMillis()
+                val ipState = ipAuthStates.getOrPut(ip) { IpAuthState() }
+                ipState.consecutiveFailures++
+                while (globalFailures.isNotEmpty() && failNow - globalFailures.first() > GLOBAL_WINDOW_MS) {
+                    globalFailures.removeFirst()
+                }
+                globalFailures.addLast(failNow)
+                if (globalFailures.size >= MAX_GLOBAL_FAILURES) {
+                    globalLockoutUntilMs = failNow + GLOBAL_LOCKOUT_MS
+                    globalFailures.clear()
+                    lockedSec = GLOBAL_LOCKOUT_MS / 1000L
+                }
+                val lockDuration = when {
+                    ipState.consecutiveFailures >= 8 -> 600_000L
+                    ipState.consecutiveFailures >= 5 -> 120_000L
+                    ipState.consecutiveFailures >= 3 -> 30_000L
+                    else -> 0L
+                }
+                if (lockDuration > 0L) {
+                    ipState.lockedUntilMs = maxOf(ipState.lockedUntilMs, failNow + lockDuration)
+                    lockedSec = maxOf(lockedSec, lockDuration / 1000L)
+                } else {
+                    val untilNextLock = 3 - ipState.consecutiveFailures
+                    val windowLeft = (MAX_ATTEMPTS_PER_WINDOW - ipState.attemptTimestamps.size).coerceAtLeast(0)
+                    remaining = minOf(untilNextLock, windowLeft).coerceAtLeast(0)
+                }
+            }
+            if (lockedSec > 0L) {
+                res.sendJson(429, """{"ok":false,"error":"locked","retryAfterSec":$lockedSec}""")
+            } else {
+                res.sendJson(401, """{"ok":false,"error":"invalid_password","remainingAttempts":$remaining}""")
+            }
+            return
+        }
+        synchronized(authLock) {
+            ipAuthStates.remove(ip)
+        }
+        val token = newSessionToken(req)
+        res.sendJson(
+            200,
+            """{"ok":true}""",
+            mapOf("Set-Cookie" to "$SESSION_COOKIE=$token; Path=/; HttpOnly; SameSite=Strict"),
+        )
+    }
+
+    private suspend fun handleInfo(res: HttpResponseWriter) {
+        val roots = repo.configuredRoots()
+        val u = repo.user.value
+        val storageArr = JSONArray()
+        for (r in roots) {
+            val stat = runCatching { StatFs(r.absolutePath) }.getOrNull()
+            storageArr.put(
+                JSONObject().apply {
+                    put("path", r.absolutePath)
+                    put("freeBytes", stat?.availableBytes ?: 0L)
+                    put("totalBytes", stat?.totalBytes ?: 0L)
+                },
+            )
+        }
+        val obj = JSONObject().apply {
+            put("deviceName", u?.deviceName?.ifBlank { Build.MODEL } ?: Build.MODEL)
+            put("model", Build.MODEL.orEmpty())
+            put("interface", activeInterface?.labelWithIp.orEmpty())
+            put("url", accessUrl.orEmpty())
+            put("online", NetworkStatus.isOnline(context))
+            put("roots", JSONArray(roots.map { it.absolutePath }))
+            put("storage", storageArr)
+            put("theme", themeConfig.toJson())
+        }
+        res.sendJson(200, obj.toString())
+    }
+
+    private fun gameToJson(g: com.pocketdeck.launcher.data.model.Game): JSONObject {
+        val lib = repo.fullLibrary.value
+        val u = repo.user.value
+        val hidden = u?.hidden.orEmpty()
+        val favs = u?.favorites.orEmpty()
+        val cats = u?.categories.orEmpty()
+        val metaMap = metadataRepo.metadata.value
+        val officialNames = metadataRepo.officialNames.value
+        val metaRes = metadataRepo.resolutionInfo.value
+
+        val plat = lib?.platforms?.firstOrNull { it.id == g.platformId }
+            ?: PlatformCatalog.forFolder(g.platformId).let { p ->
+                val aspect = u?.platformAspects?.get(p.id)
+                if (aspect != null) p.copy(coverAspect = aspect) else p
+            }
+        val isRom = !g.id.startsWith(GameLauncher.APK_PREFIX)
+        val fileSize = if (isRom) runCatching { File(g.id).length() }.getOrDefault(0L) else g.fileSize
+        val m = metaMap[g.id]
+        val mInfo = metaRes[g.id]
+        val cInfo = covers.resolveCoverInfo(g)
+        val catIds = cats.filter { g.id in it.games || g.platformId in it.sources }.map { it.id }
+
+        return JSONObject().apply {
+            put("id", g.id)
+            put("title", g.title)
+            put("officialName", officialNames[g.id].orEmpty())
+            put("fileName", g.fileName)
+            put("platformId", g.platformId)
+            put("platformName", plat.shortName)
+            put("platformFullName", plat.fullName)
+            put("coverAspect", plat.coverAspect.toDouble())
+            put("isRom", isRom)
+            put("hidden", g.id in hidden)
+            put("favorite", g.id in favs)
+            put("size", fileSize)
+            put("lastModifiedMs", g.lastModifiedMs)
+            put("hasCover", covers.hasLocalOrCachedCover(g))
+            put("hasCustomCover", !g.customCover.isNullOrBlank())
+            put("categories", JSONArray(catIds))
+            put(
+                "metadata",
+                JSONObject().apply {
+                    put("releaseDate", m?.releaseDate.orEmpty())
+                    put("genre", m?.genre.orEmpty())
+                    put("developer", m?.developer.orEmpty())
+                    put("publisher", m?.publisher.orEmpty())
+                },
+            )
+            put(
+                "metaInfo",
+                JSONObject().apply {
+                    put("providers", JSONArray(mInfo?.providers.orEmpty()))
+                    put("matchModes", JSONArray(mInfo?.matchModes?.map { it.name }.orEmpty()))
+                    put("crc32", mInfo?.crc32.orEmpty())
+                },
+            )
+            put("coverProvider", cInfo?.providerId.orEmpty())
+            put("coverMode", cInfo?.matchMode?.name.orEmpty())
+        }
+    }
+
+    private fun handleGames(res: HttpResponseWriter) {
+        val lib = repo.fullLibrary.value
+        val allGames = lib?.games?.values?.flatten().orEmpty().sortedBy { it.title.lowercase() }
+        val arr = JSONArray()
+        for (g in allGames) {
+            arr.put(gameToJson(g))
+        }
+        val root = JSONObject().apply {
+            put("ok", true)
+            put("games", arr)
+        }
+        res.sendJson(200, root.toString())
+    }
+
+    private suspend fun handleCover(req: HttpRequest, res: HttpResponseWriter) {
+        val id = req.query["id"].orEmpty()
+        val game = repo.fullLibrary.value?.byId?.get(id)
+        if (game == null) {
+            res.sendText(404, "No game")
+            return
+        }
+        val resolved = covers.resolveWebCoverBytes(game)
+        if (resolved == null) {
+            res.sendText(404, "No cover")
+            return
+        }
+        res.sendBytes(200, resolved.second, resolved.first)
+    }
+
+    private suspend fun handleCoverCandidate(req: HttpRequest, res: HttpResponseWriter) {
+        val token = req.query["token"].orEmpty()
+        val entry = candidateTokens[token]
+        if (entry == null) {
+            res.sendText(404, "Expired")
+            return
+        }
+        val downloaded = covers.downloadImageBytes(entry.url)
+        if (downloaded == null) {
+            res.sendText(404, "Unavailable")
+            return
+        }
+        res.sendBytes(200, downloaded.second, downloaded.first)
+    }
+
+    private suspend fun handleGameRename(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty()
+        val title = body?.optString("title", "").orEmpty().trim().take(200)
+        if (id.isBlank() || repo.fullLibrary.value?.byId?.containsKey(id) != true) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        val existingCover = repo.user.value?.covers?.get(id)
+        repo.saveGameEdits(id, title.ifBlank { null }, existingCover)
+        res.sendJson(200, """{"ok":true}""")
+    }
+
+    private suspend fun handleGameHide(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty()
+        val hidden = body?.optBoolean("hidden", false) ?: false
+        if (id.isBlank() || repo.fullLibrary.value?.byId?.containsKey(id) != true) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        if (hidden) repo.hide(id) else repo.unhide(id)
+        res.sendJson(200, """{"ok":true}""")
+    }
+
+    private suspend fun handleGameFavorite(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty()
+        if (id.isBlank() || repo.fullLibrary.value?.byId?.containsKey(id) != true) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        val wantFav = if (body?.has("favorite") == true) body.optBoolean("favorite", true) else null
+        val currentlyFav = id in repo.user.value?.favorites.orEmpty()
+        if (wantFav == null || wantFav != currentlyFav) {
+            repo.toggleFavorite(id)
+        }
+        res.sendJson(200, JSONObject().put("ok", true).put("favorite", wantFav ?: !currentlyFav).toString())
+    }
+
+    private suspend fun handleGameCategories(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty().trim()
+        val catArr = body?.optJSONArray("categoryIds")
+        if (id.isBlank() || catArr == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        if (repo.fullLibrary.value?.byId?.containsKey(id) != true) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        val wantedIds = HashSet<String>()
+        for (i in 0 until catArr.length()) {
+            val cid = (catArr.opt(i) as? String)?.trim().orEmpty()
+            if (cid.isNotBlank()) wantedIds += cid
+        }
+        repo.updatePrefs { u ->
+            u.copy(
+                categories = u.categories.map { c ->
+                    val nextGames = if (c.id in wantedIds) c.games + id else c.games - id
+                    c.copy(games = nextGames)
+                },
+            )
+        }
+        res.sendJson(200, """{"ok":true}""")
+    }
+
+    private suspend fun handleGameRefreshMeta(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty()
+        val game = repo.fullLibrary.value?.byId?.get(id)
+        if (game == null) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        if (!NetworkStatus.isOnline(context)) {
+            res.sendJson(200, JSONObject().put("ok", false).put("error", "offline").put("game", gameToJson(game)).toString())
+            return
+        }
+        val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
+        val metaUpdated = metadataRepo.refreshGame(game, plat)
+        val officialName = metadataRepo.officialNames.value[game.id]
+        val coverUpdated = covers.fetchWebCoverNow(game, plat, officialName)
+        val freshGame = repo.fullLibrary.value?.byId?.get(id) ?: game
+        res.sendJson(
+            200,
+            JSONObject().apply {
+                put("ok", true)
+                put("metaUpdated", metaUpdated)
+                put("coverUpdated", coverUpdated)
+                put("game", gameToJson(freshGame))
+            }.toString(),
+        )
+    }
+
+    private suspend fun handleGameScrapeCovers(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty()
+        val game = repo.fullLibrary.value?.byId?.get(id)
+        if (game == null) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        if (!NetworkStatus.isOnline(context)) {
+            res.sendJson(200, JSONObject().put("ok", false).put("error", "offline").put("candidates", JSONArray()).toString())
+            return
+        }
+        val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
+        val officialName = metadataRepo.officialNames.value[game.id]
+        val list = covers.scrapeAllForPicker(game, plat, officialName).take(18)
+
+        if (candidateTokens.size > MAX_CANDIDATE_TOKENS) {
+            val cutoff = System.currentTimeMillis() - 10 * 60_000L
+            candidateTokens.entries.removeIf { it.value.createdMs < cutoff }
+        }
+        val arr = JSONArray()
+        val now = System.currentTimeMillis()
+        for (item in list) {
+            val token = UUID.randomUUID().toString().replace("-", "").take(16)
+            candidateTokens[token] = CoverCandidateToken(item.url, item.nodeId, now)
+            arr.put(JSONObject().put("token", token).put("nodeId", item.nodeId))
+        }
+        res.sendJson(200, JSONObject().put("ok", true).put("candidates", arr).toString())
+    }
+
+    private suspend fun handleGameSetCover(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty()
+        val token = body?.optString("token", "").orEmpty()
+        val game = repo.fullLibrary.value?.byId?.get(id)
+        val candidate = candidateTokens[token]
+        if (game == null || candidate == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        val downloaded = covers.downloadImageBytes(candidate.url)
+        if (downloaded == null) {
+            res.sendJson(500, """{"ok":false,"error":"download_failed"}""")
+            return
+        }
+        val ext = when {
+            "png" in downloaded.first -> "png"
+            "webp" in downloaded.first -> "webp"
+            else -> "jpg"
+        }
+        val dir = File(context.filesDir, "custom_covers").apply { mkdirs() }
+        val target = File(dir, "web_${System.currentTimeMillis()}.$ext")
+        val saved = runCatching { target.writeBytes(downloaded.second); true }.getOrDefault(false)
+        if (!saved) {
+            res.sendJson(500, """{"ok":false,"error":"save_failed"}""")
+            return
+        }
+        covers.forget(id)
+        val existingName = repo.user.value?.renames?.get(id)
+        repo.saveGameEdits(id, existingName, target.absolutePath)
+        res.sendJson(200, """{"ok":true}""")
+    }
+
+    private suspend fun handleGameUploadCover(req: HttpRequest, res: HttpResponseWriter) {
+        val id = req.query["id"].orEmpty()
+        val game = repo.fullLibrary.value?.byId?.get(id)
+        if (game == null) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        if (req.contentLength <= 0L || req.contentLength > MAX_COVER_UPLOAD_BYTES) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_image_size"}""")
+            return
+        }
+        val bytes = req.readBodyBytes(MAX_COVER_UPLOAD_BYTES.toInt())
+        val ext = detectImageExt(bytes)
+        if (ext == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_image_format"}""")
+            return
+        }
+        val dir = File(context.filesDir, "custom_covers").apply { mkdirs() }
+        val target = File(dir, "upload_${System.currentTimeMillis()}.$ext")
+        val saved = runCatching { target.writeBytes(bytes); true }.getOrDefault(false)
+        if (!saved) {
+            res.sendJson(500, """{"ok":false,"error":"save_failed"}""")
+            return
+        }
+        covers.forget(id)
+        val existingName = repo.user.value?.renames?.get(id)
+        repo.saveGameEdits(id, existingName, target.absolutePath)
+        res.sendJson(200, """{"ok":true}""")
+    }
+
+    private suspend fun handleGameResetCover(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty()
+        if (id.isBlank()) {
+            res.sendJson(400, """{"ok":false,"error":"missing_id"}""")
+            return
+        }
+        covers.forget(id)
+        val existingName = repo.user.value?.renames?.get(id)
+        repo.saveGameEdits(id, existingName, null)
+        res.sendJson(200, """{"ok":true}""")
+    }
+
+    // ───────────────────────── 标签分类管理（带严格格式安全校验） ─────────────────────────
+
+    private fun handleGetCategories(res: HttpResponseWriter, overrideUser: UserData? = null) {
+        val u = overrideUser ?: repo.user.value
+        val lib = repo.fullLibrary.value
+        if (u == null) {
+            res.sendJson(500, """{"ok":false,"error":"user_not_loaded"}""")
+            return
+        }
+        val categorizedPlatforms = u.categories.flatMap { it.sources }.toSet()
+        val categorizedGames = u.categories.flatMap { it.games }.toSet()
+
+        val nowCfg = u.systemTabs["now"]
+        val favsCfg = u.systemTabs["favs"]
+        val otherCfg = u.systemTabs["other"]
+        fun sysTabDisplayName(def: String, cfg: com.pocketdeck.launcher.data.SystemTabConfig?): String =
+            if (cfg != null && !cfg.followSystemLanguage && cfg.customName.isNotBlank()) cfg.customName else def
+
+        val tabEntries = buildList {
+            add(
+                JSONObject().apply {
+                    put("id", "now")
+                    put("type", "Now")
+                    put("name", sysTabDisplayName("NOW", nowCfg))
+                    put("customName", nowCfg?.customName.orEmpty())
+                    put("followSystemLanguage", nowCfg?.followSystemLanguage ?: true)
+                    put("hidden", !u.nowTab)
+                    put("sources", JSONArray())
+                    put("games", JSONArray())
+                    put("sortOrder", nowCfg?.sortOrder?.name ?: "Recent")
+                    put("gameCount", u.recents.count { lib?.byId?.containsKey(it) == true })
+                },
+            )
+            add(
+                JSONObject().apply {
+                    put("id", "favs")
+                    put("type", "Favs")
+                    put("name", sysTabDisplayName("FAVS", favsCfg))
+                    put("customName", favsCfg?.customName.orEmpty())
+                    put("followSystemLanguage", favsCfg?.followSystemLanguage ?: true)
+                    put("hidden", !u.favsTab)
+                    put("sources", JSONArray())
+                    put("games", JSONArray())
+                    put("sortOrder", (favsCfg?.sortOrder ?: CategorySortOrder.TitleAsc).name)
+                    put("gameCount", u.favorites.count { lib?.byId?.containsKey(it) == true })
+                },
+            )
+            for (c in u.categories) {
+                val count = (c.sources.flatMap { lib?.games?.get(it).orEmpty() } + c.games.mapNotNull { lib?.byId?.get(it) })
+                    .distinctBy { it.id }.size
+                add(
+                    JSONObject().apply {
+                        put("id", c.id)
+                        put("type", "Custom")
+                        put("name", c.name)
+                        put("customName", c.name)
+                        put("followSystemLanguage", false)
+                        put("hidden", c.id in u.hiddenTabs)
+                        put("sources", JSONArray(c.sources))
+                        put("games", JSONArray(c.games.toList()))
+                        put("sortOrder", c.sortOrder.name)
+                        put("gameCount", count)
+                    },
+                )
+            }
+            val otherCount = lib?.byId?.values?.count {
+                it.platformId !in categorizedPlatforms && it.id !in categorizedGames
+            } ?: 0
+            add(
+                JSONObject().apply {
+                    put("id", "other")
+                    put("type", "Other")
+                    put("name", sysTabDisplayName("OTHER", otherCfg))
+                    put("customName", otherCfg?.customName.orEmpty())
+                    put("followSystemLanguage", otherCfg?.followSystemLanguage ?: true)
+                    put("hidden", "other" in u.hiddenTabs)
+                    put("sources", JSONArray())
+                    put("games", JSONArray())
+                    put("sortOrder", (otherCfg?.sortOrder ?: CategorySortOrder.TitleAsc).name)
+                    put("gameCount", otherCount)
+                },
+            )
+        }
+
+        val orderMap = u.tabOrder.withIndex().associate { it.value to it.index }
+        val sortedTabs = tabEntries.withIndex()
+            .sortedBy { (idx, obj) -> orderMap[obj.getString("id")] ?: (100_000 + idx) }
+            .map { it.value }
+
+        val libGamesByPlat = lib?.games.orEmpty()
+        val knownIds = PlatformCatalog.known.map { it.id }.toSet()
+        val extraPlatforms = libGamesByPlat.keys.filter { it !in knownIds }.map { PlatformCatalog.forFolder(it) }
+        val allPlatforms = (PlatformCatalog.known + extraPlatforms).map { p ->
+            val count = libGamesByPlat[p.id]?.size ?: 0
+            JSONObject().apply {
+                put("id", p.id)
+                put("shortName", p.shortName)
+                put("fullName", p.fullName)
+                put("gameCount", count)
+                put("inLibrary", count > 0)
+            }
+        }
+
+        res.sendJson(
+            200,
+            JSONObject().apply {
+                put("ok", true)
+                put("tabs", JSONArray(sortedTabs))
+                put("platforms", JSONArray(allPlatforms))
+                put("sortOrders", JSONArray(CategorySortOrder.entries.map { it.name }))
+            }.toString(),
+        )
+    }
+
+    private suspend fun handleSaveCategories(req: HttpRequest, res: HttpResponseWriter) {
+        if (req.contentLength > 512 * 1024L) {
+            res.sendJson(413, """{"ok":false,"error":"payload_too_large"}""")
+            return
+        }
+        val raw = req.readBodyUtf8(512 * 1024)
+        val existingSys = repo.user.value?.systemTabs.orEmpty()
+        when (val check = CategoryValidator.validate(raw, existingSys)) {
+            is CategoryValidator.Result.Error -> {
+                res.sendJson(
+                    400,
+                    JSONObject().apply {
+                        put("ok", false)
+                        put("error", check.code)
+                        put("message", check.message)
+                    }.toString(),
+                )
+            }
+            is CategoryValidator.Result.Ok -> {
+                val cfg = check.config
+                val applyConfig: (UserData) -> UserData = { u ->
+                    u.copy(
+                        categories = cfg.categories,
+                        tabOrder = cfg.tabOrder,
+                        hiddenTabs = cfg.hiddenTabs,
+                        nowTab = cfg.nowTab,
+                        favsTab = cfg.favsTab,
+                        systemTabs = cfg.systemTabs,
+                        categoriesInitialized = true,
+                    )
+                }
+                val immediateUser = repo.user.value?.let(applyConfig)
+                repo.updatePrefs(applyConfig)
+                handleGetCategories(res, immediateUser)
+            }
+        }
+    }
+
+    // ───────────────────────── 文件管理（含多选、复制、压缩、目录上传） ─────────────────────────
+
+    private suspend fun handleListFiles(req: HttpRequest, res: HttpResponseWriter) {
+        val roots = repo.configuredRoots()
+        val dirParam = req.query["dir"].orEmpty().trim()
+        if (dirParam.isEmpty()) {
+            val arr = JSONArray()
+            for (r in roots) {
+                val stat = runCatching { StatFs(r.absolutePath) }.getOrNull()
+                arr.put(
+                    JSONObject().apply {
+                        put("name", r.absolutePath)
+                        put("path", r.absolutePath)
+                        put("isDir", true)
+                        put("size", 0L)
+                        put("freeBytes", stat?.availableBytes ?: 0L)
+                        put("totalBytes", stat?.totalBytes ?: 0L)
+                        put("isRoot", true)
+                    },
+                )
+            }
+            res.sendJson(
+                200,
+                JSONObject().apply {
+                    put("ok", true)
+                    put("dir", "")
+                    put("parent", "")
+                    put("breadcrumbs", JSONArray())
+                    put("entries", arr)
+                }.toString(),
+            )
+            return
+        }
+
+        val target = resolveAllowedDir(dirParam, roots)
+        if (target == null || !target.isDirectory) {
+            res.sendJson(403, """{"ok":false,"error":"forbidden_or_missing"}""")
+            return
+        }
+
+        val libById = repo.fullLibrary.value?.byId.orEmpty()
+        val children = target.listFiles { f -> !f.name.startsWith(".") }
+            .orEmpty()
+            .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
+        val arr = JSONArray()
+        for (f in children) {
+            val isArchive = f.isFile && ArchiveManager.isArchive(f)
+            val isImage = f.isFile && ArchiveManager.isImageFile(f)
+            val isAudio = f.isFile && ArchiveManager.isAudioFile(f)
+            val isFont = f.isFile && ArchiveManager.isFontFile(f)
+            val isText = f.isFile && !isArchive && !isImage && !isAudio && !isFont &&
+                (ArchiveManager.isKnownTextFile(f) || ArchiveManager.looksLikeTextFile(f))
+            arr.put(
+                JSONObject().apply {
+                    put("name", f.name)
+                    put("path", f.absolutePath)
+                    put("isDir", f.isDirectory)
+                    put("size", if (f.isFile) f.length() else 0L)
+                    put("modified", f.lastModified())
+                    put("isRom", libById.containsKey(f.absolutePath))
+                    put("isArchive", isArchive)
+                    put("isImage", isImage)
+                    put("isAudio", isAudio)
+                    put("isFont", isFont)
+                    put("isText", isText)
+                },
+            )
+        }
+        val matchedRoot = roots.firstOrNull { root ->
+            val rc = runCatching { root.canonicalPath }.getOrNull() ?: return@firstOrNull false
+            val tc = runCatching { target.canonicalPath }.getOrNull() ?: return@firstOrNull false
+            tc == rc || tc.startsWith("$rc${File.separator}")
+        }
+        val isAtRoot = matchedRoot != null && runCatching { matchedRoot.canonicalPath == target.canonicalPath }.getOrDefault(false)
+        val parentPath = if (isAtRoot) "" else target.parentFile?.absolutePath.orEmpty()
+
+        val crumbs = JSONArray()
+        if (matchedRoot != null) {
+            val rootCanon = runCatching { matchedRoot.canonicalPath }.getOrDefault(matchedRoot.path)
+            val curCanon = runCatching { target.canonicalPath }.getOrDefault(target.path)
+            crumbs.put(JSONObject().put("name", matchedRoot.name.ifBlank { matchedRoot.path }).put("path", matchedRoot.absolutePath))
+            if (curCanon.startsWith("$rootCanon${File.separator}")) {
+                val rel = curCanon.removePrefix("$rootCanon${File.separator}")
+                var acc = matchedRoot
+                for (seg in rel.split(File.separatorChar).filter { it.isNotBlank() }) {
+                    acc = File(acc, seg)
+                    crumbs.put(JSONObject().put("name", seg).put("path", acc.absolutePath))
+                }
+            }
+        }
+        val stat = runCatching { StatFs(target.absolutePath) }.getOrNull()
+
+        res.sendJson(
+            200,
+            JSONObject().apply {
+                put("ok", true)
+                put("dir", target.absolutePath)
+                put("parent", parentPath)
+                put("breadcrumbs", crumbs)
+                put("freeBytes", stat?.availableBytes ?: 0L)
+                put("totalBytes", stat?.totalBytes ?: 0L)
+                put("entries", arr)
+            }.toString(),
+        )
+    }
+
+    private suspend fun handleDownload(req: HttpRequest, res: HttpResponseWriter) {
+        val path = req.query["path"].orEmpty()
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        if (file == null || !file.isFile) {
+            res.sendText(404, "File not found")
+            return
+        }
+        res.sendFile(file, attachmentName = file.name, rangeHeader = req.headers["range"])
+    }
+
+    private suspend fun handleRawFile(req: HttpRequest, res: HttpResponseWriter) {
+        val path = req.query["path"].orEmpty()
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        if (file == null || !file.isFile) {
+            res.sendText(404, "File not found")
+            return
+        }
+        val mime = when (file.extension.lowercase()) {
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            "webp" -> "image/webp"
+            "gif" -> "image/gif"
+            "bmp" -> "image/bmp"
+            "mp3" -> "audio/mpeg"
+            "wav" -> "audio/wav"
+            "ogg" -> "audio/ogg"
+            "flac" -> "audio/flac"
+            "aac" -> "audio/aac"
+            "m4a" -> "audio/mp4"
+            "opus" -> "audio/opus"
+            else -> {
+                res.sendJson(403, """{"ok":false,"error":"unsupported_preview_type"}""")
+                return
+            }
+        }
+        res.sendFile(file, contentType = mime, attachmentName = null, rangeHeader = req.headers["range"])
+    }
+
+    private suspend fun handleReadText(req: HttpRequest, res: HttpResponseWriter) {
+        val path = req.query["path"].orEmpty()
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        if (file == null || !file.isFile || !file.canRead()) {
+            res.sendJson(404, """{"ok":false,"error":"not_found"}""")
+            return
+        }
+        if (file.length() > 512 * 1024L) {
+            res.sendJson(413, """{"ok":false,"error":"file_too_large"}""")
+            return
+        }
+        val text = runCatching { file.readText(StandardCharsets.UTF_8) }.getOrNull()
+        if (text == null) {
+            res.sendJson(500, """{"ok":false,"error":"read_failed"}""")
+            return
+        }
+        res.sendJson(
+            200,
+            JSONObject().apply {
+                put("ok", true)
+                put("name", file.name)
+                put("path", file.absolutePath)
+                put("content", text)
+            }.toString(),
+        )
+    }
+
+    private suspend fun handleWriteText(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8(maxBytes = 1024 * 1024)) }.getOrNull()
+        val path = body?.optString("path", "").orEmpty()
+        if (body == null || !body.has("content")) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        val content = body.optString("content", "")
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        if (file == null || !file.isFile) {
+            res.sendJson(404, """{"ok":false,"error":"not_found"}""")
+            return
+        }
+        val ok = runCatching { file.writeText(content, StandardCharsets.UTF_8) }.isSuccess
+        if (ok) {
+            res.sendJson(200, """{"ok":true}""")
+        } else {
+            res.sendJson(500, """{"ok":false,"error":"write_failed"}""")
+        }
+    }
+
+    private suspend fun handleArchiveEntries(req: HttpRequest, res: HttpResponseWriter) {
+        val path = req.query["path"].orEmpty()
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        if (file == null || !file.isFile || !ArchiveManager.isArchive(file)) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_archive"}""")
+            return
+        }
+        val result = ArchiveManager.inspect(file)
+        if (result.isFailure) {
+            res.sendJson(
+                500,
+                JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "inspect_failed").toString(),
+            )
+            return
+        }
+        val arr = JSONArray()
+        for (e in result.getOrDefault(emptyList())) {
+            arr.put(JSONObject().put("name", e.name).put("isDir", e.isDir).put("size", e.size))
+        }
+        res.sendJson(200, JSONObject().put("ok", true).put("entries", arr).toString())
+    }
+
+    private suspend fun handleExtract(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val path = body?.optString("path", "").orEmpty()
+        val mode = body?.optString("mode", "folder").orEmpty()
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        if (file == null || !file.isFile || !ArchiveManager.isArchive(file)) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_archive"}""")
+            return
+        }
+        val parent = file.parentFile
+        if (parent == null || !parent.isDirectory) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_parent"}""")
+            return
+        }
+        val destDir = if (mode == "here") {
+            parent
+        } else {
+            var candidate = File(parent, ArchiveManager.suggestedFolderName(file))
+            var idx = 1
+            while (candidate.exists()) {
+                candidate = File(parent, "${ArchiveManager.suggestedFolderName(file)} ($idx)")
+                idx++
+            }
+            candidate
+        }
+        val result = ArchiveManager.extract(file, destDir)
+        if (result.isSuccess) {
+            repo.refresh()
+            res.sendJson(
+                200,
+                JSONObject().apply {
+                    put("ok", true)
+                    put("count", result.getOrDefault(0))
+                    put("dest", destDir.name)
+                }.toString(),
+            )
+        } else {
+            res.sendJson(
+                500,
+                JSONObject().apply {
+                    put("ok", false)
+                    put("error", result.exceptionOrNull()?.message ?: "extract_failed")
+                }.toString(),
+            )
+        }
+    }
+
+    private suspend fun handleCompress(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val pathsArr = body?.optJSONArray("paths")
+        val targetDirPath = body?.optString("targetDir", "").orEmpty()
+        val rawZipName = sanitizeFileName(body?.optString("zipName", "").orEmpty())
+        val roots = repo.configuredRoots()
+        val targetDir = resolveAllowedDir(targetDirPath, roots)
+        if (pathsArr == null || targetDir == null || rawZipName == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        val sources = buildList {
+            for (i in 0 until pathsArr.length()) {
+                val f = resolveAllowedFile(pathsArr.optString(i, ""), roots)
+                if (f != null && f.exists()) add(f)
+            }
+        }
+        if (sources.isEmpty()) {
+            res.sendJson(400, """{"ok":false,"error":"no_sources"}""")
+            return
+        }
+        val zipFileName = if (rawZipName.endsWith(".zip", ignoreCase = true)) rawZipName else "$rawZipName.zip"
+        val destZip = uniqueFile(targetDir, zipFileName)
+        val result = ArchiveManager.compressToZip(sources, destZip)
+        if (result.isSuccess) {
+            repo.refresh()
+            res.sendJson(200, JSONObject().put("ok", true).put("name", destZip.name).put("path", destZip.absolutePath).toString())
+        } else {
+            res.sendJson(500, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "compress_failed").toString())
+        }
+    }
+
+    private suspend fun handleUpload(req: HttpRequest, res: HttpResponseWriter) {
+        val dirPath = req.query["dir"].orEmpty()
+        val rawName = req.query["name"].orEmpty().trim()
+        val rawSubpath = req.query["subpath"].orEmpty().trim()
+        val roots = repo.configuredRoots()
+        val baseDir = resolveAllowedDir(dirPath, roots)
+        if (baseDir == null || !baseDir.isDirectory) {
+            res.sendJson(403, """{"ok":false,"error":"invalid_dir"}""")
+            return
+        }
+        val cleanName = sanitizeFileName(rawName)
+        if (cleanName == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_file_name"}""")
+            return
+        }
+        val targetDir = if (rawSubpath.isNotEmpty()) {
+            val segments = rawSubpath.replace('\\', '/').split('/').filter { it.isNotEmpty() }
+            if (segments.size > 16 || segments.any { sanitizeFileName(it) == null }) {
+                res.sendJson(400, """{"ok":false,"error":"invalid_subpath"}""")
+                return
+            }
+            var cur = baseDir
+            for (seg in segments) {
+                cur = File(cur, seg)
+                if (cur.exists() && resolveAllowedFile(cur.absolutePath, roots) == null) {
+                    res.sendJson(403, """{"ok":false,"error":"forbidden_subpath"}""")
+                    return
+                }
+            }
+            if (!cur.exists()) runCatching { cur.mkdirs() }
+            if (resolveAllowedDir(cur.absolutePath, roots) == null) {
+                res.sendJson(403, """{"ok":false,"error":"forbidden_subpath"}""")
+                return
+            }
+            cur
+        } else {
+            baseDir
+        }
+
+        if (req.contentLength <= 0L && !req.isChunked) {
+            res.sendJson(400, """{"ok":false,"error":"empty_body"}""")
+            return
+        }
+
+        val finalTarget = uniqueFile(targetDir, cleanName)
+        val partFile = File(targetDir, ".upload_${System.currentTimeMillis()}_${finalTarget.name}.part")
+        val ok = runCatching {
+            partFile.outputStream().use { out ->
+                val written = req.copyBodyTo(out)
+                check(req.isChunked || written == req.contentLength) { "Incomplete upload: $written/${req.contentLength}" }
+            }
+            check(partFile.renameTo(finalTarget)) { "Cannot finalize uploaded file" }
+            true
+        }.getOrElse {
+            runCatching { partFile.delete() }
+            false
+        }
+        if (!ok) {
+            res.sendJson(500, """{"ok":false,"error":"upload_failed"}""")
+            return
+        }
+        repo.refresh()
+        res.sendJson(
+            200,
+            JSONObject().apply {
+                put("ok", true)
+                put("path", finalTarget.absolutePath)
+                put("name", finalTarget.name)
+                put("size", finalTarget.length())
+            }.toString(),
+        )
+    }
+
+    private suspend fun handleMkdir(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val dirPath = body?.optString("dir", "").orEmpty()
+        val name = sanitizeFileName(body?.optString("name", "").orEmpty())
+        val roots = repo.configuredRoots()
+        val parent = resolveAllowedDir(dirPath, roots)
+        if (parent == null || name == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        val target = File(parent, name)
+        if (target.exists()) {
+            res.sendJson(409, """{"ok":false,"error":"already_exists"}""")
+            return
+        }
+        val created = runCatching { target.mkdirs() }.getOrDefault(false)
+        if (!created) {
+            res.sendJson(500, """{"ok":false,"error":"mkdir_failed"}""")
+            return
+        }
+        res.sendJson(200, """{"ok":true}""")
+    }
+
+    private suspend fun handleFileRename(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val path = body?.optString("path", "").orEmpty()
+        val newName = sanitizeFileName(body?.optString("newName", "").orEmpty())
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        if (file == null || newName == null || !file.exists()) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        if (isConfiguredRoot(file, roots)) {
+            res.sendJson(403, """{"ok":false,"error":"cannot_rename_root"}""")
+            return
+        }
+        val result = repo.renameFile(file, newName)
+        if (result.isSuccess) {
+            res.sendJson(200, """{"ok":true}""")
+        } else {
+            res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "rename_failed").toString())
+        }
+    }
+
+    private suspend fun handleFileMove(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val path = body?.optString("path", "").orEmpty()
+        val targetDirPath = body?.optString("targetDir", "").orEmpty()
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        val targetDir = resolveAllowedDir(targetDirPath, roots)
+        if (file == null || !file.exists() || targetDir == null || !targetDir.isDirectory) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        if (isConfiguredRoot(file, roots)) {
+            res.sendJson(403, """{"ok":false,"error":"cannot_move_root"}""")
+            return
+        }
+        val result = repo.moveFile(file, targetDir)
+        if (result.isSuccess) {
+            res.sendJson(200, """{"ok":true}""")
+        } else {
+            res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "move_failed").toString())
+        }
+    }
+
+    private suspend fun handleFileCopy(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val path = body?.optString("path", "").orEmpty()
+        val targetDirPath = body?.optString("targetDir", "").orEmpty()
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        val targetDir = resolveAllowedDir(targetDirPath, roots)
+        if (file == null || !file.exists() || targetDir == null || !targetDir.isDirectory) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        if (isConfiguredRoot(file, roots)) {
+            res.sendJson(403, """{"ok":false,"error":"cannot_copy_root"}""")
+            return
+        }
+        val result = repo.copyFile(file, targetDir)
+        if (result.isSuccess) {
+            res.sendJson(200, """{"ok":true}""")
+        } else {
+            res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "copy_failed").toString())
+        }
+    }
+
+    private suspend fun handleFileDelete(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val path = body?.optString("path", "").orEmpty()
+        val roots = repo.configuredRoots()
+        val file = resolveAllowedFile(path, roots)
+        if (file == null || !file.exists()) {
+            res.sendJson(404, """{"ok":false,"error":"not_found"}""")
+            return
+        }
+        if (isConfiguredRoot(file, roots)) {
+            res.sendJson(403, """{"ok":false,"error":"cannot_delete_root"}""")
+            return
+        }
+        val result = repo.deleteFile(file)
+        if (result.isSuccess) {
+            res.sendJson(200, """{"ok":true}""")
+        } else {
+            res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "delete_failed").toString())
+        }
+    }
+
+    private suspend fun handleBatchMove(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val pathsArr = body?.optJSONArray("paths")
+        val targetDirPath = body?.optString("targetDir", "").orEmpty()
+        val roots = repo.configuredRoots()
+        val targetDir = resolveAllowedDir(targetDirPath, roots)
+        val entries = resolveBatchEntries(pathsArr, roots)
+        if (entries == null || entries.isEmpty() || targetDir == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        val result = repo.moveEntries(entries, targetDir)
+        if (result.isSuccess) {
+            res.sendJson(200, JSONObject().put("ok", true).put("count", result.getOrDefault(0)).toString())
+        } else {
+            res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "batch_move_failed").toString())
+        }
+    }
+
+    private suspend fun handleBatchCopy(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val pathsArr = body?.optJSONArray("paths")
+        val targetDirPath = body?.optString("targetDir", "").orEmpty()
+        val roots = repo.configuredRoots()
+        val targetDir = resolveAllowedDir(targetDirPath, roots)
+        val entries = resolveBatchEntries(pathsArr, roots)
+        if (entries == null || entries.isEmpty() || targetDir == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        val result = repo.copyEntries(entries, targetDir)
+        if (result.isSuccess) {
+            res.sendJson(200, JSONObject().put("ok", true).put("count", result.getOrDefault(0)).toString())
+        } else {
+            res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "batch_copy_failed").toString())
+        }
+    }
+
+    private suspend fun handleBatchDelete(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val pathsArr = body?.optJSONArray("paths")
+        val roots = repo.configuredRoots()
+        val entries = resolveBatchEntries(pathsArr, roots)
+        if (entries == null || entries.isEmpty()) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        val result = repo.deleteEntries(entries)
+        if (result.isSuccess) {
+            res.sendJson(200, JSONObject().put("ok", true).put("count", result.getOrDefault(0)).toString())
+        } else {
+            res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "batch_delete_failed").toString())
+        }
+    }
+
+    private fun resolveBatchEntries(arr: JSONArray?, roots: List<File>): List<File>? {
+        if (arr == null || arr.length() == 0 || arr.length() > 500) return null
+        val out = ArrayList<File>(arr.length())
+        for (i in 0 until arr.length()) {
+            val p = arr.optString(i, "")
+            val f = resolveAllowedFile(p, roots) ?: return null
+            if (!f.exists() || isConfiguredRoot(f, roots)) return null
+            out += f
+        }
+        return out
+    }
+
+    private fun isConfiguredRoot(file: File, roots: List<File>): Boolean {
+        val canon = runCatching { file.canonicalPath }.getOrNull() ?: return true
+        return roots.any { runCatching { it.canonicalPath == canon }.getOrDefault(false) }
+    }
+
+    private fun resolveAllowedDir(rawPath: String, roots: List<File>): File? {
+        val f = File(rawPath)
+        val canonical = runCatching { f.canonicalPath }.getOrNull() ?: return null
+        val allowed = roots.any { root ->
+            val rc = runCatching { root.canonicalPath }.getOrNull() ?: return@any false
+            canonical == rc || canonical.startsWith("$rc${File.separator}")
+        }
+        return if (allowed && f.isDirectory) f else null
+    }
+
+    private fun resolveAllowedFile(rawPath: String, roots: List<File>): File? {
+        val f = File(rawPath)
+        val canonical = runCatching { f.canonicalPath }.getOrNull() ?: return null
+        val allowed = roots.any { root ->
+            val rc = runCatching { root.canonicalPath }.getOrNull() ?: return@any false
+            canonical == rc || canonical.startsWith("$rc${File.separator}")
+        }
+        return if (allowed) f else null
+    }
+
+    private fun sanitizeFileName(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed == "." || trimmed == "..") return null
+        if ('/' in trimmed || '\\' in trimmed || '\u0000' in trimmed) return null
+        return trimmed
+    }
+
+    private fun detectImageExt(bytes: ByteArray): String? = when {
+        bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() -> "png"
+        bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() -> "jpg"
+        bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[8] == 'W'.code.toByte() -> "webp"
+        bytes.size >= 3 && bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() -> "gif"
+        else -> null
+    }
+
+    private fun uniqueFile(dir: File, name: String): File {
+        var candidate = File(dir, name)
+        if (!candidate.exists()) return candidate
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var n = 1
+        while (candidate.exists()) {
+            candidate = File(dir, "${stem}_$n$ext")
+            n++
+        }
+        return candidate
+    }
+}

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PocketDeck 图标背景：红宝石对角渐变 + 底部两层波浪（呼应桌面波浪背景） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="18" android:startY="6"
+                android:endX="90" android:endY="102"
+                android:startColor="#F0566A"
+                android:endColor="#8C1325" />
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.10"
+        android:pathData="M0,76 C18,68 36,68 54,74 C72,80 90,80 108,72 L108,108 L0,108 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.08"
+        android:pathData="M0,86 C20,80 38,82 56,88 C74,94 92,92 108,86 L108,108 L0,108 Z" />
+</vector>

@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PocketDeck 图标前景：
+  - 居中饱满的现代游戏掌机/手柄轮廓（双握把、左侧立体十字键、中央信标发光核心、右侧 ABXY 菱形四色/高对比按键）
+  - 上方两道信标信号弧，体现 PocketDeck（掌机游戏启动器 + 信标）定位
+  - 所有元素控制在 66dp 安全区（21..87）内
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 顶部 L / R 肩键轮廓 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.72"
+        android:pathData="
+            M 30.5,41.5 C 30.5,38.8 33.2,37.2 37.5,37.2 L 43.5,37.2 C 44.8,37.2 45.6,38.1 45.6,39.5 L 45.6,41.5 Z
+            M 62.4,41.5 L 62.4,39.5 C 62.4,38.1 63.2,37.2 64.5,37.2 L 70.5,37.2 C 74.8,37.2 77.5,38.8 77.5,41.5 Z
+        " />
+
+    <!-- 手柄主体（饱满双握把） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M 38,40.5
+            L 70,40.5
+            C 77.5,40.5 82.8,45.5 84.6,54.2
+            L 86.4,63.8
+            C 87.6,70.5 83.2,75.8 77.2,74.8
+            C 73.2,74.1 70.4,70.8 67.2,66.2
+            C 65.4,63.7 63.2,62.6 59.5,62.6
+            L 48.5,62.6
+            C 44.8,62.6 42.6,63.7 40.8,66.2
+            C 37.6,70.8 34.8,74.1 30.8,74.8
+            C 24.8,75.8 20.4,70.5 21.6,63.8
+            L 23.4,54.2
+            C 25.2,45.5 30.5,40.5 38,40.5
+            Z
+        " />
+
+    <!-- 左侧十字键凹槽底盘 -->
+    <path
+        android:fillColor="#9A1526"
+        android:fillAlpha="0.22"
+        android:pathData="M 36.2,52.2 m -8.2,0 a 8.2,8.2 0 1,1 16.4,0 a 8.2,8.2 0 1,1 -16.4,0" />
+
+    <!-- 左侧十字键（深红宝石高对比） -->
+    <path
+        android:fillColor="#9A1526"
+        android:pathData="
+            M 34.1,45.4
+            H 38.3
+            V 50.1
+            H 43.0
+            V 54.3
+            H 38.3
+            V 59.0
+            H 34.1
+            V 54.3
+            H 29.4
+            V 50.1
+            H 34.1
+            Z
+        " />
+
+    <!-- 右侧四键底盘 -->
+    <path
+        android:fillColor="#9A1526"
+        android:fillAlpha="0.22"
+        android:pathData="M 71.8,52.2 m -8.2,0 a 8.2,8.2 0 1,1 16.4,0 a 8.2,8.2 0 1,1 -16.4,0" />
+
+    <!-- 右侧 ABXY 四键（放大且清晰可辨） -->
+    <!-- Y (上) -->
+    <path
+        android:fillColor="#9A1526"
+        android:pathData="M 71.8,46.6 m -2.5,0 a 2.5,2.5 0 1,1 5.0,0 a 2.5,2.5 0 1,1 -5.0,0" />
+    <!-- A (下) -->
+    <path
+        android:fillColor="#B71C1C"
+        android:pathData="M 71.8,57.8 m -2.5,0 a 2.5,2.5 0 1,1 5.0,0 a 2.5,2.5 0 1,1 -5.0,0" />
+    <!-- X (左) -->
+    <path
+        android:fillColor="#9A1526"
+        android:pathData="M 66.2,52.2 m -2.5,0 a 2.5,2.5 0 1,1 5.0,0 a 2.5,2.5 0 1,1 -5.0,0" />
+    <!-- B (右) -->
+    <path
+        android:fillColor="#D32F2F"
+        android:pathData="M 77.4,52.2 m -2.5,0 a 2.5,2.5 0 1,1 5.0,0 a 2.5,2.5 0 1,1 -5.0,0" />
+
+    <!-- 中央信标核心（外环 + 核心点） -->
+    <path
+        android:fillColor="#9A1526"
+        android:fillAlpha="0.25"
+        android:pathData="M 54,51.2 m -4.4,0 a 4.4,4.4 0 1,1 8.8,0 a 4.4,4.4 0 1,1 -8.8,0" />
+    <path
+        android:fillColor="#C61F35"
+        android:pathData="M 54,51.2 m -2.6,0 a 2.6,2.6 0 1,1 5.2,0 a 2.6,2.6 0 1,1 -5.2,0" />
+
+    <!-- 内层信标信号弧 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.0"
+        android:strokeLineCap="round"
+        android:pathData="M 43.5,33.2 A 14.5,14.5 0 0,1 64.5,33.2" />
+
+    <!-- 外层信标信号弧 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.72"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"
+        android:pathData="M 37.5,27.8 A 22,22 0 0,1 70.5,27.8" />
+</vector>

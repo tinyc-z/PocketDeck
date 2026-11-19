@@ -1,0 +1,36 @@
+# Gradle & Kotlin
+.gradle/
+.kotlin/
+build/
+app/build/
+**/build/
+*.hprof
+
+# Local & IDE
+local.properties
+.idea/
+*.iml
+.vscode/
+.claude/
+*.swp
+*~
+
+# Signing & Secrets
+keystore.properties
+*.jks
+*.keystore
+*.p12
+
+# Artifacts
+*.apk
+*.aab
+*.ap_
+
+# Android Studio / Native
+captures/
+.externalNativeBuild/
+.cxx/
+
+# OS
+.DS_Store
+Thumbs.db
