@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  PocketDeck 旗舰极简几何标志（Luminous Deck Prism）：
-  双层建筑感圆角叠卡（绯红珊瑚光影背卡 + 珍珠白前卡 + 精密切割 Play 棱角）
-  所有顶点严格位于安全圆 66dp (21..87) 内，任意尺寸皆具备高辨识度与工业高级感。
+  PocketDeck 掌机启动器主图标前景：
+  极简纯白横屏掌机轮廓（中央屏幕 + 左侧十字方向键 D-Pad + 右侧斜排 A/B 键 + 底部微胶囊）。
+  所有顶点严格位于 Adaptive Icon 安全圆 66dp (21..87) 内，小尺寸依然一眼识别为游戏掌机。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -11,33 +11,34 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- 后层绯红珊瑚叠卡（右下错位，呼应 Deck 层次） -->
-    <path android:pathData="M 48,37 H 67 A 11,11 0 0,1 78,48 V 67 A 11,11 0 0,1 67,78 H 48 A 11,11 0 0,1 37,67 V 48 A 11,11 0 0,1 48,37 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="37" android:startY="37"
-                android:endX="78" android:endY="78"
-                android:startColor="#FF6B5B"
-                android:centerColor="#E62A42"
-                android:endColor="#B5172E" />
-        </aapt:attr>
-    </path>
+    <!-- 柔和机身投影 -->
+    <path
+        android:fillColor="#268A1022"
+        android:pathData="M 38,34 H 70 A 15,15 0 0,1 85,49 V 63 A 15,15 0 0,1 70,78 H 38 A 15,15 0 0,1 23,63 V 49 A 15,15 0 0,1 38,34 Z" />
 
-    <!-- 前层雕塑珍珠白主卡（左上错位，镂空中央 Play 棱角） -->
+    <!-- 纯白陶瓷质感掌机机身（镂空屏幕、十字键、A/B 键） -->
     <path
         android:fillType="evenOdd"
         android:pathData="
-            M 41,29 H 59 A 11,11 0 0,1 70,40 V 59 A 11,11 0 0,1 59,70 H 41 A 11,11 0 0,1 30,59 V 40 A 11,11 0 0,1 41,29 Z
-            M 45.2,43.2 Q 45.2,41.4 46.8,42.3 L 57.6,48.1 Q 59.2,49.5 57.6,50.9 L 46.8,56.7 Q 45.2,57.6 45.2,55.8 Z
+            M 38,32 H 70 A 15,15 0 0,1 85,47 V 61 A 15,15 0 0,1 70,76 H 38 A 15,15 0 0,1 23,61 V 47 A 15,15 0 0,1 38,32 Z
+            M 45.5,41 H 62.5 A 3.5,3.5 0 0,1 66,44.5 V 57.5 A 3.5,3.5 0 0,1 62.5,61 H 45.5 A 3.5,3.5 0 0,1 42,57.5 V 44.5 A 3.5,3.5 0 0,1 45.5,41 Z
+            M 32,48 H 35 V 52 H 39 V 55 H 35 V 59 H 32 V 55 H 28 V 52 H 32 Z
+            M 76.5,49.5 A 2.8,2.8 0 1,1 76.49,49.5 Z
+            M 71.2,55.5 A 2.8,2.8 0 1,1 71.19,55.5 Z
+            M 50.5,66 H 57.5 A 1.4,1.4 0 0,1 58.9,67.4 A 1.4,1.4 0 0,1 57.5,68.8 H 50.5 A 1.4,1.4 0 0,1 49.1,67.4 A 1.4,1.4 0 0,1 50.5,66 Z
         ">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
-                android:startX="30" android:startY="29"
-                android:endX="70" android:endY="70"
+                android:startX="23" android:startY="32"
+                android:endX="85" android:endY="76"
                 android:startColor="#FFFFFF"
-                android:endColor="#E9E7EF" />
+                android:endColor="#FCEFF1" />
         </aapt:attr>
     </path>
+
+    <!-- 屏幕内左上微弱反光斜条，增加精致掌机屏幕玻璃质感 -->
+    <path
+        android:fillColor="#4DFFFFFF"
+        android:pathData="M 45.2,44.2 L 51.8,44.2 L 45.2,50.8 Z" />
 </vector>

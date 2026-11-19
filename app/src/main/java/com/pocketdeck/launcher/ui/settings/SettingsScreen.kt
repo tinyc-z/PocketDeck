@@ -10,6 +10,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
@@ -45,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,7 +61,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -71,7 +79,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.pocketdeck.launcher.R
@@ -441,6 +451,27 @@ fun SettingsScreen(
         bgPicker = null
     }
 
+    var scrapeCacheBytes by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(sections[selectedSection]) {
+        if (sections[selectedSection] == SettingsSection.LibraryAndScrape) {
+            scrapeCacheBytes = withContext(Dispatchers.IO) { computeScrapeCacheBytes(context.cacheDir) }
+        }
+    }
+    fun clearScrapeCacheWithFeedback() {
+        scope.launch {
+            val beforeBytes = withContext(Dispatchers.IO) { computeScrapeCacheBytes(context.cacheDir) }
+            manage.clearCoverCache()
+            val afterBytes = withContext(Dispatchers.IO) { computeScrapeCacheBytes(context.cacheDir) }
+            scrapeCacheBytes = afterBytes
+            val freed = (beforeBytes - afterBytes).coerceAtLeast(0L)
+            Toast.makeText(
+                context,
+                context.getString(R.string.scraping_cache_cleared_toast, formatCacheBytes(freed)),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
     val accountAddLabel = stringResource(R.string.scraping_account_add)
     val coverNames = ScraperCatalog.coverNodes.associate { it.id to stringResource(it.nameRes) }
     val metaNames = ScraperCatalog.metadataProviders.associate { it.id to stringResource(it.nameRes) }
@@ -661,7 +692,7 @@ fun SettingsScreen(
                         }
                         menu = ActionMenuState(coverNames[cfg.id] ?: desc.id, items)
                     }
-                    sIdx == coverCount -> manage.clearCoverCache()
+                    sIdx == coverCount -> clearScrapeCacheWithFeedback()
                     sIdx in metaStart until (metaStart + metaCount) -> {
                         val mIdx = sIdx - metaStart
                         val cfg = state.metadataSources[mIdx]
@@ -1184,13 +1215,14 @@ fun SettingsScreen(
                                     coverSources = state.coverSources,
                                     metadataSources = state.metadataSources,
                                     credentials = state.scraperCredentials,
+                                    cacheSizeLabel = formatCacheBytes(scrapeCacheBytes),
                                     onToggleCover = manage.toggleCoverSource,
                                     onMoveCover = manage.moveCoverSource,
                                     onToggleMeta = manage.toggleMetadataSource,
                                     onMoveMeta = manage.moveMetadataSource,
                                     onOpenCred = { credDialogKind = it },
                                     onRowClick = { clickManageRow(SettingsSection.LibraryAndScrape, scrapeOffset + it) },
-                                    onClearCoverCache = manage.clearCoverCache,
+                                    onClearCoverCache = ::clearScrapeCacheWithFeedback,
                                     onRefreshMetadata = {
                                         if (!NetworkStatus.isOnline(context)) {
                                             Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
@@ -2253,6 +2285,7 @@ private fun ScrapingSection(
     coverSources: List<SourceItemConfig>,
     metadataSources: List<SourceItemConfig>,
     credentials: ScraperCredentials,
+    cacheSizeLabel: String,
     onToggleCover: (String) -> Unit,
     onMoveCover: (Int, Int) -> Unit,
     onToggleMeta: (String) -> Unit,
@@ -2299,12 +2332,22 @@ private fun ScrapingSection(
         }
     }
 
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(10.dp))
     val clearIdx = coverSources.size
-    ActionRow(
-        label = stringResource(R.string.scraping_clear_cache),
+    ManageRow(
+        title = stringResource(R.string.scraping_clear_cache),
+        subtitle = stringResource(R.string.scraping_clear_cache_desc),
+        badge = cacheSizeLabel,
+        dimmed = false,
         highlighted = highlightIndex == clearIdx,
         onClick = onClearCoverCache,
+        leading = {
+            DeckIcon(
+                DeckIcons.Trash,
+                size = 16.dp,
+                tint = if (highlightIndex == clearIdx) DeckColors.Ruby else DeckColors.TextSecondary,
+            )
+        },
     )
 
     Spacer(Modifier.height(22.dp))
@@ -3221,34 +3264,101 @@ private fun AboutSection() {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull().orEmpty().ifBlank { BuildConfig.VERSION_NAME }
     }
+    val repoDisplay = remember {
+        BuildConfig.PROJECT_URL
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .trimEnd('/')
+    }
+
     SectionTitle(stringResource(R.string.settings_about))
 
-    SettingsInfo(
-        label = stringResource(R.string.settings_version),
-        value = versionName,
-    )
+    // 品牌头卡：新掌机标志 + 应用名 + 版本胶囊 + 一句话简介
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(DeckColors.Surface)
+            .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PocketDeckBrandBadge(size = 46.dp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "PocketDeck",
+                    style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
+                    color = DeckColors.TextPrimary,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "v$versionName",
+                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
+                    color = DeckColors.Ruby,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(DeckColors.Ruby.copy(alpha = 0.12f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.settings_about_desc),
+                style = DeckType.settingsLabel,
+                color = DeckColors.TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(12.dp))
 
-    SettingsInfo(
-        label = stringResource(R.string.settings_build),
-        value = "#${BuildConfig.BUILD_NUMBER} · ${BuildConfig.BUILD_TIME}",
-    )
-
-    Spacer(Modifier.height(8.dp))
-
-    SettingsInfo(
-        label = stringResource(R.string.settings_android_compat),
-        value = "Android 8.0+ / Android 11+ (API ${android.os.Build.VERSION.SDK_INT})",
-    )
-
-    Spacer(Modifier.height(8.dp))
-
+    // 结构化信息卡片：左右严格单行对齐，绝不折行错位
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(DeckShapes.settingsDropdown)
-            .soundClickable(onClick = {
+            .clip(RoundedCornerShape(12.dp))
+            .background(DeckColors.Surface)
+            .border(0.6.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp)),
+    ) {
+        AboutInfoRow(
+            label = stringResource(R.string.settings_version),
+            value = "v$versionName",
+        )
+        HorizontalDivider(
+            color = DeckColors.DialogBorder.copy(alpha = 0.65f),
+            thickness = 0.5.dp,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        AboutInfoRow(
+            label = stringResource(R.string.settings_build),
+            value = "#${BuildConfig.BUILD_NUMBER} · ${BuildConfig.BUILD_TIME}",
+        )
+        HorizontalDivider(
+            color = DeckColors.DialogBorder.copy(alpha = 0.65f),
+            thickness = 0.5.dp,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        AboutInfoRow(
+            label = stringResource(R.string.settings_android_compat),
+            value = "Android 8.0+ (API ${android.os.Build.VERSION.SDK_INT})",
+        )
+        HorizontalDivider(
+            color = DeckColors.DialogBorder.copy(alpha = 0.65f),
+            thickness = 0.5.dp,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        AboutInfoRow(
+            label = stringResource(R.string.settings_project),
+            value = repoDisplay,
+            valueColor = DeckColors.Ruby,
+            trailingChevron = true,
+            onClick = {
                 runCatching {
                     context.startActivity(
                         Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.PROJECT_URL)).apply {
@@ -3256,35 +3366,132 @@ private fun AboutSection() {
                         },
                     )
                 }
-            })
-            .padding(vertical = 10.dp, horizontal = 8.dp),
-    ) {
-        Text(
-            stringResource(R.string.settings_project),
-            style = DeckType.settingsValue,
-            color = DeckColors.TextPrimary,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            BuildConfig.PROJECT_URL,
-            style = DeckType.settingsNav.copy(fontSize = DeckType.settingsNav.fontSize * 0.82f),
-            color = DeckColors.Ruby,
-            maxLines = 2,
-            softWrap = true,
-            modifier = Modifier
-                .clip(DeckShapes.settingsDropdown)
-                .background(DeckColors.Surface)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+            },
         )
     }
+}
 
-    Spacer(Modifier.height(24.dp))
+@Composable
+private fun AboutInfoRow(
+    label: String,
+    value: String,
+    valueColor: Color = DeckColors.TextSecondary,
+    trailingChevron: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.soundClickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = DeckType.settingsValue,
+            color = DeckColors.TextPrimary,
+            maxLines = 1,
+            softWrap = false,
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(
+            value,
+            style = DeckType.settingsLabel,
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
+        if (trailingChevron) {
+            Spacer(Modifier.width(6.dp))
+            DeckIcon(DeckIcons.ChevronRight, size = 14.dp, tint = DeckColors.Ruby)
+        }
+    }
+}
 
-    Text(
-        stringResource(R.string.settings_about_desc),
-        style = DeckType.settingsLabel,
-        color = DeckColors.TextSecondary,
-    )
+/** 与 PocketDeck 应用主图标一致的亮色珊瑚绯红掌机品牌徽章。 */
+@Composable
+private fun PocketDeckBrandBadge(
+    size: Dp = 46.dp,
+    modifier: Modifier = Modifier,
+) {
+    val corner = size * 0.24f
+    Canvas(
+        modifier
+            .size(size)
+            .clip(RoundedCornerShape(corner)),
+    ) {
+        val w = this.size.width
+        val h = this.size.height
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFF6B72), Color(0xFFE5394B), Color(0xFFC4243A)),
+                start = Offset(0f, 0f),
+                end = Offset(w, h),
+            ),
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.White.copy(alpha = 0.26f), Color.Transparent),
+                center = Offset(w * 0.26f, h * 0.20f),
+                radius = w * 0.58f,
+            ),
+            radius = w * 0.58f,
+            center = Offset(w * 0.26f, h * 0.20f),
+        )
+        // 纯白掌机机身
+        val bodyL = w * 0.14f
+        val bodyT = h * 0.27f
+        val bodyW = w * 0.72f
+        val bodyH = h * 0.46f
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(bodyL, bodyT),
+            size = Size(bodyW, bodyH),
+            cornerRadius = CornerRadius(w * 0.16f, w * 0.16f),
+        )
+        // 中央凹陷屏幕
+        drawRoundRect(
+            color = Color(0xFFE5394B),
+            topLeft = Offset(w * 0.36f, h * 0.36f),
+            size = Size(w * 0.28f, h * 0.23f),
+            cornerRadius = CornerRadius(w * 0.04f, w * 0.04f),
+        )
+        // 左侧十字方向键
+        val cx = w * 0.255f
+        val cy = h * 0.495f
+        val arm = w * 0.055f
+        val sw = (w * 0.036f).coerceAtLeast(1.4f)
+        drawLine(Color(0xFFE5394B), Offset(cx - arm, cy), Offset(cx + arm, cy), sw, cap = StrokeCap.Round)
+        drawLine(Color(0xFFE5394B), Offset(cx, cy - arm), Offset(cx, cy + arm), sw, cap = StrokeCap.Round)
+        // 右侧斜排 A/B 键
+        val r = (w * 0.028f).coerceAtLeast(1.3f)
+        drawCircle(Color(0xFFE5394B), r, Offset(w * 0.775f, h * 0.465f))
+        drawCircle(Color(0xFFE5394B), r, Offset(w * 0.715f, h * 0.535f))
+    }
+}
+
+private fun computeScrapeCacheBytes(cacheDir: File): Long {
+    val dirs = listOf("covers", "web_covers", "boxart_index", "metadata")
+    var total = 0L
+    for (name in dirs) {
+        val dir = File(cacheDir, name)
+        if (!dir.exists()) continue
+        dir.walkTopDown().forEach { f ->
+            if (f.isFile) total += f.length()
+        }
+    }
+    return total
+}
+
+private fun formatCacheBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val kb = bytes / 1024.0
+    if (kb < 1024.0) return String.format(Locale.US, "%.1f KB", kb)
+    val mb = kb / 1024.0
+    if (mb < 1024.0) return String.format(Locale.US, "%.1f MB", mb)
+    return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
 
 // ════════════════════════════════════════════════════════════════

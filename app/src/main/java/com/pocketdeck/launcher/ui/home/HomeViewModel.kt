@@ -1085,8 +1085,12 @@ class HomeViewModel(
 
     fun clearCoverCache() {
         covers.clearCoverCache()
+        metadataRepo.clearCache()
         val s = _state.value
-        s.games.getOrNull(s.focusIndex)?.let { covers.ensureGameScraped(it, s.platformFor(it)) }
+        s.games.getOrNull(s.focusIndex)?.let {
+            covers.ensureGameScraped(it, s.platformFor(it))
+            metadataRepo.resolveFocusGame(it, s.platformFor(it))
+        }
     }
 
     fun refreshAllMetadata() {

@@ -150,7 +150,9 @@
     <string name="scraping_cover_desc">依優先順序從已啟用節點刮削封面，拖動可調整順序。</string>
     <string name="scraping_meta_title">中繼資料刮削源</string>
     <string name="scraping_meta_desc">依優先順序刮削並合併已啟用服務商的遊戲資訊，拖動可調整順序。</string>
-    <string name="scraping_clear_cache">清除封面快取並重新刮削</string>
+    <string name="scraping_clear_cache">清理刮削快取</string>
+    <string name="scraping_clear_cache_desc">清空已快取的封面圖、索引與中繼資料，釋放空間</string>
+    <string name="scraping_cache_cleared_toast">已清理刮削快取，釋放 %1$s</string>
     <string name="scraping_refresh_meta">重新刮削全部遊戲資訊</string>
     <string name="scraping_view_logs">查看刮削日誌</string>
     <string name="scrape_logs_title">刮削請求日誌</string>

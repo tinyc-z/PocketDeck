@@ -384,6 +384,27 @@ object DeckIcons {
         }
     }
 
+    /** 清理缓存 / 删除（Lucide trash-2） */
+    val Trash: ImageVector by lazy {
+        strokeIcon("Trash") {
+            strokePath {
+                moveTo(3f, 6f); horizontalLineTo(21f)
+                moveTo(19f, 6f); verticalLineTo(20f)
+                curveTo(19f, 21f, 18f, 22f, 17f, 22f)
+                horizontalLineTo(7f)
+                curveTo(6f, 22f, 5f, 21f, 5f, 20f)
+                verticalLineTo(6f)
+                moveTo(8f, 6f); verticalLineTo(4f)
+                curveTo(8f, 3f, 9f, 2f, 10f, 2f)
+                horizontalLineTo(14f)
+                curveTo(15f, 2f, 16f, 3f, 16f, 4f)
+                verticalLineTo(6f)
+                moveTo(10f, 11f); verticalLineTo(17f)
+                moveTo(14f, 11f); verticalLineTo(17f)
+            }
+        }
+    }
+
     /** 浏览器 / 网页管理 */
     val Globe: ImageVector by lazy {
         strokeIcon("Globe") {

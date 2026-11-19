@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- PocketDeck 旗舰图标背景：深曜石缎面 + 克制绯红微光 -->
+<!-- PocketDeck 统一亮色珊瑚绯红缎面底板：明亮通透、与游戏库/快传同属一套品牌色系 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -11,23 +11,24 @@
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
-                android:startX="14" android:startY="10"
+                android:startX="12" android:startY="8"
                 android:endX="96" android:endY="100"
-                android:startColor="#191620"
-                android:centerColor="#111016"
-                android:endColor="#0A0A0E" />
+                android:startColor="#FF6B72"
+                android:centerColor="#E5394B"
+                android:endColor="#C4243A" />
         </aapt:attr>
     </path>
 
+    <!-- 左上柔和珍珠高光 -->
     <path android:pathData="M0,0 H108 V108 H0 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="radial"
-                android:centerX="74" android:centerY="76"
-                android:gradientRadius="52"
-                android:startColor="#3CE53946"
-                android:centerColor="#14FF5E62"
-                android:endColor="#00000000" />
+                android:centerX="28" android:centerY="22"
+                android:gradientRadius="62"
+                android:startColor="#3DFFFFFF"
+                android:centerColor="#14FFFFFF"
+                android:endColor="#00FFFFFF" />
         </aapt:attr>
     </path>
 </vector>

@@ -626,7 +626,7 @@ fun AppsScreen(
     }
 }
 
-/** 「游戏快传」旗舰扁平图标：深曜石松柏缎面 + 翡翠柔光 + 极简双翼折纸飞机。 */
+/** 「游戏快传」统一色系图标：明亮玫瑰珊瑚缎面 + 纯白双翼折纸飞机 + 无线传输波弧。 */
 @Composable
 fun QuickShareAppIcon(
     size: Dp = 54.dp,
@@ -640,55 +640,65 @@ fun QuickShareAppIcon(
     ) {
         val w = this.size.width
         val h = this.size.height
-        // 深邃曜石青绿底面
+        // 明亮玫瑰珊瑚缎面底板（与 PocketDeck 主图标、游戏库同属亮色珊瑚家族）
         drawRect(
             brush = Brush.linearGradient(
-                colors = listOf(Color(0xFF132D2B), Color(0xFF0C1D1E), Color(0xFF091215)),
+                colors = listOf(Color(0xFFFF6B8B), Color(0xFFE53864), Color(0xFFC4224E)),
                 start = Offset(0f, 0f),
                 end = Offset(w, h),
             ),
         )
-        // 右上角克制翡翠微光
+        // 左上柔和珍珠高光
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(Color(0xFF34D399).copy(alpha = 0.26f), Color.Transparent),
-                center = Offset(w * 0.78f, h * 0.22f),
-                radius = w * 0.56f,
+                colors = listOf(Color.White.copy(alpha = 0.26f), Color.Transparent),
+                center = Offset(w * 0.24f, h * 0.18f),
+                radius = w * 0.62f,
             ),
-            radius = w * 0.56f,
-            center = Offset(w * 0.78f, h * 0.22f),
+            radius = w * 0.62f,
+            center = Offset(w * 0.24f, h * 0.18f),
         )
-        // 左下微弱传输尾迹弧线
-        val trail = Path().apply {
-            moveTo(w * 0.20f, h * 0.74f)
-            quadraticTo(w * 0.30f, h * 0.66f, w * 0.38f, h * 0.62f)
+        // 左下两条轻盈无线传输弧线
+        val arcSw = (w * 0.038f).coerceAtLeast(1.4f)
+        val trailOuter = Path().apply {
+            moveTo(w * 0.18f, h * 0.72f)
+            quadraticTo(w * 0.27f, h * 0.65f, w * 0.34f, h * 0.62f)
         }
         drawPath(
-            trail,
-            color = Color(0xFF34D399).copy(alpha = 0.45f),
-            style = Stroke(width = (w * 0.042f).coerceAtLeast(1.5f), cap = StrokeCap.Round),
+            trailOuter,
+            color = Color.White.copy(alpha = 0.55f),
+            style = Stroke(width = arcSw, cap = StrokeCap.Round),
         )
-        // 主翼（纯白折纸飞机上翼）
+        val trailInner = Path().apply {
+            moveTo(w * 0.25f, h * 0.79f)
+            quadraticTo(w * 0.33f, h * 0.73f, w * 0.39f, h * 0.70f)
+        }
+        drawPath(
+            trailInner,
+            color = Color.White.copy(alpha = 0.35f),
+            style = Stroke(width = arcSw * 0.85f, cap = StrokeCap.Round),
+        )
+        // 主翼（纯白陶瓷质感折纸飞机上翼）
         val upperWing = Path().apply {
-            moveTo(w * 0.78f, h * 0.22f)
-            lineTo(w * 0.20f, h * 0.47f)
-            lineTo(w * 0.48f, h * 0.55f)
+            moveTo(w * 0.80f, h * 0.21f)
+            lineTo(w * 0.19f, h * 0.46f)
+            lineTo(w * 0.48f, h * 0.54f)
             close()
         }
-        drawPath(upperWing, color = Color(0xFFF8FAFC))
-        // 次翼（翡翠渐变折纸飞机下翼）
+        drawPath(upperWing, color = Color(0xFFFFFFFF))
+        // 次翼（柔和珍珠粉白下翼，形成清晰立体折痕）
         val lowerWing = Path().apply {
-            moveTo(w * 0.78f, h * 0.22f)
-            lineTo(w * 0.48f, h * 0.55f)
-            lineTo(w * 0.58f, h * 0.78f)
+            moveTo(w * 0.80f, h * 0.21f)
+            lineTo(w * 0.48f, h * 0.54f)
+            lineTo(w * 0.57f, h * 0.79f)
             close()
         }
         drawPath(
             lowerWing,
             brush = Brush.linearGradient(
-                colors = listOf(Color(0xFF6EE7B7), Color(0xFF10B981)),
+                colors = listOf(Color(0xFFFFD8E3), Color(0xFFFFB5C9)),
                 start = Offset(w * 0.48f, h * 0.28f),
-                end = Offset(w * 0.62f, h * 0.78f),
+                end = Offset(w * 0.60f, h * 0.79f),
             ),
         )
     }

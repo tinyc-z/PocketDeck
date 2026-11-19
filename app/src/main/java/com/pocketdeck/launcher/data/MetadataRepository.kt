@@ -150,6 +150,18 @@ class MetadataRepository(
         }
     }
 
+    fun clearCache() {
+        systemTables.clear()
+        gameCache.clear()
+        focusApiResolved.clear()
+        inFlightFocus.clear()
+        client.clearApiCache()
+        _metadata.value = emptyMap()
+        _officialNames.value = emptyMap()
+        _resolutionInfo.value = emptyMap()
+        runCatching { cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+    }
+
     fun refreshAll(games: List<Game>, platformResolver: (Game) -> Platform?) {
         if (!NetworkStatus.isOnline(appCtx)) {
             ensureLoaded(games, platformResolver)

@@ -151,7 +151,9 @@
     <string name="scraping_cover_desc">Covers are fetched from enabled sources in priority order. Drag ≡ to reorder.</string>
     <string name="scraping_meta_title">Metadata providers</string>
     <string name="scraping_meta_desc">Game metadata is queried in priority order and merged across enabled providers. Drag ≡ to reorder.</string>
-    <string name="scraping_clear_cache">Clear cover cache &amp; refetch</string>
+    <string name="scraping_clear_cache">Clear scrape cache</string>
+    <string name="scraping_clear_cache_desc">Remove cached cover art, indexes, and metadata to free space</string>
+    <string name="scraping_cache_cleared_toast">Scrape cache cleared (%1$s freed)</string>
     <string name="scraping_refresh_meta">Refresh all metadata</string>
     <string name="scraping_view_logs">View request logs</string>
     <string name="scrape_logs_title">Cover &amp; Metadata Request Logs</string>

@@ -152,8 +152,14 @@ class CoverSource(
         candidateOrigins.clear()
         _coverInfo.value = emptyMap()
         prefs.edit().clear().apply()
-        runCatching { webCacheDir.listFiles()?.forEach { it.delete() } }
-        runCatching { indexDir.listFiles()?.forEach { it.delete() } }
+        runCatching { webCacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+        runCatching { indexDir.listFiles()?.forEach { it.deleteRecursively() } }
+        runCatching {
+            val loader = coil3.SingletonImageLoader.get(appCtx)
+            loader.memoryCache?.clear()
+            loader.diskCache?.clear()
+        }
+        runCatching { File(appCtx.cacheDir, "covers").listFiles()?.forEach { it.deleteRecursively() } }
         client.clearApiCache()
         _indexVersion.value += 1
     }
