@@ -22,15 +22,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.pocketdeck.launcher.data.CoverSource
@@ -38,7 +41,10 @@ import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.ui.components.GameCoverCard
 import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Bubbles 视图：顶部固定显示当前选中游戏名 + 圆形封面蜂窝错行排列（3 / 4 / 3 / 4 交替）。
@@ -59,6 +65,7 @@ fun BubblesView(
     onLaunch: (Game) -> Unit,
     onLongPress: ((Game) -> Unit)? = null,
     fastScrolling: Boolean = false,
+    idlePaused: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (games.isEmpty()) {
@@ -71,6 +78,25 @@ fun BubblesView(
 
     val listState = rememberLazyListState()
     val reduceMotion = LocalReduceMotion.current
+
+    // 选中气泡停稳 120ms 后的 PSV LiveArea 风格轻盈悬浮与弹性呼吸动画
+    // 相位与包络仅在 graphicsLayer 渲染阶段读取，零重组、零 relayout；开启「减少动态效果」或弹窗覆盖时自动停振
+    val bubbleIdleSeconds = remember { mutableFloatStateOf(0f) }
+    val bubbleIdleEnvelope = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(focusIndex, fastScrolling, reduceMotion, idlePaused, games.size) {
+        bubbleIdleSeconds.floatValue = 0f
+        bubbleIdleEnvelope.floatValue = 0f
+        if (reduceMotion || fastScrolling || idlePaused || games.isEmpty()) return@LaunchedEffect
+        delay(120L)
+        val startNs = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { nowNs ->
+                val sec = (nowNs - startNs) / 1_000_000_000f
+                bubbleIdleSeconds.floatValue = sec
+                bubbleIdleEnvelope.floatValue = (sec / 0.45f).coerceIn(0f, 1f)
+            }
+        }
+    }
     var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(focusedRowIdx, totalRows, reduceMotion) {
         if (focusedRowIdx !in 0 until totalRows) return@LaunchedEffect
@@ -170,6 +196,23 @@ fun BubblesView(
                                 onLongPress?.let { cb -> { cb(game) } }
                             }
 
+                            val bubbleFloatMod = if (focused && !reduceMotion) {
+                                Modifier.graphicsLayer {
+                                    val env = bubbleIdleEnvelope.floatValue
+                                    if (env > 0f) {
+                                        val t = bubbleIdleSeconds.floatValue
+                                        val omegaMain = (2f * PI.toFloat()) / 2.8f
+                                        val omegaDrift = (2f * PI.toFloat()) / 4.2f
+                                        translationY = sin(t * omegaMain) * 3.5.dp.toPx() * env
+                                        translationX = sin(t * omegaDrift) * 1.4.dp.toPx() * env
+                                        scaleX = 1f + sin(t * omegaMain + 0.7f) * 0.024f * env
+                                        scaleY = 1f + cos(t * omegaMain) * 0.020f * env
+                                    }
+                                }
+                            } else {
+                                Modifier
+                            }
+
                             GameCoverCard(
                                 game = game,
                                 platform = plat,
@@ -186,6 +229,7 @@ fun BubblesView(
                                 unfocusedAlpha = 0.72f,
                                 shapeOverride = CircleShape,
                                 centeredTitle = true,
+                                modifier = bubbleFloatMod,
                                 onClick = itemOnClick,
                                 onLongPress = itemOnLongPress,
                             )

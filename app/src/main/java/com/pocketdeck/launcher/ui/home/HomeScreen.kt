@@ -784,6 +784,7 @@ fun HomeScreen(
                             showMetadata = state.showMetadata,
                             metaDisplay = state.metaDisplay,
                             galleryAlign = state.galleryAlign,
+                            idlePaused = hasChildFocusOverlay,
                         )
                     }
                 }
@@ -1330,6 +1331,7 @@ private fun HomeContentSlot(
     showMetadata: Boolean,
     metaDisplay: com.pocketdeck.launcher.data.MetadataDisplayConfig,
     galleryAlign: com.pocketdeck.launcher.data.GalleryAlign,
+    idlePaused: Boolean = false,
 ) {
     val focusIndex by focusIndexFlow.collectAsState()
     val isFastScrolling by fastScrollingFlow.collectAsState()
@@ -1391,6 +1393,7 @@ private fun HomeContentSlot(
             onLaunch = onLaunch,
             onLongPress = onLongPress,
             fastScrolling = isFastScrolling,
+            idlePaused = idlePaused,
             modifier = Modifier.fillMaxSize(),
         )
     }
