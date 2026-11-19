@@ -83,6 +83,8 @@ import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandBorder
+import com.pocketdeck.launcher.ui.theme.brandPillBackground
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.SystemFonts
@@ -629,17 +631,14 @@ fun ArchivePreviewDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(DeckShapes.menuButton)
-                        .background(
-                            when {
-                                primary && hl -> DeckColors.Ruby
-                                hl -> DeckColors.Ruby.copy(alpha = 0.14f)
-                                else -> DeckColors.Surface
-                            },
-                        )
-                        .border(
-                            width = if (hl) 0.9.dp else 0.6.dp,
-                            color = if (hl) DeckColors.Ruby else DeckColors.Line,
+                        .brandPillBackground(
+                            selected = primary && hl,
                             shape = DeckShapes.menuButton,
+                            unselectedColor = if (hl) DeckColors.AccentSoft else DeckColors.Surface,
+                        )
+                        .then(
+                            if (primary && hl) Modifier
+                            else Modifier.brandBorder(active = hl, shape = DeckShapes.menuButton, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp),
                         )
                         .soundClickable {
                             focusIdx = idx
@@ -740,8 +739,8 @@ fun BatchDeleteConfirmDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(DeckShapes.menuButton)
-                    .background(if (cancelHl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                    .border(0.9.dp, if (cancelHl) DeckColors.Ruby else DeckColors.Line, DeckShapes.menuButton)
+                    .background(if (cancelHl) DeckColors.AccentSoft else DeckColors.Surface)
+                    .brandBorder(active = cancelHl, shape = DeckShapes.menuButton, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                     .soundClickable(onClick = onDismiss)
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             )

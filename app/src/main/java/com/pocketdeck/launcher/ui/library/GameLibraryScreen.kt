@@ -126,6 +126,8 @@ import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandBorder
+import com.pocketdeck.launcher.ui.theme.brandPillBackground
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -1505,8 +1507,8 @@ fun GameLibraryScreen(
                     Modifier
                         .size(36.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (backHl) DeckColors.Ruby.copy(alpha = 0.14f) else Color.Transparent)
-                        .border(if (backHl) 0.9.dp else 0.dp, if (backHl) DeckColors.Ruby else Color.Transparent, RoundedCornerShape(8.dp))
+                        .background(if (backHl) DeckColors.AccentSoft else Color.Transparent)
+                        .brandBorder(active = backHl, shape = RoundedCornerShape(8.dp), activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                         .soundClickable(onClick = onDismiss)
                         .drawBehind { drawBackArrow(backTint) },
                 )
@@ -1637,11 +1639,7 @@ fun GameLibraryScreen(
                                 .height(36.dp)
                                 .clip(DeckShapes.tabPill)
                                 .background(DeckColors.Surface)
-                                .border(
-                                    width = if (searchHl) 0.9.dp else 0.6.dp,
-                                    color = if (searchHl) DeckColors.Ruby else DeckColors.Line,
-                                    shape = DeckShapes.tabPill,
-                                )
+                                .brandBorder(active = searchHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.6.dp)
                                 .clickable { searchFieldFr.requestFocus() }
                                 .padding(horizontal = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1793,12 +1791,8 @@ fun GameLibraryScreen(
                                 Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(if (hl) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
-                                    .border(
-                                        width = if (hl) 0.9.dp else 0.6.dp,
-                                        color = if (hl) DeckColors.Ruby else DeckColors.Line,
-                                        shape = RoundedCornerShape(12.dp),
-                                    )
+                                    .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
+                                    .brandBorder(active = hl, shape = RoundedCornerShape(12.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                                     .soundClickable {
                                         focusZone = LibraryZone.List
                                         selectedIdx = idx
@@ -1909,11 +1903,7 @@ fun GameLibraryScreen(
                             modifier = Modifier
                                 .clip(DeckShapes.tabPill)
                                 .background(DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f))
-                                .border(
-                                    width = if (tHl) 0.9.dp else 0.dp,
-                                    color = if (tHl) DeckColors.Ruby else Color.Transparent,
-                                    shape = DeckShapes.tabPill,
-                                )
+                                .brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                                 .soundClickable(onClick = onClick)
                                 .padding(horizontal = 12.dp, vertical = 6.dp),
                         )
@@ -1936,11 +1926,7 @@ fun GameLibraryScreen(
                                 .height(34.dp)
                                 .clip(DeckShapes.tabPill)
                                 .background(DeckColors.Surface)
-                                .border(
-                                    width = if (fileSearchBoxHl) 0.9.dp else 0.6.dp,
-                                    color = if (fileSearchBoxHl) DeckColors.Ruby else DeckColors.Line,
-                                    shape = DeckShapes.tabPill,
-                                )
+                                .brandBorder(active = fileSearchBoxHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.6.dp)
                                 .clickable {
                                     focusZone = LibraryZone.Search
                                     fileSearchChipIdx = 0
@@ -2062,12 +2048,8 @@ fun GameLibraryScreen(
                                     Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (hl) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
-                                        .border(
-                                            width = if (hl) 0.9.dp else 0.6.dp,
-                                            color = if (hl) DeckColors.Ruby else DeckColors.Line,
-                                            shape = RoundedCornerShape(10.dp),
-                                        )
+                                        .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
+                                        .brandBorder(active = hl, shape = RoundedCornerShape(10.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                                         .soundClickable { stepUpDir() }
                                         .padding(horizontal = 14.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -2113,16 +2095,12 @@ fun GameLibraryScreen(
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(
                                         when {
-                                            hl -> DeckColors.Ruby.copy(alpha = 0.10f)
+                                            hl -> DeckColors.AccentSoft
                                             checked -> DeckColors.Ruby.copy(alpha = 0.06f)
                                             else -> DeckColors.Surface
                                         },
                                     )
-                                    .border(
-                                        width = if (hl || checked) 0.9.dp else 0.6.dp,
-                                        color = if (hl || checked) DeckColors.Ruby else DeckColors.Line,
-                                        shape = RoundedCornerShape(10.dp),
-                                    )
+                                    .brandBorder(active = hl || checked, shape = RoundedCornerShape(10.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                                     .soundClickable {
                                         focusZone = LibraryZone.List
                                         selectedIdx = rowIdx
@@ -2662,15 +2640,17 @@ private fun ModePill(
 ) {
     Text(
         text = label,
-        style = DeckType.settingsLabel.copy(fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal),
+        style = DeckType.settingsLabel.copy(fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium),
         color = if (selected) Color.White else if (focused) DeckColors.Ruby else DeckColors.TextSecondary,
         modifier = Modifier
             .clip(DeckShapes.tabPill)
-            .background(if (selected) DeckColors.Ruby else Color.Transparent)
-            .border(
-                width = if (focused) 0.9.dp else 0.dp,
-                color = if (focused) (if (selected) Color.White else DeckColors.Ruby) else Color.Transparent,
-                shape = DeckShapes.tabPill,
+            .brandPillBackground(selected = selected, shape = DeckShapes.tabPill)
+            .then(
+                if (focused && selected) {
+                    Modifier.border(1.2.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill)
+                } else {
+                    Modifier.brandBorder(active = focused, shape = DeckShapes.tabPill, activeWidth = 1.2.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
+                },
             )
             .soundClickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp),
@@ -2685,23 +2665,25 @@ private fun FilterChipPill(
     accent: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val activeBg = if (accent) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.PillSelected
+    val activeBg = if (accent) DeckColors.AccentSoft else DeckColors.PillSelected
     val activeFg = if (accent) DeckColors.Ruby else DeckColors.PillText
     Text(
         text = label,
-        style = DeckType.settingsLabel.copy(fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal),
-        color = if (selected || focused) activeFg else DeckColors.TextSecondary,
+        style = DeckType.settingsLabel.copy(fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium),
+        color = if (selected) Color.White else if (focused) activeFg else DeckColors.TextSecondary,
         modifier = Modifier
             .clip(DeckShapes.tabPill)
-            .background(if (selected) activeBg else if (focused) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
-            .border(
-                width = if (focused) 1.6.dp else 0.6.dp,
-                color = when {
-                    focused -> DeckColors.Ruby
-                    selected -> activeFg.copy(alpha = 0.55f)
-                    else -> DeckColors.Line
-                },
+            .brandPillBackground(
+                selected = selected,
                 shape = DeckShapes.tabPill,
+                unselectedColor = if (focused) activeBg else DeckColors.Surface,
+            )
+            .then(
+                if (selected) {
+                    if (focused) Modifier.border(1.4.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill) else Modifier
+                } else {
+                    Modifier.brandBorder(active = focused, shape = DeckShapes.tabPill, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
+                },
             )
             .soundClickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -2858,7 +2840,7 @@ private fun MoveFolderDialog(
                                 .fillMaxWidth()
                                 .clip(DeckShapes.settingsDropdown)
                                 .background(DeckColors.Ruby.copy(alpha = if (hl) 0.20f else 0.12f))
-                                .border(if (hl) 0.9.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
+                                .brandBorder(active = hl, shape = DeckShapes.settingsDropdown, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                                 .soundClickable { curDir?.let(onPickDir) }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2894,8 +2876,8 @@ private fun MoveFolderDialog(
                         Modifier
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
-                            .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                            .border(if (hl) 0.9.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
+                            .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
+                            .brandBorder(active = hl, shape = DeckShapes.settingsDropdown, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                             .soundClickable { curDir = dir }
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,

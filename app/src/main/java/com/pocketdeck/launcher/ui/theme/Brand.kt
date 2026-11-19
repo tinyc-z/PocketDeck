@@ -46,6 +46,34 @@ object DeckBrand {
 fun Modifier.brandBackground(shape: Shape = RoundedCornerShape(50)): Modifier =
     this.background(DeckBrand.brandBrush, shape)
 
+/** 选中时品牌渐变填充，未选中时使用 [unselectedColor]。 */
+@Composable
+fun Modifier.brandPillBackground(
+    selected: Boolean,
+    shape: Shape = RoundedCornerShape(50),
+    unselectedColor: Color = Color.Transparent,
+): Modifier = if (selected) {
+    this.background(DeckBrand.brandBrush, shape)
+} else {
+    this.background(unselectedColor, shape)
+}
+
+/** 激活/焦点态使用当前主题品牌渐变描边，非激活态使用 [inactiveColor]。 */
+@Composable
+fun Modifier.brandBorder(
+    active: Boolean,
+    shape: Shape = RoundedCornerShape(DeckBrand.RadiusM),
+    activeWidth: Dp = 1.4.dp,
+    inactiveWidth: Dp = 0.75.dp,
+    inactiveColor: Color = DeckColors.Line,
+): Modifier = if (active) {
+    this.border(activeWidth, DeckBrand.brandBrush, shape)
+} else if (inactiveColor == Color.Transparent || inactiveWidth <= 0.dp) {
+    this
+} else {
+    this.border(inactiveWidth, inactiveColor, shape)
+}
+
 /**
  * 卡片表面：浅色模式为白卡 + 粉调软阴影，深色模式为深紫卡。
  * [elevation] 为 0 时只绘制底色。

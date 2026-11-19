@@ -16,12 +16,14 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.data.CoverSource
@@ -91,17 +93,24 @@ fun GridView(
 
     val focusedGame = games.getOrNull(focusIndex)
     val latestFocusIndex by rememberUpdatedState(focusIndex)
-    val placePillAtTop by remember {
-        derivedStateOf {
-            val targetIdx = latestFocusIndex
+    var placePillAtTop by remember { mutableStateOf(false) }
+    LaunchedEffect(gridState, focusIndex, fastScrolling) {
+        if (fastScrolling) return@LaunchedEffect
+        delay(120L)
+        snapshotFlow {
             val info = gridState.layoutInfo
-            val item = info.visibleItemsInfo.firstOrNull { it.index == targetIdx }
+            val item = info.visibleItemsInfo.firstOrNull { it.index == latestFocusIndex }
             val viewportH = info.viewportEndOffset - info.viewportStartOffset
-            if (item != null && viewportH > 0) {
-                val itemCenterY = item.offset.y + item.size.height / 2f
-                itemCenterY > viewportH * 0.60f
+            Triple(item, viewportH, gridState.isScrollInProgress to gridState.canScrollForward)
+        }.collect { (item, viewportH, flags) ->
+            val (scrolling, canScrollDown) = flags
+            if (scrolling || item == null || viewportH <= 0) return@collect
+            val itemCenterY = item.offset.y + item.size.height / 2f
+            val itemBottomY = item.offset.y + item.size.height
+            placePillAtTop = if (!placePillAtTop) {
+                !canScrollDown && (itemBottomY > viewportH * 0.78f || itemCenterY > viewportH * 0.70f)
             } else {
-                false
+                !canScrollDown && itemCenterY >= viewportH * 0.56f
             }
         }
     }

@@ -82,6 +82,8 @@ import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.ui.components.DeckSwitch
 import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandBorder
+import com.pocketdeck.launcher.ui.theme.brandPillBackground
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.Dispatchers
@@ -221,16 +223,12 @@ fun CategoryPlatformsDialog(
                             .clip(DeckShapes.menuButton)
                             .background(
                                 when {
-                                    hl -> DeckColors.Ruby.copy(alpha = 0.16f)
+                                    hl -> DeckColors.AccentSoft
                                     checked -> DeckColors.Ruby.copy(alpha = 0.08f)
                                     else -> DeckColors.Surface
                                 },
                             )
-                            .border(
-                                width = if (hl) 0.9.dp else 0.dp,
-                                color = if (hl) DeckColors.Ruby else Color.Transparent,
-                                shape = DeckShapes.menuButton,
-                            )
+                            .brandBorder(active = hl, shape = DeckShapes.menuButton, activeWidth = 1.4.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                             .clickable {
                                 focusIdx = idx
                                 selected = if (checked) selected - plat.id else selected + plat.id
@@ -275,11 +273,7 @@ fun CategoryPlatformsDialog(
                     color = if (cancelHl) DeckColors.Ruby else DeckColors.TextSecondary,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .border(
-                            width = if (cancelHl) 0.9.dp else 0.dp,
-                            color = if (cancelHl) DeckColors.Ruby else Color.Transparent,
-                            shape = DeckShapes.menuButton,
-                        )
+                        .brandBorder(active = cancelHl, shape = DeckShapes.menuButton, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                         .clickable(onClick = onDismiss)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
@@ -540,15 +534,11 @@ fun LauncherPickerDialog(
                                     style = DeckType.metaLabel.copy(
                                         fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
                                     ),
-                                    color = if (isSel) DeckColors.Ruby else DeckColors.TextPrimary,
+                                    color = if (isSel) Color.White else DeckColors.TextPrimary,
                                     modifier = Modifier
                                         .clip(DeckShapes.settingsDropdown)
-                                        .background(if (isSel) DeckColors.Ruby.copy(alpha = 0.16f) else DeckColors.Background)
-                                        .border(
-                                            width = if (isSel) 0.6.dp else 0.5.dp,
-                                            color = if (isSel) DeckColors.Ruby else DeckColors.Line,
-                                            shape = DeckShapes.settingsDropdown,
-                                        )
+                                        .brandPillBackground(selected = isSel, shape = DeckShapes.settingsDropdown, unselectedColor = DeckColors.Background)
+                                        .then(if (isSel) Modifier else Modifier.border(0.5.dp, DeckColors.Line, DeckShapes.settingsDropdown))
                                         .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) {
                                             onSetAspect(presetVal)
                                         }
@@ -642,12 +632,8 @@ fun LauncherPickerDialog(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(DeckShapes.menuButton)
-                                .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                                .border(
-                                    width = if (selected) 0.6.dp else 0.5.dp,
-                                    color = if (selected) DeckColors.Ruby else DeckColors.Line,
-                                    shape = DeckShapes.menuButton,
-                                )
+                                .background(if (selected) DeckColors.AccentSoft else DeckColors.Surface)
+                                .brandBorder(active = selected, shape = DeckShapes.menuButton, activeWidth = 1.2.dp, inactiveWidth = 0.5.dp)
                                 .gamepadClickable(swapAbxy, keyBindings) { onSelect(preset.launcherId) }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -888,12 +874,8 @@ private fun LauncherOptionRow(
         Modifier
             .fillMaxWidth()
             .clip(DeckShapes.menuButton)
-            .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-            .border(
-                width = if (selected) 0.6.dp else 0.5.dp,
-                color = if (selected) DeckColors.Ruby else DeckColors.Line,
-                shape = DeckShapes.menuButton,
-            )
+            .background(if (selected) DeckColors.AccentSoft else DeckColors.Surface)
+            .brandBorder(active = selected, shape = DeckShapes.menuButton, activeWidth = 1.2.dp, inactiveWidth = 0.5.dp)
             .gamepadClickable(swapAbxy, keyBindings, focusRequester = focusRequester, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1041,12 +1023,8 @@ private fun InstalledAppPickerDialog(
                         Modifier
                             .fillMaxWidth()
                             .clip(DeckShapes.menuButton)
-                            .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                            .border(
-                                width = if (hl) 0.9.dp else 0.dp,
-                                color = if (hl) DeckColors.Ruby else Color.Transparent,
-                                shape = DeckShapes.menuButton,
-                            )
+                            .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
+                            .brandBorder(active = hl, shape = DeckShapes.menuButton, activeWidth = 1.4.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                             .clickable {
                                 focusIdx = idx
                                 onPick(app.packageName, app.label)
@@ -1237,14 +1215,7 @@ private fun CustomLaunchModeDialog(
                         color = DeckColors.TextPrimary,
                         modifier = Modifier.weight(1f),
                     )
-                    Switch(
-                        checked = saveAsPreset,
-                        onCheckedChange = null,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = DeckColors.Background,
-                            checkedTrackColor = DeckColors.Ruby,
-                        ),
-                    )
+                    DeckSwitch(checked = saveAsPreset)
                 }
                 if (saveAsPreset) {
                     Spacer(Modifier.height(6.dp))

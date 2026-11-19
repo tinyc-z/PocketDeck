@@ -87,6 +87,8 @@ import com.pocketdeck.launcher.ui.settings.LauncherPickerDialog
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandBorder
+import com.pocketdeck.launcher.ui.theme.brandPillBackground
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -268,14 +270,10 @@ fun EditGameScreen(
                             color = if (locateFocused) Color.White else DeckColors.TextPrimary,
                             modifier = Modifier
                                 .clip(DeckShapes.tabPill)
-                                .background(if (locateFocused) DeckColors.Ruby else DeckColors.Surface)
+                                .brandPillBackground(selected = locateFocused, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
                                 .onFocusChanged { locateFocused = it.isFocused }
                                 .focusable()
-                                .border(
-                                    width = if (locateFocused) 1.5.dp else 1.dp,
-                                    color = if (locateFocused) DeckColors.Ruby else DeckColors.Line,
-                                    shape = DeckShapes.tabPill,
-                                )
+                                .then(if (locateFocused) Modifier else Modifier.border(1.dp, DeckColors.Line, DeckShapes.tabPill))
                                 .clickable { onLocateFile() }
                                 .onPreviewKeyEvent { ev ->
                                     if (ev.type == KeyEventType.KeyDown &&
@@ -388,14 +386,10 @@ fun EditGameScreen(
                         Modifier
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
-                            .background(if (launcherFocused) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
+                            .background(if (launcherFocused) DeckColors.AccentSoft else DeckColors.Surface)
                             .onFocusChanged { launcherFocused = it.isFocused }
                             .focusable()
-                            .border(
-                                width = if (launcherFocused) 1.5.dp else 1.dp,
-                                color = if (launcherFocused) DeckColors.Ruby else DeckColors.Line,
-                                shape = DeckShapes.settingsDropdown,
-                            )
+                            .brandBorder(active = launcherFocused, shape = DeckShapes.settingsDropdown, activeWidth = 1.5.dp, inactiveWidth = 1.dp)
                             .clickable { launcherDialog = true }
                             .onPreviewKeyEvent { ev ->
                                 if (ev.type == KeyEventType.KeyDown &&
@@ -438,14 +432,10 @@ fun EditGameScreen(
                         Modifier
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
-                            .background(if (catFocused) DeckColors.Ruby.copy(alpha = 0.08f) else DeckColors.Surface)
+                            .background(if (catFocused) DeckColors.AccentSoft else DeckColors.Surface)
                             .onFocusChanged { catFocused = it.isFocused }
                             .focusable()
-                            .border(
-                                width = if (catFocused) 1.5.dp else 1.dp,
-                                color = if (catFocused) DeckColors.Ruby else DeckColors.Line,
-                                shape = DeckShapes.settingsDropdown,
-                            )
+                            .brandBorder(active = catFocused, shape = DeckShapes.settingsDropdown, activeWidth = 1.5.dp, inactiveWidth = 1.dp)
                             .clickable { categoryDialog = true }
                             .onPreviewKeyEvent { ev ->
                                 if (ev.type == KeyEventType.KeyDown &&

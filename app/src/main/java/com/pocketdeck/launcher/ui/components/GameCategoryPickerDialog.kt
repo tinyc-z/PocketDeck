@@ -53,6 +53,7 @@ import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandBorder
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 
@@ -225,16 +226,12 @@ fun GameCategoryPickerDialog(
                                 .clip(DeckShapes.settingsDropdown)
                                 .background(
                                     when {
-                                        hl -> DeckColors.Ruby.copy(alpha = 0.16f)
+                                        hl -> DeckColors.AccentSoft
                                         checked -> DeckColors.Ruby.copy(alpha = 0.08f)
                                         else -> DeckColors.Surface
                                     },
                                 )
-                                .border(
-                                    width = if (hl) 0.9.dp else 0.dp,
-                                    color = if (hl) DeckColors.Ruby else Color.Transparent,
-                                    shape = DeckShapes.settingsDropdown,
-                                )
+                                .brandBorder(active = hl, shape = DeckShapes.settingsDropdown, activeWidth = 1.4.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                                 .soundClickable(enabled = !viaPlatform) {
                                     focusIdx = idx
                                     selectedIds = if (cat.id in selectedIds) selectedIds - cat.id else selectedIds + cat.id
@@ -266,7 +263,7 @@ fun GameCategoryPickerDialog(
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
                             .background(DeckColors.Surface)
-                            .border(0.9.dp, DeckColors.Ruby, DeckShapes.settingsDropdown)
+                            .brandBorder(active = true, shape = DeckShapes.settingsDropdown, activeWidth = 1.4.dp)
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -320,12 +317,8 @@ fun GameCategoryPickerDialog(
                         Modifier
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
-                            .background(if (createHl) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.Surface)
-                            .border(
-                                width = if (createHl) 0.9.dp else 0.6.dp,
-                                color = if (createHl) DeckColors.Ruby else DeckColors.Line,
-                                shape = DeckShapes.settingsDropdown,
-                            )
+                            .background(if (createHl) DeckColors.AccentSoft else DeckColors.Surface)
+                            .brandBorder(active = createHl, shape = DeckShapes.settingsDropdown, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                             .soundClickable {
                                 focusIdx = createBtnIdx
                                 showNewInput = true
@@ -353,7 +346,7 @@ fun GameCategoryPickerDialog(
                     color = if (cancelHl) DeckColors.Ruby else DeckColors.TextSecondary,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .border(if (cancelHl) 0.9.dp else 0.dp, if (cancelHl) DeckColors.Ruby else Color.Transparent, DeckShapes.menuButton)
+                        .brandBorder(active = cancelHl, shape = DeckShapes.menuButton, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                         .clickable(onClick = onDismiss)
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )

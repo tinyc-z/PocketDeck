@@ -640,7 +640,7 @@ fun HomeScreen(
             val topGap = when {
                 state.searching -> 6.dp
                 state.viewMode == ViewMode.Grid || state.viewMode == ViewMode.Bubbles -> 4.dp
-                else -> 12.dp
+                else -> 6.dp
             }
             Spacer(Modifier.height(topGap))
 
@@ -689,7 +689,7 @@ fun HomeScreen(
                             Box(
                                 Modifier
                                     .clip(CircleShape)
-                                    .background(DeckColors.Ruby)
+                                    .background(com.pocketdeck.launcher.ui.theme.DeckBrand.brandBrush)
                                     .clickable {
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                             openAllFilesAccessSettings(context)

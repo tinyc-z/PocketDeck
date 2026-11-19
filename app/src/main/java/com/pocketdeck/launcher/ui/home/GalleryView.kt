@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -72,6 +73,7 @@ import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
@@ -99,9 +101,9 @@ fun GalleryView(
     onLongPress: ((Game) -> Unit)? = null,
     fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
-    focusCardHeight: Dp = 196.dp,
-    smallCardHeight: Dp = 108.dp,
-    cardSpacing: Dp = 22.dp,
+    focusCardHeight: Dp = 182.dp,
+    smallCardHeight: Dp = 104.dp,
+    cardSpacing: Dp = 20.dp,
     leftMargin: Dp = 54.dp,
     showMetadata: Boolean = true,
     metaDisplay: MetadataDisplayConfig = MetadataDisplayConfig(),
@@ -173,14 +175,19 @@ fun GalleryView(
     val stepPx = (avgSmallW + spacingPx).coerceAtLeast(60f)
 
     Column(modifier) {
-        // 标题行：焦点游戏名（常态带左右滑动进入动画；快滚连按期间直接刷新 Text 避免重叠重组合开销）+ 右侧位置计数
-        val titleStyle = DeckType.gameTitle.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.2).sp)
+        // 标题行：焦点游戏名（ExtraBold 23sp，与设计稿对齐）+ 右侧位置计数
+        val titleStyle = DeckType.gameTitle.copy(
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 23.sp,
+            lineHeight = 28.sp,
+            letterSpacing = (-0.25).sp,
+        )
         val titleColor = DeckColors.TextPrimary
         Row(
             Modifier
                 .fillMaxWidth()
                 .padding(start = leftMargin, end = 22.dp)
-                .height(30.dp),
+                .height(32.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -226,7 +233,7 @@ fun GalleryView(
             Spacer(Modifier.width(12.dp))
             Text(
                 text = "${(focusIndex + 1).coerceAtMost(games.size)} / ${games.size}",
-                style = DeckType.metaValue.copy(fontWeight = FontWeight.Bold, fontSize = 12.5.sp),
+                style = DeckType.metaValue.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
                 color = DeckColors.TextLabel,
                 maxLines = 1,
             )
@@ -240,14 +247,14 @@ fun GalleryView(
         }
         Text(
             text = subtitle,
-            style = DeckType.metaValue.copy(fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp),
+            style = DeckType.metaValue.copy(fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 18.sp),
             color = DeckColors.TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = leftMargin + 1.dp, end = 22.dp)
-                .height(18.dp)
+                .height(20.dp)
                 .graphicsLayer { alpha = dragAlpha },
         )
 
@@ -257,7 +264,7 @@ fun GalleryView(
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(focusCardHeight + 16.dp)
+                .height(focusCardHeight + 10.dp)
                 .pointerInput(stepPx) {
                     val velocityTracker = VelocityTracker()
                     detectHorizontalDragGestures(
@@ -367,7 +374,7 @@ fun GalleryView(
 
         // 信息胶囊行：开发商 / 完整发行日期 / 文件大小（快滚/拖动期冻结并在停稳后同步，避免高速滚动抖动）
         if (showMetadata) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
             val chips = remember(settledMeta, metaDisplay, settledMetaGame?.fileSize) {
                 galleryChips(settledMeta, metaDisplay, settledMetaGame?.fileSize ?: 0L)
             }
@@ -423,33 +430,56 @@ internal fun galleryChips(
     if (display.fileSize && fileSizeBytes > 0L) add(formatFileSize(fileSizeBytes))
 }
 
+@Suppress("DEPRECATION")
 @Composable
 private fun MetaChipRow(
     chips: List<String>,
     modifier: Modifier = Modifier,
 ) {
     if (chips.isEmpty()) {
-        Spacer(modifier.height(24.dp))
+        Spacer(modifier.height(28.dp))
         return
     }
+    val p = LocalDeckColors.current
+    val chipBg = if (p.isDark) Color(0xFF2B2138).copy(alpha = 0.74f) else Color.White.copy(alpha = 0.78f)
+    val chipBorder = if (p.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.85f)
+    val chipShadow = if (p.isDark) Color(0x99000000) else Color(0x45782846)
+    val chipText = if (p.isDark) Color(0xFFDED3E8) else p.textMeta
     Row(
-        modifier = modifier.height(24.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val chipStyle = DeckType.metaValue.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 15.sp)
+        val chipStyle = DeckType.metaValue.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.5.sp,
+            lineHeight = 16.sp,
+            platformStyle = PlatformTextStyle(includeFontPadding = false),
+        )
         for (chip in chips) {
-            Text(
-                text = chip,
-                style = chipStyle,
-                color = DeckColors.TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Box(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .cardSurface(shape = CircleShape, elevation = 2.dp)
-                    .padding(horizontal = 9.dp, vertical = 3.dp),
-            )
+                    .shadow(
+                        elevation = 8.dp,
+                        shape = CircleShape,
+                        ambientColor = chipShadow,
+                        spotColor = chipShadow,
+                        clip = false,
+                    )
+                    .background(chipBg, CircleShape)
+                    .border(0.75.dp, chipBorder, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = chip,
+                    style = chipStyle,
+                    color = chipText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

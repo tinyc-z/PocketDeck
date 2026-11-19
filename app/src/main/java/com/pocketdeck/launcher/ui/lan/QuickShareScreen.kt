@@ -67,6 +67,7 @@ import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckSwitch
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandBorder
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.ArchiveManager
@@ -393,12 +394,8 @@ fun QuickShareScreen(
                                     Modifier
                                         .fillMaxWidth()
                                         .clip(DeckShapes.settingsDropdown)
-                                        .background(if (selected) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.DialogBg)
-                                        .border(
-                                            width = if (selected) 0.9.dp else 0.6.dp,
-                                            color = if (selected) DeckColors.Ruby else DeckColors.Line,
-                                            shape = DeckShapes.settingsDropdown,
-                                        )
+                                        .background(if (selected) DeckColors.AccentSoft else DeckColors.DialogBg)
+                                        .brandBorder(active = selected, shape = DeckShapes.settingsDropdown, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                                         .dpadNavItem(nav, "inc_dir_$idx", shape = DeckShapes.settingsDropdown) {
                                             incomingDirIdx = idx
                                         }
@@ -688,12 +685,8 @@ fun QuickShareScreen(
                                     Modifier
                                         .fillMaxWidth()
                                         .clip(DeckShapes.settingsDropdown)
-                                        .background(if (selected) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.DialogBg)
-                                        .border(
-                                            width = if (selected) 0.9.dp else 0.6.dp,
-                                            color = if (selected) DeckColors.Ruby else DeckColors.Line,
-                                            shape = DeckShapes.settingsDropdown,
-                                        )
+                                        .background(if (selected) DeckColors.AccentSoft else DeckColors.DialogBg)
+                                        .brandBorder(active = selected, shape = DeckShapes.settingsDropdown, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                                         .dpadNavItem(nav, "nic_$nicIdx", shape = DeckShapes.settingsDropdown) {
                                             onSelectInterface(iface.interfaceName)
                                         }

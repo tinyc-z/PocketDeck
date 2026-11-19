@@ -83,6 +83,8 @@ import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandBorder
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.brandFocusRow
@@ -480,10 +482,10 @@ fun NameDialog(
                 Text(
                     stringResource(R.string.action_ok),
                     style = DeckType.menuButton,
-                    color = DeckColors.Background,
+                    color = Color.White,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .clickable(onClick = onConfirm)
                         .padding(horizontal = 20.dp, vertical = 8.dp),
                 )
@@ -631,10 +633,10 @@ fun ScraperCredentialDialog(
                 Text(
                     stringResource(R.string.action_ok),
                     style = DeckType.menuButton,
-                    color = DeckColors.Background,
+                    color = Color.White,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .gamepadClickable { applySave(clear = false) }
                         .padding(horizontal = 20.dp, vertical = 8.dp),
                 )
@@ -804,12 +806,8 @@ fun KeyBindConflictDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(DeckShapes.menuButton)
-                        .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                        .border(
-                            width = if (hl) 0.9.dp else 0.6.dp,
-                            color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
-                            shape = DeckShapes.menuButton,
-                        )
+                        .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
+                        .brandBorder(active = hl, shape = DeckShapes.menuButton, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp, inactiveColor = DeckColors.DialogBorder)
                         .clickable(onClick = action)
                         .padding(horizontal = 16.dp, vertical = 11.dp),
                 )
@@ -866,12 +864,8 @@ fun ConfirmActionDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(DeckShapes.menuButton)
-                        .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                        .border(
-                            width = if (hl) 0.9.dp else 0.6.dp,
-                            color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
-                            shape = DeckShapes.menuButton,
-                        )
+                        .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
+                        .brandBorder(active = hl, shape = DeckShapes.menuButton, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp, inactiveColor = DeckColors.DialogBorder)
                         .clickable(onClick = action)
                         .padding(horizontal = 16.dp, vertical = 11.dp),
                 )
@@ -975,16 +969,7 @@ fun SystemTabEditDialog(
                     )
                 }
                 Spacer(Modifier.width(10.dp))
-                Switch(
-                    checked = followSystem,
-                    onCheckedChange = null,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = DeckColors.Background,
-                        checkedTrackColor = DeckColors.Ruby,
-                        uncheckedThumbColor = DeckColors.TextSecondary,
-                        uncheckedTrackColor = DeckColors.DialogBorder,
-                    ),
-                )
+                DeckSwitch(checked = followSystem)
             }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -1001,10 +986,10 @@ fun SystemTabEditDialog(
                 Text(
                     stringResource(R.string.action_ok),
                     style = DeckType.menuButton,
-                    color = DeckColors.Background,
+                    color = Color.White,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .gamepadClickable {
                             val trimmed = name.trim()
                             onConfirm(trimmed, if (trimmed.isEmpty()) true else followSystem)
@@ -1134,12 +1119,8 @@ fun FontPickerDialog(
                 Modifier
                     .fillMaxWidth()
                     .clip(DeckShapes.menuButton)
-                    .background(if (pickFileHl) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.Ruby.copy(alpha = 0.08f))
-                    .border(
-                        width = if (pickFileHl) 0.9.dp else 0.5.dp,
-                        color = if (pickFileHl) DeckColors.Ruby else DeckColors.Ruby.copy(alpha = 0.4f),
-                        shape = DeckShapes.menuButton,
-                    )
+                    .background(if (pickFileHl) DeckColors.AccentSoft else DeckColors.Ruby.copy(alpha = 0.06f))
+                    .brandBorder(active = pickFileHl, shape = DeckShapes.menuButton, activeWidth = 1.4.dp, inactiveWidth = 0.5.dp, inactiveColor = DeckColors.Ruby.copy(alpha = 0.35f))
                     .clickable {
                         focusIdx = 0
                         onPickCustomFont()
@@ -1185,19 +1166,17 @@ fun FontPickerDialog(
                             .clip(DeckShapes.menuButton)
                             .background(
                                 when {
-                                    hl -> DeckColors.Ruby.copy(alpha = 0.14f)
+                                    hl -> DeckColors.AccentSoft
                                     selected -> DeckColors.Ruby.copy(alpha = 0.08f)
                                     else -> DeckColors.Surface
                                 },
                             )
-                            .border(
-                                width = if (hl || selected) 0.9.dp else 0.5.dp,
-                                color = when {
-                                    hl -> DeckColors.Ruby
-                                    selected -> DeckColors.Ruby.copy(alpha = 0.6f)
-                                    else -> DeckColors.DialogBorder
-                                },
+                            .brandBorder(
+                                active = hl || selected,
                                 shape = DeckShapes.menuButton,
+                                activeWidth = if (hl) 1.4.dp else 1.0.dp,
+                                inactiveWidth = 0.5.dp,
+                                inactiveColor = DeckColors.DialogBorder,
                             )
                             .clickable {
                                 focusIdx = idx + 1

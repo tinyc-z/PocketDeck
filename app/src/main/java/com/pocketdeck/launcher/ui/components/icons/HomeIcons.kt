@@ -105,6 +105,20 @@ object HomeIcons {
         }
     }
 
+    /** 菜单 / 选项（三横线） */
+    val Hamburger: ImageVector by lazy {
+        icon("Hamburger") {
+            strokePath(strokeWidth = 2.4f) {
+                moveTo(5f, 7.5f)
+                lineTo(19f, 7.5f)
+                moveTo(5f, 12f)
+                lineTo(19f, 12f)
+                moveTo(5f, 16.5f)
+                lineTo(19f, 16.5f)
+            }
+        }
+    }
+
     /** 搜索 */
     val Search: ImageVector by lazy {
         icon("Search") {

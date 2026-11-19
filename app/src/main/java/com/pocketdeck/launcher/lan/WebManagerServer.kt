@@ -2,7 +2,9 @@ package com.pocketdeck.launcher.lan
 
 import android.content.Context
 import android.os.Build
+import android.os.Environment
 import android.os.StatFs
+import android.os.storage.StorageManager
 import com.pocketdeck.launcher.data.AppTheme
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.data.CategorySortOrder
@@ -835,20 +837,87 @@ class WebManagerServer(
         )
     }
 
-    private suspend fun handleInfo(res: HttpResponseWriter) {
-        val roots = repo.configuredRoots()
-        val u = repo.user.value
-        val storageArr = JSONArray()
-        for (r in roots) {
-            val stat = runCatching { StatFs(r.absolutePath) }.getOrNull()
-            storageArr.put(
+    private fun collectStorageVolumes(roots: List<File>): JSONArray {
+        val arr = JSONArray()
+        val seenRoots = LinkedHashSet<String>()
+        val seenFsKey = LinkedHashSet<String>()
+
+        fun addVolume(dir: File?, kind: String, label: String) {
+            if (dir == null || !dir.exists() || !dir.isDirectory) return
+            val canon = runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath)
+            if (!seenRoots.add(canon)) return
+            val stat = runCatching { StatFs(canon) }.getOrNull() ?: return
+            val total = stat.totalBytes
+            val free = stat.availableBytes
+            if (total <= 0L) return
+            // 同物理分区去重（例如内部存储下多个 ROM 根目录共享同一文件系统）
+            val fsKey = "$kind:$total:${free / (1024L * 1024L)}"
+            if (!seenFsKey.add(fsKey)) return
+            arr.put(
                 JSONObject().apply {
-                    put("path", r.absolutePath)
-                    put("freeBytes", stat?.availableBytes ?: 0L)
-                    put("totalBytes", stat?.totalBytes ?: 0L)
+                    put("kind", kind)
+                    put("label", label)
+                    put("path", canon)
+                    put("freeBytes", free)
+                    put("totalBytes", total)
                 },
             )
         }
+
+        // 1. 内部存储
+        val primaryDir = runCatching { Environment.getExternalStorageDirectory() }.getOrNull()
+        val primaryCanon = primaryDir?.let { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+        addVolume(primaryDir, "internal", "Internal")
+
+        // 2. 外置 TF / SD / USB 存储卷（Android 11+ StorageManager）
+        val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
+        if (sm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                sm.storageVolumes.forEach { vol ->
+                    if (!vol.isPrimary && vol.state == Environment.MEDIA_MOUNTED) {
+                        val volDir = vol.directory
+                        val desc = runCatching { vol.getDescription(context) }.getOrNull().orEmpty()
+                            .ifBlank { volDir?.name ?: "TF / SD" }
+                        addVolume(volDir, "external", desc)
+                    }
+                }
+            }
+        }
+        // 3. 兼容部分掌机 ROM 的 TF / USB 挂载路径
+        runCatching {
+            context.getExternalFilesDirs(null).orEmpty().forEach { appDir ->
+                var cur = appDir
+                repeat(4) { cur = cur?.parentFile }
+                val canon = cur?.let { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
+                if (cur != null && canon != null && canon != primaryCanon) {
+                    addVolume(cur, "external", cur.name.ifBlank { "TF / SD" })
+                }
+            }
+        }
+        runCatching {
+            File("/storage").listFiles()?.forEach { vol ->
+                val n = vol.name
+                if (vol.isDirectory && n != "emulated" && n != "self" && n != "enc_emulated") {
+                    addVolume(vol, "external", n)
+                }
+            }
+        }
+        // 4. 兜底：若用户配置了上述未覆盖到的挂载根目录，也一并纳入
+        for (r in roots) {
+            val rCanon = runCatching { r.canonicalPath }.getOrDefault(r.absolutePath)
+            val covered = seenRoots.any { sr -> rCanon == sr || rCanon.startsWith("$sr${File.separator}") }
+            if (!covered) {
+                val isPrimary = primaryCanon != null && (rCanon == primaryCanon || rCanon.startsWith("$primaryCanon${File.separator}"))
+                addVolume(r, if (isPrimary) "internal" else "external", r.name.ifBlank { r.absolutePath })
+            }
+        }
+        return arr
+    }
+
+    private suspend fun handleInfo(res: HttpResponseWriter) {
+        val roots = repo.configuredRoots()
+        val u = repo.user.value
+        val storageVolumes = collectStorageVolumes(roots)
         val obj = JSONObject().apply {
             put("deviceName", u?.deviceName?.ifBlank { Build.MODEL } ?: Build.MODEL)
             put("model", Build.MODEL.orEmpty())
@@ -856,7 +925,8 @@ class WebManagerServer(
             put("url", accessUrl.orEmpty())
             put("online", NetworkStatus.isOnline(context))
             put("roots", JSONArray(roots.map { it.absolutePath }))
-            put("storage", storageArr)
+            put("storage", storageVolumes)
+            put("storageVolumes", storageVolumes)
             put("theme", themeConfig.toJson())
         }
         res.sendJson(200, obj.toString())

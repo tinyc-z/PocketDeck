@@ -11,13 +11,46 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 
-/** Inter 可变字体（opsz + wght）。 */
+/** Inter 可变字体（按各字重显式注册 wght/opsz 变体，确保 Medium/SemiBold/Bold/ExtraBold 真正生效）。 */
 val InterFamily = FontFamily(
     Font(
         R.font.inter,
+        weight = FontWeight.Normal,
         variationSettings = FontVariation.Settings(
             FontVariation.weight(400),
             FontVariation.Setting("opsz", 14f),
+        ),
+    ),
+    Font(
+        R.font.inter,
+        weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(500),
+            FontVariation.Setting("opsz", 14f),
+        ),
+    ),
+    Font(
+        R.font.inter,
+        weight = FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(600),
+            FontVariation.Setting("opsz", 16f),
+        ),
+    ),
+    Font(
+        R.font.inter,
+        weight = FontWeight.Bold,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(700),
+            FontVariation.Setting("opsz", 20f),
+        ),
+    ),
+    Font(
+        R.font.inter,
+        weight = FontWeight.ExtraBold,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(800),
+            FontVariation.Setting("opsz", 24f),
         ),
     ),
 )

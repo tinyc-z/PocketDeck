@@ -76,6 +76,8 @@ import com.pocketdeck.launcher.ui.components.DeckProgressBar
 import com.pocketdeck.launcher.ui.components.DeckSwitch
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandBorder
+import com.pocketdeck.launcher.ui.theme.brandPillBackground
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.FileTask
@@ -286,8 +288,8 @@ fun LanServiceControlDialog(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(DeckColors.Ruby.copy(alpha = 0.08f))
-                            .border(0.9.dp, DeckColors.Ruby, RoundedCornerShape(12.dp))
+                            .background(DeckColors.AccentSoft)
+                            .brandBorder(active = true, shape = RoundedCornerShape(12.dp), activeWidth = 1.4.dp)
                             .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -334,12 +336,8 @@ fun LanServiceControlDialog(
                                 Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (picked) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.DialogBg)
-                                    .border(
-                                        width = if (picked) 0.9.dp else 0.6.dp,
-                                        color = if (picked) DeckColors.Ruby else DeckColors.Line,
-                                        shape = RoundedCornerShape(8.dp),
-                                    )
+                                    .background(if (picked) DeckColors.AccentSoft else DeckColors.DialogBg)
+                                    .brandBorder(active = picked, shape = RoundedCornerShape(8.dp), activeWidth = 1.3.dp, inactiveWidth = 0.6.dp)
                                     .dpadNavItem(nav, "inc_dir_$dIdx", shape = RoundedCornerShape(8.dp)) {
                                         incomingDirIdx = dIdx
                                     }
@@ -377,10 +375,10 @@ fun LanServiceControlDialog(
                             Text(
                                 stringResource(R.string.lan_incoming_accept),
                                 style = DeckType.menuButton,
-                                color = DeckColors.Background,
+                                color = Color.White,
                                 modifier = Modifier
                                     .clip(DeckShapes.menuButton)
-                                    .background(DeckColors.Ruby)
+                                    .brandBackground(DeckShapes.menuButton)
                                     .dpadNavItem(nav, "inc_accept") {
                                         onAcceptIncoming(req.sessionId, chosenDir)
                                     }
@@ -554,12 +552,8 @@ fun LanServiceControlDialog(
                                 Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(if (selected) DeckColors.Ruby.copy(alpha = 0.10f) else DeckColors.DialogBg)
-                                    .border(
-                                        width = if (selected) 0.9.dp else 0.6.dp,
-                                        color = if (selected) DeckColors.Ruby else DeckColors.Line,
-                                        shape = RoundedCornerShape(10.dp),
-                                    )
+                                    .background(if (selected) DeckColors.AccentSoft else DeckColors.DialogBg)
+                                    .brandBorder(active = selected, shape = RoundedCornerShape(10.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                                     .dpadNavItem(nav, "nic_$nicIdx", shape = RoundedCornerShape(10.dp)) {
                                         onSelectInterface(nic.interfaceName)
                                     }
@@ -1454,10 +1448,10 @@ fun SharePeerPickerDialog(
                 Text(
                     stringResource(R.string.lan_share_enable_btn),
                     style = DeckType.menuButton,
-                    color = DeckColors.Background,
+                    color = Color.White,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .clickable(onClick = onEnableQuickShare)
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                 )
@@ -1704,10 +1698,10 @@ fun IncomingShareDialog(
                 Text(
                     stringResource(R.string.lan_incoming_accept),
                     style = DeckType.menuButton,
-                    color = DeckColors.Background,
+                    color = Color.White,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby)
+                        .brandBackground(DeckShapes.menuButton)
                         .border(
                             width = if (accHl) 1.dp else 0.dp,
                             color = if (accHl) DeckColors.TextPrimary else Color.Transparent,
@@ -2525,10 +2519,10 @@ internal fun LocalSendPinDialog(
                 Text(
                     stringResource(R.string.action_ok),
                     style = DeckType.menuButton,
-                    color = if (canSubmit) DeckColors.Background else DeckColors.TextSecondary,
+                    color = if (canSubmit) Color.White else DeckColors.TextSecondary,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .background(if (canSubmit) DeckColors.Ruby else DeckColors.Surface)
+                        .brandPillBackground(selected = canSubmit, shape = DeckShapes.menuButton, unselectedColor = DeckColors.Surface)
                         .gamepadClickable(swapAbxy, keyBindings) {
                             if (pinText.isNotBlank()) onSubmit(pinText)
                         }

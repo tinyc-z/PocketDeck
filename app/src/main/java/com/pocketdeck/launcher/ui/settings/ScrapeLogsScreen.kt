@@ -77,6 +77,7 @@ import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.brandBackground
+import com.pocketdeck.launcher.ui.theme.brandPillBackground
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.Dispatchers
@@ -334,12 +335,8 @@ fun ScrapeLogsScreen(
                                 color = if (selected) Color.White else DeckColors.TextPrimary,
                                 modifier = Modifier
                                     .clip(DeckShapes.tabPill)
-                                    .background(if (selected) DeckColors.Ruby else DeckColors.Surface)
-                                    .border(
-                                        0.6.dp,
-                                        if (selected) DeckColors.Ruby else DeckColors.Line,
-                                        DeckShapes.tabPill,
-                                    )
+                                    .brandPillBackground(selected = selected, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
+                                    .then(if (selected) Modifier else Modifier.border(0.6.dp, DeckColors.Line, DeckShapes.tabPill))
                                     .soundClickable { filter = kind }
                                     .padding(horizontal = 13.dp, vertical = 6.dp),
                             )
@@ -349,12 +346,8 @@ fun ScrapeLogsScreen(
                     Box(
                         modifier = Modifier
                             .clip(DeckShapes.tabPill)
-                            .background(if (searchActive) DeckColors.Ruby else DeckColors.Surface)
-                            .border(
-                                0.6.dp,
-                                if (searchActive) DeckColors.Ruby else DeckColors.Line,
-                                DeckShapes.tabPill,
-                            )
+                            .brandPillBackground(selected = searchActive, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
+                            .then(if (searchActive) Modifier else Modifier.border(0.6.dp, DeckColors.Line, DeckShapes.tabPill))
                             .soundClickable {
                                 if (searchActive) {
                                     query = ""
@@ -619,12 +612,8 @@ private fun ExportLogDirDialog(
                             color = if (active) Color.White else DeckColors.TextPrimary,
                             modifier = Modifier
                                 .clip(DeckShapes.tabPill)
-                                .background(if (active) DeckColors.Ruby else DeckColors.Surface)
-                                .border(
-                                    0.6.dp,
-                                    if (active) DeckColors.Ruby else DeckColors.Line,
-                                    DeckShapes.tabPill,
-                                )
+                                .brandPillBackground(selected = active, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
+                                .then(if (active) Modifier else Modifier.border(0.6.dp, DeckColors.Line, DeckShapes.tabPill))
                                 .soundClickable { currentDir = sc.dir }
                                 .padding(horizontal = 11.dp, vertical = 5.dp),
                         )

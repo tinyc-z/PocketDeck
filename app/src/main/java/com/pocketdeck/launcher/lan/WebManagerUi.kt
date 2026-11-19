@@ -685,8 +685,10 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     <div class="dev-card">
       <div id="devName" class="dev-name">PocketDeck</div>
       <div id="devInfo" class="dev-status" data-i18n="connecting">Connecting…</div>
-      <div class="dev-bar"><i id="devStorageBar"></i></div>
-      <div id="devStorageTxt" class="dev-store">—</div>
+      <div id="devStorageList">
+        <div class="dev-bar"><i id="devStorageBar"></i></div>
+        <div id="devStorageTxt" class="dev-store">—</div>
+      </div>
     </div>
   </aside>
 
@@ -838,7 +840,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 <script>
 const I18N = {
   'zh-CN': {
-    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', logs_live: '● 实时', btn_find_cover: '查找封面', btn_pick_cover_short: '选封面', btn_upload_short: '上传', connecting: '连接中…',
+    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '内部存储', vol_external: 'TF 卡', logs_live: '● 实时', btn_find_cover: '查找封面', btn_pick_cover_short: '选封面', btn_upload_short: '上传', connecting: '连接中…',
     tab_games: '游戏库',
     tab_categories: '标签分类',
     tab_files: '文件管理',
@@ -1076,7 +1078,7 @@ const I18N = {
     logs_f_err: '仅报错',
   },
   'zh-TW': {
-    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', logs_live: '● 即時', btn_find_cover: '尋找封面', btn_pick_cover_short: '選封面', btn_upload_short: '上傳', connecting: '連線中…',
+    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '內部儲存', vol_external: 'TF 卡', logs_live: '● 即時', btn_find_cover: '尋找封面', btn_pick_cover_short: '選封面', btn_upload_short: '上傳', connecting: '連線中…',
     tab_games: '遊戲庫',
     tab_categories: '標籤分類',
     tab_files: '檔案管理',
@@ -1314,7 +1316,7 @@ const I18N = {
     logs_f_err: '僅報錯',
   },
   en: {
-    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', logs_live: '● LIVE', btn_find_cover: 'Find cover', btn_pick_cover_short: 'Pick cover', btn_upload_short: 'Upload', connecting: 'Connecting…',
+    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', vol_internal: 'Internal', vol_external: 'SD / TF Card', logs_live: '● LIVE', btn_find_cover: 'Find cover', btn_pick_cover_short: 'Pick cover', btn_upload_short: 'Upload', connecting: 'Connecting…',
     tab_games: 'Library',
     tab_categories: 'Tabs & Tags',
     tab_files: 'Files',
@@ -1697,18 +1699,28 @@ function renderDevInfo(connected, hasInternet) {
       box.innerHTML = '<span class="conn-dot ok"></span><strong style="color:var(--ok)">' + esc(netTxt) + '</strong>' + (net ? ' · ' + esc(net) : '');
     }
   }
-  const stList = deviceInfo.storage || [];
-  const freeBytes = stList.reduce((a, x) => a + (x.freeBytes || 0), 0);
-  const totalBytes = stList.reduce((a, x) => a + (x.totalBytes || 0), 0);
-  const bar = el('devStorageBar');
-  const txt = el('devStorageTxt');
-  if (totalBytes > 0) {
-    const usedPct = Math.min(100, Math.max(4, Math.round(((totalBytes - freeBytes) / totalBytes) * 100)));
-    if (bar) bar.style.width = usedPct + '%';
-    if (txt) txt.textContent = tr('free_of_fmt', { free: fmtBytes(freeBytes), total: fmtBytes(totalBytes) });
-  } else if (freeBytes > 0) {
-    if (bar) bar.style.width = '35%';
-    if (txt) txt.textContent = fmtBytes(freeBytes);
+  const vols = (deviceInfo.storageVolumes && deviceInfo.storageVolumes.length)
+    ? deviceInfo.storageVolumes
+    : (deviceInfo.storage || []);
+  const listEl = el('devStorageList');
+  if (listEl && vols.length) {
+    const showLabel = vols.length > 1;
+    listEl.innerHTML = vols.map((v, idx) => {
+      const total = v.totalBytes || 0;
+      const free = v.freeBytes || 0;
+      const pct = total > 0 ? Math.min(100, Math.max(4, Math.round(((total - free) / total) * 100))) : 35;
+      const lbl = v.kind === 'internal'
+        ? tr('vol_internal')
+        : (v.label && v.label !== 'TF / SD' ? tr('vol_external') + ' · ' + v.label : tr('vol_external'));
+      const txt = total > 0
+        ? tr('free_of_fmt', { free: fmtBytes(free), total: fmtBytes(total) })
+        : fmtBytes(free);
+      return '<div style="' + (idx > 0 ? 'margin-top:8px;' : '') + '">' +
+        (showLabel ? '<div class="dev-store" style="color:var(--text);font-weight:700;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(v.path || '') + '">' + esc(lbl) + '</div>' : '') +
+        '<div class="dev-bar" style="margin-bottom:4px;"><i style="width:' + pct + '%"></i></div>' +
+        '<div class="dev-store">' + esc(txt) + '</div>' +
+      '</div>';
+    }).join('');
   }
 }
 function toggleMoreMenu(e) {

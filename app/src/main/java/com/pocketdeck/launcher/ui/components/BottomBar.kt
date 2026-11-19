@@ -31,12 +31,13 @@ import com.pocketdeck.launcher.data.ViewMode
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.icons.HomeIcons
+import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
 
 /**
  * 底栏（Sunset Arcade）：
- * (B) Apps  (Y) Settings  (X) Options  [视图图标] View  [搜索]  ...  (A 渐变) Play
+ * (B) Apps  (Y) Settings  (视图图标) View  (🔍) Search  ...  (A 渐变) Play
  */
 @Composable
 fun BottomBar(
@@ -55,59 +56,45 @@ fun BottomBar(
     val playBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Play, swapAbxy)
     val appsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Apps, swapAbxy)
     val settingsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Settings, swapAbxy)
-    val menuBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Menu, swapAbxy)
-
-    val ink = DeckColors.TextPrimary
-    val accent = DeckColors.Ruby
 
     Row(
         modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(46.dp)
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // (B) Apps
         BarButton(badge = appsBtn, label = stringResource(R.string.apps), onClick = onApps)
 
-        Spacer(Modifier.width(2.dp))
+        Spacer(Modifier.width(6.dp))
 
         // (Y) Settings
         BarButton(badge = settingsBtn, label = stringResource(R.string.settings), onClick = onSettings)
 
-        if (onOptions != null) {
-            Spacer(Modifier.width(2.dp))
-            // (X) Options
-            BarButton(badge = menuBtn, label = stringResource(R.string.hint_options), onClick = onOptions)
-        }
+        Spacer(Modifier.width(6.dp))
 
-        Spacer(Modifier.width(2.dp))
-
-        // 视图切换（图标 + View 文案）
-        BarChipButton(onClick = onViewSwitch) {
+        // 视图切换 —— 使用当前桌面模式的形象图标（不绑快捷键字母）
+        BarCustomIconLabeledButton(
+            label = stringResource(R.string.hint_view),
+            onClick = onViewSwitch,
+        ) { iconTint ->
             Box(
                 Modifier
-                    .size(18.dp)
-                    .drawBehind { drawViewModeIcon(viewMode, ink) },
-            )
-            Text(
-                stringResource(R.string.hint_view),
-                style = DeckType.bottomBar.copy(fontWeight = FontWeight.Medium, fontSize = 13.5.sp),
-                color = ink,
-                maxLines = 1,
+                    .size(15.dp)
+                    .drawBehind { drawViewModeIcon(viewMode, iconTint) },
             )
         }
 
-        Spacer(Modifier.width(2.dp))
+        Spacer(Modifier.width(6.dp))
 
-        // 搜索图标（搜索时切换为强调色关闭图标）
-        BarIconButton(onClick = onSearch) {
-            DeckIcon(
-                icon = if (searching) HomeIcons.Close else HomeIcons.Search,
-                size = 19.dp,
-                tint = if (searching) accent else ink,
-            )
-        }
+        // (🔍) Search —— 深色圆形徽标，搜索激活时高亮为品牌渐变关闭徽标
+        BarIconLabeledButton(
+            icon = if (searching) HomeIcons.Close else HomeIcons.Search,
+            label = stringResource(R.string.lib_search_hint),
+            primary = searching,
+            onClick = onSearch,
+        )
 
         Spacer(Modifier.weight(1f))
 
@@ -136,18 +123,18 @@ private fun BarButton(
             .clip(CircleShape)
             .background(if (pressed) DeckColors.TextPrimary.copy(alpha = 0.10f) else Color.Transparent)
             .soundClickableNoIndication(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 5.dp),
+            .padding(horizontal = 6.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (badge != null) {
-            ButtonBadge(badge, primary = primary, size = 22.dp)
+            ButtonBadge(badge, primary = primary, size = 24.dp)
         }
         Text(
             label,
             style = DeckType.bottomBar.copy(
                 fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
-                fontSize = 13.5.sp,
+                fontSize = 14.sp,
             ),
             color = DeckColors.TextPrimary,
             maxLines = 1,
@@ -156,42 +143,61 @@ private fun BarButton(
 }
 
 @Composable
-private fun BarChipButton(
+private fun BarIconLabeledButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
     onClick: () -> Unit,
+    primary: Boolean = false,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+) {
+    BarCustomIconLabeledButton(
+        label = label,
+        onClick = onClick,
+        primary = primary,
+        modifier = modifier,
+    ) { iconTint ->
+        DeckIcon(icon = icon, size = 14.dp, tint = iconTint)
+    }
+}
+
+@Composable
+private fun BarCustomIconLabeledButton(
+    label: String,
+    onClick: () -> Unit,
+    primary: Boolean = false,
+    modifier: Modifier = Modifier,
+    iconContent: @Composable (Color) -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    val badgeBg = if (primary) Modifier.background(DeckBrand.brandBrush) else Modifier.background(DeckColors.ButtonBadge)
+    val iconTint = if (primary) Color.White else DeckColors.ButtonBadgeText
     Row(
         modifier
             .clip(CircleShape)
             .background(if (pressed) DeckColors.TextPrimary.copy(alpha = 0.10f) else Color.Transparent)
             .soundClickableNoIndication(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 5.dp),
+            .padding(horizontal = 6.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        content()
-    }
-}
-
-@Composable
-private fun BarIconButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Box(
-        modifier
-            .clip(CircleShape)
-            .background(if (pressed) DeckColors.TextPrimary.copy(alpha = 0.10f) else Color.Transparent)
-            .soundClickableNoIndication(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 5.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
+        Box(
+            Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .then(badgeBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            iconContent(iconTint)
+        }
+        Text(
+            label,
+            style = DeckType.bottomBar.copy(
+                fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
+                fontSize = 14.sp,
+            ),
+            color = DeckColors.TextPrimary,
+            maxLines = 1,
+        )
     }
 }
