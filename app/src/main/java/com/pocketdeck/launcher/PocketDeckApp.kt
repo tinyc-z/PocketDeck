@@ -1,11 +1,14 @@
 package com.pocketdeck.launcher
 
+import android.app.ActivityManager
 import android.app.Application
+import android.content.ComponentCallbacks2
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
+import coil3.size.Precision
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.GameRepository
 import com.pocketdeck.launcher.data.MetadataRepository
@@ -42,9 +45,12 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
         KeySound.warmup(this)
     }
 
-    override fun newImageLoader(context: PlatformContext): ImageLoader =
-        ImageLoader.Builder(context)
-            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.22).build() }
+    override fun newImageLoader(context: PlatformContext): ImageLoader {
+        val am = getSystemService(ACTIVITY_SERVICE) as? ActivityManager
+        val memPercent = if (am?.isLowRamDevice == true) 0.14 else 0.20
+        return ImageLoader.Builder(context)
+            .precision(Precision.INEXACT)
+            .memoryCache { MemoryCache.Builder().maxSizePercent(context, memPercent).build() }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("covers").toOkioPath())
@@ -52,4 +58,13 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
                     .build()
             }
             .build()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
+        }
+    }
 }

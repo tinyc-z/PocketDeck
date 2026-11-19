@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -118,17 +119,18 @@ fun GameCategoryPickerDialog(
         showNewInput = false
     }
 
+    androidx.activity.compose.BackHandler(enabled = showNewInput) { showNewInput = false }
     Box(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (showNewInput) {
                     if (event.type == KeyEventType.KeyDown &&
-                        (event.key == Key.Back || event.key == Key.Escape)
+                        (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings))
                     ) {
                         showNewInput = false
                         return@onPreviewKeyEvent true
@@ -179,8 +181,10 @@ fun GameCategoryPickerDialog(
     ) {
         Column(
             Modifier
-                .width(420.dp)
-                .heightIn(max = 540.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = 420.dp)
+                .fillMaxWidth()
+                .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp)
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})

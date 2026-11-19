@@ -99,26 +99,45 @@ object GameLauncher {
         return candidates
     }
 
+    /** 3D/现代机种优先使用已安装的独立模拟器，未安装再回退 RetroArch；2D 复古机种优先 RetroArch。 */
+    private val STANDALONE_PREFERRED_PLATFORMS = setOf(
+        "psp", "psx", "ps2", "ps3", "psvita",
+        "nds", "dsi", "3ds", "gamecube", "wii", "wiiu", "switch",
+        "dreamcast", "naomi", "atomiswave", "saturn", "n64",
+        "dos", "j2me", "openbor", "winlator",
+    )
+
+    @Volatile
+    private var cachedCoresPkg: String? = null
+    @Volatile
+    private var cachedCoresSet: Set<String> = emptySet()
+    @Volatile
+    private var cachedCoresAtMs: Long = 0L
+    private const val CORE_CACHE_TTL_MS = 30_000L
+
     /**
-     * 获取某平台可用的内置启动器（已安装的），返回 (id, displayName) 列表。
+     * 获取某平台可用的内置启动器（已安装的），按平台推荐优先级排序，返回 (id, displayName) 列表。
      */
     fun availableLaunchers(context: Context, platformId: String): List<Pair<String, String>> {
         if (platformId == PlatformCatalog.ANDROID_ID) return emptyList()
-        val result = mutableListOf<Pair<String, String>>()
+        val standalones = EmulatorRegistry.availableForPlatform(context, platformId)
+            .map { (emu, _) -> emu.id to emu.displayName }
 
         val raPkg = RETROARCH_PACKAGES.firstOrNull { isInstalled(context, it) }
-        if (raPkg != null) {
+        val raEntry = if (raPkg != null) {
             val platform = PlatformCatalog.forFolder(platformId)
             val core = resolveInstalledCore(raPkg, platform)
-            if (core != null) {
-                result.add(RETROARCH_ID to "RetroArch")
-            }
-        }
+            if (core != null) RETROARCH_ID to "RetroArch ($core)" else null
+        } else null
 
-        EmulatorRegistry.availableForPlatform(context, platformId).forEach { (emu, _) ->
-            result.add(emu.id to emu.displayName)
+        val result = mutableListOf<Pair<String, String>>()
+        if (platformId in STANDALONE_PREFERRED_PLATFORMS) {
+            result.addAll(standalones)
+            if (raEntry != null) result.add(raEntry)
+        } else {
+            if (raEntry != null) result.add(raEntry)
+            result.addAll(standalones)
         }
-
         return result
     }
 
@@ -178,7 +197,14 @@ object GameLauncher {
 
         // 1. 用户指定了任意自定义 App 启动器
         CustomLauncherCodec.decodeCustomApp(preferredEmulatorId)?.let { spec ->
+            if (spec.mode != CustomLaunchMode.AppOnly && !File(game.id).exists()) {
+                return Result.Error("ROM file not found: ${game.fileName}")
+            }
             return launchWithCustomApp(context, game, spec)
+        }
+
+        if (!File(game.id).exists()) {
+            return Result.Error("ROM file not found: ${game.fileName}")
         }
 
         // 2. 用户指定了 RetroArch 特定核心
@@ -193,17 +219,24 @@ object GameLauncher {
             return standaloneResult
         }
 
-        // 4. 用户指定 RetroArch 或未指定（自动）
-        if (preferredEmulatorId == null || preferredEmulatorId == RETROARCH_ID) {
-            val raResult = launchWithRetroArch(context, game, resolvedPlatform)
-            if (raResult is Result.Ok) return raResult
-            if (preferredEmulatorId == RETROARCH_ID) return raResult
+        // 4. 用户显式指定 RetroArch
+        if (preferredEmulatorId == RETROARCH_ID) {
+            return launchWithRetroArch(context, game, resolvedPlatform)
         }
 
-        // 5. 自动回退：尝试该平台的第一个已安装独立模拟器
-        val fallback = EmulatorRegistry.availableForPlatform(context, resolvedPlatform.id).firstOrNull()
-        if (fallback != null) {
-            return launchStandalone(context, game, fallback.first, fallback.second)
+        // 5. 自动模式（preferredEmulatorId == null）：按平台智能优先级（3D/现代机种优先独立模拟器，2D 复古优先 RetroArch）
+        val preferStandalone = resolvedPlatform.id in STANDALONE_PREFERRED_PLATFORMS
+        val standalone = EmulatorRegistry.availableForPlatform(context, resolvedPlatform.id).firstOrNull()
+        if (preferStandalone && standalone != null) {
+            val res = launchStandalone(context, game, standalone.first, standalone.second)
+            if (res is Result.Ok) return res
+        }
+
+        val raResult = launchWithRetroArch(context, game, resolvedPlatform)
+        if (raResult is Result.Ok) return raResult
+
+        if (!preferStandalone && standalone != null) {
+            return launchStandalone(context, game, standalone.first, standalone.second)
         }
 
         return Result.Error("No emulator found for ${resolvedPlatform.fullName}")
@@ -280,7 +313,7 @@ object GameLauncher {
             ?: return Result.Error("No RetroArch core mapped for ${platform.shortName}")
 
         val sd = Environment.getExternalStorageDirectory().path
-        val external = context.getExternalFilesDir(null)?.path ?: "$sd/Android/data/$pkg/files"
+        val external = "$sd/Android/data/$pkg/files"
         val cfgCandidates = listOf(
             "$sd/Android/data/$pkg/files/retroarch.cfg",
             "$sd/RetroArch/retroarch.cfg",
@@ -299,10 +332,6 @@ object GameLauncher {
             putExtra("QUITFOCUS", true)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
-        runCatching {
-            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            am?.killBackgroundProcesses(pkg)
-        }
         return startSafely(context, intent, "RetroArch")
     }
 
@@ -319,8 +348,14 @@ object GameLauncher {
     }
 
     private fun launchStandalone(context: Context, game: Game, emu: EmulatorDef, pkg: String): Result {
-        val intent = emu.intentBuilder(context, pkg, game)
-        return startSafely(context, intent, emu.displayName)
+        val primary = emu.intentBuilder(context, pkg, game)
+        val res = startSafely(context, primary, emu.displayName)
+        if (res is Result.Error && emu.fallbackIntentBuilder != null) {
+            val fallback = emu.fallbackIntentBuilder.invoke(context, pkg, game)
+            val fbRes = startSafely(context, fallback, emu.displayName)
+            if (fbRes is Result.Ok) return fbRes
+        }
+        return res
     }
 
     private fun startSafely(context: Context, intent: Intent, targetName: String): Result = try {
@@ -350,6 +385,10 @@ object GameLauncher {
     }
 
     private fun detectConfiguredCores(pkg: String): Set<String> {
+        val now = System.currentTimeMillis()
+        if (cachedCoresPkg == pkg && (now - cachedCoresAtMs) < CORE_CACHE_TTL_MS) {
+            return cachedCoresSet
+        }
         val sd = Environment.getExternalStorageDirectory()
         val found = HashSet<String>()
         val configDirs = listOf(
@@ -379,6 +418,9 @@ object GameLauncher {
                 }
             }
         }
+        cachedCoresPkg = pkg
+        cachedCoresSet = found
+        cachedCoresAtMs = now
         return found
     }
 

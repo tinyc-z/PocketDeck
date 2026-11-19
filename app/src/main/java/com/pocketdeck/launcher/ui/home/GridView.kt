@@ -20,6 +20,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -45,6 +46,7 @@ fun GridView(
     onFocusChange: (Int) -> Unit,
     onLaunch: (Game) -> Unit,
     onLongPress: ((Game) -> Unit)? = null,
+    fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (games.isEmpty()) {
@@ -57,7 +59,7 @@ fun GridView(
     LaunchedEffect(focusIndex, games.size) {
         if (focusIndex !in games.indices) return@LaunchedEffect
         val now = SystemClock.uptimeMillis()
-        val rapidRepeat = now - lastScrollTriggerMs < 170L
+        val rapidRepeat = fastScrolling || (now - lastScrollTriggerMs < 170L)
         lastScrollTriggerMs = now
 
         val info = gridState.layoutInfo
@@ -88,10 +90,12 @@ fun GridView(
     }
 
     val focusedGame = games.getOrNull(focusIndex)
-    val placePillAtTop by remember(focusIndex, games.size) {
+    val latestFocusIndex by rememberUpdatedState(focusIndex)
+    val placePillAtTop by remember {
         derivedStateOf {
+            val targetIdx = latestFocusIndex
             val info = gridState.layoutInfo
-            val item = info.visibleItemsInfo.firstOrNull { it.index == focusIndex }
+            val item = info.visibleItemsInfo.firstOrNull { it.index == targetIdx }
             val viewportH = info.viewportEndOffset - info.viewportStartOffset
             if (item != null && viewportH > 0) {
                 val itemCenterY = item.offset.y + item.size.height / 2f
@@ -135,6 +139,7 @@ fun GridView(
                         height = cellHeight,
                         isFocused = focused,
                         isFavorite = game.id in favorites,
+                        fastScrolling = fastScrolling,
                         prominentFocus = true,
                         focusedScale = 1.07f,
                         unfocusedScale = 0.98f,
@@ -155,6 +160,7 @@ fun GridView(
             index = focusIndex,
             total = games.size,
             placeAtTop = placePillAtTop,
+            fastScrolling = fastScrolling,
         )
     }
 }

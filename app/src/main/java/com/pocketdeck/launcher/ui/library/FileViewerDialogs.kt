@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -72,6 +74,8 @@ import com.pocketdeck.launcher.data.ArchiveEntryInfo
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.ui.components.DialogCloseButton
+import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
@@ -223,15 +227,9 @@ fun ImageViewerDialog(
                     color = Color.White.copy(alpha = 0.72f),
                 )
             }
-            Text(
-                stringResource(R.string.prop_close),
-                style = DeckType.menuButton,
-                color = Color.White,
-                modifier = Modifier
-                    .clip(DeckShapes.tabPill)
-                    .background(Color.White.copy(alpha = 0.16f))
-                    .soundClickable(onClick = onDismiss)
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
+            DialogCloseButton(
+                onClick = onDismiss,
+                darkSurface = true,
             )
         }
     }
@@ -322,7 +320,7 @@ fun TextFileViewerEditorDialog(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when {
-                    event.key == Key.Escape || (!editing && (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings))) -> {
+                    GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
                         if (editing) editing = false else onDismiss()
                         true
                     }
@@ -343,16 +341,20 @@ fun TextFileViewerEditorDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .fillMaxWidth(0.88f)
-                .heightIn(min = 320.dp, max = 600.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .padding(20.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .widthIn(max = 560.dp)
+                .fillMaxWidth()
+                .heightIn(min = 320.dp, max = 600.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(end = 36.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
@@ -396,16 +398,6 @@ fun TextFileViewerEditorDialog(
                     }
                     Spacer(Modifier.width(8.dp))
                 }
-                Text(
-                    stringResource(R.string.prop_close),
-                    style = DeckType.menuButton,
-                    color = DeckColors.TextSecondary,
-                    modifier = Modifier
-                        .clip(DeckShapes.tabPill)
-                        .background(DeckColors.Surface)
-                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill, onClick = onDismiss)
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                )
             }
 
             if (truncated) {
@@ -527,7 +519,9 @@ fun ArchivePreviewDialog(
     ) {
         Column(
             Modifier
-                .width(500.dp)
+                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .widthIn(max = 500.dp)
+                .fillMaxWidth()
                 .heightIn(max = 580.dp)
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
@@ -659,7 +653,7 @@ fun BatchDeleteConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
-    var selectedIdx by remember { mutableIntStateOf(0) } // 0 = Cancel, 1 = Delete
+    var selectedIdx by remember { mutableIntStateOf(1) } // 0 = Delete, 1 = Cancel
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     Box(
@@ -685,7 +679,7 @@ fun BatchDeleteConfirmDialog(
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        if (selectedIdx == 0) onDismiss() else onConfirm()
+                        if (selectedIdx == 0) onConfirm() else onDismiss()
                         true
                     }
                     else -> false
@@ -713,21 +707,7 @@ fun BatchDeleteConfirmDialog(
                 color = DeckColors.TextSecondary,
             )
             Spacer(Modifier.height(16.dp))
-            val cancelHl = selectedIdx == 0
-            Text(
-                stringResource(R.string.menu_cancel),
-                style = DeckType.menuButton,
-                color = if (cancelHl) DeckColors.Ruby else DeckColors.TextPrimary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(DeckShapes.menuButton)
-                    .background(if (cancelHl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                    .border(1.5.dp, if (cancelHl) DeckColors.Ruby else DeckColors.DialogBorder, DeckShapes.menuButton)
-                    .soundClickable(onClick = onDismiss)
-                    .padding(horizontal = 16.dp, vertical = 11.dp),
-            )
-            Spacer(Modifier.height(8.dp))
-            val delHl = selectedIdx == 1
+            val delHl = selectedIdx == 0
             Text(
                 stringResource(R.string.lib_batch_delete_yes, count),
                 style = DeckType.menuButton,
@@ -738,6 +718,20 @@ fun BatchDeleteConfirmDialog(
                     .background(if (delHl) Color(0xFFEF4444).copy(alpha = 0.16f) else DeckColors.Surface)
                     .border(1.5.dp, if (delHl) Color(0xFFDC2626) else DeckColors.DialogBorder, DeckShapes.menuButton)
                     .soundClickable(onClick = onConfirm)
+                    .padding(horizontal = 16.dp, vertical = 11.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            val cancelHl = selectedIdx == 1
+            Text(
+                stringResource(R.string.menu_cancel),
+                style = DeckType.menuButton,
+                color = if (cancelHl) DeckColors.Ruby else DeckColors.TextPrimary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(DeckShapes.menuButton)
+                    .background(if (cancelHl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
+                    .border(1.5.dp, if (cancelHl) DeckColors.Ruby else DeckColors.DialogBorder, DeckShapes.menuButton)
+                    .soundClickable(onClick = onDismiss)
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             )
         }
@@ -753,15 +747,29 @@ fun FileOpProgressDialog(
     detail: String,
     onCancel: () -> Unit,
 ) {
+    val progressFr = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { progressFr.requestFocus() } }
     Box(
         Modifier
             .fillMaxSize()
-            .background(DeckColors.CardShadow),
+            .background(DeckColors.CardShadow)
+            .clickable(enabled = true, onClick = {})
+            .focusRequester(progressFr)
+            .focusable()
+            .onPreviewKeyEvent { ev ->
+                if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (GamepadKeys.isBack(ev.key) || ev.key == Key.ButtonB) {
+                    onCancel()
+                    true
+                } else true
+            },
         contentAlignment = Alignment.Center,
     ) {
         Column(
             Modifier
-                .width(400.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = 400.dp)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .padding(22.dp),
@@ -917,7 +925,8 @@ fun AudioPlayerDialog(
                         onDismiss()
                         true
                     }
-                    event.key == Key.Spacebar || event.key == Key.MediaPlayPause -> {
+                    event.key == Key.Spacebar || event.key == Key.MediaPlayPause ||
+                        GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
                         togglePlay()
                         true
                     }
@@ -934,16 +943,23 @@ fun AudioPlayerDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .width(460.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(22.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = 460.dp)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(22.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(end = 36.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(
                     Modifier
                         .size(44.dp)
@@ -1062,19 +1078,6 @@ fun AudioPlayerDialog(
                     )
                 }
             }
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text(
-                    stringResource(R.string.prop_close),
-                    style = DeckType.menuButton,
-                    color = DeckColors.Ruby,
-                    modifier = Modifier
-                        .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby.copy(alpha = 0.12f))
-                        .gamepadClickable(swapAbxy, keyBindings, onClick = onDismiss)
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
-                )
-            }
         }
     }
 }
@@ -1133,40 +1136,29 @@ fun FontViewerDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .width(560.dp)
-                .heightIn(max = 520.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .widthIn(max = 540.dp)
+                .fillMaxWidth()
+                .heightIn(max = 520.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        file.name,
-                        style = DeckType.menuTitle,
-                        color = DeckColors.TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "${file.extension.uppercase()} · ${formatViewerSize(file.length())}",
-                        style = DeckType.metaLabel,
-                        color = DeckColors.TextSecondary,
-                    )
-                }
+            Column(Modifier.padding(end = 36.dp)) {
                 Text(
-                    stringResource(R.string.prop_close),
-                    style = DeckType.menuButton,
-                    color = DeckColors.Ruby,
-                    modifier = Modifier
-                        .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby.copy(alpha = 0.12f))
-                        .gamepadClickable(swapAbxy, keyBindings, onClick = onDismiss)
-                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                    file.name,
+                    style = DeckType.menuTitle,
+                    color = DeckColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${file.extension.uppercase()} · ${formatViewerSize(file.length())}",
+                    style = DeckType.metaLabel,
+                    color = DeckColors.TextSecondary,
                 )
             }
 

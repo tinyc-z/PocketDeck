@@ -20,6 +20,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLServerSocket
 
@@ -39,6 +40,7 @@ class HttpMiniServer(
     private var serverSocket: ServerSocket? = null
     private var scope: CoroutineScope? = null
     private var acceptJob: Job? = null
+    private val activeSockets = ConcurrentHashMap.newKeySet<Socket>()
 
     var boundPort: Int = -1
         private set
@@ -88,11 +90,32 @@ class HttpMiniServer(
         scope = null
         runCatching { serverSocket?.close() }
         serverSocket = null
+        closeAllSockets()
         boundPort = -1
     }
 
+    /** 强行关闭指定客户端 IP 的所有活跃 HTTP Socket（会立即中断其进行中的上传与下载）。 */
+    fun closeSocketsByIp(ip: String) {
+        if (ip.isBlank()) return
+        for (s in activeSockets) {
+            if (s.inetAddress?.hostAddress == ip) {
+                runCatching { s.close() }
+            }
+        }
+    }
+
+    /** 强行关闭当前所有活跃的 HTTP Socket。 */
+    fun closeAllSockets() {
+        for (s in activeSockets) {
+            runCatching { s.close() }
+        }
+        activeSockets.clear()
+    }
+
     private suspend fun handleClient(socket: Socket) {
-        socket.use { activeSocket ->
+        activeSockets.add(socket)
+        try {
+            socket.use { activeSocket ->
             runCatching {
                 activeSocket.soTimeout = 100_000
                 val rawRemoteIp = activeSocket.inetAddress?.hostAddress.orEmpty()
@@ -126,7 +149,7 @@ class HttpMiniServer(
                 val queryParams = parseQuery(rawQuery)
                 val req = HttpRequest(
                     method = method,
-                    path = urlDecode(rawPath),
+                    path = urlDecode(rawPath.replace("+", "%2B")),
                     query = queryParams,
                     headers = headers,
                     cookies = cookies,
@@ -134,11 +157,39 @@ class HttpMiniServer(
                     isChunked = isChunked,
                     bodyStream = rawIn,
                     remoteIp = rawRemoteIp,
+                    cancelConnection = { runCatching { activeSocket.close() } },
+                    isPeerClosed = {
+                        if (activeSocket.isClosed || activeSocket.isInputShutdown) {
+                            true
+                        } else {
+                            val prevTimeout = runCatching { activeSocket.soTimeout }.getOrDefault(0)
+                            try {
+                                activeSocket.soTimeout = 120
+                                rawIn.mark(1)
+                                val b = rawIn.read()
+                                if (b == -1) {
+                                    true
+                                } else {
+                                    runCatching { rawIn.reset() }
+                                    false
+                                }
+                            } catch (_: java.net.SocketTimeoutException) {
+                                false
+                            } catch (_: Throwable) {
+                                true
+                            } finally {
+                                runCatching { activeSocket.soTimeout = prevTimeout }
+                            }
+                        }
+                    },
                 )
                 val writer = HttpResponseWriter(rawOut)
                 handler(req, writer)
                 rawOut.flush()
             }
+        }
+        } finally {
+            activeSockets.remove(socket)
         }
     }
 
@@ -196,6 +247,8 @@ class HttpRequest(
     val isChunked: Boolean = false,
     val bodyStream: InputStream,
     val remoteIp: String,
+    val cancelConnection: () -> Unit = {},
+    val isPeerClosed: () -> Boolean = { false },
 ) {
     fun readBodyBytes(maxBytes: Int = 2 * 1024 * 1024): ByteArray {
         if (isChunked) {
@@ -294,6 +347,8 @@ class HttpRequest(
 }
 
 class HttpResponseWriter(private val out: OutputStream) {
+    var defaultHeaders: Map<String, String> = emptyMap()
+
     fun sendText(
         status: Int,
         body: String,
@@ -327,10 +382,11 @@ class HttpResponseWriter(private val out: OutputStream) {
         contentType: String = "application/octet-stream",
         attachmentName: String? = null,
         rangeHeader: String? = null,
-    ) {
+        onProgress: (sentBytes: Long, totalBytes: Long) -> Unit = { _, _ -> },
+    ): Long {
         if (!file.isFile || !file.canRead()) {
             sendText(404, "Not found")
-            return
+            return 0L
         }
         val totalLen = file.length()
         val extra = LinkedHashMap<String, String>()
@@ -368,6 +424,7 @@ class HttpResponseWriter(private val out: OutputStream) {
             extra["Content-Range"] = "bytes $start-$end/$totalLen"
         }
         writeHeader(if (partial) 206 else 200, len, contentType, extra)
+        var sent = 0L
         if (len > 0L) {
             FileInputStream(file).use { fis ->
                 if (start > 0L) {
@@ -385,11 +442,14 @@ class HttpResponseWriter(private val out: OutputStream) {
                     val n = fis.read(buf, 0, toRead)
                     if (n <= 0) break
                     out.write(buf, 0, n)
+                    sent += n
                     remaining -= n
+                    onProgress(sent, len)
                 }
             }
         }
         out.flush()
+        return sent
     }
 
     private fun writeHeader(
@@ -419,11 +479,18 @@ class HttpResponseWriter(private val out: OutputStream) {
         sb.append("HTTP/1.1 ").append(status).append(' ').append(reason).append("\r\n")
         sb.append("Content-Type: ").append(contentType).append("\r\n")
         sb.append("Content-Length: ").append(contentLength).append("\r\n")
-        sb.append("Cache-Control: no-store\r\n")
+        if (extraHeaders.keys.none { it.equals("Cache-Control", ignoreCase = true) }) {
+            sb.append("Cache-Control: no-store\r\n")
+        }
         sb.append("X-Content-Type-Options: nosniff\r\n")
         sb.append("X-Frame-Options: DENY\r\n")
         sb.append("Referrer-Policy: no-referrer\r\n")
         sb.append("Connection: close\r\n")
+        for ((k, v) in defaultHeaders) {
+            if (k !in extraHeaders) {
+                sb.append(k).append(": ").append(v).append("\r\n")
+            }
+        }
         for ((k, v) in extraHeaders) {
             sb.append(k).append(": ").append(v).append("\r\n")
         }

@@ -1,0 +1,136 @@
+package com.pocketdeck.launcher.ui.components
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.DeckShapes
+
+/**
+ * 弹窗面板容器：统一圆角底板 + 右上角等距（top == end）关闭（✕）图标按钮。
+ */
+@Composable
+fun DialogPanelCard(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(20.dp),
+    closeInset: Dp = 14.dp,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    closeFocused: Boolean = false,
+    closeFocusRequester: FocusRequester? = null,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Box(
+        modifier
+            .clip(DeckShapes.menuPanel)
+            .background(DeckColors.DialogBg)
+            .clickable(enabled = false, onClick = {}),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(contentPadding),
+            verticalArrangement = verticalArrangement,
+            horizontalAlignment = horizontalAlignment,
+            content = content,
+        )
+        DialogCloseButton(
+            onClick = onDismiss,
+            focused = closeFocused,
+            focusRequester = closeFocusRequester,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = closeInset, end = closeInset),
+        )
+    }
+}
+
+/**
+ * 弹窗右上角统一使用的圆形关闭（✕）矢量图标按钮，支持触屏音效与手柄焦点高亮。
+ */
+@Composable
+fun DialogCloseButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = 30.dp,
+    darkSurface: Boolean = false,
+    focused: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
+) {
+    val bg = when {
+        darkSurface -> Color.White.copy(alpha = 0.16f)
+        focused -> DeckColors.Ruby.copy(alpha = 0.16f)
+        else -> DeckColors.Surface
+    }
+    val borderColor = when {
+        darkSurface -> Color.White.copy(alpha = 0.30f)
+        focused -> DeckColors.Ruby
+        else -> DeckColors.DialogBorder
+    }
+    val iconColor = when {
+        darkSurface -> Color.White
+        focused -> DeckColors.Ruby
+        else -> DeckColors.TextSecondary
+    }
+    Box(
+        modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(bg)
+            .border(if (focused) 1.5.dp else 1.dp, borderColor, CircleShape)
+            .gamepadClickable(
+                swapAbxy = swapAbxy,
+                keyBindings = keyBindings,
+                focusRequester = focusRequester,
+                shape = CircleShape,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(size * 0.36f)) {
+            val stroke = 2.dp.toPx()
+            drawLine(
+                color = iconColor,
+                start = Offset(0f, 0f),
+                end = Offset(this.size.width, this.size.height),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = iconColor,
+                start = Offset(this.size.width, 0f),
+                end = Offset(0f, this.size.height),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
+}

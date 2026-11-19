@@ -187,27 +187,37 @@ class MetadataRepository(
         }
     }
 
+    private val inFlightFocus = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     /** 确保单个焦点游戏从全部已启用的服务商查询并合并元数据。 */
     fun resolveFocusGame(game: Game?, platform: Platform?) {
         val g = game ?: return
         if (focusApiResolved.containsKey(g.id)) return
+        if (!inFlightFocus.add(g.id)) return
         val enabled = providerConfigs.filter { it.enabled }
-        if (enabled.isEmpty()) return
+        if (enabled.isEmpty()) {
+            inFlightFocus.remove(g.id)
+            return
+        }
         val online = NetworkStatus.isOnline(appCtx)
         scope.launch {
-            val system = platform?.libretroSystem
-            if (!system.isNullOrBlank()) {
-                for (p in enabled) {
-                    if (p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_JSDELIVR ||
-                        p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_GITHUB
-                    ) {
-                        getOrFetchTable(p.id, system)
+            try {
+                val system = platform?.libretroSystem
+                if (!system.isNullOrBlank()) {
+                    for (p in enabled) {
+                        if (p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_JSDELIVR ||
+                            p.id == ScraperCatalog.MetaIds.LIBRETRO_DB_GITHUB
+                        ) {
+                            getOrFetchTable(p.id, system)
+                        }
                     }
                 }
-            }
-            resolveGames(listOf(g), platform, queryApi = online)
-            if (online) {
-                focusApiResolved[g.id] = true
+                resolveGames(listOf(g), platform, queryApi = online)
+                if (online) {
+                    focusApiResolved[g.id] = true
+                }
+            } finally {
+                inFlightFocus.remove(g.id)
             }
         }
     }
@@ -315,7 +325,8 @@ class MetadataRepository(
                         val table = systemTables[tableCacheKey(provider.id, system)]
                         if (table != null) {
                             var hit = table.find(g.baseName, g.title, crc = cachedCrc)
-                            if (hit == null && cachedCrc == null) {
+                            val allowCrc = queryApi || g.id.endsWith(".zip", ignoreCase = true)
+                            if (hit == null && cachedCrc == null && allowCrc) {
                                 cachedCrc = client.computeRomCrc32(File(g.id))
                                 if (cachedCrc != null) {
                                     hit = table.find(g.baseName, g.title, cachedCrc)
@@ -556,55 +567,65 @@ class MetadataRepository(
 
     private data class DatEntry(val comment: String, val value: String, val crc: String)
 
-    private fun downloadDat(urlStr: String): List<DatEntry> = runCatching {
-        val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 30_000
-            requestMethod = "GET"
-        }
-        if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-            conn.disconnect()
-            return emptyList()
-        }
-        val list = ArrayList<DatEntry>(2048)
-        conn.inputStream.bufferedReader().use { reader ->
-            var inGame = false
-            var comment = ""
-            var value = ""
-            var crc = ""
-            reader.forEachLine { raw ->
-                val line = raw.trim()
-                when {
-                    line == "game (" -> {
-                        inGame = true
-                        comment = ""
-                        value = ""
-                        crc = ""
-                    }
-                    inGame && line == ")" -> {
-                        if (crc.isNotEmpty() && value.isNotEmpty()) {
-                            list += DatEntry(comment, value, crc.uppercase())
+    private fun downloadDat(urlStr: String): List<DatEntry> {
+        val t0 = System.currentTimeMillis()
+        var code: Int? = null
+        return try {
+            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 30_000
+                requestMethod = "GET"
+            }
+            code = conn.responseCode
+            if (code != HttpURLConnection.HTTP_OK) {
+                conn.disconnect()
+                ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "non-200")
+                return emptyList()
+            }
+            val list = ArrayList<DatEntry>(2048)
+            conn.inputStream.bufferedReader().use { reader ->
+                var inGame = false
+                var comment = ""
+                var value = ""
+                var crc = ""
+                reader.forEachLine { raw ->
+                    val line = raw.trim()
+                    when {
+                        line == "game (" -> {
+                            inGame = true
+                            comment = ""
+                            value = ""
+                            crc = ""
                         }
-                        inGame = false
-                    }
-                    inGame && line.startsWith("comment ") -> {
-                        comment = extractQuoted(line)
-                    }
-                    inGame && (line.startsWith("developer ") || line.startsWith("publisher ") ||
-                        line.startsWith("genre ") || line.startsWith("releaseyear ") ||
-                        line.startsWith("releasemonth ")) -> {
-                        value = extractQuoted(line)
-                    }
-                    inGame && line.startsWith("rom (") -> {
-                        val match = CRC_REGEX.find(line)
-                        if (match != null) crc = match.groupValues[1]
+                        inGame && line == ")" -> {
+                            if (crc.isNotEmpty() && value.isNotEmpty()) {
+                                list += DatEntry(comment, value, crc.uppercase())
+                            }
+                            inGame = false
+                        }
+                        inGame && line.startsWith("comment ") -> {
+                            comment = extractQuoted(line)
+                        }
+                        inGame && (line.startsWith("developer ") || line.startsWith("publisher ") ||
+                            line.startsWith("genre ") || line.startsWith("releaseyear ") ||
+                            line.startsWith("releasemonth ")) -> {
+                            value = extractQuoted(line)
+                        }
+                        inGame && line.startsWith("rom (") -> {
+                            val match = CRC_REGEX.find(line)
+                            if (match != null) crc = match.groupValues[1]
+                        }
                     }
                 }
             }
+            conn.disconnect()
+            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${list.size} entries")
+            list
+        } catch (t: Throwable) {
+            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
+            emptyList()
         }
-        conn.disconnect()
-        list
-    }.getOrDefault(emptyList())
+    }
 
     private companion object {
         val CRC_REGEX = Regex("""\bcrc\s+([0-9A-Fa-f]{8})\b""")

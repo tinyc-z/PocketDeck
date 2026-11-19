@@ -1,9 +1,13 @@
 package com.pocketdeck.launcher.ui.home
 
+import android.os.SystemClock
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -27,14 +31,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,10 +61,11 @@ import com.pocketdeck.launcher.ui.components.FavoriteHeartIcon
 import com.pocketdeck.launcher.ui.components.GameCoverCard
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
+import kotlin.math.abs
 
 /**
- * List 视图：左侧游戏名列表（PS 风格选中效果：弹性缩放 + 胶囊背景淡入 + 文字高亮），
- * 右侧大尺寸封面预览 + 分栏游戏信息。
+ * List 视图：左侧游戏名列表（PS 风格选中效果：绘制层弹性缩放 + 胶囊背景淡入 + 文字高亮），
+ * 右侧大尺寸封面预览 + 分栏游戏信息（快滚期冻结右侧大封面与元数据以避免闪烁/冗余解码）。
  */
 @Composable
 fun ListView(
@@ -68,6 +79,7 @@ fun ListView(
     onFocusChange: (Int) -> Unit,
     onLaunch: (Game) -> Unit,
     onLongPress: ((Game) -> Unit)? = null,
+    fastScrolling: Boolean = false,
     showMetadata: Boolean = true,
     metaDisplay: MetadataDisplayConfig = MetadataDisplayConfig(),
     modifier: Modifier = Modifier,
@@ -79,23 +91,53 @@ fun ListView(
 
     val context = LocalContext.current
     val view = LocalView.current
+    val densityPx = LocalDensity.current.density
+    val rubyColor = DeckColors.Ruby
     val listState = rememberLazyListState()
+    var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(focusIndex, games.size) {
         if (focusIndex !in games.indices) return@LaunchedEffect
+        val now = SystemClock.uptimeMillis()
+        val rapidRepeat = fastScrolling || (now - lastScrollTriggerMs < 170L)
+        lastScrollTriggerMs = now
+
         val info = listState.layoutInfo
         val itemInfo = info.visibleItemsInfo.firstOrNull { it.index == focusIndex }
         if (itemInfo != null) {
             val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2f
             val itemCenter = itemInfo.offset + itemInfo.size / 2f
-            listState.animateScrollBy(itemCenter - viewportCenter)
+            val delta = itemCenter - viewportCenter
+            if (abs(delta) > 4f) {
+                listState.animateScrollBy(
+                    value = delta,
+                    animationSpec = if (rapidRepeat) {
+                        tween(durationMillis = 65, easing = LinearEasing)
+                    } else {
+                        tween(durationMillis = 160, easing = FastOutSlowInEasing)
+                    },
+                )
+            }
         } else {
             val halfVisible = (info.visibleItemsInfo.size / 2).coerceAtLeast(1)
-            listState.animateScrollToItem((focusIndex - halfVisible).coerceAtLeast(0))
+            val target = (focusIndex - halfVisible).coerceAtLeast(0)
+            if (rapidRepeat) {
+                listState.scrollToItem(target)
+            } else {
+                listState.animateScrollToItem(target)
+            }
         }
     }
 
     val focusedGame = games.getOrNull(focusIndex)
-    val focusedPlatform = focusedGame?.let(platformOf)
+    var previewGame by remember(games.firstOrNull()?.id, games.size) { mutableStateOf(focusedGame) }
+    if (!fastScrolling || previewGame == null) {
+        previewGame = focusedGame
+    }
+    val previewPlatform = previewGame?.let(platformOf)
+
+    val latestOnFocusChange by rememberUpdatedState(onFocusChange)
+    val latestOnLaunch by rememberUpdatedState(onLaunch)
+    val latestOnLongPress by rememberUpdatedState(onLongPress)
 
     Row(
         modifier
@@ -112,67 +154,68 @@ fun ListView(
             contentPadding = PaddingValues(vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            itemsIndexed(games, key = { _, g -> g.id }) { i, game ->
+            itemsIndexed(
+                items = games,
+                key = { _, g -> g.id },
+                contentType = { _, _ -> "list_row" },
+            ) { i, game ->
                 val focused = i == focusIndex
+                val currentFocused by rememberUpdatedState(focused)
+                val currentIndex by rememberUpdatedState(i)
+                val currentGame by rememberUpdatedState(game)
 
-                // PS 风格动画：选中项弹性缩放 + 背景胶囊淡入
-                val scale by animateFloatAsState(
-                    targetValue = if (focused) 1.05f else 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium,
-                    ),
-                    label = "listScale",
-                )
-                val bgAlpha by animateFloatAsState(
-                    targetValue = if (focused) 0.20f else 0f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                    label = "listBgAlpha",
-                )
-                val textAlpha by animateFloatAsState(
-                    targetValue = if (focused) 1f else 0.60f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium,
-                    ),
-                    label = "listTextAlpha",
-                )
-                val indent by animateFloatAsState(
-                    targetValue = if (focused) 6f else 0f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium,
-                    ),
-                    label = "listIndent",
+                // 单一动画驱动缩放 / 位移 / 胶囊背景（仅在 graphicsLayer / drawBehind 读取，避免逐帧重组合）
+                val focusProgressState = animateFloatAsState(
+                    targetValue = if (focused) 1f else 0f,
+                    animationSpec = if (fastScrolling) {
+                        snap()
+                    } else {
+                        spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = 520f,
+                        )
+                    },
+                    label = "listFocus",
                 )
 
                 val isFav = game.id in favorites
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .padding(end = 16.dp)
                         .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            translationX = indent * density
+                            val p = focusProgressState.value
+                            val s = 1f + 0.05f * p
+                            scaleX = s
+                            scaleY = s
+                            translationX = 6f * p * densityPx
                             transformOrigin = TransformOrigin(0f, 0.5f)
                         }
                         .clip(RoundedCornerShape(10.dp))
-                        .background(DeckColors.Ruby.copy(alpha = bgAlpha))
-                        .pointerInput(focused, i, game.id) {
+                        .drawBehind {
+                            val p = focusProgressState.value
+                            if (p > 0.01f) {
+                                drawRect(rubyColor.copy(alpha = 0.20f * p))
+                            }
+                        }
+                        .pointerInput(game.id) {
                             detectTapGestures(
                                 onTap = {
                                     KeySound.playTouch(context)
-                                    if (focused) onLaunch(game) else onFocusChange(i)
-                                },
-                                onLongPress = onLongPress?.let { cb ->
-                                    {
-                                        triggerLongPressHaptic(context, view)
-                                        cb(game)
+                                    if (currentFocused) {
+                                        latestOnLaunch(currentGame)
+                                    } else {
+                                        latestOnFocusChange(currentIndex)
                                     }
                                 },
+                                onLongPress = if (latestOnLongPress != null) {
+                                    {
+                                        latestOnLongPress?.let { cb ->
+                                            triggerLongPressHaptic(context, view)
+                                            cb(currentGame)
+                                        }
+                                    }
+                                } else null,
                             )
                         }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -181,7 +224,7 @@ fun ListView(
                     Text(
                         text = game.title,
                         style = if (focused) DeckType.listItemSelected else DeckType.listItem,
-                        color = if (focused) DeckColors.Ruby else DeckColors.TextSecondary.copy(alpha = textAlpha),
+                        color = if (focused) rubyColor else DeckColors.TextSecondary.copy(alpha = 0.65f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
@@ -190,7 +233,7 @@ fun ListView(
                         Spacer(Modifier.width(8.dp))
                         FavoriteHeartIcon(
                             filled = true,
-                            color = if (focused) DeckColors.Ruby else DeckColors.Ruby.copy(alpha = 0.85f),
+                            color = if (focused) rubyColor else rubyColor.copy(alpha = 0.85f),
                             size = 15.dp,
                         )
                     }
@@ -198,12 +241,13 @@ fun ListView(
             }
         }
 
-        if (focusedGame != null) {
+        if (previewGame != null) {
+            val shownGame = previewGame!!
             val fields = if (showMetadata) {
-                metadataMap[focusedGame.id].toDisplayFields(
+                metadataMap[shownGame.id].toDisplayFields(
                     visibility = metaDisplay,
-                    fileSizeBytes = focusedGame.fileSize,
-                    fallbackPlatform = focusedPlatform?.fullName,
+                    fileSizeBytes = shownGame.fileSize,
+                    fallbackPlatform = previewPlatform?.fullName,
                     labelReleaseDate = stringResource(R.string.meta_release_date),
                     labelGenre = stringResource(R.string.meta_genre),
                     labelDeveloper = stringResource(R.string.meta_developer),
@@ -219,10 +263,11 @@ fun ListView(
                 Modifier
                     .weight(1.1f)
                     .fillMaxHeight()
-                    .padding(top = 2.dp, bottom = 4.dp),
+                    .padding(top = 2.dp, bottom = 4.dp)
+                    .graphicsLayer { alpha = if (fastScrolling) 0.70f else 1f },
                 contentAlignment = Alignment.TopCenter,
             ) {
-                val aspect = focusedPlatform?.coverAspect ?: 1f
+                val aspect = previewPlatform?.coverAspect ?: 1f
                 val infoReserve = when {
                     fields.isEmpty() -> 8.dp
                     fields.size <= 2 -> 42.dp
@@ -230,7 +275,7 @@ fun ListView(
                     else -> 110.dp
                 }
                 val maxCoverW = (maxWidth - 4.dp).coerceAtLeast(100.dp)
-                val maxCoverH = (maxHeight - infoReserve - 10.dp).coerceAtLeast(140.dp)
+                val maxCoverH = (maxHeight - infoReserve - 10.dp).coerceAtLeast(64.dp)
                 val targetH = (maxCoverW / aspect).coerceAtMost(maxCoverH)
                 val targetW = (targetH * aspect).coerceAtMost(maxCoverW)
 
@@ -239,16 +284,17 @@ fun ListView(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     GameCoverCard(
-                        game = focusedGame,
-                        platform = focusedPlatform,
+                        game = shownGame,
+                        platform = previewPlatform,
                         covers = covers,
-                        officialName = officialNames[focusedGame.id],
+                        officialName = officialNames[shownGame.id],
                         width = targetW,
                         height = targetH,
                         isFocused = false,
-                        isFavorite = focusedGame.id in favorites,
-                        onClick = { onLaunch(focusedGame) },
-                        onLongPress = onLongPress?.let { cb -> { cb(focusedGame) } },
+                        isFavorite = shownGame.id in favorites,
+                        fastScrolling = fastScrolling,
+                        onClick = { onLaunch(shownGame) },
+                        onLongPress = onLongPress?.let { cb -> { cb(shownGame) } },
                     )
 
                     if (fields.isNotEmpty()) {

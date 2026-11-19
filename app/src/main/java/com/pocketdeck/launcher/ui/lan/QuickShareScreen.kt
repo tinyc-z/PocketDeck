@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -43,14 +44,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +71,9 @@ import com.pocketdeck.launcher.lan.ShareProtocol
 import com.pocketdeck.launcher.lan.TransferDirection
 import com.pocketdeck.launcher.lan.TransferPhase
 import com.pocketdeck.launcher.ui.apps.drawBackArrow
+import com.pocketdeck.launcher.ui.components.DialogPanelCard
+import com.pocketdeck.launcher.ui.components.DpadNavController
+import com.pocketdeck.launcher.ui.components.dpadNavItem
 import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
@@ -81,6 +88,7 @@ import com.pocketdeck.launcher.ui.settings.NameDialogState
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
+import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -109,6 +117,8 @@ fun QuickShareScreen(
     onAcceptIncoming: (String, File) -> Unit,
     onRejectIncoming: (String) -> Unit,
     onCancelTransfer: () -> Unit,
+    onSubmitPin: (String) -> Unit = {},
+    onCancelPin: () -> Unit = {},
     onDismissTransferBanner: () -> Unit,
     onDeleteHistory: (String, Boolean) -> Unit,
     onClearHistory: () -> Unit,
@@ -138,11 +148,10 @@ fun QuickShareScreen(
         if (editingName) NameDialogSpec(renameTitle, state.deviceName) { onRenameDevice(it) } else null
     }
     val nameState = remember(nameSpec) { nameSpec?.let { NameDialogState(it) } }
-    val rootFr = remember { FocusRequester() }
-    val toggleFr = remember { FocusRequester() }
-    val clearFr = remember { FocusRequester() }
+    val nav = remember(activeTab) { DpadNavController() }
 
     val subOverlayOpen = editingName ||
+        state.pinChallenge != null ||
         detailItem != null ||
         deleteConfirmItem != null ||
         confirmClearAll ||
@@ -155,12 +164,16 @@ fun QuickShareScreen(
     LaunchedEffect(Unit) {
         onRefreshInterfaces()
     }
-    LaunchedEffect(activeTab, subOverlayOpen) {
+    val view = LocalView.current
+    LaunchedEffect(activeTab, subOverlayOpen, state.shareHistory.isEmpty(), state.incomingRequest?.sessionId) {
         if (!subOverlayOpen) {
-            when (activeTab) {
-                QuickShareTab.Transfer -> runCatching { toggleFr.requestFocus() }.onFailure { runCatching { rootFr.requestFocus() } }
-                QuickShareTab.History -> runCatching { clearFr.requestFocus() }.onFailure { runCatching { rootFr.requestFocus() } }
+            delay(30)
+            runCatching { nav.rootFr.requestFocus() }
+            val preferred = when (activeTab) {
+                QuickShareTab.Transfer -> if (state.incomingRequest != null) "inc_accept" else "toggle_share"
+                QuickShareTab.History -> if (state.shareHistory.isNotEmpty()) "hist_0" else "tab_history"
             }
+            nav.ensureDefault(preferred, inTouchMode = view.isInTouchMode)
         }
     }
 
@@ -175,6 +188,7 @@ fun QuickShareScreen(
             confirmClearAll -> confirmClearAll = false
             detailItem != null -> detailItem = null
             editingName -> editingName = false
+            state.pinChallenge != null -> onCancelPin()
             else -> onDismiss()
         }
     }
@@ -198,7 +212,10 @@ fun QuickShareScreen(
         modifier
             .fillMaxSize()
             .background(DeckColors.Background)
-            .focusRequester(rootFr)
+            .focusRequester(nav.rootFr)
+            .focusProperties {
+                canFocus = !subOverlayOpen
+            }
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (subOverlayOpen) return@onPreviewKeyEvent false
@@ -215,6 +232,17 @@ fun QuickShareScreen(
                     GamepadKeys.isNextTab(event.key, swapAbxy, keyBindings) -> {
                         activeTab = QuickShareTab.History
                         true
+                    }
+                    event.key == Key.DirectionDown || event.key == Key.DirectionRight -> {
+                        nav.move(1)
+                        true
+                    }
+                    event.key == Key.DirectionUp || event.key == Key.DirectionLeft -> {
+                        nav.move(-1)
+                        true
+                    }
+                    GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
+                        nav.triggerCurrent()
                     }
                     else -> false
                 }
@@ -234,7 +262,7 @@ fun QuickShareScreen(
                     Modifier
                         .size(36.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .gamepadClickable(swapAbxy, keyBindings, shape = RoundedCornerShape(8.dp), onClick = onDismiss)
+                        .dpadNavItem(nav, "back", shape = RoundedCornerShape(8.dp), onClick = onDismiss)
                         .drawBehind { drawBackArrow(iconTint) },
                 )
                 Spacer(Modifier.width(12.dp))
@@ -275,15 +303,15 @@ fun QuickShareScreen(
                     QuickShareTabPill(
                         label = stringResource(R.string.quick_share_tab_transfer),
                         selected = activeTab == QuickShareTab.Transfer,
-                        swapAbxy = swapAbxy,
-                        keyBindings = keyBindings,
+                        nav = nav,
+                        navId = "tab_transfer",
                         onClick = { activeTab = QuickShareTab.Transfer },
                     )
                     QuickShareTabPill(
                         label = histLabel,
                         selected = activeTab == QuickShareTab.History,
-                        swapAbxy = swapAbxy,
-                        keyBindings = keyBindings,
+                        nav = nav,
+                        navId = "tab_history",
                         onClick = { activeTab = QuickShareTab.History },
                     )
                 }
@@ -359,7 +387,7 @@ fun QuickShareScreen(
                                             color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
                                             shape = DeckShapes.settingsDropdown,
                                         )
-                                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) {
+                                        .dpadNavItem(nav, "inc_dir_$idx", shape = DeckShapes.settingsDropdown) {
                                             incomingDirIdx = idx
                                         }
                                         .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -388,7 +416,7 @@ fun QuickShareScreen(
                                     modifier = Modifier
                                         .clip(DeckShapes.menuButton)
                                         .background(DeckColors.Surface)
-                                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.menuButton) {
+                                        .dpadNavItem(nav, "inc_reject") {
                                             onRejectIncoming(req.sessionId)
                                         }
                                         .padding(horizontal = 18.dp, vertical = 9.dp),
@@ -401,7 +429,7 @@ fun QuickShareScreen(
                                     modifier = Modifier
                                         .clip(DeckShapes.menuButton)
                                         .background(DeckColors.Ruby)
-                                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.menuButton) {
+                                        .dpadNavItem(nav, "inc_accept") {
                                             onAcceptIncoming(req.sessionId, chosenDir)
                                         }
                                         .padding(horizontal = 22.dp, vertical = 9.dp),
@@ -412,7 +440,9 @@ fun QuickShareScreen(
 
                     // 2) 当前传输进度
                     state.transfer?.let { tx ->
-                        val txActive = tx.phase == TransferPhase.WaitingAccept || tx.phase == TransferPhase.Transferring
+                        val txActive = tx.phase == TransferPhase.WaitingAccept ||
+                            tx.phase == TransferPhase.PinRequired ||
+                            tx.phase == TransferPhase.Transferring
                         val progress = if (tx.totalBytes > 0L) {
                             (tx.bytesTransferred.toFloat() / tx.totalBytes.toFloat()).coerceIn(0f, 1f)
                         } else 0f
@@ -428,6 +458,7 @@ fun QuickShareScreen(
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 val heading = when (tx.phase) {
                                     TransferPhase.WaitingAccept -> "⏳ ${stringResource(R.string.lan_tx_waiting, tx.peerName)}"
+                                    TransferPhase.PinRequired -> "🔑 ${stringResource(R.string.lan_tx_pin_required, tx.peerName)}"
                                     TransferPhase.Transferring -> if (tx.direction == TransferDirection.Sending) {
                                         "📤 ${stringResource(R.string.lan_tx_sending, tx.peerName)}"
                                     } else {
@@ -456,7 +487,7 @@ fun QuickShareScreen(
                                     modifier = Modifier
                                         .clip(DeckShapes.tabPill)
                                         .background(if (txActive) Color(0xFFEF4444).copy(alpha = 0.14f) else DeckColors.Ruby.copy(alpha = 0.12f))
-                                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill) {
+                                        .dpadNavItem(nav, "tx_action", shape = DeckShapes.tabPill) {
                                             if (txActive) onCancelTransfer() else onDismissTransferBanner()
                                         }
                                         .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -467,26 +498,7 @@ fun QuickShareScreen(
                                 style = DeckType.settingsLabel,
                                 color = DeckColors.TextSecondary,
                             )
-                            if (tx.phase == TransferPhase.WaitingAccept) {
-                                LinearProgressIndicator(
-                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(DeckShapes.tabPill),
-                                    color = DeckColors.Ruby,
-                                    trackColor = DeckColors.DialogBg,
-                                )
-                            } else if (tx.phase == TransferPhase.Transferring || tx.phase == TransferPhase.Completed) {
-                                LinearProgressIndicator(
-                                    progress = { progress },
-                                    modifier = Modifier.fillMaxWidth().height(7.dp).clip(DeckShapes.tabPill),
-                                    color = DeckColors.Ruby,
-                                    trackColor = DeckColors.DialogBg,
-                                )
-                                val speedText = if (tx.speedBytesPerSec > 0L) " · ${formatQuickSize(tx.speedBytesPerSec)}/s" else ""
-                                Text(
-                                    "${formatQuickSize(tx.bytesTransferred)} / ${formatQuickSize(tx.totalBytes)} (${(progress * 100).toInt()}%)$speedText",
-                                    style = DeckType.metaLabel,
-                                    color = DeckColors.TextSecondary,
-                                )
-                            }
+                            ShareTransferProgressSection(tx = tx, formatSize = ::formatQuickSize)
                         }
                     }
 
@@ -508,7 +520,7 @@ fun QuickShareScreen(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .gamepadClickable(swapAbxy, keyBindings, focusRequester = toggleFr, shape = RoundedCornerShape(10.dp)) {
+                                .dpadNavItem(nav, "toggle_share", shape = RoundedCornerShape(10.dp)) {
                                     onToggleQuickShare(!state.shareRunning)
                                 },
                             verticalAlignment = Alignment.CenterVertically,
@@ -567,7 +579,7 @@ fun QuickShareScreen(
                                     modifier = Modifier
                                         .clip(DeckShapes.tabPill)
                                         .background(DeckColors.Ruby.copy(alpha = 0.14f))
-                                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill, onClick = onScanPeers)
+                                        .dpadNavItem(nav, "scan_peers", shape = DeckShapes.tabPill, onClick = onScanPeers)
                                         .padding(horizontal = 12.dp, vertical = 6.dp),
                                 )
                             }
@@ -580,7 +592,7 @@ fun QuickShareScreen(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .gamepadClickable(swapAbxy, keyBindings, shape = RoundedCornerShape(10.dp)) {
+                                .dpadNavItem(nav, "compat_localsend", shape = RoundedCornerShape(10.dp)) {
                                     onToggleLocalSendCompat(!state.localSendCompat)
                                 }
                                 .padding(vertical = 2.dp),
@@ -639,7 +651,7 @@ fun QuickShareScreen(
                                     .clip(DeckShapes.tabPill)
                                     .background(DeckColors.Background)
                                     .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
-                                    .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill, onClick = onRandomizeDeviceName)
+                                    .dpadNavItem(nav, "rand_name", shape = DeckShapes.tabPill, onClick = onRandomizeDeviceName)
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                             )
                             Spacer(Modifier.width(8.dp))
@@ -650,7 +662,7 @@ fun QuickShareScreen(
                                 modifier = Modifier
                                     .clip(DeckShapes.tabPill)
                                     .background(DeckColors.Ruby.copy(alpha = 0.14f))
-                                    .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill) { editingName = true }
+                                    .dpadNavItem(nav, "rename", shape = DeckShapes.tabPill) { editingName = true }
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                             )
                         }
@@ -672,7 +684,7 @@ fun QuickShareScreen(
                                     .clip(DeckShapes.tabPill)
                                     .background(DeckColors.Background)
                                     .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
-                                    .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill, onClick = onRefreshInterfaces)
+                                    .dpadNavItem(nav, "refresh_nic", shape = DeckShapes.tabPill, onClick = onRefreshInterfaces)
                                     .padding(horizontal = 10.dp, vertical = 5.dp),
                             )
                         }
@@ -680,7 +692,7 @@ fun QuickShareScreen(
                         if (state.interfaces.isEmpty()) {
                             Text(stringResource(R.string.lan_nic_empty), style = DeckType.settingsLabel, color = Color(0xFFDC2626))
                         } else {
-                            state.interfaces.forEach { iface ->
+                            state.interfaces.forEachIndexed { nicIdx, iface ->
                                 val selected = state.selectedInterface?.interfaceName == iface.interfaceName
                                 Row(
                                     Modifier
@@ -692,7 +704,7 @@ fun QuickShareScreen(
                                             color = if (selected) DeckColors.Ruby else DeckColors.DialogBorder,
                                             shape = DeckShapes.settingsDropdown,
                                         )
-                                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) {
+                                        .dpadNavItem(nav, "nic_$nicIdx", shape = DeckShapes.settingsDropdown) {
                                             onSelectInterface(iface.interfaceName)
                                         }
                                         .padding(horizontal = 12.dp, vertical = 9.dp),
@@ -740,7 +752,7 @@ fun QuickShareScreen(
                                 modifier = Modifier
                                     .clip(DeckShapes.tabPill)
                                     .background(Color(0xFFEF4444).copy(alpha = 0.14f))
-                                    .gamepadClickable(swapAbxy, keyBindings, focusRequester = clearFr, shape = DeckShapes.tabPill) {
+                                    .dpadNavItem(nav, "clear_all", shape = DeckShapes.tabPill) {
                                         confirmClearAll = true
                                     }
                                     .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -763,7 +775,7 @@ fun QuickShareScreen(
                             contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            itemsIndexed(state.shareHistory, key = { _, it -> it.id }) { _, item ->
+                            itemsIndexed(state.shareHistory, key = { _, it -> it.id }) { hIdx, item ->
                                 val paths = if (item.filePaths.isNotEmpty()) item.filePaths else listOf(item.filePath)
                                 val anyExists = paths.any { File(it).exists() }
                                 val timeStr = remember(item.receivedAtMs) { fmt.format(Date(item.receivedAtMs)) }
@@ -773,7 +785,7 @@ fun QuickShareScreen(
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(DeckColors.Surface)
                                         .border(1.dp, DeckColors.DialogBorder, RoundedCornerShape(12.dp))
-                                        .gamepadClickable(swapAbxy, keyBindings, shape = RoundedCornerShape(12.dp)) {
+                                        .dpadNavItem(nav, "hist_$hIdx", shape = RoundedCornerShape(12.dp)) {
                                             detailItem = item
                                         }
                                         .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -828,7 +840,7 @@ fun QuickShareScreen(
                                             modifier = Modifier
                                                 .clip(DeckShapes.tabPill)
                                                 .background(DeckColors.Ruby.copy(alpha = 0.12f))
-                                                .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill) {
+                                                .dpadNavItem(nav, "hist_dir_$hIdx", shape = DeckShapes.tabPill) {
                                                     onOpenFolder(folderTarget.first, folderTarget.second)
                                                 }
                                                 .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -842,7 +854,7 @@ fun QuickShareScreen(
                                         modifier = Modifier
                                             .clip(DeckShapes.tabPill)
                                             .background(Color(0xFFEF4444).copy(alpha = 0.12f))
-                                            .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill) {
+                                            .dpadNavItem(nav, "hist_del_$hIdx", shape = DeckShapes.tabPill) {
                                                 deleteConfirmItem = item
                                             }
                                             .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -947,6 +959,15 @@ fun QuickShareScreen(
         previewText?.let { txt ->
             TextFileViewerEditorDialog(txt, swapAbxy, keyBindings, onSaved = {}, onDismiss = { previewText = null })
         }
+        state.pinChallenge?.let { challenge ->
+            LocalSendPinDialog(
+                challenge = challenge,
+                swapAbxy = swapAbxy,
+                keyBindings = keyBindings,
+                onSubmit = onSubmitPin,
+                onCancel = onCancelPin,
+            )
+        }
     }
 }
 
@@ -954,8 +975,8 @@ fun QuickShareScreen(
 private fun QuickShareTabPill(
     label: String,
     selected: Boolean,
-    swapAbxy: Boolean,
-    keyBindings: Map<KeyAction, Int>,
+    nav: DpadNavController,
+    navId: String,
     onClick: () -> Unit,
 ) {
     Text(
@@ -965,7 +986,7 @@ private fun QuickShareTabPill(
         modifier = Modifier
             .clip(DeckShapes.tabPill)
             .background(if (selected) DeckColors.Ruby else Color.Transparent)
-            .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.tabPill, onClick = onClick)
+            .dpadNavItem(nav, navId, shape = DeckShapes.tabPill, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp),
     )
 }
@@ -1005,16 +1026,23 @@ private fun ShareHistoryDetailDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .width(520.dp)
-                .heightIn(max = maxH)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .widthIn(max = 520.dp)
+                .fillMaxWidth()
+                .heightIn(max = maxH),
+            closeFocusRequester = closeFr,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
-            Text(stringResource(R.string.quick_share_history_detail), style = DeckType.menuTitle, color = DeckColors.TextPrimary)
+            Text(
+                stringResource(R.string.quick_share_history_detail),
+                style = DeckType.menuTitle,
+                color = DeckColors.TextPrimary,
+                modifier = Modifier.padding(end = 36.dp),
+            )
             Spacer(Modifier.height(6.dp))
             Text(
                 stringResource(R.string.quick_share_history_from, item.senderName, item.senderIp),
@@ -1150,17 +1178,6 @@ private fun ShareHistoryDetailDialog(
                         .gamepadClickable(swapAbxy, keyBindings, onClick = onDelete)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    stringResource(R.string.prop_close),
-                    style = DeckType.menuButton,
-                    color = DeckColors.Ruby,
-                    modifier = Modifier
-                        .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby.copy(alpha = 0.12f))
-                        .gamepadClickable(swapAbxy, keyBindings, focusRequester = closeFr, onClick = onDismiss)
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
-                )
             }
         }
     }
@@ -1209,16 +1226,19 @@ private fun DeleteHistoryItemDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .width(400.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier.width(400.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
-            Text(stringResource(R.string.quick_share_history_delete), style = DeckType.menuTitle, color = DeckColors.TextPrimary)
+            Text(
+                stringResource(R.string.quick_share_history_delete),
+                style = DeckType.menuTitle,
+                color = DeckColors.TextPrimary,
+                modifier = Modifier.padding(end = 36.dp),
+            )
             Text(item.fileName, style = DeckType.settingsLabel, color = DeckColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
 
             Text(
@@ -1245,16 +1265,6 @@ private fun DeleteHistoryItemDialog(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
             }
-            Text(
-                stringResource(R.string.menu_cancel),
-                style = DeckType.menuButton,
-                color = DeckColors.TextSecondary,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .clip(DeckShapes.menuButton)
-                    .gamepadClickable(swapAbxy, keyBindings, onClick = onDismiss)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            )
         }
     }
 }

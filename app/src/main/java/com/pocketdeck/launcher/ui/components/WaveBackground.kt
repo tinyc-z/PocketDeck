@@ -4,10 +4,10 @@ import android.graphics.Bitmap
 import android.os.Build
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,14 +16,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -41,6 +44,8 @@ import coil3.transform.Transformation
 import com.pocketdeck.launcher.data.BackgroundStyle
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.ui.theme.DeckColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.cos
@@ -66,13 +71,14 @@ fun WaveBackground(
     knownCoverIndex: Int? = null,
     apkPackage: String? = null,
     customBackground: String? = null,
+    paused: Boolean = false,
 ) {
     when (style) {
         BackgroundStyle.None -> { /* 纯色背景，由外层 Box 提供 */ }
-        BackgroundStyle.Waves -> WavesEffect(modifier, animated = true)
-        BackgroundStyle.Static -> WavesEffect(modifier, animated = false)
-        BackgroundStyle.Gradient -> GradientEffect(modifier)
-        BackgroundStyle.Particles -> ParticlesEffect(modifier)
+        BackgroundStyle.Waves -> WavesEffect(modifier, animated = true, paused = paused)
+        BackgroundStyle.Static -> WavesEffect(modifier, animated = false, paused = true)
+        BackgroundStyle.Gradient -> GradientEffect(modifier, paused = paused)
+        BackgroundStyle.Particles -> ParticlesEffect(modifier, paused = paused)
         BackgroundStyle.CoverBlur -> CoverBlurEffect(
             modifier = modifier,
             coverCandidates = coverCandidates,
@@ -85,17 +91,24 @@ fun WaveBackground(
 
 // ==================== 波浪效果 ====================
 
+private const val BG_FRAME_STEP_SEC = 0.032f
+
 @Composable
-private fun WavesEffect(modifier: Modifier, animated: Boolean) {
+private fun WavesEffect(modifier: Modifier, animated: Boolean, paused: Boolean) {
     var elapsedSec by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(animated) {
-        if (!animated) return@LaunchedEffect
+    LaunchedEffect(animated, paused) {
+        if (!animated || paused) return@LaunchedEffect
         var lastNanos = 0L
+        var accum = 0f
         while (true) {
             withFrameNanos { now ->
                 if (lastNanos != 0L) {
                     val dt = ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
-                    elapsedSec += dt
+                    accum += dt
+                    if (accum >= BG_FRAME_STEP_SEC) {
+                        elapsedSec += accum
+                        accum = 0f
+                    }
                 }
                 lastNanos = now
             }
@@ -106,63 +119,77 @@ private fun WavesEffect(modifier: Modifier, animated: Boolean) {
     val bgColor = DeckColors.Background
     val ruby = DeckColors.Ruby
     val rubyLight = DeckColors.RubyLight
-    val waveLayers = if (animated) {
-        listOf(
-            WaveLayer(ruby.copy(alpha = if (isDark) 0.24f else 0.20f), 0.038f, 1.15f, 0.42f, 0.0f, 0f),
-            WaveLayer(rubyLight.copy(alpha = if (isDark) 0.20f else 0.22f), 0.044f, 0.90f, 0.65f, 2.1f, 0.04f),
-            WaveLayer(ruby.copy(alpha = if (isDark) 0.16f else 0.15f), 0.038f, 1.45f, 0.85f, 4.2f, 0.08f),
-        )
-    } else {
-        // 静态模式使用略微更饱满的层叠曲线，与纯白/纯黑一眼区分
-        listOf(
-            WaveLayer(ruby.copy(alpha = if (isDark) 0.28f else 0.24f), 0.045f, 1.10f, 0.42f, 0.9f, -0.02f),
-            WaveLayer(rubyLight.copy(alpha = if (isDark) 0.22f else 0.25f), 0.052f, 0.85f, 0.65f, 2.8f, 0.04f),
-            WaveLayer(ruby.copy(alpha = if (isDark) 0.18f else 0.18f), 0.042f, 1.40f, 0.85f, 4.6f, 0.10f),
-        )
-    }
-
-    Canvas(modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-        val midY = h * 0.42f
-        val fadeBottom = h * 0.94f
-        val t = if (animated) elapsedSec else 1.4f
-
-        waveLayers.forEach { layer ->
-            val path = buildWavePath(w, h, midY, t, layer)
-            val brush = Brush.verticalGradient(
-                0f to layer.color,
-                0.65f to layer.color.copy(alpha = layer.color.alpha * 0.72f),
-                1f to Color.Transparent,
-                startY = midY,
-                endY = fadeBottom,
+    val waveLayers = remember(animated, isDark, ruby, rubyLight) {
+        if (animated) {
+            listOf(
+                WaveLayer(ruby.copy(alpha = if (isDark) 0.24f else 0.20f), 0.038f, 1.15f, 0.42f, 0.0f, 0f),
+                WaveLayer(rubyLight.copy(alpha = if (isDark) 0.20f else 0.22f), 0.044f, 0.90f, 0.65f, 2.1f, 0.04f),
+                WaveLayer(ruby.copy(alpha = if (isDark) 0.16f else 0.15f), 0.038f, 1.45f, 0.85f, 4.2f, 0.08f),
             )
-            drawPath(path, brush)
+        } else {
+            // 静态模式使用略微更饱满的层叠曲线，与纯白/纯黑一眼区分
+            listOf(
+                WaveLayer(ruby.copy(alpha = if (isDark) 0.28f else 0.24f), 0.045f, 1.10f, 0.42f, 0.9f, -0.02f),
+                WaveLayer(rubyLight.copy(alpha = if (isDark) 0.22f else 0.25f), 0.052f, 0.85f, 0.65f, 2.8f, 0.04f),
+                WaveLayer(ruby.copy(alpha = if (isDark) 0.18f else 0.18f), 0.042f, 1.40f, 0.85f, 4.6f, 0.10f),
+            )
         }
-
-        drawRect(
-            Brush.verticalGradient(
-                0f to Color.Transparent,
-                1f to bgColor.copy(alpha = 0.85f),
-                startY = h * 0.80f,
-                endY = h,
-            ),
-        )
     }
+    val wavePath = remember { Path() }
+
+    Spacer(
+        modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val w = size.width
+                val h = size.height
+                val midY = h * 0.42f
+                val fadeBottom = h * 0.94f
+                val layerBrushes = waveLayers.map { layer ->
+                    Brush.verticalGradient(
+                        0f to layer.color,
+                        0.65f to layer.color.copy(alpha = layer.color.alpha * 0.72f),
+                        1f to Color.Transparent,
+                        startY = midY,
+                        endY = fadeBottom,
+                    )
+                }
+                val bottomFadeBrush = Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    1f to bgColor.copy(alpha = 0.85f),
+                    startY = h * 0.80f,
+                    endY = h,
+                )
+                onDrawBehind {
+                    val t = if (animated) elapsedSec else 1.4f
+                    waveLayers.forEachIndexed { idx, layer ->
+                        buildWavePath(wavePath, w, h, midY, t, layer)
+                        drawPath(wavePath, layerBrushes[idx])
+                    }
+                    drawRect(bottomFadeBrush)
+                }
+            },
+    )
 }
 
 // ==================== 渐变流动效果 ====================
 
 @Composable
-private fun GradientEffect(modifier: Modifier) {
+private fun GradientEffect(modifier: Modifier, paused: Boolean) {
     var elapsedSec by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(paused) {
+        if (paused) return@LaunchedEffect
         var lastNanos = 0L
+        var accum = 0f
         while (true) {
             withFrameNanos { now ->
                 if (lastNanos != 0L) {
                     val dt = ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
-                    elapsedSec += dt
+                    accum += dt
+                    if (accum >= BG_FRAME_STEP_SEC) {
+                        elapsedSec += accum
+                        accum = 0f
+                    }
                 }
                 lastNanos = now
             }
@@ -174,74 +201,78 @@ private fun GradientEffect(modifier: Modifier) {
     val primaryColor = DeckColors.Ruby
     val glowColor = DeckColors.AccentGlow
     val tertiaryColor = DeckColors.AccentTertiary
-    Canvas(modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-        val angle = elapsedSec * 0.35f
-        val cx = w * 0.5f
-        val cy = h * 0.5f
-        val dx = cos(angle.toDouble()).toFloat() * w * 0.55f
-        val dy = sin(angle.toDouble()).toFloat() * h * 0.55f
-
-        val c1 = primaryColor.copy(alpha = if (isDark) 0.40f else 0.32f)
-        val c2 = glowColor.copy(alpha = if (isDark) 0.33f else 0.27f)
-        val c3 = tertiaryColor.copy(alpha = if (isDark) 0.27f else 0.22f)
-
-        // 基础流动线性渐变
-        drawRect(
-            Brush.linearGradient(
-                0f to c1,
-                0.48f to c2,
-                1f to c3,
-                start = Offset(cx - dx, cy - dy),
-                end = Offset(cx + dx, cy + dy),
-            ),
-        )
-
-        // 两个缓慢绕行的彩色光斑增强流动感
-        val orb1Center = Offset(
-            w * (0.32f + 0.22f * cos((elapsedSec * 0.42f).toDouble()).toFloat()),
-            h * (0.38f + 0.20f * sin((elapsedSec * 0.36f).toDouble()).toFloat()),
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
+    Spacer(
+        modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val w = size.width
+                val h = size.height
+                val c1 = primaryColor.copy(alpha = if (isDark) 0.40f else 0.32f)
+                val c2 = glowColor.copy(alpha = if (isDark) 0.33f else 0.27f)
+                val c3 = tertiaryColor.copy(alpha = if (isDark) 0.27f else 0.22f)
+                val orb1Colors = listOf(
                     primaryColor.copy(alpha = if (isDark) 0.38f else 0.28f),
                     Color.Transparent,
-                ),
-                center = orb1Center,
-                radius = w * 0.55f,
-            ),
-            radius = w * 0.55f,
-            center = orb1Center,
-        )
-
-        val orb2Center = Offset(
-            w * (0.68f + 0.22f * sin((elapsedSec * 0.31f + 1.5f).toDouble()).toFloat()),
-            h * (0.62f + 0.20f * cos((elapsedSec * 0.45f + 0.8f).toDouble()).toFloat()),
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
+                )
+                val orb2Colors = listOf(
                     glowColor.copy(alpha = if (isDark) 0.32f else 0.26f),
                     Color.Transparent,
-                ),
-                center = orb2Center,
-                radius = w * 0.5f,
-            ),
-            radius = w * 0.5f,
-            center = orb2Center,
-        )
+                )
+                val bottomFadeBrush = Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    1f to bgColor.copy(alpha = if (isDark) 0.45f else 0.30f),
+                    startY = h * 0.6f,
+                    endY = h,
+                )
+                onDrawBehind {
+                    val angle = elapsedSec * 0.35f
+                    val cx = w * 0.5f
+                    val cy = h * 0.5f
+                    val dx = cos(angle.toDouble()).toFloat() * w * 0.55f
+                    val dy = sin(angle.toDouble()).toFloat() * h * 0.55f
 
-        drawRect(
-            Brush.verticalGradient(
-                0f to Color.Transparent,
-                1f to bgColor.copy(alpha = if (isDark) 0.45f else 0.30f),
-                startY = h * 0.6f,
-                endY = h,
-            ),
-        )
-    }
+                    drawRect(
+                        Brush.linearGradient(
+                            0f to c1,
+                            0.48f to c2,
+                            1f to c3,
+                            start = Offset(cx - dx, cy - dy),
+                            end = Offset(cx + dx, cy + dy),
+                        ),
+                    )
+
+                    val orb1Center = Offset(
+                        w * (0.32f + 0.22f * cos((elapsedSec * 0.42f).toDouble()).toFloat()),
+                        h * (0.38f + 0.20f * sin((elapsedSec * 0.36f).toDouble()).toFloat()),
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = orb1Colors,
+                            center = orb1Center,
+                            radius = w * 0.55f,
+                        ),
+                        radius = w * 0.55f,
+                        center = orb1Center,
+                    )
+
+                    val orb2Center = Offset(
+                        w * (0.68f + 0.22f * sin((elapsedSec * 0.31f + 1.5f).toDouble()).toFloat()),
+                        h * (0.62f + 0.20f * cos((elapsedSec * 0.45f + 0.8f).toDouble()).toFloat()),
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = orb2Colors,
+                            center = orb2Center,
+                            radius = w * 0.5f,
+                        ),
+                        radius = w * 0.5f,
+                        center = orb2Center,
+                    )
+
+                    drawRect(bottomFadeBrush)
+                }
+            },
+    )
 }
 
 // ==================== 粒子效果 ====================
@@ -257,7 +288,7 @@ private data class Particle(
 )
 
 @Composable
-private fun ParticlesEffect(modifier: Modifier) {
+private fun ParticlesEffect(modifier: Modifier, paused: Boolean) {
     val particles = remember {
         val rng = Random(42)
         val count = 26
@@ -276,13 +307,19 @@ private fun ParticlesEffect(modifier: Modifier) {
     }
 
     var elapsedSec by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(paused) {
+        if (paused) return@LaunchedEffect
         var lastNanos = 0L
+        var accum = 0f
         while (true) {
             withFrameNanos { now ->
                 if (lastNanos != 0L) {
                     val dt = ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
-                    elapsedSec += dt
+                    accum += dt
+                    if (accum >= BG_FRAME_STEP_SEC) {
+                        elapsedSec += accum
+                        accum = 0f
+                    }
                 }
                 lastNanos = now
             }
@@ -295,54 +332,55 @@ private fun ParticlesEffect(modifier: Modifier) {
     val amberColor = DeckColors.AccentGlow
     val bgColor = DeckColors.Background
 
-    Canvas(modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-
-        // 微弱底色氛围渐变，避免纯单调底
-        drawRect(
-            Brush.verticalGradient(
-                0f to Color.Transparent,
-                1f to rubyColor.copy(alpha = if (isDark) 0.12f else 0.08f),
-            ),
-        )
-
-        particles.forEach { p ->
-            val py = ((p.y - elapsedSec * p.speed * 0.06f) % 1f + 1f) % 1f
-            val px = p.x + sin((elapsedSec * p.speed * 0.9f + p.phase).toDouble()).toFloat() * 0.032f
-            val baseColor = when (p.tone) {
-                0 -> rubyColor
-                1 -> coralColor
-                else -> amberColor
-            }
-            val r = p.radius * (w / 480f)
-            val center = Offset(px * w, py * h)
-
-            // 柔光外圈
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
+    Spacer(
+        modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val w = size.width
+                val h = size.height
+                val washBrush = Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    1f to rubyColor.copy(alpha = if (isDark) 0.12f else 0.08f),
+                )
+                val bottomFadeBrush = Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    1f to bgColor.copy(alpha = 0.28f),
+                    startY = h * 0.72f,
+                    endY = h,
+                )
+                val paletteStops = particles.map { p ->
+                    val baseColor = when (p.tone) {
+                        0 -> rubyColor
+                        1 -> coralColor
+                        else -> amberColor
+                    }
+                    listOf(
                         baseColor.copy(alpha = p.alpha),
                         baseColor.copy(alpha = p.alpha * 0.35f),
                         Color.Transparent,
-                    ),
-                    center = center,
-                    radius = r * 1.45f,
-                ),
-                radius = r * 1.45f,
-                center = center,
-            )
-        }
-
-        drawRect(
-            Brush.verticalGradient(
-                0f to Color.Transparent,
-                1f to bgColor.copy(alpha = 0.28f),
-                startY = h * 0.72f,
-                endY = h,
-            ),
-        )
-    }
+                    )
+                }
+                onDrawBehind {
+                    drawRect(washBrush)
+                    particles.forEachIndexed { idx, p ->
+                        val py = ((p.y - elapsedSec * p.speed * 0.06f) % 1f + 1f) % 1f
+                        val px = p.x + sin((elapsedSec * p.speed * 0.9f + p.phase).toDouble()).toFloat() * 0.032f
+                        val r = p.radius * (w / 480f)
+                        val center = Offset(px * w, py * h)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = paletteStops[idx],
+                                center = center,
+                                radius = r * 1.45f,
+                            ),
+                            radius = r * 1.45f,
+                            center = center,
+                        )
+                    }
+                    drawRect(bottomFadeBrush)
+                }
+            },
+    )
 }
 
 // ==================== 封面毛玻璃效果 ====================
@@ -460,15 +498,20 @@ private fun CoverBlurEffect(
         }
     }
     val currentModel = debouncedModel
-    val appIconBlurred = remember(apkPackage, currentModel) {
-        if (currentModel != null || apkPackage == null) null
-        else runCatching {
-            val bmp = context.packageManager.getApplicationIcon(apkPackage)
-                .toBitmap(64, 64)
-                .copy(Bitmap.Config.ARGB_8888, true)
-            boxBlurInPlace(bmp, 8)
-            bmp.asImageBitmap()
-        }.getOrNull()
+    val appIconBlurred by produceState<ImageBitmap?>(null, apkPackage, currentModel) {
+        value = if (currentModel != null || apkPackage == null) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val bmp = context.packageManager.getApplicationIcon(apkPackage)
+                        .toBitmap(64, 64)
+                        .copy(Bitmap.Config.ARGB_8888, true)
+                    boxBlurInPlace(bmp, 8)
+                    bmp.asImageBitmap()
+                }.getOrNull()
+            }
+        }
     }
 
     val blurModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -512,30 +555,38 @@ private fun CoverBlurEffect(
                         }
                     },
                 )
-            } else if (appIconBlurred != null) {
-                Image(
-                    bitmap = appIconBlurred,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(blurModifier),
-                    contentScale = ContentScale.Crop,
-                    alpha = if (isDark) 0.68f else 0.58f,
-                )
+            } else {
+                appIconBlurred?.let { iconBmp ->
+                    Image(
+                        bitmap = iconBmp,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(blurModifier),
+                        contentScale = ContentScale.Crop,
+                        alpha = if (isDark) 0.68f else 0.58f,
+                    )
+                }
             }
         }
 
         // 柔和可读性遮罩，确保封面色调透出且文字清晰
-        Canvas(Modifier.fillMaxSize()) {
-            drawRect(bgColor.copy(alpha = if (isDark) 0.36f else 0.32f))
-            drawRect(
-                Brush.verticalGradient(
-                    0f to bgColor.copy(alpha = 0.25f),
-                    0.45f to Color.Transparent,
-                    1f to bgColor.copy(alpha = if (isDark) 0.55f else 0.45f),
-                ),
-            )
-        }
+        Spacer(
+            Modifier
+                .fillMaxSize()
+                .drawWithCache {
+                    val tint = bgColor.copy(alpha = if (isDark) 0.36f else 0.32f)
+                    val grad = Brush.verticalGradient(
+                        0f to bgColor.copy(alpha = 0.25f),
+                        0.45f to Color.Transparent,
+                        1f to bgColor.copy(alpha = if (isDark) 0.55f else 0.45f),
+                    )
+                    onDrawBehind {
+                        drawRect(tint)
+                        drawRect(grad)
+                    }
+                },
+        )
     }
 }
 
@@ -543,19 +594,32 @@ private fun CoverBlurEffect(
 
 @Composable
 private fun CustomImageEffect(modifier: Modifier, imagePath: String?) {
+    val context = LocalContext.current
     val bgColor = DeckColors.Background
     val isDark = DeckColors.isDark
     val file = remember(imagePath) {
         imagePath?.takeIf { it.isNotBlank() }?.let(::File)?.takeIf { it.isFile }
+    }
+    val request = remember(file?.path, file?.lastModified()) {
+        file?.let { f ->
+            val dm = context.resources.displayMetrics
+            val maxW = dm.widthPixels.coerceIn(640, 1920)
+            val maxH = dm.heightPixels.coerceIn(480, 1920)
+            coil3.request.ImageRequest.Builder(context)
+                .data(f)
+                .size(maxW, maxH)
+                .precision(coil3.size.Precision.INEXACT)
+                .build()
+        }
     }
     Box(
         modifier
             .fillMaxSize()
             .background(bgColor),
     ) {
-        if (file != null) {
+        if (request != null) {
             AsyncImage(
-                model = file,
+                model = request,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -581,7 +645,7 @@ private data class WaveLayer(
     val yOffset: Float,
 )
 
-private fun buildWavePath(w: Float, h: Float, midY: Float, elapsedSec: Float, layer: WaveLayer): Path {
+private fun buildWavePath(path: Path, w: Float, h: Float, midY: Float, elapsedSec: Float, layer: WaveLayer) {
     val amp = h * layer.amplitude
     val freq = layer.frequency
     val baseY = midY + h * layer.yOffset
@@ -589,19 +653,30 @@ private fun buildWavePath(w: Float, h: Float, midY: Float, elapsedSec: Float, la
     val p = elapsedSec * layer.speedRad + layer.phaseOffset
     val pHarmonic = elapsedSec * layer.speedRad * 0.5f
 
-    return Path().apply {
-        moveTo(0f, h)
-        val steps = 60
-        for (i in 0..steps) {
-            val frac = i.toFloat() / steps
-            val x = w * frac
-            val angle = p + frac * freq * twoPi
-            val wave = 0.82f * sin(angle.toDouble()).toFloat() +
-                0.18f * sin((angle * 2f - pHarmonic).toDouble()).toFloat()
-            val y = baseY + amp * wave
-            lineTo(x, y)
-        }
-        lineTo(w, h)
-        close()
+    fun waveY(frac: Float): Float {
+        val angle = p + frac * freq * twoPi
+        val wave = 0.82f * sin(angle.toDouble()).toFloat() +
+            0.18f * sin((angle * 2f - pHarmonic).toDouble()).toFloat()
+        return baseY + amp * wave
     }
+
+    path.rewind()
+    val steps = 24
+    path.moveTo(0f, h)
+    var prevX = 0f
+    var prevY = waveY(0f)
+    path.lineTo(0f, prevY)
+    for (i in 1..steps) {
+        val frac = i.toFloat() / steps
+        val x = w * frac
+        val y = waveY(frac)
+        val midX = (prevX + x) * 0.5f
+        val midPtY = (prevY + y) * 0.5f
+        path.quadraticTo(prevX, prevY, midX, midPtY)
+        prevX = x
+        prevY = y
+    }
+    path.lineTo(w, prevY)
+    path.lineTo(w, h)
+    path.close()
 }

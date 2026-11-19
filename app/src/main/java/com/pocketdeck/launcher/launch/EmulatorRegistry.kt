@@ -85,6 +85,7 @@ data class EmulatorDef(
     val id: String,
     val packages: List<String>,
     val intentBuilder: (context: Context, pkg: String, game: Game) -> Intent,
+    val fallbackIntentBuilder: ((context: Context, pkg: String, game: Game) -> Intent)? = null,
 )
 
 private fun viewIntent(
@@ -113,7 +114,14 @@ object EmulatorRegistry {
         displayName = "PPSSPP",
         id = "ppsspp",
         packages = listOf("org.ppsspp.ppsspp", "org.ppsspp.ppssppgold"),
-        intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game) },
+        intentBuilder = { _, pkg, game ->
+            Intent(Intent.ACTION_MAIN).apply {
+                setClassName(pkg, "org.ppsspp.ppsspp.PpssppActivity")
+                putExtra("org.ppsspp.ppsspp.Shortcuts", game.id)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        },
+        fallbackIntentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
     )
 
     val DRASTIC = EmulatorDef(
@@ -130,6 +138,13 @@ object EmulatorRegistry {
         intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
     )
 
+    val SKYEMU = EmulatorDef(
+        displayName = "SkyEmu",
+        id = "skyemu",
+        packages = listOf("com.skylersaleh.skyemu"),
+        intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+    )
+
     val DUCKSTATION = EmulatorDef(
         displayName = "DuckStation",
         id = "duckstation",
@@ -141,12 +156,27 @@ object EmulatorRegistry {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         },
+        fallbackIntentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
     )
 
     val AETHERSX2 = EmulatorDef(
-        displayName = "AetherSX2 / NetherSX2",
+        displayName = "NetherSX2 / AetherSX2",
         id = "aethersx2",
         packages = listOf("xyz.aethersx2.android", "com.nethersx2.emulator", "com.tahlreth.aethersx2"),
+        intentBuilder = { _, pkg, game ->
+            Intent(Intent.ACTION_MAIN).apply {
+                setClassName(pkg, "xyz.aethersx2.android.EmulationActivity")
+                putExtra("bootPath", game.id)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        },
+        fallbackIntentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+    )
+
+    val PLAY_PS2 = EmulatorDef(
+        displayName = "Play! (PS2)",
+        id = "play_ps2",
+        packages = listOf("com.virtualapplications.play"),
         intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
     )
 
@@ -167,32 +197,62 @@ object EmulatorRegistry {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         },
+        fallbackIntentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
     )
 
-    val CITRA = EmulatorDef(
-        displayName = "Citra / Azahar",
-        id = "citra",
-        packages = listOf(
-            "org.azahar_emu.azahar",
-            "io.github.lime3ds.android",
-            "org.citra.citra_emu",
-            "org.citra.emu",
-            "org.citra.citra_emu.canary",
-        ),
+    val AZAHAR = EmulatorDef(
+        displayName = "Azahar",
+        id = "azahar",
+        packages = listOf("org.azahar_emu.azahar", "io.github.lime3ds.android"),
         intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
     )
 
-    val YUZU_FORKS = EmulatorDef(
-        displayName = "Yuzu / Sudachi / Citron / Eden",
+    val CITRA = EmulatorDef(
+        displayName = "Citra",
+        id = "citra",
+        packages = listOf("org.citra.citra_emu", "org.citra.emu", "org.citra.citra_emu.canary"),
+        intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+    )
+
+    val EDEN = EmulatorDef(
+        displayName = "Eden",
+        id = "eden_switch",
+        packages = listOf("dev.eden.eden_emulator"),
+        intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+    )
+
+    val CITRON = EmulatorDef(
+        displayName = "Citron",
+        id = "citron_switch",
+        packages = listOf("org.citron.citron_emu"),
+        intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+    )
+
+    val SUDACHI = EmulatorDef(
+        displayName = "Sudachi",
+        id = "sudachi_switch",
+        packages = listOf("org.sudachi.sudachi_emu"),
+        intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+    )
+
+    val YUZU = EmulatorDef(
+        displayName = "Yuzu / Suyu",
         id = "yuzu_switch",
-        packages = listOf(
-            "dev.eden.eden_emulator",
-            "org.citron.citron_emu",
-            "org.sudachi.sudachi_emu",
-            "org.yuzu.yuzu_emu",
-            "dev.suyu.suyu_emu",
-            "org.ryujinx.android",
-        ),
+        packages = listOf("org.yuzu.yuzu_emu", "dev.suyu.suyu_emu"),
+        intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+    )
+
+    val RYUJINX = EmulatorDef(
+        displayName = "Ryujinx / Kenji-NX",
+        id = "ryujinx_switch",
+        packages = listOf("org.ryujinx.android", "org.kenjinx.android"),
+        intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+    )
+
+    val MAME4DROID = EmulatorDef(
+        displayName = "MAME4droid",
+        id = "mame4droid",
+        packages = listOf("com.seleuco.mame4d2024", "com.seleuco.mame4droid"),
         intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
     )
 
@@ -309,9 +369,31 @@ object EmulatorRegistry {
     )
 
     val WINLATOR = EmulatorDef(
-        displayName = "Winlator / MiceWine / GameHub",
+        displayName = "Winlator",
         id = "winlator_standalone",
-        packages = listOf("com.winlator.cmod", "com.winlator.frost", "com.winlator", "com.micewine.emu", "com.xiaoji.egggame"),
+        packages = listOf("com.winlator.cmod", "com.winlator.frost", "com.winlator"),
+        intentBuilder = { ctx, pkg, _ ->
+            ctx.packageManager.getLaunchIntentForPackage(pkg)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            } ?: Intent(Intent.ACTION_MAIN).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        },
+    )
+
+    val GAMEHUB = EmulatorDef(
+        displayName = "GameHub",
+        id = "gamehub_pc",
+        packages = listOf("com.xiaoji.egggame"),
+        intentBuilder = { ctx, pkg, _ ->
+            ctx.packageManager.getLaunchIntentForPackage(pkg)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            } ?: Intent(Intent.ACTION_MAIN).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        },
+    )
+
+    val MICEWINE = EmulatorDef(
+        displayName = "MiceWine",
+        id = "micewine_pc",
+        packages = listOf("com.micewine.emu"),
         intentBuilder = { ctx, pkg, _ ->
             ctx.packageManager.getLaunchIntentForPackage(pkg)?.apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -454,20 +536,20 @@ object EmulatorRegistry {
     /** 每个平台 ID → 可用的独立模拟器（不含 RetroArch）。 */
     val PLATFORM_EMULATORS: Map<String, List<EmulatorDef>> = buildMap {
         put("psp", listOf(PPSSPP, LEMUROID))
-        listOf("nds", "dsi").forEach { put(it, listOf(DRASTIC, MELONDS, LEMUROID)) }
+        listOf("nds", "dsi").forEach { put(it, listOf(DRASTIC, MELONDS, SKYEMU, LEMUROID)) }
         put("psx", listOf(DUCKSTATION, EPSXE, FPSE, LEMUROID))
-        put("ps2", listOf(AETHERSX2))
+        put("ps2", listOf(AETHERSX2, PLAY_PS2))
         put("ps3", listOf(APS3E))
         put("psvita", listOf(VITA3K))
         listOf("gamecube", "wii").forEach { put(it, listOf(DOLPHIN)) }
         put("wiiu", listOf(CEMU))
-        put("3ds", listOf(CITRA, LEMUROID))
-        put("switch", listOf(YUZU_FORKS))
+        put("3ds", listOf(AZAHAR, CITRA, LEMUROID))
+        put("switch", listOf(EDEN, CITRON, SUDACHI, YUZU, RYUJINX))
         listOf("dreamcast", "naomi", "atomiswave").forEach { put(it, listOf(FLYCAST, REDREAM)) }
         put("saturn", listOf(YABA, SATURN_EMU))
         put("n64", listOf(MUPEN64, LEMUROID))
-        listOf("gb", "gbc").forEach { put(it, listOf(PIZZABOY_GBC, GBC_EMU, MYOLDBOY, JOHN_GBAC, MGBA, LEMUROID)) }
-        put("gba", listOf(PIZZABOY_GBA, GBA_EMU, MYBOY, JOHN_GBAC, MGBA, LEMUROID))
+        listOf("gb", "gbc").forEach { put(it, listOf(PIZZABOY_GBC, GBC_EMU, SKYEMU, MYOLDBOY, JOHN_GBAC, MGBA, LEMUROID)) }
+        put("gba", listOf(PIZZABOY_GBA, GBA_EMU, SKYEMU, MYBOY, JOHN_GBAC, MGBA, LEMUROID))
         listOf("nes", "fds").forEach { put(it, listOf(NES_EMU, JOHN_NESS, LEMUROID)) }
         listOf("snes", "sfc").forEach { put(it, listOf(SNES9X_EX, JOHN_NESS, LEMUROID)) }
         listOf("mastersystem", "megadrive", "genesis", "gamegear", "segacd", "sega32x").forEach {
@@ -481,24 +563,24 @@ object EmulatorRegistry {
         put("c64", listOf(C64_EMU))
         put("lynx", listOf(LYNX_EMU, LEMUROID))
         listOf("arcade", "fbneo", "mame", "neogeo", "cps1", "cps2", "cps3", "pgm").forEach {
-            put(it, listOf(LEMUROID))
+            put(it, listOf(MAME4DROID, LEMUROID))
         }
         put("dos", listOf(MAGIC_DOSBOX))
         put("j2me", listOf(J2ME_LOADER))
         put("easyrpg", listOf(EASYRPG))
         put("scummvm", listOf(SCUMMVM))
         put("openbor", listOf(OPENBOR))
-        put("winlator", listOf(WINLATOR))
+        put("winlator", listOf(WINLATOR, GAMEHUB, MICEWINE))
     }
 
-    /** 所有已知的独立模拟器（去重，共 40+ 款）。 */
+    /** 所有已知的独立模拟器（去重，共 50+ 款）。 */
     val ALL: List<EmulatorDef> = listOf(
-        PPSSPP, DRASTIC, MELONDS, DUCKSTATION, EPSXE, FPSE, AETHERSX2, APS3E, DOLPHIN, CITRA,
-        YUZU_FORKS, CEMU, VITA3K, FLYCAST, REDREAM, YABA, SATURN_EMU, MUPEN64,
-        SNES9X_EX, NES_EMU, JOHN_NESS, GBA_EMU, GBC_EMU, PIZZABOY_GBA, PIZZABOY_GBC,
+        PPSSPP, DRASTIC, MELONDS, SKYEMU, DUCKSTATION, EPSXE, FPSE, AETHERSX2, PLAY_PS2, APS3E, DOLPHIN,
+        AZAHAR, CITRA, EDEN, CITRON, SUDACHI, YUZU, RYUJINX, CEMU, VITA3K, FLYCAST, REDREAM, YABA, SATURN_EMU,
+        MUPEN64, MAME4DROID, SNES9X_EX, NES_EMU, JOHN_NESS, GBA_EMU, GBC_EMU, PIZZABOY_GBA, PIZZABOY_GBC,
         MYBOY, MYOLDBOY, JOHN_GBAC, MGBA, MD_EMU, PCE_EMU, MSX_EMU, NGP_EMU,
         A2600_EMU, C64_EMU, LYNX_EMU, LEMUROID, MAGIC_DOSBOX, J2ME_LOADER,
-        EASYRPG, SCUMMVM, OPENBOR, WINLATOR,
+        EASYRPG, SCUMMVM, OPENBOR, WINLATOR, GAMEHUB, MICEWINE,
     )
 
     fun byId(id: String): EmulatorDef? = ALL.firstOrNull { it.id == id }

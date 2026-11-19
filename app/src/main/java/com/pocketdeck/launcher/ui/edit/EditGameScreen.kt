@@ -2,6 +2,7 @@ package com.pocketdeck.launcher.ui.edit
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -76,6 +78,7 @@ import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.apps.drawBackArrow
+import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
 import com.pocketdeck.launcher.ui.settings.LauncherPickerDialog
@@ -108,6 +111,7 @@ fun EditGameScreen(
     onSave: (name: String?, coverPath: String?) -> Unit,
     onHide: () -> Unit,
     onDeleteFile: (() -> Unit)? = null,
+    onLocateFile: (() -> Unit)? = null,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     modifier: Modifier = Modifier,
@@ -149,6 +153,14 @@ fun EditGameScreen(
     val changed = title.trim() != game.title || coverPath != game.customCover
     val canSave = changed && title.isNotBlank()
     val overlayOpen = scrapingDialog || launcherDialog || categoryDialog || showDeleteConfirm
+    BackHandler(enabled = overlayOpen) {
+        when {
+            showDeleteConfirm -> showDeleteConfirm = false
+            categoryDialog -> categoryDialog = false
+            launcherDialog -> launcherDialog = false
+            scrapingDialog -> scrapingDialog = false
+        }
+    }
 
     Box(
         modifier
@@ -224,7 +236,11 @@ fun EditGameScreen(
 
                 Spacer(Modifier.height(14.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                val canLocateFile = !game.id.startsWith(GameLauncher.APK_PREFIX) && onLocateFile != null
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
                         text = "📄",
                         fontSize = 16.sp,
@@ -236,7 +252,37 @@ fun EditGameScreen(
                         color = DeckColors.TextPrimary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
+                    if (canLocateFile) {
+                        Spacer(Modifier.width(8.dp))
+                        var locateFocused by remember { mutableStateOf(false) }
+                        Text(
+                            text = stringResource(R.string.edit_locate_file),
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                            color = if (locateFocused) Color.White else DeckColors.TextPrimary,
+                            modifier = Modifier
+                                .clip(DeckShapes.tabPill)
+                                .background(if (locateFocused) DeckColors.Ruby else DeckColors.Surface)
+                                .onFocusChanged { locateFocused = it.isFocused }
+                                .focusable()
+                                .border(
+                                    width = if (locateFocused) 1.5.dp else 1.dp,
+                                    color = if (locateFocused) DeckColors.Ruby else DeckColors.DialogBorder,
+                                    shape = DeckShapes.tabPill,
+                                )
+                                .clickable { onLocateFile() }
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown &&
+                                        GamepadKeys.isConfirm(ev.key, swapAbxy, keyBindings)
+                                    ) {
+                                        onLocateFile()
+                                        true
+                                    } else false
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(16.dp))
@@ -594,10 +640,10 @@ fun DeleteFileConfirmDialog(
     val focusRequester = remember { FocusRequester() }
     val options = buildList {
         if (onUseHide != null) add(Triple(stringResource(R.string.delete_file_use_hide), false, onUseHide))
-        add(Triple(stringResource(R.string.menu_cancel), false, onDismiss))
         add(Triple(stringResource(R.string.delete_file_confirm_yes), true, onConfirmDelete))
+        add(Triple(stringResource(R.string.menu_cancel), false, onDismiss))
     }
-    val cancelIdx = if (onUseHide != null) 1 else 0
+    val cancelIdx = options.lastIndex
     var selectedIdx by remember { mutableIntStateOf(cancelIdx) }
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
@@ -635,10 +681,13 @@ fun DeleteFileConfirmDialog(
     ) {
         Column(
             Modifier
-                .width(440.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = 440.dp)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
         ) {
             Text(
@@ -764,18 +813,20 @@ private fun ScrapeCoverDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .width(520.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .widthIn(max = 520.dp)
+                .fillMaxWidth(),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
             Text(
                 stringResource(R.string.scrape_title),
                 style = DeckType.menuTitle,
                 color = DeckColors.TextPrimary,
+                modifier = Modifier.padding(end = 36.dp),
             )
             Spacer(Modifier.height(14.dp))
             when {
@@ -876,16 +927,6 @@ private fun ScrapeCoverDialog(
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                stringResource(R.string.menu_cancel),
-                style = DeckType.menuButton,
-                color = DeckColors.TextSecondary,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .clickable(onClick = onDismiss)
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            )
         }
     }
 }

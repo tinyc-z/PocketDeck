@@ -1,8 +1,10 @@
 package com.pocketdeck.launcher.ui.components
 
+import android.content.Context
+import android.util.LruCache
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -25,11 +27,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -42,7 +46,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -53,12 +56,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import coil3.request.crossfade
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.data.model.Game
@@ -69,7 +72,22 @@ import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckFontFamily
 import com.pocketdeck.launcher.ui.theme.DeckShapes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
+
+internal object AppIconCache {
+    private val cache = LruCache<String, ImageBitmap>(64)
+
+    fun get(pkg: String): ImageBitmap? = cache.get(pkg)
+
+    fun loadSync(context: Context, pkg: String): ImageBitmap? {
+        cache.get(pkg)?.let { return it }
+        return runCatching {
+            context.packageManager.getApplicationIcon(pkg).toBitmap(192, 192).asImageBitmap()
+        }.getOrNull()?.also { cache.put(pkg, it) }
+    }
+}
 
 /**
  * 便捷封装：自动监听在线封面索引更新、匹配官方名并缓存命中的封面 URL。
@@ -84,6 +102,7 @@ fun GameCoverCard(
     height: Dp,
     isFocused: Boolean,
     isFavorite: Boolean = false,
+    fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
     shapeOverride: Shape? = null,
     centeredTitle: Boolean = false,
@@ -94,13 +113,28 @@ fun GameCoverCard(
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
-    val indexVer = covers?.indexVersion?.collectAsState()?.value ?: 0
-    val candidates = remember(game.id, game.customCover, game.localCover, game.title, platform?.libretroSystem, officialName, indexVer) {
-        covers?.candidates(game, platform, officialName)
-            ?: listOfNotNull(game.customCover, game.localCover)
+    var candidatesUnlocked by remember(game.id) { mutableStateOf(!fastScrolling) }
+    if (!fastScrolling && !candidatesUnlocked) {
+        candidatesUnlocked = true
     }
-    val knownIdx = remember(game.id, game.customCover, platform?.libretroSystem, indexVer) {
-        if (game.customCover != null) 0 else covers?.knownIndex(game.id, platform)
+
+    val candidates: List<Any>
+    val knownIdx: Int?
+    if (!candidatesUnlocked) {
+        candidates = remember(game.id, game.customCover, game.localCover) {
+            covers?.fastMemoryCandidates(game)
+                ?: listOfNotNull(game.customCover, game.localCover)
+        }
+        knownIdx = if (candidates.isNotEmpty()) 0 else null
+    } else {
+        val indexVer = covers?.indexVersion?.collectAsState()?.value ?: 0
+        candidates = remember(game.id, game.customCover, game.localCover, game.title, platform?.libretroSystem, officialName, indexVer) {
+            covers?.candidates(game, platform, officialName)
+                ?: listOfNotNull(game.customCover, game.localCover)
+        }
+        knownIdx = remember(game.id, game.customCover, platform?.libretroSystem, indexVer) {
+            if (game.customCover != null) 0 else covers?.knownIndex(game.id, platform)
+        }
     }
     val apkPackage = remember(game.id) {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) game.id.removePrefix(GameLauncher.APK_PREFIX) else null
@@ -122,6 +156,7 @@ fun GameCoverCard(
         title = game.title,
         platformLabel = platform?.shortName,
         apkPackage = apkPackage,
+        fastScrolling = fastScrolling,
         modifier = modifier,
         shapeOverride = shapeOverride,
         centeredTitle = centeredTitle,
@@ -151,6 +186,7 @@ fun CoverCard(
     isFavorite: Boolean = false,
     platformLabel: String? = null,
     apkPackage: String? = null,
+    fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
     shapeOverride: Shape? = null,
     centeredTitle: Boolean = false,
@@ -166,40 +202,35 @@ fun CoverCard(
     val view = LocalView.current
     val useFocusAnim = prominentFocus || focusedScale != 1f || unfocusedScale != 1f || unfocusedAlpha != 1f
 
-    val appIconBitmap: ImageBitmap? = remember(apkPackage) {
-        if (apkPackage == null) null
-        else runCatching {
-            context.packageManager.getApplicationIcon(apkPackage).toBitmap(192, 192).asImageBitmap()
-        }.getOrNull()
+    val cachedIcon = remember(apkPackage) { apkPackage?.let(AppIconCache::get) }
+    val appIconBitmap by produceState(initialValue = cachedIcon, key1 = apkPackage, key2 = fastScrolling) {
+        if (apkPackage == null) {
+            value = null
+        } else if (value == null && !fastScrolling) {
+            value = withContext(Dispatchers.IO) { AppIconCache.loadSync(context, apkPackage) }
+        }
     }
 
-    val scale = if (useFocusAnim) {
+    val scaleState = if (useFocusAnim) {
         animateFloatAsState(
             targetValue = if (isFocused) focusedScale else unfocusedScale,
-            animationSpec = spring(dampingRatio = 0.65f, stiffness = 420f),
+            animationSpec = if (fastScrolling) snap() else spring(dampingRatio = 0.65f, stiffness = 420f),
             label = "coverScale",
-        ).value
+        )
     } else {
-        1f
+        null
     }
-    val focusProgress = if (useFocusAnim) {
+    val focusProgressState = if (useFocusAnim) {
         animateFloatAsState(
             targetValue = if (isFocused) 1f else 0f,
-            animationSpec = spring(dampingRatio = 0.80f, stiffness = 480f),
+            animationSpec = if (fastScrolling) snap() else spring(dampingRatio = 0.80f, stiffness = 480f),
             label = "coverFocus",
-        ).value
-    } else if (isFocused) {
-        1f
+        )
     } else {
-        0f
+        null
     }
-    val dimAlpha = if (useFocusAnim && unfocusedAlpha < 1f && !isFocused) {
-        (1f - unfocusedAlpha) * (1f - focusProgress)
-    } else {
-        0f
-    }
-    // 仅聚焦卡片绘制柔和阴影，避免大批量非聚焦卡片触发 GPU 阴影重绘与离屏渲染
-    val elevation = if (isFocused) (if (prominentFocus) 10.dp else 8.dp) else 0.dp
+    // 仅在非快滚时为聚焦卡片绘制柔和阴影，避免高速连按滑动时触发离屏阴影重绘
+    val elevation = if (isFocused && !fastScrolling) (if (prominentFocus) 10.dp else 8.dp) else 0.dp
     val shadowColor = if (isFocused) DeckColors.Ruby else Color.Black
 
     val density = LocalDensity.current
@@ -222,23 +253,34 @@ fun CoverCard(
             },
         )
     }
-    var loadedSuccess by remember(candidates, candidateIdx) { mutableStateOf(false) }
+    val currentModel = candidates.getOrNull(candidateIdx)
+    var loadedSuccess by remember(currentModel) { mutableStateOf(false) }
+    var loadUnlocked by remember(currentModel) { mutableStateOf(!fastScrolling) }
+    if (!fastScrolling && !loadedSuccess && !loadUnlocked) {
+        loadUnlocked = true
+    }
 
-    val gestureModifier = if (onClick != null || onLongPress != null) {
-        Modifier.pointerInput(onClick, onLongPress) {
+    val currentOnClick by androidx.compose.runtime.rememberUpdatedState(onClick)
+    val currentOnLongPress by androidx.compose.runtime.rememberUpdatedState(onLongPress)
+    val hasClick = onClick != null
+    val hasLongPress = onLongPress != null
+    val gestureModifier = if (hasClick || hasLongPress) {
+        Modifier.pointerInput(hasClick, hasLongPress) {
             detectTapGestures(
                 onTap = {
-                    if (onClick != null) {
+                    currentOnClick?.let { cb ->
                         KeySound.playTouch(context)
-                        onClick()
-                    }
-                },
-                onLongPress = onLongPress?.let { cb ->
-                    {
-                        triggerLongPressHaptic(context, view)
                         cb()
                     }
                 },
+                onLongPress = if (hasLongPress) {
+                    {
+                        currentOnLongPress?.let { cb ->
+                            triggerLongPressHaptic(context, view)
+                            cb()
+                        }
+                    }
+                } else null,
             )
         }
     } else {
@@ -249,11 +291,20 @@ fun CoverCard(
         Modifier
             .zIndex(if (isFocused) 1f else 0f)
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                val s = scaleState?.value ?: 1f
+                scaleX = s
+                scaleY = s
             }
     } else {
         Modifier
+    }
+
+    val cardBorderColor = DeckColors.CardBorder
+    val dimColor = DeckColors.Background
+    val cornerRadiusDp = when {
+        shapeOverride == CircleShape -> null
+        isFocused -> 9.dp
+        else -> 7.dp
     }
 
     Box(
@@ -269,7 +320,78 @@ fun CoverCard(
             )
             .clip(shape)
             .background(DeckColors.Surface)
-            .then(gestureModifier),
+            .then(gestureModifier)
+            .drawWithContent {
+                drawContent()
+                val p = focusProgressState?.value ?: if (isFocused) 1f else 0f
+                if (useFocusAnim && unfocusedAlpha < 1f && p < 0.99f) {
+                    val dimAlpha = (1f - unfocusedAlpha) * (1f - p)
+                    if (dimAlpha > 0.01f) {
+                        drawRect(dimColor.copy(alpha = dimAlpha * 0.45f))
+                    }
+                }
+                if (p > 0.01f) {
+                    if (prominentFocus) {
+                        val outerStroke = 3.dp.toPx()
+                        val innerPad = 3.dp.toPx()
+                        val innerStroke = 2.dp.toPx()
+                        if (cornerRadiusDp == null) {
+                            drawCircle(
+                                color = cardBorderColor.copy(alpha = p),
+                                radius = ((size.minDimension - outerStroke) / 2f).coerceAtLeast(0f),
+                                style = Stroke(width = outerStroke),
+                            )
+                            val innerR = size.minDimension / 2f - innerPad - innerStroke / 2f
+                            drawCircle(
+                                color = Color.White.copy(alpha = p),
+                                radius = innerR.coerceAtLeast(0f),
+                                style = Stroke(width = innerStroke),
+                            )
+                        } else {
+                            val outerCorner = (cornerRadiusDp.toPx() - outerStroke / 2f).coerceAtLeast(0f)
+                            val h1 = outerStroke / 2f
+                            drawRoundRect(
+                                color = cardBorderColor.copy(alpha = p),
+                                topLeft = Offset(h1, h1),
+                                size = Size((size.width - outerStroke).coerceAtLeast(0f), (size.height - outerStroke).coerceAtLeast(0f)),
+                                cornerRadius = CornerRadius(outerCorner, outerCorner),
+                                style = Stroke(width = outerStroke),
+                            )
+                            val innerCorner = (6.dp.toPx() - innerStroke / 2f).coerceAtLeast(0f)
+                            val h2 = innerPad + innerStroke / 2f
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = p),
+                                topLeft = Offset(h2, h2),
+                                size = Size(
+                                    (size.width - innerPad * 2f - innerStroke).coerceAtLeast(0f),
+                                    (size.height - innerPad * 2f - innerStroke).coerceAtLeast(0f),
+                                ),
+                                cornerRadius = CornerRadius(innerCorner, innerCorner),
+                                style = Stroke(width = innerStroke),
+                            )
+                        }
+                    } else {
+                        val strokeW = 2.5.dp.toPx()
+                        val h = strokeW / 2f
+                        if (cornerRadiusDp == null) {
+                            drawCircle(
+                                color = cardBorderColor.copy(alpha = p),
+                                radius = ((size.minDimension - strokeW) / 2f).coerceAtLeast(0f),
+                                style = Stroke(width = strokeW),
+                            )
+                        } else {
+                            val cr = (cornerRadiusDp.toPx() - h).coerceAtLeast(0f)
+                            drawRoundRect(
+                                color = cardBorderColor.copy(alpha = p),
+                                topLeft = Offset(h, h),
+                                size = Size((size.width - strokeW).coerceAtLeast(0f), (size.height - strokeW).coerceAtLeast(0f)),
+                                cornerRadius = CornerRadius(cr, cr),
+                                style = Stroke(width = strokeW),
+                            )
+                        }
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         // 底层：加载中或无封面时显示精致默认封面（原生安卓游戏则居中显示应用图标）
@@ -283,15 +405,16 @@ fun CoverCard(
             )
         }
 
-        // 顶层：尝试加载候选封面，404 自动试下一个；按分档像素尺寸解码以复用缓存
+        // 顶层：快滚期只命中内存缓存（零磁盘解码/零联网）；停下解锁后按分档像素尺寸加载磁盘/网络封面
         val isOnline by NetworkStatus.online.collectAsState()
-        val currentModel = candidates.getOrNull(candidateIdx)
         if (currentModel != null) {
-            val request = remember(currentModel, isOnline, decodeBucketPx) {
+            val request = remember(currentModel, isOnline, decodeBucketPx, loadUnlocked) {
                 ImageRequest.Builder(context)
                     .data(currentModel)
                     .size(decodeBucketPx, decodeBucketPx)
-                    .networkCachePolicy(if (isOnline) CachePolicy.ENABLED else CachePolicy.DISABLED)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(if (loadUnlocked) CachePolicy.ENABLED else CachePolicy.DISABLED)
+                    .networkCachePolicy(if (loadUnlocked && isOnline) CachePolicy.ENABLED else CachePolicy.DISABLED)
                     .build()
             }
             AsyncImage(
@@ -303,32 +426,26 @@ fun CoverCard(
                     when (state) {
                         is AsyncImagePainter.State.Success -> {
                             loadedSuccess = true
-                            if (knownIndex != candidateIdx) {
+                            if (loadUnlocked && knownIndex != candidateIdx) {
                                 onCandidateResolved?.invoke(candidateIdx)
                             }
                         }
                         is AsyncImagePainter.State.Error -> {
                             loadedSuccess = false
-                            if (candidateIdx + 1 < candidates.size) {
-                                candidateIdx += 1
-                            } else {
-                                candidateIdx = -1
-                                if (knownIndex != -1) {
-                                    onCandidateResolved?.invoke(-1)
+                            if (loadUnlocked) {
+                                if (candidateIdx + 1 < candidates.size) {
+                                    candidateIdx += 1
+                                } else {
+                                    candidateIdx = -1
+                                    if (knownIndex != -1) {
+                                        onCandidateResolved?.invoke(-1)
+                                    }
                                 }
                             }
                         }
                         else -> Unit
                     }
                 },
-            )
-        }
-
-        if (dimAlpha > 0.01f) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(DeckColors.Background.copy(alpha = dimAlpha * 0.45f)),
             )
         }
 
@@ -357,26 +474,6 @@ fun CoverCard(
                 )
             }
         }
-
-        // 焦点描边画在最上层：使用浅色主题描边确保深/浅色封面都柔和清晰
-        if (focusProgress > 0.01f) {
-            if (prominentFocus) {
-                val innerShape = if (shapeOverride == CircleShape) CircleShape else RoundedCornerShape(6.dp)
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .border(3.dp, DeckColors.CardBorder.copy(alpha = focusProgress), shape)
-                        .padding(3.dp)
-                        .border(2.dp, Color.White.copy(alpha = focusProgress), innerShape),
-                )
-            } else {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .border(2.5.dp, DeckColors.CardBorder.copy(alpha = focusProgress), shape),
-                )
-            }
-        }
     }
 }
 
@@ -393,18 +490,19 @@ fun DefaultCoverArt(
         val idx = abs(title.hashCode()) % DEFAULT_PALETTES.size
         DEFAULT_PALETTES[idx]
     }
+    val bgBrush = remember(palette) {
+        Brush.linearGradient(
+            colors = listOf(palette.top, palette.bottom),
+            start = Offset(0f, 0f),
+            end = Offset(400f, 600f),
+        )
+    }
     val compact = cardHeight < 120.dp
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(palette.top, palette.bottom),
-                    start = Offset(0f, 0f),
-                    end = Offset(400f, 600f),
-                ),
-            ),
+            .background(bgBrush),
     ) {
         if (appIcon != null) {
             Image(
@@ -467,13 +565,7 @@ fun DefaultCoverArt(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.55f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.32f),
-                    ),
-                ),
+                .background(DEFAULT_COVER_SCRIM_BRUSH),
         )
 
         if (centeredTitle) {
@@ -543,6 +635,12 @@ fun DefaultCoverArt(
         }
     }
 }
+
+private val DEFAULT_COVER_SCRIM_BRUSH = Brush.verticalGradient(
+    0f to Color.Transparent,
+    0.55f to Color.Transparent,
+    1f to Color.Black.copy(alpha = 0.32f),
+)
 
 private data class CoverPalette(val top: Color, val bottom: Color)
 

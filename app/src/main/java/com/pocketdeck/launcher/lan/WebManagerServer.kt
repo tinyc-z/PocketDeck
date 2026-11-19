@@ -7,10 +7,14 @@ import com.pocketdeck.launcher.data.AppTheme
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.data.CategorySortOrder
 import com.pocketdeck.launcher.data.CoverSource
+import com.pocketdeck.launcher.data.FileTaskKind
+import com.pocketdeck.launcher.data.FileTaskSource
 import com.pocketdeck.launcher.data.GameRepository
 import com.pocketdeck.launcher.data.MetadataRepository
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.data.PlatformCatalog
+import com.pocketdeck.launcher.data.ScrapeLogStore
+import com.pocketdeck.launcher.data.RomScanner
 import com.pocketdeck.launcher.data.ThemeAccent
 import com.pocketdeck.launcher.data.UserData
 import com.pocketdeck.launcher.launch.GameLauncher
@@ -29,12 +33,43 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+enum class WebTransferDirection { Upload, Download }
+
+data class WebActiveTransfer(
+    val id: String,
+    val clientIp: String,
+    val userAgent: String,
+    val direction: WebTransferDirection,
+    val fileName: String,
+    val filePath: String,
+    val bytesTransferred: Long,
+    val totalBytes: Long,
+    val speedBytesPerSec: Long,
+    val startedAtMs: Long,
+)
+
+data class WebTransferHistoryItem(
+    val id: String,
+    val clientIp: String,
+    val userAgent: String,
+    val direction: WebTransferDirection,
+    val fileName: String,
+    val filePath: String,
+    val fileSize: Long,
+    val avgSpeedBytesPerSec: Long,
+    val completedAtMs: Long,
+    val success: Boolean = true,
+)
+
 data class WebClientInfo(
     val ip: String,
     val userAgent: String,
     val connectedAtMs: Long,
     val lastActiveMs: Long,
     val sessionCount: Int = 1,
+    val uploadSpeedBps: Long = 0L,
+    val downloadSpeedBps: Long = 0L,
+    val activeTransfers: List<WebActiveTransfer> = emptyList(),
 )
 
 data class WebThemeConfig(
@@ -86,6 +121,10 @@ class WebManagerServer(
         private const val GLOBAL_LOCKOUT_MS = 120_000L
         private const val MAX_COVER_UPLOAD_BYTES = 8 * 1024 * 1024L
         private const val MAX_CANDIDATE_TOKENS = 200
+        private const val MAX_WEB_HISTORY_ITEMS = 100
+        private const val STALL_ZERO_MS = 1_500L
+        private const val PROGRESS_SAMPLE_MS = 200L
+        private const val RANGE_MERGE_WINDOW_MS = 4_000L
     }
 
     private class SessionRecord(
@@ -96,6 +135,59 @@ class WebManagerServer(
         @Volatile var lastActiveMs: Long,
         val expiresAtMs: Long,
     )
+
+    private class ActiveTransferTracker(
+        val id: String,
+        val clientIp: String,
+        val userAgent: String,
+        val direction: WebTransferDirection,
+        val fileName: String,
+        val filePath: String,
+        @Volatile var totalBytes: Long,
+        val startedAtMs: Long,
+        val cancelAction: () -> Unit = {},
+    ) {
+        @Volatile var bytesTransferred: Long = 0L
+        @Volatile var speedBps: Long = 0L
+        @Volatile var lastSampleMs: Long = startedAtMs
+        @Volatile var lastSampleBytes: Long = 0L
+        @Volatile var lastChunkMs: Long = startedAtMs
+
+        fun onProgress(bytes: Long, total: Long): Boolean {
+            val now = System.currentTimeMillis()
+            bytesTransferred = bytes
+            if (total > 0L) totalBytes = total
+            lastChunkMs = now
+            val elapsed = now - lastSampleMs
+            if (elapsed >= PROGRESS_SAMPLE_MS) {
+                val delta = (bytes - lastSampleBytes).coerceAtLeast(0L)
+                val inst = (delta * 1000L) / elapsed
+                speedBps = if (speedBps == 0L) inst else ((speedBps * 6L + inst * 4L) / 10L)
+                lastSampleMs = now
+                lastSampleBytes = bytes
+                return true
+            }
+            return false
+        }
+
+        fun avgSpeedBps(endMs: Long, finalBytes: Long): Long {
+            val elapsed = (endMs - startedAtMs).coerceAtLeast(1L)
+            return if (finalBytes > 0L) (finalBytes * 1000L) / elapsed else 0L
+        }
+
+        fun toSnapshot(): WebActiveTransfer = WebActiveTransfer(
+            id = id,
+            clientIp = clientIp,
+            userAgent = userAgent,
+            direction = direction,
+            fileName = fileName,
+            filePath = filePath,
+            bytesTransferred = bytesTransferred,
+            totalBytes = totalBytes,
+            speedBytesPerSec = speedBps,
+            startedAtMs = startedAtMs,
+        )
+    }
 
     private class IpAuthState {
         val attemptTimestamps = ArrayDeque<Long>()
@@ -112,17 +204,27 @@ class WebManagerServer(
     private val random = SecureRandom()
     private var httpServer: HttpMiniServer? = null
     private val sessions = ConcurrentHashMap<String, SessionRecord>()
+    private val activeTransferMap = ConcurrentHashMap<String, ActiveTransferTracker>()
     private val candidateTokens = ConcurrentHashMap<String, CoverCandidateToken>()
     private val authLock = Any()
     private val ipAuthStates = HashMap<String, IpAuthState>()
     private val globalFailures = ArrayDeque<Long>()
     private var globalLockoutUntilMs = 0L
 
+    private val historyFile = File(context.filesDir, "web_transfer_history.json")
+    private val historyLock = Any()
+
     @Volatile
     private var themeConfig = WebThemeConfig()
 
     private val _connectedClients = MutableStateFlow<List<WebClientInfo>>(emptyList())
     val connectedClients: StateFlow<List<WebClientInfo>> = _connectedClients.asStateFlow()
+
+    private val _activeTransfers = MutableStateFlow<List<WebActiveTransfer>>(emptyList())
+    val activeTransfers: StateFlow<List<WebActiveTransfer>> = _activeTransfers.asStateFlow()
+
+    private val _transferHistory = MutableStateFlow<List<WebTransferHistoryItem>>(loadTransferHistory())
+    val transferHistory: StateFlow<List<WebTransferHistoryItem>> = _transferHistory.asStateFlow()
 
     @Volatile
     var dynamicPassword: String = generatePassword()
@@ -176,15 +278,17 @@ class WebManagerServer(
         httpServer = null
         activeInterface = null
         sessions.clear()
+        activeTransferMap.clear()
         candidateTokens.clear()
         publishClients()
     }
 
-    /** 刷新动态密码并立即吊销所有已有浏览器登录态。 */
+    /** 刷新动态密码、吊销所有登录态，并强行断开进行中的传输连接。 */
     fun refreshPassword(): String {
         val next = generatePassword()
         dynamicPassword = next
         sessions.clear()
+        httpServer?.closeAllSockets()
         publishClients()
         synchronized(authLock) {
             ipAuthStates.clear()
@@ -194,7 +298,7 @@ class WebManagerServer(
         return next
     }
 
-    /** 主动断开指定 IP 的所有 Web 登录会话。 */
+    /** 主动断开指定 IP 的所有 Web 登录会话，并强行关闭其活跃 Socket 以立刻中断传输。 */
     fun kickClient(ip: String) {
         if (ip.isBlank()) return
         var removed = false
@@ -205,7 +309,15 @@ class WebManagerServer(
                 removed = true
             }
         }
+        httpServer?.closeSocketsByIp(ip)
         if (removed) publishClients()
+    }
+
+    /** 仅取消并中断指定 ID 的单条上传/下载传输，不影响该客户端的其它任务或登录状态。 */
+    fun cancelActiveTransfer(id: String): Boolean {
+        val tracker = activeTransferMap[id] ?: return false
+        tracker.cancelAction()
+        return true
     }
 
     private fun generatePassword(): String =
@@ -247,17 +359,214 @@ class WebManagerServer(
 
     private fun publishClients() {
         val now = System.currentTimeMillis()
-        val active = sessions.values.filter { now <= it.expiresAtMs }
-        val grouped = active.groupBy { it.ip }.map { (ip, recs) ->
+        val activeSessions = sessions.values.filter { now <= it.expiresAtMs }
+        val activeTxSnapshots = activeTransferMap.values
+            .map { it.toSnapshot() }
+            .sortedBy { it.startedAtMs }
+        _activeTransfers.value = activeTxSnapshots
+
+        val sessionsByIp = activeSessions.groupBy { it.ip }
+        val txByIp = activeTxSnapshots.groupBy { it.clientIp }
+        val allIps = (sessionsByIp.keys + txByIp.keys)
+
+        val grouped = allIps.map { ip ->
+            val recs = sessionsByIp[ip].orEmpty()
+            val txs = txByIp[ip].orEmpty()
+            val ua = recs.maxByOrNull { it.lastActiveMs }?.userAgent
+                ?.ifBlank { txs.firstOrNull()?.userAgent.orEmpty() }
+                ?: txs.firstOrNull()?.userAgent.orEmpty()
+            val connectedAt = recs.minOfOrNull { it.connectedAtMs }
+                ?: txs.minOfOrNull { it.startedAtMs }
+                ?: now
+            val lastActive = recs.maxOfOrNull { it.lastActiveMs } ?: now
+            val upBps = txs.filter { it.direction == WebTransferDirection.Upload }.sumOf { it.speedBytesPerSec }
+            val downBps = txs.filter { it.direction == WebTransferDirection.Download }.sumOf { it.speedBytesPerSec }
             WebClientInfo(
                 ip = ip,
-                userAgent = recs.maxByOrNull { it.lastActiveMs }?.userAgent.orEmpty(),
-                connectedAtMs = recs.minOf { it.connectedAtMs },
-                lastActiveMs = recs.maxOf { it.lastActiveMs },
+                userAgent = ua,
+                connectedAtMs = connectedAt,
+                lastActiveMs = lastActive,
                 sessionCount = recs.size,
+                uploadSpeedBps = upBps,
+                downloadSpeedBps = downBps,
+                activeTransfers = txs,
             )
-        }.sortedByDescending { it.lastActiveMs }
+        }.sortedWith(
+            compareByDescending<WebClientInfo> { it.activeTransfers.isNotEmpty() }
+                .thenByDescending { it.lastActiveMs },
+        )
         _connectedClients.value = grouped
+    }
+
+    /** 浏览器暂停或网速归零超过 1.5s 时，将卡住的瞬时速率归零。 */
+    fun tickActiveTransfers() {
+        if (activeTransferMap.isEmpty()) return
+        val now = System.currentTimeMillis()
+        var dirty = false
+        for (tracker in activeTransferMap.values) {
+            if (now - tracker.lastChunkMs >= STALL_ZERO_MS && tracker.speedBps != 0L) {
+                tracker.speedBps = 0L
+                dirty = true
+            }
+        }
+        if (dirty) publishClients()
+    }
+
+    fun clearTransferHistory() {
+        synchronized(historyLock) {
+            _transferHistory.value = emptyList()
+            saveTransferHistory(emptyList())
+        }
+    }
+
+    fun deleteTransferHistoryItem(id: String) {
+        synchronized(historyLock) {
+            val cur = _transferHistory.value
+            val next = cur.filterNot { it.id == id }
+            if (next.size != cur.size) {
+                _transferHistory.value = next
+                saveTransferHistory(next)
+            }
+        }
+    }
+
+    private fun startTransfer(
+        req: HttpRequest,
+        direction: WebTransferDirection,
+        fileName: String,
+        filePath: String,
+        totalBytes: Long,
+    ): ActiveTransferTracker {
+        val now = System.currentTimeMillis()
+        val ip = req.remoteIp.ifBlank { "unknown" }
+        val ua = summarizeUserAgent(req.headers["user-agent"].orEmpty())
+        val id = UUID.randomUUID().toString()
+        val tracker = ActiveTransferTracker(
+            id = id,
+            clientIp = ip,
+            userAgent = ua,
+            direction = direction,
+            fileName = fileName,
+            filePath = filePath,
+            totalBytes = totalBytes.coerceAtLeast(0L),
+            startedAtMs = now,
+            cancelAction = req.cancelConnection,
+        )
+        activeTransferMap[id] = tracker
+        publishClients()
+        return tracker
+    }
+
+    private fun finishTransfer(
+        tracker: ActiveTransferTracker,
+        transferredBytes: Long,
+        success: Boolean,
+        recordHistory: Boolean,
+        overrideFileSize: Long? = null,
+    ) {
+        activeTransferMap.remove(tracker.id)
+        publishClients()
+        if (!recordHistory) return
+        val now = System.currentTimeMillis()
+        val size = overrideFileSize ?: if (transferredBytes > 0L) transferredBytes else tracker.totalBytes
+        recordTransferHistoryItem(
+            WebTransferHistoryItem(
+                id = tracker.id,
+                clientIp = tracker.clientIp,
+                userAgent = tracker.userAgent,
+                direction = tracker.direction,
+                fileName = tracker.fileName,
+                filePath = tracker.filePath,
+                fileSize = size.coerceAtLeast(0L),
+                avgSpeedBytesPerSec = tracker.avgSpeedBps(now, transferredBytes),
+                completedAtMs = now,
+                success = success,
+            ),
+        )
+    }
+
+    private fun recordTransferHistoryItem(item: WebTransferHistoryItem) {
+        synchronized(historyLock) {
+            val cur = _transferHistory.value
+            val prev = cur.firstOrNull()
+            // 合并多线程 Range 分片下载在短时间内产生的连续记录，避免刷屏历史列表
+            val next = if (
+                prev != null &&
+                prev.direction == WebTransferDirection.Download &&
+                item.direction == WebTransferDirection.Download &&
+                prev.clientIp == item.clientIp &&
+                prev.filePath == item.filePath &&
+                item.completedAtMs - prev.completedAtMs <= RANGE_MERGE_WINDOW_MS
+            ) {
+                val merged = prev.copy(
+                    fileSize = maxOf(prev.fileSize, item.fileSize),
+                    avgSpeedBytesPerSec = maxOf(prev.avgSpeedBytesPerSec, item.avgSpeedBytesPerSec),
+                    completedAtMs = item.completedAtMs,
+                    success = item.success && prev.success,
+                )
+                listOf(merged) + cur.drop(1)
+            } else {
+                (listOf(item) + cur).take(MAX_WEB_HISTORY_ITEMS)
+            }
+            _transferHistory.value = next
+            saveTransferHistory(next)
+        }
+    }
+
+    private fun loadTransferHistory(): List<WebTransferHistoryItem> = runCatching {
+        if (!historyFile.isFile) return emptyList()
+        val arr = JSONArray(historyFile.readText(StandardCharsets.UTF_8))
+        buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                val fileName = o.optString("fileName")
+                val filePath = o.optString("filePath")
+                if (id.isBlank() || fileName.isBlank() || filePath.isBlank()) continue
+                val dir = if (o.optString("direction") == WebTransferDirection.Upload.name) {
+                    WebTransferDirection.Upload
+                } else {
+                    WebTransferDirection.Download
+                }
+                add(
+                    WebTransferHistoryItem(
+                        id = id,
+                        clientIp = o.optString("clientIp", "unknown"),
+                        userAgent = o.optString("userAgent", ""),
+                        direction = dir,
+                        fileName = fileName,
+                        filePath = filePath,
+                        fileSize = o.optLong("fileSize", 0L),
+                        avgSpeedBytesPerSec = o.optLong("avgSpeedBytesPerSec", 0L),
+                        completedAtMs = o.optLong("completedAtMs", 0L),
+                        success = o.optBoolean("success", true),
+                    ),
+                )
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    private fun saveTransferHistory(list: List<WebTransferHistoryItem>) {
+        runCatching {
+            val arr = JSONArray()
+            for (item in list) {
+                arr.put(
+                    JSONObject().apply {
+                        put("id", item.id)
+                        put("clientIp", item.clientIp)
+                        put("userAgent", item.userAgent)
+                        put("direction", item.direction.name)
+                        put("fileName", item.fileName)
+                        put("filePath", item.filePath)
+                        put("fileSize", item.fileSize)
+                        put("avgSpeedBytesPerSec", item.avgSpeedBytesPerSec)
+                        put("completedAtMs", item.completedAtMs)
+                        put("success", item.success)
+                    },
+                )
+            }
+            historyFile.writeText(arr.toString(), StandardCharsets.UTF_8)
+        }
     }
 
     private fun summarizeUserAgent(ua: String): String {
@@ -322,6 +631,8 @@ class WebManagerServer(
                     .put("theme", themeConfig.toJson())
                     .put("online", NetworkStatus.isOnline(context))
                     .put("authed", authed)
+                    .put("filesRevision", repo.filesRevision.value)
+                    .put("activeTaskCount", repo.fileTasks.value.size)
                     .toString(),
             )
             return
@@ -381,7 +692,40 @@ class WebManagerServer(
             req.method == "POST" && req.path == "/api/files/batch-move" -> handleBatchMove(req, res)
             req.method == "POST" && req.path == "/api/files/batch-copy" -> handleBatchCopy(req, res)
             req.method == "POST" && req.path == "/api/files/batch-delete" -> handleBatchDelete(req, res)
+            req.method == "GET" && req.path == "/api/files/tasks" -> handleFileTasks(res)
+            req.method == "POST" && req.path == "/api/files/tasks/cancel" -> handleCancelFileTask(req, res)
+            req.method == "GET" && req.path == "/api/scrape-logs" -> {
+                ScrapeLogStore.init(context)
+                val arr = JSONArray()
+                ScrapeLogStore.readRecentLines(300).forEach { arr.put(it) }
+                res.sendJson(
+                    200,
+                    JSONObject()
+                        .put("ok", true)
+                        .put("path", ScrapeLogStore.filePath())
+                        .put("lines", arr)
+                        .toString(),
+                )
+            }
+            req.method == "GET" && req.path == "/api/scrape-logs/download" -> {
+                ScrapeLogStore.init(context)
+                val bytes = ScrapeLogStore.readRawText().toByteArray(Charsets.UTF_8)
+                res.sendBytes(
+                    200,
+                    bytes,
+                    "text/plain; charset=utf-8",
+                    extraHeaders = mapOf(
+                        "Content-Disposition" to "attachment; filename=\"pocketdeck-scrape.log\"",
+                    ),
+                )
+            }
+            req.method == "POST" && req.path == "/api/scrape-logs/clear" -> {
+                ScrapeLogStore.init(context)
+                ScrapeLogStore.clear()
+                res.sendJson(200, """{"ok":true}""")
+            }
             req.method == "POST" && req.path == "/api/rescan" -> {
+                repo.notifyFilesChanged()
                 repo.refresh()
                 res.sendJson(200, """{"ok":true}""")
             }
@@ -509,13 +853,13 @@ class WebManagerServer(
         val officialNames = metadataRepo.officialNames.value
         val metaRes = metadataRepo.resolutionInfo.value
 
-        val plat = lib?.platforms?.firstOrNull { it.id == g.platformId }
+        val plat = lib?.platform(g.platformId)
             ?: PlatformCatalog.forFolder(g.platformId).let { p ->
                 val aspect = u?.platformAspects?.get(p.id)
                 if (aspect != null) p.copy(coverAspect = aspect) else p
             }
         val isRom = !g.id.startsWith(GameLauncher.APK_PREFIX)
-        val fileSize = if (isRom) runCatching { File(g.id).length() }.getOrDefault(0L) else g.fileSize
+        val fileSize = if (g.fileSize > 0L || !isRom) g.fileSize else runCatching { File(g.id).length() }.getOrDefault(0L)
         val m = metaMap[g.id]
         val mInfo = metaRes[g.id]
         val cInfo = covers.resolveCoverInfo(g)
@@ -586,7 +930,12 @@ class WebManagerServer(
             res.sendText(404, "No cover")
             return
         }
-        res.sendBytes(200, resolved.second, resolved.first)
+        res.sendBytes(
+            200,
+            resolved.second,
+            resolved.first,
+            extraHeaders = mapOf("Cache-Control" to "private, max-age=86400"),
+        )
     }
 
     private suspend fun handleCoverCandidate(req: HttpRequest, res: HttpResponseWriter) {
@@ -770,22 +1119,30 @@ class WebManagerServer(
             res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
             return
         }
-        if (req.contentLength <= 0L || req.contentLength > MAX_COVER_UPLOAD_BYTES) {
+        if ((!req.isChunked && req.contentLength <= 0L) || req.contentLength > MAX_COVER_UPLOAD_BYTES) {
             res.sendJson(400, """{"ok":false,"error":"invalid_image_size"}""")
             return
         }
         val bytes = req.readBodyBytes(MAX_COVER_UPLOAD_BYTES.toInt())
+        if (bytes.isEmpty()) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_image_size"}""")
+            return
+        }
         val ext = detectImageExt(bytes)
         if (ext == null) {
             res.sendJson(400, """{"ok":false,"error":"invalid_image_format"}""")
             return
         }
         val dir = File(context.filesDir, "custom_covers").apply { mkdirs() }
+        val prevCover = repo.user.value?.covers?.get(id)
         val target = File(dir, "upload_${System.currentTimeMillis()}.$ext")
         val saved = runCatching { target.writeBytes(bytes); true }.getOrDefault(false)
         if (!saved) {
             res.sendJson(500, """{"ok":false,"error":"save_failed"}""")
             return
+        }
+        if (prevCover != null && prevCover.startsWith(dir.absolutePath) && prevCover != target.absolutePath) {
+            runCatching { File(prevCover).delete() }
         }
         covers.forget(id)
         val existingName = repo.user.value?.renames?.get(id)
@@ -799,6 +1156,11 @@ class WebManagerServer(
         if (id.isBlank()) {
             res.sendJson(400, """{"ok":false,"error":"missing_id"}""")
             return
+        }
+        val dir = File(context.filesDir, "custom_covers")
+        val prevCover = repo.user.value?.covers?.get(id)
+        if (prevCover != null && prevCover.startsWith(dir.absolutePath)) {
+            runCatching { File(prevCover).delete() }
         }
         covers.forget(id)
         val existingName = repo.user.value?.renames?.get(id)
@@ -999,25 +1361,31 @@ class WebManagerServer(
         }
 
         val libById = repo.fullLibrary.value?.byId.orEmpty()
+        val hiddenIds = repo.user.value?.hidden.orEmpty()
         val children = target.listFiles { f -> !f.name.startsWith(".") }
             .orEmpty()
             .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
         val arr = JSONArray()
         for (f in children) {
-            val isArchive = f.isFile && ArchiveManager.isArchive(f)
-            val isImage = f.isFile && ArchiveManager.isImageFile(f)
-            val isAudio = f.isFile && ArchiveManager.isAudioFile(f)
-            val isFont = f.isFile && ArchiveManager.isFontFile(f)
-            val isText = f.isFile && !isArchive && !isImage && !isAudio && !isFont &&
+            val isDir = f.isDirectory
+            val isFile = !isDir && f.isFile
+            val absPath = f.absolutePath
+            val isRom = isFile && libById.containsKey(absPath) && RomScanner.isPotentialRomFile(f)
+            val isArchive = isFile && ArchiveManager.isArchive(f)
+            val isImage = isFile && ArchiveManager.isImageFile(f)
+            val isAudio = isFile && ArchiveManager.isAudioFile(f)
+            val isFont = isFile && ArchiveManager.isFontFile(f)
+            val isText = isFile && !isRom && !isArchive && !isImage && !isAudio && !isFont &&
                 (ArchiveManager.isKnownTextFile(f) || ArchiveManager.looksLikeTextFile(f))
             arr.put(
                 JSONObject().apply {
                     put("name", f.name)
-                    put("path", f.absolutePath)
-                    put("isDir", f.isDirectory)
-                    put("size", if (f.isFile) f.length() else 0L)
+                    put("path", absPath)
+                    put("isDir", isDir)
+                    put("size", if (isFile) f.length() else 0L)
                     put("modified", f.lastModified())
-                    put("isRom", libById.containsKey(f.absolutePath))
+                    put("isRom", isRom)
+                    put("isHidden", isRom && absPath in hiddenIds)
                     put("isArchive", isArchive)
                     put("isImage", isImage)
                     put("isAudio", isAudio)
@@ -1072,7 +1440,39 @@ class WebManagerServer(
             res.sendText(404, "File not found")
             return
         }
-        res.sendFile(file, attachmentName = file.name, rangeHeader = req.headers["range"])
+        val fileLen = file.length()
+        val tracker = startTransfer(
+            req = req,
+            direction = WebTransferDirection.Download,
+            fileName = file.name,
+            filePath = file.absolutePath,
+            totalBytes = fileLen,
+        )
+        var sentBytes = 0L
+        var completed = false
+        try {
+            sentBytes = res.sendFile(
+                file = file,
+                attachmentName = file.name,
+                rangeHeader = req.headers["range"],
+                onProgress = { sent, total ->
+                    sentBytes = sent
+                    if (tracker.onProgress(sent, total)) publishClients()
+                },
+            )
+            completed = true
+        } finally {
+            val isRange = req.headers.containsKey("range")
+            val record = sentBytes > 0L
+            val historySize = if (isRange && fileLen > 0L) fileLen else sentBytes
+            finishTransfer(
+                tracker = tracker,
+                transferredBytes = sentBytes,
+                success = completed && (isRange || sentBytes >= fileLen),
+                recordHistory = record,
+                overrideFileSize = historySize,
+            )
+        }
     }
 
     private suspend fun handleRawFile(req: HttpRequest, res: HttpResponseWriter) {
@@ -1101,7 +1501,39 @@ class WebManagerServer(
                 return
             }
         }
-        res.sendFile(file, contentType = mime, attachmentName = null, rangeHeader = req.headers["range"])
+        val fileLen = file.length()
+        if (fileLen >= 512 * 1024L) {
+            val tracker = startTransfer(
+                req = req,
+                direction = WebTransferDirection.Download,
+                fileName = file.name,
+                filePath = file.absolutePath,
+                totalBytes = fileLen,
+            )
+            var sentBytes = 0L
+            var completed = false
+            try {
+                sentBytes = res.sendFile(
+                    file = file,
+                    contentType = mime,
+                    attachmentName = null,
+                    rangeHeader = req.headers["range"],
+                    onProgress = { sent, total ->
+                        if (tracker.onProgress(sent, total)) publishClients()
+                    },
+                )
+                completed = true
+            } finally {
+                finishTransfer(
+                    tracker = tracker,
+                    transferredBytes = sentBytes,
+                    success = completed,
+                    recordHistory = false,
+                )
+            }
+        } else {
+            res.sendFile(file, contentType = mime, attachmentName = null, rangeHeader = req.headers["range"])
+        }
     }
 
     private suspend fun handleReadText(req: HttpRequest, res: HttpResponseWriter) {
@@ -1148,6 +1580,7 @@ class WebManagerServer(
         }
         val ok = runCatching { file.writeText(content, StandardCharsets.UTF_8) }.isSuccess
         if (ok) {
+            repo.notifyFilesChanged()
             res.sendJson(200, """{"ok":true}""")
         } else {
             res.sendJson(500, """{"ok":false,"error":"write_failed"}""")
@@ -1203,9 +1636,24 @@ class WebManagerServer(
             }
             candidate
         }
-        val result = ArchiveManager.extract(file, destDir)
+        val clientIp = req.remoteIp
+        val isAsync = req.query["async"] == "1"
+        if (isAsync) {
+            repo.launchFileTask {
+                repo.extractArchive(file, destDir, source = FileTaskSource.Web, clientIp = clientIp)
+            }
+            res.sendJson(
+                202,
+                JSONObject().apply {
+                    put("ok", true)
+                    put("async", true)
+                    put("dest", destDir.name)
+                }.toString(),
+            )
+            return
+        }
+        val result = repo.extractArchive(file, destDir, source = FileTaskSource.Web, clientIp = clientIp)
         if (result.isSuccess) {
-            repo.refresh()
             res.sendJson(
                 200,
                 JSONObject().apply {
@@ -1248,9 +1696,25 @@ class WebManagerServer(
         }
         val zipFileName = if (rawZipName.endsWith(".zip", ignoreCase = true)) rawZipName else "$rawZipName.zip"
         val destZip = uniqueFile(targetDir, zipFileName)
-        val result = ArchiveManager.compressToZip(sources, destZip)
+        val clientIp = req.remoteIp
+        val isAsync = req.query["async"] == "1"
+        if (isAsync) {
+            repo.launchFileTask {
+                repo.compressToZip(sources, destZip, source = FileTaskSource.Web, clientIp = clientIp)
+            }
+            res.sendJson(
+                202,
+                JSONObject()
+                    .put("ok", true)
+                    .put("async", true)
+                    .put("name", destZip.name)
+                    .put("path", destZip.absolutePath)
+                    .toString(),
+            )
+            return
+        }
+        val result = repo.compressToZip(sources, destZip, source = FileTaskSource.Web, clientIp = clientIp)
         if (result.isSuccess) {
-            repo.refresh()
             res.sendJson(200, JSONObject().put("ok", true).put("name", destZip.name).put("path", destZip.absolutePath).toString())
         } else {
             res.sendJson(500, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "compress_failed").toString())
@@ -1296,28 +1760,67 @@ class WebManagerServer(
             baseDir
         }
 
-        if (req.contentLength <= 0L && !req.isChunked) {
+        if (req.contentLength < 0L && !req.isChunked) {
             res.sendJson(400, """{"ok":false,"error":"empty_body"}""")
             return
         }
 
         val finalTarget = uniqueFile(targetDir, cleanName)
         val partFile = File(targetDir, ".upload_${System.currentTimeMillis()}_${finalTarget.name}.part")
-        val ok = runCatching {
-            partFile.outputStream().use { out ->
-                val written = req.copyBodyTo(out)
-                check(req.isChunked || written == req.contentLength) { "Incomplete upload: $written/${req.contentLength}" }
+        val uploadTask = repo.beginFileTask(
+            kind = FileTaskKind.Upload,
+            source = FileTaskSource.Web,
+            title = finalTarget.name,
+            detail = targetDir.name,
+            clientIp = req.remoteIp,
+            totalBytes = req.contentLength.coerceAtLeast(0L),
+            cancellable = true,
+            onCancel = req.cancelConnection,
+        )
+        val tracker = startTransfer(
+            req = req,
+            direction = WebTransferDirection.Upload,
+            fileName = finalTarget.name,
+            filePath = finalTarget.absolutePath,
+            totalBytes = req.contentLength.coerceAtLeast(0L),
+        )
+        var writtenBytes = 0L
+        var ok = false
+        try {
+            ok = runCatching {
+                partFile.outputStream().use { out ->
+                    val written = req.copyBodyTo(out) { copied ->
+                        writtenBytes = copied
+                        if (tracker.onProgress(copied, tracker.totalBytes)) {
+                            repo.updateFileTask(uploadTask.id, bytesDone = copied, totalBytes = tracker.totalBytes)
+                            publishClients()
+                        }
+                    }
+                    writtenBytes = written
+                    check(req.isChunked || written == req.contentLength) { "Incomplete upload: $written/${req.contentLength}" }
+                }
+                check(partFile.renameTo(finalTarget)) { "Cannot finalize uploaded file" }
+                true
+            }.getOrElse {
+                runCatching { partFile.delete() }
+                false
             }
-            check(partFile.renameTo(finalTarget)) { "Cannot finalize uploaded file" }
-            true
-        }.getOrElse {
-            runCatching { partFile.delete() }
-            false
+        } finally {
+            repo.endFileTask(uploadTask.id)
+            val savedSize = if (ok) finalTarget.length() else writtenBytes
+            finishTransfer(
+                tracker = tracker,
+                transferredBytes = writtenBytes,
+                success = ok,
+                recordHistory = true,
+                overrideFileSize = savedSize,
+            )
         }
         if (!ok) {
             res.sendJson(500, """{"ok":false,"error":"upload_failed"}""")
             return
         }
+        repo.notifyFilesChanged()
         repo.refresh()
         res.sendJson(
             200,
@@ -1350,6 +1853,7 @@ class WebManagerServer(
             res.sendJson(500, """{"ok":false,"error":"mkdir_failed"}""")
             return
         }
+        repo.notifyFilesChanged()
         res.sendJson(200, """{"ok":true}""")
     }
 
@@ -1390,7 +1894,7 @@ class WebManagerServer(
             res.sendJson(403, """{"ok":false,"error":"cannot_move_root"}""")
             return
         }
-        val result = repo.moveFile(file, targetDir)
+        val result = repo.moveFile(file, targetDir, source = FileTaskSource.Web, clientIp = req.remoteIp)
         if (result.isSuccess) {
             res.sendJson(200, """{"ok":true}""")
         } else {
@@ -1413,7 +1917,7 @@ class WebManagerServer(
             res.sendJson(403, """{"ok":false,"error":"cannot_copy_root"}""")
             return
         }
-        val result = repo.copyFile(file, targetDir)
+        val result = repo.copyFile(file, targetDir, source = FileTaskSource.Web, clientIp = req.remoteIp)
         if (result.isSuccess) {
             res.sendJson(200, """{"ok":true}""")
         } else {
@@ -1434,7 +1938,7 @@ class WebManagerServer(
             res.sendJson(403, """{"ok":false,"error":"cannot_delete_root"}""")
             return
         }
-        val result = repo.deleteFile(file)
+        val result = repo.deleteFile(file, source = FileTaskSource.Web, clientIp = req.remoteIp)
         if (result.isSuccess) {
             res.sendJson(200, """{"ok":true}""")
         } else {
@@ -1453,7 +1957,15 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
             return
         }
-        val result = repo.moveEntries(entries, targetDir)
+        val clientIp = req.remoteIp
+        if (req.query["async"] == "1") {
+            repo.launchFileTask {
+                repo.moveEntries(entries, targetDir, source = FileTaskSource.Web, clientIp = clientIp)
+            }
+            res.sendJson(202, JSONObject().put("ok", true).put("async", true).put("count", entries.size).toString())
+            return
+        }
+        val result = repo.moveEntries(entries, targetDir, source = FileTaskSource.Web, clientIp = clientIp)
         if (result.isSuccess) {
             res.sendJson(200, JSONObject().put("ok", true).put("count", result.getOrDefault(0)).toString())
         } else {
@@ -1472,7 +1984,15 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
             return
         }
-        val result = repo.copyEntries(entries, targetDir)
+        val clientIp = req.remoteIp
+        if (req.query["async"] == "1") {
+            repo.launchFileTask {
+                repo.copyEntries(entries, targetDir, source = FileTaskSource.Web, clientIp = clientIp)
+            }
+            res.sendJson(202, JSONObject().put("ok", true).put("async", true).put("count", entries.size).toString())
+            return
+        }
+        val result = repo.copyEntries(entries, targetDir, source = FileTaskSource.Web, clientIp = clientIp)
         if (result.isSuccess) {
             res.sendJson(200, JSONObject().put("ok", true).put("count", result.getOrDefault(0)).toString())
         } else {
@@ -1489,12 +2009,70 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
             return
         }
-        val result = repo.deleteEntries(entries)
+        val clientIp = req.remoteIp
+        if (req.query["async"] == "1") {
+            repo.launchFileTask {
+                repo.deleteEntries(entries, source = FileTaskSource.Web, clientIp = clientIp)
+            }
+            res.sendJson(202, JSONObject().put("ok", true).put("async", true).put("count", entries.size).toString())
+            return
+        }
+        val result = repo.deleteEntries(entries, source = FileTaskSource.Web, clientIp = clientIp)
         if (result.isSuccess) {
             res.sendJson(200, JSONObject().put("ok", true).put("count", result.getOrDefault(0)).toString())
         } else {
             res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "batch_delete_failed").toString())
         }
+    }
+
+    private fun handleFileTasks(res: HttpResponseWriter) {
+        val now = System.currentTimeMillis()
+        val arr = JSONArray()
+        for (t in repo.fileTasks.value) {
+            arr.put(
+                JSONObject().apply {
+                    put("id", t.id)
+                    put("kind", t.kind.name.lowercase())
+                    put("source", t.source.name.lowercase())
+                    put("title", t.title)
+                    put("detail", t.detail)
+                    put("bytesDone", t.bytesDone)
+                    put("totalBytes", t.totalBytes)
+                    put("elapsedMs", (now - t.startedAtMs).coerceAtLeast(0L))
+                    put("cancelling", t.cancelling)
+                    put("cancellable", t.cancellable)
+                },
+            )
+        }
+        val evt = repo.lastFileTaskEvent.value
+        val evtObj = evt?.let {
+            JSONObject().apply {
+                put("seq", it.seq)
+                put("taskId", it.taskId)
+                put("kind", it.kind.name.lowercase())
+                put("source", it.source.name.lowercase())
+                put("title", it.title)
+                put("success", it.success)
+                put("cancelled", it.cancelled)
+                put("count", it.count)
+                put("createdName", it.createdName ?: "")
+                put("error", it.error ?: "")
+            }
+        }
+        val body = JSONObject().apply {
+            put("ok", true)
+            put("filesRevision", repo.filesRevision.value)
+            put("tasks", arr)
+            if (evtObj != null) put("lastEvent", evtObj)
+        }
+        res.sendJson(200, body.toString())
+    }
+
+    private suspend fun handleCancelFileTask(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val id = body?.optString("id", "").orEmpty()
+        val cancelled = id.isNotBlank() && repo.cancelFileTask(id)
+        res.sendJson(200, JSONObject().put("ok", cancelled).toString())
     }
 
     private fun resolveBatchEntries(arr: JSONArray?, roots: List<File>): List<File>? {

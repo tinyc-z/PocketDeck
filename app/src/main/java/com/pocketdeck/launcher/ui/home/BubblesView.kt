@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -25,6 +24,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,15 +36,10 @@ import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.ui.components.GameCoverCard
 import kotlin.math.abs
 
-private data class BubbleRow(
-    val startIndex: Int,
-    val games: List<Game>,
-)
-
 /**
  * Bubbles 视图：顶部固定显示当前选中游戏名 + 圆形封面蜂窝错行排列（3 / 4 / 3 / 4 交替）。
  *
- * - 固定行高避免焦点切换时 LazyColumn 频繁触发布局重测
+ * - 固定行高 + O(1) 闭式行索引计算，避免焦点切换时全列表重算与 relayout 卡顿
  * - 选中游戏以弹性缩放 + 红白双环 prominentFocus 突出显示
  * - 连续长按上下键时使用平滑线性短动画，不反复打断重启动画
  */
@@ -59,6 +54,7 @@ fun BubblesView(
     onFocusChange: (Int) -> Unit,
     onLaunch: (Game) -> Unit,
     onLongPress: ((Game) -> Unit)? = null,
+    fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (games.isEmpty()) {
@@ -66,18 +62,15 @@ fun BubblesView(
         return
     }
 
-    val rows = remember(games) { buildHoneycombRows(games) }
-    val focusedRowIdx = remember(focusIndex, rows) {
-        rows.indexOfFirst { focusIndex in it.startIndex until (it.startIndex + it.games.size) }
-            .coerceAtLeast(0)
-    }
+    val totalRows = honeycombTotalRows(games.size)
+    val focusedRowIdx = honeycombRowOf(focusIndex.coerceIn(0, games.lastIndex))
 
     val listState = rememberLazyListState()
     var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(focusedRowIdx, rows.size) {
-        if (focusedRowIdx !in rows.indices) return@LaunchedEffect
+    LaunchedEffect(focusedRowIdx, totalRows) {
+        if (focusedRowIdx !in 0 until totalRows) return@LaunchedEffect
         val now = SystemClock.uptimeMillis()
-        val rapidRepeat = now - lastScrollTriggerMs < 170L
+        val rapidRepeat = fastScrolling || (now - lastScrollTriggerMs < 170L)
         lastScrollTriggerMs = now
 
         val info = listState.layoutInfo
@@ -108,10 +101,12 @@ fun BubblesView(
     }
 
     val focusedGame = games.getOrNull(focusIndex)
-    val placePillAtTop by remember(focusedRowIdx, rows.size) {
+    val latestFocusedRowIdx by rememberUpdatedState(focusedRowIdx)
+    val placePillAtTop by remember {
         derivedStateOf {
+            val targetRow = latestFocusedRowIdx
             val info = listState.layoutInfo
-            val item = info.visibleItemsInfo.firstOrNull { it.index == focusedRowIdx }
+            val item = info.visibleItemsInfo.firstOrNull { it.index == targetRow }
             val viewportH = info.viewportEndOffset - info.viewportStartOffset
             if (item != null && viewportH > 0) {
                 val itemCenterY = item.offset + item.size / 2f
@@ -136,17 +131,20 @@ fun BubblesView(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 46.dp),
             ) {
-                itemsIndexed(
-                    items = rows,
-                    key = { idx, row -> "${row.startIndex}_$idx" },
-                    contentType = { _, _ -> "bubble_row" },
-                ) { rowIndex, row ->
+                items(
+                    count = totalRows,
+                    key = { rowIndex -> games[honeycombRowStart(rowIndex)].id },
+                    contentType = { "bubble_row" },
+                ) { rowIndex ->
                     val rowFocused = rowIndex == focusedRowIdx
+                    val rowStart = honeycombRowStart(rowIndex)
+                    val rowCount = honeycombRowCount(rowIndex, games.size)
 
                     @Composable
                     fun renderBubbles() {
-                        row.games.forEachIndexed { offset, game ->
-                            val gameIdx = row.startIndex + offset
+                        for (offset in 0 until rowCount) {
+                            val gameIdx = rowStart + offset
+                            val game = games[gameIdx]
                             val plat = platformOf(game)
                             val focused = gameIdx == focusIndex
 
@@ -159,6 +157,7 @@ fun BubblesView(
                                 height = bubbleSize,
                                 isFocused = focused,
                                 isFavorite = game.id in favorites,
+                                fastScrolling = fastScrolling,
                                 prominentFocus = true,
                                 focusedScale = 1.16f,
                                 unfocusedScale = 0.89f,
@@ -173,7 +172,7 @@ fun BubblesView(
                         }
                     }
 
-                    if (rows.size == 1) {
+                    if (totalRows == 1) {
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -215,48 +214,45 @@ fun BubblesView(
             index = focusIndex,
             total = games.size,
             placeAtTop = placePillAtTop,
+            fastScrolling = fastScrolling,
         )
     }
 }
 
-private fun buildHoneycombRows(games: List<Game>): List<BubbleRow> {
-    val rows = ArrayList<BubbleRow>()
-    var i = 0
-    var rowIndex = 0
-    while (i < games.size) {
-        val count = if (rowIndex % 2 == 0) 3 else 4
-        val end = (i + count).coerceAtMost(games.size)
-        rows += BubbleRow(startIndex = i, games = games.subList(i, end))
-        i = end
-        rowIndex++
-    }
-    return rows
+private fun honeycombRowOf(index: Int): Int {
+    val pair = index / 7
+    return pair * 2 + if (index % 7 < 3) 0 else 1
 }
 
-/** 计算蜂窝视图中按上下方向键的新焦点下标。 */
+private fun honeycombRowStart(row: Int): Int =
+    (row / 2) * 7 + if (row % 2 == 0) 0 else 3
+
+private fun honeycombRowCount(row: Int, total: Int): Int =
+    minOf(if (row % 2 == 0) 3 else 4, (total - honeycombRowStart(row)).coerceAtLeast(0))
+
+private fun honeycombTotalRows(total: Int): Int =
+    if (total <= 0) 0 else (total / 7) * 2 + when {
+        total % 7 == 0 -> 0
+        total % 7 <= 3 -> 1
+        else -> 2
+    }
+
+/** 计算蜂窝视图中按上下方向键的新焦点下标（O(1) 闭式计算，零分配）。 */
 fun bubblesMoveVertical(currentIndex: Int, total: Int, rowDelta: Int): Int {
     if (total <= 1) return 0
-    val rowRanges = ArrayList<IntRange>()
-    var i = 0
-    var row = 0
-    while (i < total) {
-        val count = if (row % 2 == 0) 3 else 4
-        val end = (i + count).coerceAtMost(total)
-        rowRanges += i until end
-        i = end
-        row++
-    }
-    val curRowIdx = rowRanges.indexOfFirst { currentIndex in it }.coerceAtLeast(0)
-    val targetRowIdx = (curRowIdx + rowDelta).coerceIn(0, rowRanges.lastIndex)
-    if (targetRowIdx == curRowIdx) return currentIndex
+    val totalRows = honeycombTotalRows(total)
+    val clamped = currentIndex.coerceIn(0, total - 1)
+    val curRowIdx = honeycombRowOf(clamped)
+    val targetRowIdx = (curRowIdx + rowDelta).coerceIn(0, totalRows - 1)
+    if (targetRowIdx == curRowIdx) return clamped
 
     fun slotX(rowIdx: Int, col: Int): Float =
-        (if (rowRanges.size > 1 && rowIdx % 2 == 0) 0.5f else 0f) + col
+        (if (totalRows > 1 && rowIdx % 2 == 0) 0.5f else 0f) + col
 
-    val curRange = rowRanges[curRowIdx]
-    val targetRange = rowRanges[targetRowIdx]
-    val curX = slotX(curRowIdx, currentIndex - curRange.first)
-    val targetSize = (targetRange.last - targetRange.first + 1).coerceAtLeast(1)
+    val curStart = honeycombRowStart(curRowIdx)
+    val targetStart = honeycombRowStart(targetRowIdx)
+    val targetSize = honeycombRowCount(targetRowIdx, total).coerceAtLeast(1)
+    val curX = slotX(curRowIdx, clamped - curStart)
     var bestCol = 0
     var bestDist = Float.MAX_VALUE
     for (col in 0 until targetSize) {
@@ -266,5 +262,5 @@ fun bubblesMoveVertical(currentIndex: Int, total: Int, rowDelta: Int): Int {
             bestCol = col
         }
     }
-    return (targetRange.first + bestCol).coerceIn(0, total - 1)
+    return (targetStart + bestCol).coerceIn(0, total - 1)
 }

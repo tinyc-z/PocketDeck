@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PocketDeck QuickShare 协议测试工具</title>
+  <style>
+    :root {
+      --bg: #f6f4f3;
+      --surface: #ffffff;
+      --surface-soft: #faf8f7;
+      --border: #e4dedc;
+      --text: #1e1b1b;
+      --muted: #6e6565;
+      --ruby: #b81d2c;
+      --ruby-soft: #fbecee;
+      --ok: #157f4b;
+      --ok-soft: #eaf8f0;
+      --warn: #b45309;
+      --warn-soft: #fef5e7;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 24px 18px 48px;
+      display: grid;
+      gap: 16px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sub { font-size: 13px; color: var(--muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .card h2 {
+      margin: 0;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .field {
+      display: grid;
+      gap: 4px;
+      flex: 1;
+      min-width: 130px;
+    }
+    label { font-size: 12px; color: var(--muted); font-weight: 600; }
+    input, select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-soft);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+    input:focus, select:focus { border-color: var(--ruby); background: #fff; }
+    button {
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      color: var(--text);
+      padding: 8px 13px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.15s ease;
+    }
+    button:hover:not(:disabled) { border-color: var(--ruby); color: var(--ruby); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.primary {
+      background: var(--ruby);
+      border-color: var(--ruby);
+      color: #fff;
+    }
+    button.primary:hover:not(:disabled) { filter: brightness(0.92); color: #fff; }
+    button.danger {
+      background: var(--ruby-soft);
+      border-color: #f0c2c7;
+      color: var(--ruby);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .pill.ok { background: var(--ok-soft); border-color: #bfe7d1; color: var(--ok); }
+    .pill.warn { background: var(--warn-soft); border-color: #f5d8a8; color: var(--warn); }
+    .pill.err { background: var(--ruby-soft); border-color: #f0c2c7; color: var(--ruby); }
+    .drop {
+      border: 1.5px dashed var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      background: var(--surface-soft);
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .drop.over { border-color: var(--ruby); background: var(--ruby-soft); color: var(--ruby); }
+    .files {
+      display: grid;
+      gap: 6px;
+      max-height: 150px;
+      overflow: auto;
+    }
+    .file-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+    }
+    progress {
+      width: 100%;
+      height: 10px;
+      accent-color: var(--ruby);
+    }
+    .log {
+      background: #191717;
+      color: #eae4e4;
+      border-radius: 12px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      max-height: 280px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    a { color: var(--ruby); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>📡 PocketDeck 游戏快传 · 静态协议测试工具</h1>
+        <div class="sub">无需第二台游戏机，直接在浏览器向游戏机发起 PocketDeck Native / LocalSend v2 收发与异常场景测试</div>
+      </div>
+      <span id="connBadge" class="pill">未检测设备</span>
+    </header>
+
+    <div class="grid">
+      <!-- 连接配置 -->
+      <section class="card">
+        <h2>1. 目标设备与协议</h2>
+        <div class="row">
+          <div class="field" style="flex: 1.5;">
+            <label>游戏机 IP</label>
+            <input id="ip" placeholder="192.168.1.100" />
+          </div>
+          <div class="field">
+            <label>协议</label>
+            <select id="protocol">
+              <option value="pocketdeck">PocketDeck Native (HTTP)</option>
+              <option value="localsend">LocalSend v2 (HTTPS)</option>
+            </select>
+          </div>
+          <div class="field" style="max-width: 96px;">
+            <label>端口</label>
+            <input id="port" type="number" value="53319" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>模拟发送方名称 (senderName / alias)</label>
+            <input id="senderName" value="WebTester-PC" />
+          </div>
+          <div class="field" style="max-width: 130px;">
+            <label>PIN (仅 LocalSend)</label>
+            <input id="pin" placeholder="可选" />
+          </div>
+        </div>
+        <div class="row">
+          <button class="primary" id="btnPing">检测设备 (Ping / Info)</button>
+          <button id="btnRegister" title="向游戏机发送 LocalSend register 广播自身">注册为 LocalSend 节点</button>
+        </div>
+        <div id="deviceInfo" class="hint" style="display:none;"></div>
+        <div class="hint" id="tlsHint" style="display:none;">
+          LocalSend 使用自签名 HTTPS（端口 53317）。若浏览器拦截请求，请先点击下方链接并在新标签页选择「继续访问」以信任证书：<br/>
+          <a id="tlsLink" href="#" target="_blank" rel="noopener">打开设备 LocalSend Info 信任证书</a>
+        </div>
+      </section>
+
+      <!-- 文件与发送测试 -->
+      <section class="card">
+        <h2>2. 文件选择与发送测试</h2>
+        <div class="row">
+          <div class="field">
+            <label>平台 ID (可选，如 nes / gba)</label>
+            <input id="platformId" placeholder="留空存入快传收件箱" />
+          </div>
+          <div class="field">
+            <label>平台名称 (可选)</label>
+            <input id="platformName" placeholder="如 NES" />
+          </div>
+        </div>
+
+        <input id="fileInput" type="file" multiple style="display:none;" />
+        <div class="drop" id="dropZone">
+          点击选择文件，或将文件拖放到此处（支持多选批量）
+        </div>
+        <div class="row">
+          <button id="btnGenSmall">+ 1MB 测试 ROM</button>
+          <button id="btnGenLarge">+ 25MB 大文件</button>
+          <button id="btnGenBatch">+ 3 个批量文件</button>
+          <button id="btnClearFiles">清空列表</button>
+        </div>
+        <div class="files" id="fileList"></div>
+
+        <div class="row">
+          <button class="primary" id="btnSend">发起快传 (Prepare + Upload)</button>
+          <button class="danger" id="btnCancel" disabled>取消当前会话</button>
+          <button id="btnBusyTest" title="在已有会话进行中时再发一次 prepare，验证 409 busy">并发冲突 (409) 测试</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- 传输状态与日志 -->
+    <section class="card">
+      <h2>
+        <span>3. 会话状态与实时进度</span>
+        <span id="phaseBadge" class="pill">IDLE</span>
+      </h2>
+      <progress id="progBar" value="0" max="100"></progress>
+      <div class="row" style="justify-content: space-between; font-size: 12px; color: var(--muted);">
+        <span id="progText">等待发起传输…</span>
+        <span id="sessionText"></span>
+      </div>
+      <div class="row" style="justify-content: space-between;">
+        <label>协议交互日志</label>
+        <button id="btnClearLog" style="padding: 4px 10px; font-size: 12px;">清空日志</button>
+      </div>
+      <div class="log" id="logBox"></div>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = {
+      files: [],
+      sessionId: null,
+      activeXhr: null,
+      cancelled: false,
+      polling: false,
+      senderId: 'web-tester-' + Math.random().toString(36).slice(2, 10),
+    };
+
+    // Restore saved settings
+    $('ip').value = localStorage.getItem('qs_ip') || '192.168.1.100';
+    $('senderName').value = localStorage.getItem('qs_sender') || 'WebTester-PC';
+    $('protocol').value = localStorage.getItem('qs_proto') || 'pocketdeck';
+    $('port').value = localStorage.getItem('qs_port') || ($('protocol').value === 'localsend' ? '53317' : '53319');
+
+    function saveSettings() {
+      localStorage.setItem('qs_ip', $('ip').value.trim());
+      localStorage.setItem('qs_sender', $('senderName').value.trim());
+      localStorage.setItem('qs_proto', $('protocol').value);
+      localStorage.setItem('qs_port', $('port').value.trim());
+    }
+
+    function baseUrl() {
+      const ip = $('ip').value.trim();
+      const port = $('port').value.trim();
+      const proto = $('protocol').value === 'localsend' ? 'https' : 'http';
+      return `${proto}://${ip}:${port}`;
+    }
+
+    function updateTlsHint() {
+      const isLs = $('protocol').value === 'localsend';
+      $('tlsHint').style.display = isLs ? 'block' : 'none';
+      if (isLs) {
+        const url = `${baseUrl()}/api/localsend/v2/info`;
+        $('tlsLink').href = url;
+        $('tlsLink').textContent = `打开 ${url} 信任自签名证书`;
+      }
+    }
+    updateTlsHint();
+
+    $('protocol').addEventListener('change', () => {
+      $('port').value = $('protocol').value === 'localsend' ? '53317' : '53319';
+      updateTlsHint();
+      saveSettings();
+    });
+    ['ip', 'port', 'senderName'].forEach((id) => $(id).addEventListener('change', () => {
+      updateTlsHint();
+      saveSettings();
+    }));
+
+    function log(msg, data) {
+      const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      const line = data !== undefined
+        ? `[${ts}] ${msg} ${typeof data === 'string' ? data : JSON.stringify(data)}`
+        : `[${ts}] ${msg}`;
+      $('logBox').textContent += line + '\n';
+      $('logBox').scrollTop = $('logBox').scrollHeight;
+    }
+
+    function setPhase(label, kind = '') {
+      const el = $('phaseBadge');
+      el.textContent = label;
+      el.className = 'pill' + (kind ? ' ' + kind : '');
+    }
+
+    function fmtSize(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    function renderFiles() {
+      const box = $('fileList');
+      box.innerHTML = '';
+      if (state.files.length === 0) {
+        box.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:4px 2px;">尚未选择测试文件</div>';
+        return;
+      }
+      state.files.forEach((f, idx) => {
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        div.innerHTML = `<span>${idx + 1}. ${f.name}</span><span style="color:var(--muted)">${fmtSize(f.size)}</span>`;
+        box.appendChild(div);
+      });
+    }
+    renderFiles();
+
+    function addFiles(fileList) {
+      for (const f of fileList) state.files.push(f);
+      renderFiles();
+    }
+
+    function makeSyntheticFile(name, sizeBytes) {
+      const chunk = new Uint8Array(Math.min(sizeBytes, 1024 * 1024));
+      for (let i = 0; i < chunk.length; i++) chunk[i] = (i * 31) & 0xff;
+      const parts = [];
+      let rem = sizeBytes;
+      while (rem > 0) {
+        const take = Math.min(rem, chunk.length);
+        parts.push(take === chunk.length ? chunk : chunk.subarray(0, take));
+        rem -= take;
+      }
+      return new File(parts, name, { type: 'application/octet-stream' });
+    }
+
+    $('dropZone').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', (e) => {
+      addFiles(e.target.files);
+      e.target.value = '';
+    });
+    $('dropZone').addEventListener('dragover', (e) => {
+      e.preventDefault();
+      $('dropZone').classList.add('over');
+    });
+    $('dropZone').addEventListener('dragleave', () => $('dropZone').classList.remove('over'));
+    $('dropZone').addEventListener('drop', (e) => {
+      e.preventDefault();
+      $('dropZone').classList.remove('over');
+      addFiles(e.dataTransfer.files);
+    });
+
+    $('btnGenSmall').addEventListener('click', () => {
+      addFiles([makeSyntheticFile(`test_rom_${Date.now() % 10000}.nes`, 1024 * 1024)]);
+    });
+    $('btnGenLarge').addEventListener('click', () => {
+      addFiles([makeSyntheticFile(`large_test_${Date.now() % 10000}.bin`, 25 * 1024 * 1024)]);
+    });
+    $('btnGenBatch').addEventListener('click', () => {
+      const tag = Date.now() % 10000;
+      addFiles([
+        makeSyntheticFile(`batch_${tag}_1.nes`, 512 * 1024),
+        makeSyntheticFile(`batch_${tag}_2.gba`, 1024 * 1024),
+        makeSyntheticFile(`batch_${tag}_3.txt`, 4096),
+      ]);
+    });
+    $('btnClearFiles').addEventListener('click', () => {
+      state.files = [];
+      renderFiles();
+    });
+    $('btnClearLog').addEventListener('click', () => { $('logBox').textContent = ''; });
+
+    async function apiJson(method, path, body) {
+      const url = baseUrl() + path;
+      const t0 = performance.now();
+      log(`-> ${method} ${url}`, body ?? '');
+      const res = await fetch(url, {
+        method,
+        headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      const text = await res.text();
+      const ms = Math.round(performance.now() - t0);
+      let json = null;
+      try { json = JSON.parse(text); } catch (_) {}
+      log(`<- ${res.status} (${ms}ms)`, json ?? text);
+      return { status: res.status, ok: res.ok, json, text };
+    }
+
+    $('btnPing').addEventListener('click', async () => {
+      saveSettings();
+      const isLs = $('protocol').value === 'localsend';
+      const path = isLs ? '/api/localsend/v2/info' : '/api/share/ping';
+      try {
+        const r = await apiJson('GET', path);
+        if (r.ok && r.json) {
+          $('connBadge').textContent = `在线 · ${r.json.deviceName || r.json.alias || 'OK'}`;
+          $('connBadge').className = 'pill ok';
+          $('deviceInfo').style.display = 'block';
+          $('deviceInfo').textContent = `响应: ${JSON.stringify(r.json)}`;
+        } else {
+          $('connBadge').textContent = `HTTP ${r.status}`;
+          $('connBadge').className = 'pill warn';
+        }
+      } catch (err) {
+        $('connBadge').textContent = '连接失败';
+        $('connBadge').className = 'pill err';
+        log('!! Ping 失败（请检查 IP/端口/服务开关；若为 LocalSend 请先信任自签名证书）:', String(err));
+      }
+    });
+
+    $('btnRegister').addEventListener('click', async () => {
+      saveSettings();
+      const ip = $('ip').value.trim();
+      if (!ip) { log('!! 请先填写游戏机 IP'); return; }
+      const alias = $('senderName').value.trim() || 'WebTester-PC';
+      const lsUrl = `https://${ip}:53317/api/localsend/v2/register`;
+      log(`-> POST ${lsUrl}`);
+      try {
+        const res = await fetch(lsUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            alias,
+            version: '2.1',
+            deviceModel: 'WebBrowser',
+            deviceType: 'desktop',
+            fingerprint: state.senderId,
+            port: 53317,
+            protocol: 'https',
+            download: false,
+          }),
+        });
+        const text = await res.text();
+        log(`<- ${res.status} ${text.slice(0, 200)}`);
+        const infoEl = $('deviceInfo');
+        infoEl.style.display = 'block';
+        if (res.ok) {
+          infoEl.textContent = `✅ 已将「${alias}」注册为 LocalSend 节点，请在掌机快传页「在线设备」中查看。`;
+        } else {
+          infoEl.textContent = `❌ 注册失败 (HTTP ${res.status})：请确认掌机已开启「兼容 LocalSend 协议」。`;
+        }
+      } catch (err) {
+        log('!! Register 失败:', String(err));
+        $('tlsHint').style.display = 'block';
+        $('tlsLink').href = `https://${ip}:53317/api/localsend/v2/info`;
+        const infoEl = $('deviceInfo');
+        infoEl.style.display = 'block';
+        infoEl.textContent = `❌ 无法连接 https://${ip}:53317（请先点击下方链接信任自签名证书，并确认掌机已开启快传与 LocalSend 兼容）。`;
+      }
+    });
+
+    function uploadXhr(url, file, onProgress) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        state.activeXhr = xhr;
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(e.loaded, e.total);
+        };
+        xhr.onload = () => {
+          state.activeXhr = null;
+          resolve({ status: xhr.status, text: xhr.responseText });
+        };
+        xhr.onerror = () => {
+          state.activeXhr = null;
+          reject(new Error('XHR network error'));
+        };
+        xhr.onabort = () => {
+          state.activeXhr = null;
+          reject(new Error('ABORTED'));
+        };
+        xhr.send(file);
+      });
+    }
+
+    async function runPocketDeckTransfer() {
+      const sid = 'web-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+      state.sessionId = sid;
+      state.cancelled = false;
+      $('sessionText').textContent = `Session: ${sid}`;
+      $('btnCancel').disabled = false;
+      setPhase('PREPARING', 'warn');
+
+      const totalBytes = state.files.reduce((a, f) => a + f.size, 0);
+      const names = state.files.map((f) => f.name);
+      const prep = await apiJson('POST', '/api/share/prepare', {
+        sessionId: sid,
+        senderId: state.senderId,
+        senderName: $('senderName').value.trim() || 'WebTester-PC',
+        fileName: names[0],
+        fileSize: totalBytes,
+        fileCount: names.length,
+        fileNames: names,
+        platformId: $('platformId').value.trim(),
+        platformName: $('platformName').value.trim(),
+        gameTitle: names[0],
+      });
+      if (!prep.ok) {
+        setPhase(`PREPARE HTTP ${prep.status}`, 'err');
+        $('btnCancel').disabled = true;
+        return;
+      }
+
+      setPhase('PENDING (等待游戏机确认)', 'warn');
+      $('progText').textContent = '请在游戏机弹窗点击「接收」或「拒绝」…';
+      while (!state.cancelled) {
+        await new Promise((r) => setTimeout(r, 450));
+        if (state.cancelled) break;
+        const st = await apiJson('GET', `/api/share/status?sessionId=${encodeURIComponent(sid)}`);
+        const status = st.json?.status || 'CANCELLED';
+        if (status === 'ACCEPTED') break;
+        if (status === 'REJECTED' || status === 'CANCELLED') {
+          setPhase(status, 'err');
+          $('progText').textContent = `对方已${status === 'REJECTED' ? '拒绝' : '取消'}本次接收`;
+          $('btnCancel').disabled = true;
+          return;
+        }
+      }
+      if (state.cancelled) return;
+
+      setPhase('UPLOADING', 'warn');
+      let sentBefore = 0;
+      for (let i = 0; i < state.files.length; i++) {
+        if (state.cancelled) return;
+        const f = state.files[i];
+        const idx = i + 1;
+        const isLast = idx === state.files.length ? '1' : '0';
+        const upUrl = `${baseUrl()}/api/share/upload?sessionId=${encodeURIComponent(sid)}&index=${idx}&name=${encodeURIComponent(f.name)}&isLast=${isLast}`;
+        log(`-> POST ${upUrl} (${fmtSize(f.size)})`);
+        const res = await uploadXhr(upUrl, f, (loaded) => {
+          const pct = totalBytes > 0 ? Math.min(100, Math.round(((sentBefore + loaded) / totalBytes) * 100)) : 100;
+          $('progBar').value = pct;
+          $('progText').textContent = `发送 (${idx}/${state.files.length}): ${f.name} · ${pct}%`;
+        });
+        log(`<- upload ${idx} HTTP ${res.status}`, res.text);
+        if (res.status < 200 || res.status >= 300) {
+          setPhase(`UPLOAD HTTP ${res.status}`, 'err');
+          $('btnCancel').disabled = true;
+          return;
+        }
+        sentBefore += f.size;
+      }
+      $('progBar').value = 100;
+      $('progText').textContent = `完成！共发送 ${state.files.length} 个文件 (${fmtSize(totalBytes)})`;
+      setPhase('DONE', 'ok');
+      $('btnCancel').disabled = true;
+    }
+
+    async function runLocalSendTransfer() {
+      state.cancelled = false;
+      $('btnCancel').disabled = false;
+      setPhase('LS PREPARE', 'warn');
+      const filesObj = {};
+      state.files.forEach((f, i) => {
+        filesObj['f' + i] = {
+          id: 'f' + i,
+          fileName: f.name,
+          size: f.size,
+          fileType: f.type || 'application/octet-stream',
+        };
+      });
+      const pin = $('pin').value.trim();
+      const pinQs = pin ? `?pin=${encodeURIComponent(pin)}` : '';
+      const prep = await apiJson('POST', `/api/localsend/v2/prepare-upload${pinQs}`, {
+        info: {
+          alias: $('senderName').value.trim() || 'WebTester-PC',
+          version: '2.1',
+          deviceModel: 'WebBrowser',
+          deviceType: 'desktop',
+          fingerprint: state.senderId,
+          port: 53317,
+          protocol: 'https',
+          download: false,
+        },
+        files: filesObj,
+      });
+      if (!prep.ok || !prep.json?.sessionId) {
+        setPhase(`LS HTTP ${prep.status}`, 'err');
+        $('progText').textContent = `LocalSend prepare-upload 失败: HTTP ${prep.status} ${prep.text}`;
+        $('btnCancel').disabled = true;
+        return;
+      }
+      const sid = prep.json.sessionId;
+      const tokens = prep.json.files || {};
+      state.sessionId = sid;
+      $('sessionText').textContent = `LS Session: ${sid}`;
+
+      setPhase('UPLOADING', 'warn');
+      const totalBytes = state.files.reduce((a, f) => a + f.size, 0);
+      let sentBefore = 0;
+      for (let i = 0; i < state.files.length; i++) {
+        if (state.cancelled) return;
+        const fid = 'f' + i;
+        const f = state.files[i];
+        const tok = tokens[fid] || '';
+        const upUrl = `${baseUrl()}/api/localsend/v2/upload?sessionId=${encodeURIComponent(sid)}&fileId=${encodeURIComponent(fid)}&token=${encodeURIComponent(tok)}`;
+        log(`-> POST ${upUrl} (${fmtSize(f.size)})`);
+        const res = await uploadXhr(upUrl, f, (loaded) => {
+          const pct = totalBytes > 0 ? Math.min(100, Math.round(((sentBefore + loaded) / totalBytes) * 100)) : 100;
+          $('progBar').value = pct;
+          $('progText').textContent = `LocalSend 发送 (${i + 1}/${state.files.length}): ${f.name} · ${pct}%`;
+        });
+        log(`<- LS upload ${fid} HTTP ${res.status}`, res.text);
+        if (res.status < 200 || res.status >= 300) {
+          setPhase(`LS UPLOAD HTTP ${res.status}`, 'err');
+          $('btnCancel').disabled = true;
+          return;
+        }
+        sentBefore += f.size;
+      }
+      $('progBar').value = 100;
+      $('progText').textContent = `LocalSend 完成！共发送 ${state.files.length} 个文件`;
+      setPhase('DONE', 'ok');
+      $('btnCancel').disabled = true;
+    }
+
+    $('btnSend').addEventListener('click', async () => {
+      saveSettings();
+      if (state.files.length === 0) {
+        alert('请先选择文件或点击「+ 1MB 测试 ROM」生成测试文件');
+        return;
+      }
+      $('progBar').value = 0;
+      try {
+        if ($('protocol').value === 'localsend') {
+          await runLocalSendTransfer();
+        } else {
+          await runPocketDeckTransfer();
+        }
+      } catch (err) {
+        if (String(err).includes('ABORTED')) {
+          setPhase('CANCELLED', 'err');
+          $('progText').textContent = '已主动取消传输';
+        } else {
+          setPhase('ERROR', 'err');
+          log('!! 传输异常:', String(err));
+        }
+        $('btnCancel').disabled = true;
+      }
+    });
+
+    $('btnCancel').addEventListener('click', async () => {
+      state.cancelled = true;
+      if (state.activeXhr) state.activeXhr.abort();
+      if (state.sessionId) {
+        const path = $('protocol').value === 'localsend'
+          ? `/api/localsend/v2/cancel?sessionId=${encodeURIComponent(state.sessionId)}`
+          : `/api/share/cancel?sessionId=${encodeURIComponent(state.sessionId)}`;
+        try { await apiJson('POST', path); } catch (_) {}
+      }
+      setPhase('CANCELLED', 'err');
+      $('btnCancel').disabled = true;
+    });
+
+    $('btnBusyTest').addEventListener('click', async () => {
+      saveSettings();
+      const sid = 'busy-test-' + Date.now();
+      const isLs = $('protocol').value === 'localsend';
+      try {
+        const r = isLs
+          ? await apiJson('POST', '/api/localsend/v2/prepare-upload', {
+              info: {
+                alias: 'BusyTester',
+                version: '2.1',
+                deviceModel: 'WebBrowser',
+                deviceType: 'desktop',
+                fingerprint: state.senderId + '-busy',
+                port: 53317,
+                protocol: 'https',
+              },
+              files: {
+                f1: { id: 'f1', fileName: 'conflict_probe.nes', size: 1024, fileType: 'application/octet-stream' },
+              },
+            })
+          : await apiJson('POST', '/api/share/prepare', {
+              sessionId: sid,
+              senderId: state.senderId,
+              senderName: 'BusyTester',
+              fileName: 'conflict_probe.nes',
+              fileSize: 1024,
+              fileCount: 1,
+              fileNames: ['conflict_probe.nes'],
+            });
+        if (r.status === 409) {
+          log('✅ 并发冲突测试通过：掌机正确返回 HTTP 409 Conflict (busy)');
+        } else {
+          log(`ℹ️ 并发测试返回 HTTP ${r.status}（需在掌机已有传输/待确认会话时触发才会返回 409）`);
+        }
+      } catch (err) {
+        log('!! Busy probe 异常:', String(err));
+      }
+    });
+  </script>
+</body>
+</html>

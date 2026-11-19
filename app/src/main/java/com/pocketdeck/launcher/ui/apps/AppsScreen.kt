@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -20,9 +21,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -146,8 +150,9 @@ fun AppsScreen(
                 InstalledApp(pkg, label, bmp, isSys)
             }.sortedBy { it.label.lowercase() }
         }
-        if (focusIndex >= apps.size) {
-            focusIndex = (apps.size - 1).coerceAtLeast(0)
+        val totalItems = 2 + apps.size
+        if (focusIndex >= totalItems) {
+            focusIndex = (totalItems - 1).coerceAtLeast(0)
         }
     }
 
@@ -521,18 +526,22 @@ fun AppsScreen(
         }
 
         // App 长按操作弹窗（打开 / 加入游戏库 / 应用信息 / 卸载）
+        BackHandler(enabled = menuApp != null) { menuApp = null }
         menuApp?.let { app ->
             val actions = buildMenuActions(app)
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(DeckColors.CardShadow)
-                    .clickable { menuApp = null },
+                    .scrimTapDismiss { menuApp = null },
                 contentAlignment = Alignment.Center,
             ) {
                 Column(
                     Modifier
-                        .width(320.dp)
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .widthIn(max = 320.dp)
+                        .fillMaxWidth()
+                        .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp)
                         .clip(DeckShapes.menuPanel)
                         .background(DeckColors.DialogBg)
                         .clickable(enabled = false, onClick = {})

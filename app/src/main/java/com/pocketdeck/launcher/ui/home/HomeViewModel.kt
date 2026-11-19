@@ -76,8 +76,6 @@ data class HomeUiState(
     val theme: AppTheme = AppTheme.System,
     val metadataMap: Map<String, GameMetadata> = emptyMap(),
     val officialNames: Map<String, String> = emptyMap(),
-    val metaResolutionMap: Map<String, MetadataResolutionInfo> = emptyMap(),
-    val coverResolutionMap: Map<String, CoverResolutionInfo> = emptyMap(),
     /** 状态栏图标显示控制 */
     val showClock: Boolean = true,
     val showBattery: Boolean = true,
@@ -168,6 +166,10 @@ class HomeViewModel(
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
     val fullLibrary: StateFlow<Library?> = repo.fullLibrary
+    val filesRevision: StateFlow<Long> = repo.filesRevision
+    val fileTasks = repo.fileTasks
+    val metaResolutionMap: StateFlow<Map<String, MetadataResolutionInfo>> = metadataRepo.resolutionInfo
+    val coverResolutionMap: StateFlow<Map<String, CoverResolutionInfo>> = covers.coverInfo
 
     private val _focusPerTab = HashMap<String, Int>()
     private var initialTabPicked = false
@@ -175,6 +177,9 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
+            var lastLib: Library? = null
+            var lastUser: UserData? = null
+            var lastScanning: Boolean? = null
             combine(
                 combine(repo.library, repo.user, repo.scanning) { lib, user, scanning ->
                     Triple(lib, user, scanning)
@@ -182,38 +187,57 @@ class HomeViewModel(
                 combine(
                     metadataRepo.metadata,
                     metadataRepo.officialNames,
-                    metadataRepo.resolutionInfo,
-                    covers.coverInfo,
-                ) { metaMap, officialNames, metaRes, coverRes ->
-                    MetaBundle(metaMap, officialNames, metaRes, coverRes)
+                ) { metaMap, officialNames ->
+                    metaMap to officialNames
                 },
-            ) { (lib, user, scanning), meta ->
+            ) { (lib, user, scanning), (metaMap, officialNames) ->
                 CombinedData(
                     lib = lib,
                     user = user,
                     scanning = scanning,
-                    metaMap = meta.metaMap,
-                    officialNames = meta.officialNames,
-                    metaRes = meta.metaRes,
-                    coverRes = meta.coverRes,
+                    metaMap = metaMap,
+                    officialNames = officialNames,
                 )
             }.collect { data ->
                 val u = data.user
-                if (u != null) {
+                if (u != null && u !== lastUser) {
                     covers.configure(u.coverSources, u.scraperCredentials)
                     metadataRepo.configure(u.metadataSources, u.scraperCredentials)
                 }
                 if (data.lib != null && u != null) {
-                    updateState(
-                        data.lib,
-                        u,
-                        data.scanning,
-                        data.metaMap,
-                        data.officialNames,
-                        data.metaRes,
-                        data.coverRes,
-                    )
+                    val onlyMetaChanged = data.lib === lastLib && u === lastUser && data.scanning == lastScanning
+                    val cur = _state.value
+                    val activeTab = cur.tabs.getOrNull(cur.selectedTab)
+                    val activeSort = when (activeTab?.type) {
+                        TabType.Now -> u.systemTabs["now"]?.sortOrder
+                        TabType.Favs -> u.systemTabs["favs"]?.sortOrder ?: CategorySortOrder.TitleAsc
+                        TabType.Other -> u.systemTabs["other"]?.sortOrder ?: CategorySortOrder.TitleAsc
+                        TabType.Custom -> u.categories.firstOrNull { it.id == activeTab.id }?.sortOrder
+                        null -> null
+                    }
+                    val sortsByRelease = activeSort == CategorySortOrder.ReleaseNewest ||
+                        activeSort == CategorySortOrder.ReleaseOldest
+                    if (onlyMetaChanged && !sortsByRelease) {
+                        _state.value = cur.copy(
+                            metadataMap = data.metaMap,
+                            officialNames = data.officialNames,
+                        )
+                    } else {
+                        lastLib = data.lib
+                        lastUser = u
+                        lastScanning = data.scanning
+                        updateState(
+                            data.lib,
+                            u,
+                            data.scanning,
+                            data.metaMap,
+                            data.officialNames,
+                        )
+                    }
                 } else {
+                    lastLib = null
+                    lastUser = u
+                    lastScanning = data.scanning
                     _state.value = _state.value.copy(
                         scanning = data.scanning,
                         libraryLoaded = data.lib != null,
@@ -232,8 +256,6 @@ class HomeViewModel(
                         metaDisplay = u?.metaDisplay ?: _state.value.metaDisplay,
                         metadataMap = data.metaMap,
                         officialNames = data.officialNames,
-                        metaResolutionMap = data.metaRes,
-                        coverResolutionMap = data.coverRes,
                     )
                 }
             }
@@ -241,21 +263,12 @@ class HomeViewModel(
         repo.refresh()
     }
 
-    private data class MetaBundle(
-        val metaMap: Map<String, GameMetadata>,
-        val officialNames: Map<String, String>,
-        val metaRes: Map<String, MetadataResolutionInfo>,
-        val coverRes: Map<String, CoverResolutionInfo>,
-    )
-
     private data class CombinedData(
         val lib: Library?,
         val user: UserData?,
         val scanning: Boolean,
         val metaMap: Map<String, GameMetadata>,
         val officialNames: Map<String, String>,
-        val metaRes: Map<String, MetadataResolutionInfo>,
-        val coverRes: Map<String, CoverResolutionInfo>,
     )
 
     private fun updateState(
@@ -264,21 +277,27 @@ class HomeViewModel(
         scanning: Boolean,
         metaMap: Map<String, GameMetadata>,
         officialNames: Map<String, String>,
-        metaRes: Map<String, MetadataResolutionInfo>,
-        coverRes: Map<String, CoverResolutionInfo>,
     ) {
         val manage = buildManageTabs(lib, user)
         val tabs = manage.filter { !it.hidden }.map {
             TabInfo(it.id, it.label, it.type, it.followSystemLanguage)
         }
         val current = _state.value
-        var tabIdx = current.selectedTab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
-        if (!initialTabPicked && tabs.isNotEmpty()) {
-            initialTabPicked = true
-            // 首次打开如果当前默认标签（NOW / FAVS）为空，自动跳到第一个有游戏的标签
-            if (getGamesForTab(tabs[tabIdx], lib, user, metaMap).isEmpty()) {
-                val nonEmpty = tabs.indexOfFirst { getGamesForTab(it, lib, user, metaMap).isNotEmpty() }
-                if (nonEmpty >= 0) tabIdx = nonEmpty
+        val prevTabId = current.tabs.getOrNull(current.selectedTab)?.id
+        var tabIdx = if (prevTabId != null) {
+            val found = tabs.indexOfFirst { it.id == prevTabId }
+            if (found >= 0) found else current.selectedTab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
+        } else {
+            current.selectedTab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
+        }
+        if (!initialTabPicked && tabs.isNotEmpty() && (!scanning || lib.byId.isNotEmpty())) {
+            val nonEmpty = tabs.indexOfFirst { getGamesForTab(it, lib, user, metaMap).isNotEmpty() }
+            if (nonEmpty >= 0 || !scanning) {
+                initialTabPicked = true
+                // 首次打开如果当前默认标签（NOW / FAVS）为空，自动跳到第一个有游戏的标签
+                if (getGamesForTab(tabs[tabIdx], lib, user, metaMap).isEmpty() && nonEmpty >= 0) {
+                    tabIdx = nonEmpty
+                }
             }
         }
         val tab = tabs.getOrNull(tabIdx)
@@ -288,8 +307,12 @@ class HomeViewModel(
         } else {
             rawGames
         }
-        val focusIdx = _focusPerTab.getOrDefault(tab?.id.orEmpty(), current.focusIndex)
-            .coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
+        val focusIdx = if (current.searching) {
+            current.focusIndex.coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
+        } else {
+            _focusPerTab.getOrDefault(tab?.id.orEmpty(), current.focusIndex)
+                .coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
+        }
         val platformsById = lib.platforms.associateBy { it.id }
         val platform = tab?.let { lib.platform(it.id) }
 
@@ -343,8 +366,6 @@ class HomeViewModel(
             uncategorizedCount = uncategorizedGames.size,
             metadataMap = metaMap,
             officialNames = officialNames,
-            metaResolutionMap = metaRes,
-            coverResolutionMap = coverRes,
             menuGame = current.menuGame?.let { lib.byId[it.id] ?: it },
             propertiesGame = current.propertiesGame?.let { lib.byId[it.id] ?: it },
             editingGame = current.editingGame?.let { lib.byId[it.id] ?: it },
@@ -512,49 +533,91 @@ class HomeViewModel(
         order: CategorySortOrder,
         metaMap: Map<String, GameMetadata>,
     ): List<Game> = when (order) {
-        CategorySortOrder.TitleAsc -> games.sortedBy { it.title.lowercase() }
-        CategorySortOrder.TitleDesc -> games.sortedByDescending { it.title.lowercase() }
-        CategorySortOrder.ReleaseNewest -> games.sortedWith(
-            compareBy<Game> { parseReleaseKey(metaMap[it.id]?.releaseDate) == null }
-                .thenByDescending { parseReleaseKey(metaMap[it.id]?.releaseDate) ?: 0 }
-                .thenBy { it.title.lowercase() },
-        )
-        CategorySortOrder.ReleaseOldest -> games.sortedWith(
-            compareBy<Game> { parseReleaseKey(metaMap[it.id]?.releaseDate) == null }
-                .thenBy { parseReleaseKey(metaMap[it.id]?.releaseDate) ?: Int.MAX_VALUE }
-                .thenBy { it.title.lowercase() },
-        )
-        CategorySortOrder.ModifiedNewest -> games.sortedWith(
-            compareByDescending<Game> { it.lastModifiedMs }
-                .thenBy { it.title.lowercase() },
-        )
-        CategorySortOrder.SizeDesc -> games.sortedWith(
-            compareBy<Game> { it.fileSize <= 0L }
-                .thenByDescending { it.fileSize }
-                .thenBy { it.title.lowercase() },
-        )
-        CategorySortOrder.SizeAsc -> games.sortedWith(
-            compareBy<Game> { it.fileSize <= 0L }
-                .thenBy { it.fileSize }
-                .thenBy { it.title.lowercase() },
-        )
+        CategorySortOrder.TitleAsc -> games.sortedWith { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title) }
+        CategorySortOrder.TitleDesc -> games.sortedWith { a, b -> String.CASE_INSENSITIVE_ORDER.compare(b.title, a.title) }
+        CategorySortOrder.ReleaseNewest -> {
+            val keys = HashMap<String, Int>(games.size * 2)
+            for (g in games) {
+                parseReleaseKey(metaMap[g.id]?.releaseDate)?.let { keys[g.id] = it }
+            }
+            games.sortedWith { a, b ->
+                val ka = keys[a.id]
+                val kb = keys[b.id]
+                when {
+                    ka == null && kb == null -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+                    ka == null -> 1
+                    kb == null -> -1
+                    ka != kb -> kb.compareTo(ka)
+                    else -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+                }
+            }
+        }
+        CategorySortOrder.ReleaseOldest -> {
+            val keys = HashMap<String, Int>(games.size * 2)
+            for (g in games) {
+                parseReleaseKey(metaMap[g.id]?.releaseDate)?.let { keys[g.id] = it }
+            }
+            games.sortedWith { a, b ->
+                val ka = keys[a.id]
+                val kb = keys[b.id]
+                when {
+                    ka == null && kb == null -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+                    ka == null -> 1
+                    kb == null -> -1
+                    ka != kb -> ka.compareTo(kb)
+                    else -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+                }
+            }
+        }
+        CategorySortOrder.ModifiedNewest -> games.sortedWith { a, b ->
+            val cmp = b.lastModifiedMs.compareTo(a.lastModifiedMs)
+            if (cmp != 0) cmp else String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+        }
+        CategorySortOrder.SizeDesc -> games.sortedWith { a, b ->
+            val emptyA = a.fileSize <= 0L
+            val emptyB = b.fileSize <= 0L
+            when {
+                emptyA != emptyB -> if (emptyA) 1 else -1
+                a.fileSize != b.fileSize -> b.fileSize.compareTo(a.fileSize)
+                else -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+            }
+        }
+        CategorySortOrder.SizeAsc -> games.sortedWith { a, b ->
+            val emptyA = a.fileSize <= 0L
+            val emptyB = b.fileSize <= 0L
+            when {
+                emptyA != emptyB -> if (emptyA) 1 else -1
+                a.fileSize != b.fileSize -> a.fileSize.compareTo(b.fileSize)
+                else -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+            }
+        }
     }
 
     private fun parseReleaseKey(raw: String?): Int? {
         if (raw.isNullOrBlank()) return null
-        val yMatch = Regex("""\b(19\d{2}|20\d{2})\b""").find(raw) ?: return null
+        val yMatch = RELEASE_YEAR_REGEX.find(raw) ?: return null
         val year = yMatch.groupValues[1].toIntOrNull() ?: return null
         val afterYear = raw.substring(yMatch.range.last + 1)
-        val nums = Regex("""\d{1,2}""").findAll(afterYear).mapNotNull { it.value.toIntOrNull() }.toList()
-        val month = nums.getOrNull(0)?.takeIf { it in 1..12 } ?: monthNameToNumber(raw) ?: 0
-        val day = nums.getOrNull(1)?.takeIf { it in 1..31 } ?: 0
+        var month = 0
+        var day = 0
+        var found = 0
+        for (m in RELEASE_NUM_REGEX.findAll(afterYear)) {
+            val v = m.value.toIntOrNull() ?: continue
+            if (found == 0) {
+                if (v in 1..12) month = v
+                found++
+            } else if (found == 1) {
+                if (v in 1..31) day = v
+                break
+            }
+        }
+        if (month == 0) month = monthNameToNumber(raw) ?: 0
         return year * 10000 + month * 100 + day
     }
 
     private fun monthNameToNumber(raw: String): Int? {
         val low = raw.lowercase()
-        val months = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
-        val idx = months.indexOfFirst { it in low }
+        val idx = RELEASE_MONTHS.indexOfFirst { it in low }
         return if (idx >= 0) idx + 1 else null
     }
 
@@ -589,14 +652,16 @@ class HomeViewModel(
         val s = _state.value
         val newIdx = index.coerceIn(0, (s.games.size - 1).coerceAtLeast(0))
         if (newIdx == s.focusIndex) return
-        s.tabs.getOrNull(s.selectedTab)?.let { _focusPerTab[it.id] = newIdx }
+        if (!s.searching) {
+            s.tabs.getOrNull(s.selectedTab)?.let { _focusPerTab[it.id] = newIdx }
+        }
         _state.value = s.copy(focusIndex = newIdx)
         val focusGame = s.games.getOrNull(newIdx)
         focusResolveJob?.cancel()
         if (focusGame != null) {
             val plat = s.platformFor(focusGame)
             focusResolveJob = viewModelScope.launch {
-                delay(100)
+                delay(220)
                 metadataRepo.resolveFocusGame(focusGame, plat)
                 covers.ensureGameScraped(focusGame, plat)
             }
@@ -630,8 +695,6 @@ class HomeViewModel(
             _state.value.scanning,
             metadataRepo.metadata.value,
             metadataRepo.officialNames.value,
-            metadataRepo.resolutionInfo.value,
-            covers.coverInfo.value,
         )
     }
 
@@ -668,7 +731,7 @@ class HomeViewModel(
 
     fun hideGame(id: String) {
         viewModelScope.launch { repo.hide(id) }
-        _state.value = _state.value.copy(menuGame = null, editingGame = null)
+        _state.value = _state.value.copy(menuGame = null, editingGame = null, propertiesGame = null)
     }
 
     fun addRecent(id: String) {
@@ -766,6 +829,24 @@ class HomeViewModel(
             _state.value = _state.value.copy(menuGame = null, editingGame = null, propertiesGame = null)
         }
         return res
+    }
+
+    suspend fun extractArchive(
+        file: File,
+        destDir: File,
+        onProgress: (Int, String, Long) -> Unit = { _, _, _ -> },
+        isCancelled: () -> Boolean = { false },
+    ): Result<Int> = repo.extractArchive(file, destDir, onProgress = onProgress, isCancelled = isCancelled)
+
+    suspend fun compressToZip(
+        sources: List<File>,
+        destZip: File,
+        onProgress: (String) -> Unit = {},
+        isCancelled: () -> Boolean = { false },
+    ): Result<File> = repo.compressToZip(sources, destZip, onProgress = onProgress, isCancelled = isCancelled)
+
+    fun cancelFileTask(id: String) {
+        repo.cancelFileTask(id)
     }
 
     fun toggleSettings() {
@@ -1226,5 +1307,11 @@ class HomeViewModel(
             if (c.id != catId) c
             else c.copy(games = if (gameId in c.games) c.games - gameId else c.games + gameId)
         })
+    }
+
+    companion object {
+        private val RELEASE_YEAR_REGEX = Regex("""\b(19\d{2}|20\d{2})\b""")
+        private val RELEASE_NUM_REGEX = Regex("""\d{1,2}""")
+        private val RELEASE_MONTHS = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
     }
 }

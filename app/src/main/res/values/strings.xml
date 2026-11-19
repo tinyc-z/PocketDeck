@@ -147,12 +147,35 @@
 
     <!-- Scraping & Metadata -->
     <string name="settings_scraping">Covers &amp; Metadata</string>
-    <string name="scraping_cover_title">Box art nodes</string>
-    <string name="scraping_cover_desc">Covers are scraped using enabled nodes in priority order. Drag ≡ to reorder.</string>
+    <string name="scraping_cover_title">Cover sources</string>
+    <string name="scraping_cover_desc">Covers are fetched from enabled sources in priority order. Drag ≡ to reorder.</string>
     <string name="scraping_meta_title">Metadata providers</string>
     <string name="scraping_meta_desc">Game metadata is queried in priority order and merged across enabled providers. Drag ≡ to reorder.</string>
-    <string name="scraping_clear_cache">Clear cover cache &amp; rescrape</string>
+    <string name="scraping_clear_cache">Clear cover cache &amp; refetch</string>
     <string name="scraping_refresh_meta">Refresh all metadata</string>
+    <string name="scraping_view_logs">View request logs</string>
+    <string name="scrape_logs_title">Cover &amp; Metadata Request Logs</string>
+    <string name="scrape_logs_empty">No request logs recorded yet.</string>
+    <string name="scrape_logs_clear">Clear</string>
+    <string name="scrape_logs_refresh">Refresh</string>
+    <string name="scrape_logs_cleared">Logs cleared</string>
+    <string name="scrape_logs_export">Export</string>
+    <string name="scrape_logs_export_title">Choose disk folder to export log</string>
+    <string name="scrape_logs_export_here">Export to this folder</string>
+    <string name="scrape_logs_export_ok">Log exported: %s</string>
+    <string name="scrape_logs_export_fail">Export failed: %s</string>
+    <string name="scrape_logs_disk_internal">Internal Storage</string>
+    <string name="scrape_logs_disk_download">Download</string>
+    <string name="scrape_logs_disk_documents">Documents</string>
+    <string name="scrape_logs_disk_sd">SD Card</string>
+    <string name="scrape_logs_dir_empty">No subfolders here</string>
+    <string name="scrape_logs_filter_all">All</string>
+    <string name="scrape_logs_filter_cover">Cover</string>
+    <string name="scrape_logs_filter_meta">Metadata</string>
+    <string name="scrape_logs_filter_err">Errors</string>
+    <string name="scrape_logs_search_hint">Search node, HTTP status, URL, error…</string>
+    <string name="scrape_logs_live">● Live</string>
+    <string name="scrape_logs_paused">❚❚ Paused</string>
     <string name="scraping_needs_account">Account required</string>
     <string name="scraping_account_set">Account configured</string>
     <string name="scraping_account_add">Configure account</string>
@@ -197,11 +220,11 @@
     <string name="meta_src_wikidata">Wikidata</string>
     <string name="meta_src_wikidata_desc">Open knowledge graph fallback</string>
 
-    <!-- Edit game scraping -->
-    <string name="edit_scrape_boxart">Scrape box art</string>
-    <string name="scrape_title">Scrape box art</string>
-    <string name="scrape_loading">Querying enabled nodes…</string>
-    <string name="scrape_empty">No matching box art found from enabled nodes.</string>
+    <!-- Edit game cover fetch -->
+    <string name="edit_scrape_boxart">Fetch cover art</string>
+    <string name="scrape_title">Fetch cover art</string>
+    <string name="scrape_loading">Searching enabled sources…</string>
+    <string name="scrape_empty">No matching cover art found from enabled sources.</string>
 
     <!-- Metadata visibility & File size -->
     <string name="meta_file_size">File size</string>
@@ -221,7 +244,7 @@
     <string name="prop_package">Package</string>
     <string name="prop_file_name">File name</string>
     <string name="prop_file_path">Path</string>
-    <string name="prop_sec_scraping">Scraping &amp; Matching</string>
+    <string name="prop_sec_scraping">Covers &amp; Matching</string>
     <string name="prop_meta_provider">Metadata source</string>
     <string name="prop_meta_mode">Metadata match</string>
     <string name="prop_cover_provider">Cover source</string>
@@ -234,7 +257,7 @@
     <string name="match_mode_api_hash">API ROM hash</string>
     <string name="match_mode_api_rom">API ROM name</string>
     <string name="match_mode_api_search">API name search</string>
-    <string name="match_mode_custom">Manual / scraped</string>
+    <string name="match_mode_custom">Manual / fetched</string>
     <string name="match_mode_local">Local file</string>
     <string name="match_mode_index_exact">Index exact match</string>
     <string name="match_mode_index_fuzzy">Index fuzzy match</string>
@@ -422,6 +445,7 @@
 
     <!-- Edit Delete File & Game Library Manager -->
     <string name="edit_delete_file">Delete file</string>
+    <string name="edit_locate_file">View file</string>
     <string name="delete_file_confirm_title">Delete file permanently?</string>
     <string name="delete_file_confirm_desc">This will permanently delete “%1$s” (%2$s) from storage and cannot be undone.\n\nIf you just want to hide it from the launcher, we recommend using “Hide” instead (reversible anytime in Game Library).</string>
     <string name="delete_file_use_hide">Use “Hide” instead (Recommended)</string>
@@ -468,6 +492,11 @@
     <string name="lib_files_up">.. Up</string>
     <string name="lib_files_roots">Configured ROM folders</string>
     <string name="lib_files_empty">This folder is empty</string>
+    <string name="lib_files_search_hint">Search files in current folder…</string>
+    <string name="lib_files_search_recursive_hint">Search files across subfolders…</string>
+    <string name="lib_files_search_current">Current</string>
+    <string name="lib_files_search_multi">Subfolders</string>
+    <string name="lib_files_search_empty">No matching files found</string>
     <string name="lib_files_rom_tag">ROM</string>
 
     <!-- Category Sort Order -->
@@ -515,6 +544,11 @@
     <string name="lan_incoming_accept">Accept</string>
     <string name="lan_incoming_reject">Decline</string>
     <string name="lan_tx_waiting">Waiting for %s to accept…</string>
+    <string name="lan_tx_pin_required">Waiting for PIN for %s…</string>
+    <string name="lan_pin_title">PIN Required</string>
+    <string name="lan_pin_desc">Enter the PIN shown on \"%s\" to continue sending.</string>
+    <string name="lan_pin_hint">Enter PIN</string>
+    <string name="lan_pin_wrong">Incorrect PIN, please try again.</string>
     <string name="lan_tx_sending">Sending to %s</string>
     <string name="lan_tx_receiving">Receiving from %s</string>
     <string name="lan_tx_done">Transfer completed</string>
@@ -561,10 +595,25 @@
     <string name="lib_text_truncated">File exceeds 512 KB; showing preview head (read-only).</string>
     <string name="lib_image_zoom_hint">Use + / − / 0 or pinch to zoom</string>
     <string name="lib_add_multi_select">Add to Multi-Select</string>
+    <string name="lib_task_src_web">Web</string>
+    <string name="lib_task_src_local">Device</string>
+    <string name="lib_task_compress">Compressing ZIP</string>
+    <string name="lib_task_extract">Extracting</string>
+    <string name="lib_task_copy">Copying</string>
+    <string name="lib_task_move">Moving</string>
+    <string name="lib_task_delete">Deleting</string>
+    <string name="lib_task_upload">Uploading</string>
+    <string name="lib_task_processed_fmt">Processed %s</string>
+    <string name="lib_task_cancel">Cancel</string>
+    <string name="lib_task_cancelling">Cancelling…</string>
 
     <!-- Share Method, Multi-file Share, Audio & Font Viewers -->
     <string name="font_import_success">UI font applied</string>
     <string name="lan_status_pending">Incoming File</string>
+    <string name="lan_status_tasks">File Task</string>
+    <string name="lan_status_task_pct">Task %d%%</string>
+    <string name="lan_total_progress">Total</string>
+    <string name="lan_file_tasks_title">Background File Tasks (%d)</string>
     <string name="lan_status_waiting">Waiting…</string>
     <string name="lan_status_sending_pct">Sending %d%%</string>
     <string name="lan_status_receiving_pct">Receiving %d%%</string>
@@ -636,4 +685,15 @@
     <string name="lan_localsend_compat_desc">Discover and transfer files directly with LocalSend on Windows, macOS, iOS &amp; Android (enabled by default)</string>
     <string name="settings_build">Build</string>
     <string name="settings_android_compat">Compatibility</string>
+
+    <!-- Web client active transfers & history -->
+    <string name="lan_web_client_idle">Idle</string>
+    <string name="lan_web_uploading">Uploading</string>
+    <string name="lan_web_downloading">Downloading</string>
+    <string name="lan_web_history_btn">Web History (%d)</string>
+    <string name="lan_web_history_title">Web Transfer History (%d)</string>
+    <string name="lan_web_history_empty">No Web uploads or downloads yet.</string>
+    <string name="lan_web_dir_upload">Upload</string>
+    <string name="lan_web_dir_download">Download</string>
+    <string name="lan_web_tx_failed">Interrupted</string>
 </resources>

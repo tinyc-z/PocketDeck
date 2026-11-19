@@ -50,6 +50,7 @@ object NetworkStatus {
     }
 
     fun isOnline(context: Context): Boolean {
+        if (initialized) return _online.value
         val result = queryOnline(context.applicationContext)
         _online.value = result
         return result

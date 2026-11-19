@@ -514,7 +514,6 @@ class UserStore(private val context: Context) {
 
     suspend fun hide(id: String) = context.dataStore.edit { p ->
         p[K.hidden] = p[K.hidden].orEmpty() + id
-        p[K.favorites] = p[K.favorites].orEmpty() - id
     }
 
     suspend fun unhide(id: String) = context.dataStore.edit { p ->
@@ -612,6 +611,11 @@ class UserStore(private val context: Context) {
         val old = p.toUserData()
         val new = transform(old)
         p[K.viewMode] = new.viewMode.name
+        p[K.favorites] = new.favorites
+        p[K.recents] = new.recents.joinToString("\n")
+        p[K.renames] = encodeMap(new.renames)
+        p[K.covers] = encodeMap(new.covers)
+        p[K.hidden] = new.hidden
         p[K.background] = new.backgroundStyle.name
         p[K.showMetadata] = new.showMetadata
         p[K.bottomBar] = new.bottomBar

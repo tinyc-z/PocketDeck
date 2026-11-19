@@ -98,8 +98,7 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            isDebuggable = true
         }
         release {
             isMinifyEnabled = true
@@ -126,8 +125,22 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        localeFilters += listOf("en", "zh-rCN", "zh-rTW")
+    }
+
     packaging {
-        resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "DebugProbesKt.bin")
+        resources.excludes += setOf(
+            "/META-INF/{AL2.0,LGPL2.1}",
+            "/META-INF/androidx/**",
+            "/META-INF/*.version",
+            "/META-INF/DEPENDENCIES",
+            "/META-INF/LICENSE*",
+            "/META-INF/NOTICE*",
+            "org/apache/commons/codec/language/bm/**",
+            "DebugProbesKt.bin",
+            "kotlin-tooling-metadata.json",
+        )
     }
 }
 

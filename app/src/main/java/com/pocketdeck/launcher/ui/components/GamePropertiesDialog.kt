@@ -8,6 +8,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -83,6 +85,7 @@ fun GamePropertiesDialog(
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     computeCrc32: suspend (String) -> String?,
     onRefreshMetadata: (suspend () -> Boolean)? = null,
+    onLocateFile: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -90,8 +93,10 @@ fun GamePropertiesDialog(
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     var refreshing by remember(game.id) { mutableStateOf(false) }
-    // 0 = Refresh button (when available), 1 = Close button
-    var headerFocus by remember(game.id) { mutableIntStateOf(1) }
+    val isApk = game.id.startsWith(GameLauncher.APK_PREFIX)
+    val canLocate = !isApk && onLocateFile != null
+    // -1 = neutral (no bottom button highlighted), 0 = Locate file, 1 = Refresh metadata
+    var footerFocus by remember(game.id) { mutableIntStateOf(-1) }
 
     fun triggerRefresh() {
         val cb = onRefreshMetadata ?: return
@@ -105,7 +110,6 @@ fun GamePropertiesDialog(
         }
     }
 
-    val isApk = game.id.startsWith(GameLauncher.APK_PREFIX)
     var crc32 by remember(game.id, metaInfo?.crc32) { mutableStateOf(metaInfo?.crc32) }
     LaunchedEffect(game.id) {
         if (!isApk && crc32 == null) {
@@ -172,7 +176,7 @@ fun GamePropertiesDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -184,10 +188,10 @@ fun GamePropertiesDialog(
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        if (onRefreshMetadata != null && headerFocus == 0) {
-                            triggerRefresh()
-                        } else {
-                            onDismiss()
+                        when {
+                            footerFocus == 0 && canLocate -> onLocateFile()
+                            footerFocus == 1 && onRefreshMetadata != null -> triggerRefresh()
+                            else -> onDismiss()
                         }
                         true
                     }
@@ -195,12 +199,20 @@ fun GamePropertiesDialog(
                         triggerRefresh()
                         true
                     }
-                    event.key == Key.DirectionLeft && onRefreshMetadata != null -> {
-                        headerFocus = 0
+                    event.key == Key.DirectionLeft -> {
+                        footerFocus = when {
+                            canLocate -> 0
+                            onRefreshMetadata != null -> 1
+                            else -> -1
+                        }
                         true
                     }
                     event.key == Key.DirectionRight -> {
-                        headerFocus = 1
+                        footerFocus = when {
+                            onRefreshMetadata != null -> 1
+                            canLocate -> 0
+                            else -> -1
+                        }
                         true
                     }
                     event.key == Key.DirectionDown -> {
@@ -216,89 +228,32 @@ fun GamePropertiesDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .width(540.dp)
-                .heightIn(max = 600.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(24.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .widthIn(max = 520.dp)
+                .fillMaxWidth()
+                .heightIn(max = 600.dp),
+            contentPadding = PaddingValues(24.dp),
+            closeFocused = false,
         ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(end = 36.dp),
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.prop_title),
-                        style = DeckType.settingsLabel,
-                        color = DeckColors.Ruby,
-                    )
-                    Text(
-                        game.title,
-                        style = DeckType.menuTitle,
-                        color = DeckColors.TextPrimary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (onRefreshMetadata != null) {
-                    Spacer(Modifier.width(10.dp))
-                    val refreshFocused = headerFocus == 0
-                    Row(
-                        Modifier
-                            .clip(DeckShapes.menuButton)
-                            .background(
-                                if (refreshFocused) DeckColors.Ruby.copy(alpha = 0.16f)
-                                else DeckColors.Surface,
-                            )
-                            .border(
-                                width = if (refreshFocused) 1.5.dp else 1.dp,
-                                color = if (refreshFocused) DeckColors.Ruby else DeckColors.DialogBorder,
-                                shape = DeckShapes.menuButton,
-                            )
-                            .soundClickable(enabled = !refreshing) { triggerRefresh() }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        if (refreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = DeckColors.Ruby,
-                            )
-                        }
-                        Text(
-                            text = if (refreshing) {
-                                stringResource(R.string.prop_refreshing_meta)
-                            } else {
-                                stringResource(R.string.prop_refresh_meta)
-                            },
-                            style = DeckType.menuButton,
-                            color = if (refreshFocused || refreshing) DeckColors.Ruby else DeckColors.TextPrimary,
-                        )
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                val closeFocused = headerFocus == 1
                 Text(
-                    stringResource(R.string.prop_close),
-                    style = DeckType.menuButton,
+                    stringResource(R.string.prop_title),
+                    style = DeckType.settingsLabel,
                     color = DeckColors.Ruby,
-                    modifier = Modifier
-                        .clip(DeckShapes.menuButton)
-                        .background(DeckColors.Ruby.copy(alpha = 0.12f))
-                        .then(
-                            if (closeFocused && onRefreshMetadata != null) {
-                                Modifier.border(1.5.dp, DeckColors.Ruby, DeckShapes.menuButton)
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .soundClickable(onClick = onDismiss)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                Text(
+                    game.title,
+                    style = DeckType.menuTitle,
+                    color = DeckColors.TextPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
@@ -350,6 +305,82 @@ fun GamePropertiesDialog(
                 PropRow(stringResource(R.string.prop_cover_mode), coverModeText)
                 coverInfo?.source?.takeIf { it.isNotBlank() }?.let { src ->
                     PropRow(stringResource(R.string.prop_cover_source), src)
+                }
+            }
+
+            if (canLocate || onRefreshMetadata != null) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (canLocate) {
+                        val locateFocused = footerFocus == 0
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .clip(DeckShapes.menuButton)
+                                .background(
+                                    if (locateFocused) DeckColors.Ruby.copy(alpha = 0.16f)
+                                    else DeckColors.Surface,
+                                )
+                                .border(
+                                    width = if (locateFocused) 1.5.dp else 1.dp,
+                                    color = if (locateFocused) DeckColors.Ruby else DeckColors.DialogBorder,
+                                    shape = DeckShapes.menuButton,
+                                )
+                                .soundClickable { onLocateFile() }
+                                .padding(horizontal = 16.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.edit_locate_file),
+                                style = DeckType.menuButton,
+                                color = if (locateFocused) DeckColors.Ruby else DeckColors.TextPrimary,
+                            )
+                        }
+                    }
+                    if (onRefreshMetadata != null) {
+                        val refreshFocused = footerFocus == 1
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .clip(DeckShapes.menuButton)
+                                .background(
+                                    if (refreshFocused) DeckColors.Ruby.copy(alpha = 0.16f)
+                                    else DeckColors.Surface,
+                                )
+                                .border(
+                                    width = if (refreshFocused) 1.5.dp else 1.dp,
+                                    color = if (refreshFocused) DeckColors.Ruby else DeckColors.DialogBorder,
+                                    shape = DeckShapes.menuButton,
+                                )
+                                .soundClickable(enabled = !refreshing) { triggerRefresh() }
+                                .padding(horizontal = 16.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            if (refreshing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = DeckColors.Ruby,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = if (refreshing) {
+                                    stringResource(R.string.prop_refreshing_meta)
+                                } else {
+                                    stringResource(R.string.prop_refresh_meta)
+                                },
+                                style = DeckType.menuButton,
+                                color = if (refreshFocused || refreshing) DeckColors.Ruby else DeckColors.TextPrimary,
+                            )
+                        }
+                    }
                 }
             }
         }

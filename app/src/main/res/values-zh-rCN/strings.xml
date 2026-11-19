@@ -146,12 +146,35 @@
 
     <!-- Scraping & Metadata -->
     <string name="settings_scraping">封面与元数据</string>
-    <string name="scraping_cover_title">封面刮削节点</string>
+    <string name="scraping_cover_title">封面数据源</string>
     <string name="scraping_cover_desc">按以下优先级顺序从已启用节点抓取封面，拖动 ≡ 可调整顺序。</string>
     <string name="scraping_meta_title">游戏元数据服务商</string>
     <string name="scraping_meta_desc">按以下优先级查询并合并已启用服务商的游戏信息，拖动 ≡ 可调整顺序。</string>
     <string name="scraping_clear_cache">清除封面缓存并重新抓取</string>
     <string name="scraping_refresh_meta">刷新全部游戏元数据</string>
+    <string name="scraping_view_logs">查看请求日志</string>
+    <string name="scrape_logs_title">封面与元数据请求日志</string>
+    <string name="scrape_logs_empty">暂无请求日志记录。</string>
+    <string name="scrape_logs_clear">清空</string>
+    <string name="scrape_logs_refresh">刷新</string>
+    <string name="scrape_logs_cleared">已清空日志</string>
+    <string name="scrape_logs_export">导出</string>
+    <string name="scrape_logs_export_title">选择磁盘目录导出日志</string>
+    <string name="scrape_logs_export_here">导出到此目录</string>
+    <string name="scrape_logs_export_ok">日志已导出：%s</string>
+    <string name="scrape_logs_export_fail">导出失败：%s</string>
+    <string name="scrape_logs_disk_internal">内部存储</string>
+    <string name="scrape_logs_disk_download">下载 (Download)</string>
+    <string name="scrape_logs_disk_documents">文档 (Documents)</string>
+    <string name="scrape_logs_disk_sd">SD 卡</string>
+    <string name="scrape_logs_dir_empty">此目录下暂无子文件夹</string>
+    <string name="scrape_logs_filter_all">全部</string>
+    <string name="scrape_logs_filter_cover">封面</string>
+    <string name="scrape_logs_filter_meta">元数据</string>
+    <string name="scrape_logs_filter_err">仅报错</string>
+    <string name="scrape_logs_search_hint">搜索节点 / 状态码 / URL / 报错…</string>
+    <string name="scrape_logs_live">● 实时</string>
+    <string name="scrape_logs_paused">❚❚ 已暂停</string>
     <string name="scraping_needs_account">需配置账号</string>
     <string name="scraping_account_set">已配置账号</string>
     <string name="scraping_account_add">配置账号 / 密钥</string>
@@ -220,7 +243,7 @@
     <string name="prop_package">应用包名</string>
     <string name="prop_file_name">文件名</string>
     <string name="prop_file_path">文件路径</string>
-    <string name="prop_sec_scraping">刮削与识别来源</string>
+    <string name="prop_sec_scraping">封面与识别来源</string>
     <string name="prop_meta_provider">元数据提供源</string>
     <string name="prop_meta_mode">元数据识别模式</string>
     <string name="prop_cover_provider">封面提供源</string>
@@ -421,6 +444,7 @@
 
     <!-- Edit Delete File & Game Library Manager -->
     <string name="edit_delete_file">删除文件</string>
+    <string name="edit_locate_file">查看文件</string>
     <string name="delete_file_confirm_title">确认永久删除文件？</string>
     <string name="delete_file_confirm_desc">即将从存储中永久删除「%1$s」（%2$s），删除后无法恢复！\n\n如果只是不想在桌面看到此游戏，建议改用「隐藏」功能（可随时在游戏库中恢复显示）。</string>
     <string name="delete_file_use_hide">改用「隐藏」（推荐）</string>
@@ -467,6 +491,11 @@
     <string name="lib_files_up">.. 返回上级</string>
     <string name="lib_files_roots">已配置的游戏库目录</string>
     <string name="lib_files_empty">当前目录为空</string>
+    <string name="lib_files_search_hint">搜索当前目录文件…</string>
+    <string name="lib_files_search_recursive_hint">多层搜索子目录文件…</string>
+    <string name="lib_files_search_current">当前目录</string>
+    <string name="lib_files_search_multi">多层搜索</string>
+    <string name="lib_files_search_empty">未找到匹配的文件或目录</string>
     <string name="lib_files_rom_tag">游戏</string>
 
     <!-- Category Sort Order -->
@@ -514,6 +543,11 @@
     <string name="lan_incoming_accept">接收</string>
     <string name="lan_incoming_reject">拒绝</string>
     <string name="lan_tx_waiting">正在等待「%s」确认接收…</string>
+    <string name="lan_tx_pin_required">等待输入「%s」的 PIN 码…</string>
+    <string name="lan_pin_title">需要输入 PIN 码</string>
+    <string name="lan_pin_desc">请输入「%s」上设置的接收 PIN 码以继续发送。</string>
+    <string name="lan_pin_hint">输入 PIN 码</string>
+    <string name="lan_pin_wrong">PIN 码不正确，请重新输入。</string>
     <string name="lan_tx_sending">正在发送给「%s」</string>
     <string name="lan_tx_receiving">正在接收来自「%s」的文件</string>
     <string name="lan_tx_done">传输完成</string>
@@ -560,10 +594,25 @@
     <string name="lib_text_truncated">文件超过 512 KB，仅展示前段内容（只读）。</string>
     <string name="lib_image_zoom_hint">支持手势缩放，或按 + / − / 0 键缩放</string>
     <string name="lib_add_multi_select">多选此项</string>
+    <string name="lib_task_src_web">Web 端</string>
+    <string name="lib_task_src_local">本机</string>
+    <string name="lib_task_compress">正在打包 ZIP</string>
+    <string name="lib_task_extract">正在解压</string>
+    <string name="lib_task_copy">正在复制</string>
+    <string name="lib_task_move">正在移动</string>
+    <string name="lib_task_delete">正在删除</string>
+    <string name="lib_task_upload">正在上传</string>
+    <string name="lib_task_processed_fmt">已处理 %s</string>
+    <string name="lib_task_cancel">取消</string>
+    <string name="lib_task_cancelling">取消中…</string>
 
     <!-- Share Method, Multi-file Share, Audio & Font Viewers -->
     <string name="font_import_success">已设为界面字体</string>
     <string name="lan_status_pending">待确认接收</string>
+    <string name="lan_status_tasks">文件任务</string>
+    <string name="lan_status_task_pct">任务 %d%%</string>
+    <string name="lan_total_progress">总进度</string>
+    <string name="lan_file_tasks_title">进行中的文件任务 (%d)</string>
     <string name="lan_status_waiting">等待确认</string>
     <string name="lan_status_sending_pct">发送 %d%%</string>
     <string name="lan_status_receiving_pct">接收 %d%%</string>
@@ -635,4 +684,15 @@
     <string name="lan_localsend_compat_desc">开启后可与 PC / Mac / iOS / Android 版 LocalSend 互传文件（默认开启，可手动关闭）</string>
     <string name="settings_build">构建号</string>
     <string name="settings_android_compat">系统兼容</string>
+
+    <!-- Web 客户端实时传输与历史记录 -->
+    <string name="lan_web_client_idle">空闲</string>
+    <string name="lan_web_uploading">正在上传</string>
+    <string name="lan_web_downloading">正在下载</string>
+    <string name="lan_web_history_btn">Web 传输记录 (%d)</string>
+    <string name="lan_web_history_title">Web 上传与下载记录 (%d)</string>
+    <string name="lan_web_history_empty">暂无通过 Web 管理后台上传或下载文件的记录。</string>
+    <string name="lan_web_dir_upload">上传</string>
+    <string name="lan_web_dir_download">下载</string>
+    <string name="lan_web_tx_failed">中断</string>
 </resources>

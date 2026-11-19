@@ -5,10 +5,12 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.math.BigInteger
+import java.net.Socket
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.security.Principal
 import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.Signature
@@ -16,9 +18,13 @@ import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
+import javax.net.ssl.KeyManager
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLEngine
 import javax.net.ssl.TrustManager
+import javax.net.ssl.X509ExtendedKeyManager
+import javax.net.ssl.X509KeyManager
 import javax.net.ssl.X509TrustManager
 
 /**
@@ -97,6 +103,45 @@ object LocalSendCert {
             init(kmf.keyManagers, null, SecureRandom())
         }
 
+        val baseKm = kmf.keyManagers.filterIsInstance<X509KeyManager>().first()
+        val clientKm: KeyManager = object : X509ExtendedKeyManager() {
+            override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? =
+                baseKm.getClientAliases(keyType, null)
+
+            override fun chooseClientAlias(
+                keyType: Array<out String>?,
+                issuers: Array<out Principal>?,
+                socket: Socket?,
+            ): String? = if (keyType?.any { it.equals("RSA", ignoreCase = true) } != false) "localsend" else null
+
+            override fun chooseEngineClientAlias(
+                keyType: Array<out String>?,
+                issuers: Array<out Principal>?,
+                engine: SSLEngine?,
+            ): String? = if (keyType?.any { it.equals("RSA", ignoreCase = true) } != false) "localsend" else null
+
+            override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? =
+                baseKm.getServerAliases(keyType, issuers)
+
+            override fun chooseServerAlias(
+                keyType: String?,
+                issuers: Array<out Principal>?,
+                socket: Socket?,
+            ): String? = baseKm.chooseServerAlias(keyType, issuers, socket)
+
+            override fun chooseEngineServerAlias(
+                keyType: String?,
+                issuers: Array<out Principal>?,
+                engine: SSLEngine?,
+            ): String? = (baseKm as? X509ExtendedKeyManager)?.chooseEngineServerAlias(keyType, issuers, engine)
+
+            override fun getCertificateChain(alias: String?): Array<X509Certificate>? =
+                baseKm.getCertificateChain(alias)
+
+            override fun getPrivateKey(alias: String?): PrivateKey? =
+                baseKm.getPrivateKey(alias)
+        }
+
         val trustAll = arrayOf<TrustManager>(
             object : X509TrustManager {
                 override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
@@ -105,7 +150,7 @@ object LocalSendCert {
             },
         )
         val clientSsl = SSLContext.getInstance("TLS").apply {
-            init(null, trustAll, SecureRandom())
+            init(arrayOf(clientKm), trustAll, SecureRandom())
         }
 
         return Identity(fingerprint, serverSsl, clientSsl)

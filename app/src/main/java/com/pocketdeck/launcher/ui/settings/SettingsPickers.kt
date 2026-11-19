@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -72,6 +73,7 @@ import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.launch.CustomLaunchMode
 import com.pocketdeck.launcher.launch.CustomLauncherCodec
 import com.pocketdeck.launcher.launch.GameLauncher
+import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
 import java.util.Locale
 import kotlin.math.abs
@@ -398,8 +400,10 @@ fun LauncherPickerDialog(
         return
     }
 
-    LaunchedEffect(Unit) {
-        runCatching { firstFocusFr.requestFocus() }
+    LaunchedEffect(pickingApp, pickedPkgForMode, customCoreDialog) {
+        if (!pickingApp && pickedPkgForMode == null && !customCoreDialog) {
+            runCatching { firstFocusFr.requestFocus() }
+        }
     }
 
     Box(
@@ -417,28 +421,31 @@ fun LauncherPickerDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .width(500.dp)
-                .heightIn(max = 600.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .widthIn(max = 500.dp)
+                .fillMaxWidth()
+                .heightIn(max = 600.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
-            Text(
-                title,
-                style = DeckType.menuTitle,
-                color = DeckColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "${platform.fullName} (${platform.shortName})",
-                style = DeckType.settingsLabel,
-                color = DeckColors.TextSecondary,
-            )
+            Column(Modifier.padding(end = 36.dp)) {
+                Text(
+                    title,
+                    style = DeckType.menuTitle,
+                    color = DeckColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "${platform.fullName} (${platform.shortName})",
+                    style = DeckType.settingsLabel,
+                    color = DeckColors.TextSecondary,
+                )
+            }
             Spacer(Modifier.height(12.dp))
             HorizontalDivider(color = DeckColors.DialogBorder)
 
@@ -770,18 +777,6 @@ fun LauncherPickerDialog(
                     }
                 }
             }
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text(
-                    stringResource(R.string.menu_cancel),
-                    style = DeckType.menuButton,
-                    color = DeckColors.TextSecondary,
-                    modifier = Modifier
-                        .clip(DeckShapes.menuButton)
-                        .gamepadClickable(swapAbxy, keyBindings, onClick = onDismiss)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
         }
     }
 }
@@ -980,19 +975,19 @@ private fun InstalledAppPickerDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
                 .width(480.dp)
-                .heightIn(max = 580.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+                .heightIn(max = 580.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
             Text(
                 stringResource(R.string.launcher_pick_app_title),
                 style = DeckType.menuTitle,
                 color = DeckColors.TextPrimary,
+                modifier = Modifier.padding(end = 36.dp),
             )
             Spacer(Modifier.height(10.dp))
             TextField(
@@ -1083,18 +1078,6 @@ private fun InstalledAppPickerDialog(
                         }
                     }
                 }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text(
-                    stringResource(R.string.menu_cancel),
-                    style = DeckType.menuButton,
-                    color = DeckColors.TextSecondary,
-                    modifier = Modifier
-                        .clip(DeckShapes.menuButton)
-                        .gamepadClickable(swapAbxy, keyBindings, onClick = onDismiss)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
             }
         }
     }
@@ -1330,19 +1313,17 @@ fun HiddenGamesDialog(
             .clickable(onClick = onDismiss),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
                 .width(480.dp)
-                .heightIn(max = 560.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+                .heightIn(max = 560.dp),
         ) {
             Text(
                 stringResource(R.string.library_hidden_title),
                 style = DeckType.menuTitle,
                 color = DeckColors.TextPrimary,
+                modifier = Modifier.padding(end = 36.dp),
             )
             Spacer(Modifier.height(10.dp))
             HorizontalDivider(color = DeckColors.DialogBorder)
@@ -1406,16 +1387,6 @@ fun HiddenGamesDialog(
                         }
                     }
                 }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text(
-                    stringResource(R.string.prop_close),
-                    style = DeckType.menuButton,
-                    color = DeckColors.TextSecondary,
-                    modifier = Modifier
-                        .clickable(onClick = onDismiss)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
             }
         }
     }

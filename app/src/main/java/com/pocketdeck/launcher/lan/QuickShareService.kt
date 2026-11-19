@@ -5,6 +5,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import com.pocketdeck.launcher.data.GameRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +34,9 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 enum class ShareProtocol { PocketDeck, LocalSend }
 
@@ -69,12 +73,27 @@ enum class TransferDirection { Sending, Receiving }
 
 enum class TransferPhase {
     WaitingAccept,
+    PinRequired,
     Transferring,
     Completed,
     Rejected,
     Cancelled,
     Failed,
 }
+
+data class LocalSendPinChallenge(
+    val sessionId: String,
+    val peerName: String,
+    val wrongPin: Boolean = false,
+)
+
+data class ShareActiveFileProgress(
+    val id: String,
+    val fileName: String,
+    val bytesTransferred: Long,
+    val totalBytes: Long,
+    val speedBytesPerSec: Long = 0L,
+)
 
 data class ShareTransferState(
     val sessionId: String,
@@ -89,6 +108,7 @@ data class ShareTransferState(
     val errorMessage: String? = null,
     val currentFileIndex: Int = 1,
     val totalFiles: Int = 1,
+    val activeFiles: List<ShareActiveFileProgress> = emptyList(),
 )
 
 data class ShareHistoryItem(
@@ -126,6 +146,12 @@ class QuickShareService(
         private const val MAX_FILES_PER_SESSION = 500
         private const val MAX_CONTROL_RESPONSE_BYTES = 4 * 1024 * 1024
         private val CONTROL_CHARS = Regex("""[\u0000-\u001F\u007F]""")
+        private val QUICKSHARE_CORS_HEADERS = mapOf(
+            "Access-Control-Allow-Origin" to "*",
+            "Access-Control-Allow-Methods" to "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers" to "Content-Type, X-File-Index",
+            "Access-Control-Allow-Private-Network" to "true",
+        )
 
         fun defaultInboxDir(): File {
             val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -141,8 +167,15 @@ class QuickShareService(
         @Volatile var status: SessionStatus = SessionStatus.PENDING,
         @Volatile var targetDir: File = req.defaultTargetDir,
         @Volatile var cancelled: Boolean = false,
-        @Volatile var accumulatedBytes: Long = 0L,
-        @Volatile var receivedCount: Int = 0,
+        val completedBytes: AtomicLong = AtomicLong(0L),
+        val receivedCount: AtomicInteger = AtomicInteger(0),
+        val activeFiles: ConcurrentHashMap<String, ShareActiveFileProgress> = ConcurrentHashMap(),
+        val activeCancelActions: ConcurrentHashMap<String, () -> Unit> = ConcurrentHashMap(),
+        val progressLock: Any = Any(),
+        val sessionStartMs: AtomicLong = AtomicLong(0L),
+        @Volatile var lastEmittedBytes: Long = 0L,
+        @Volatile var lastEmitMs: Long = 0L,
+        val completedOnce: AtomicBoolean = AtomicBoolean(false),
         val savedFiles: MutableList<File> = java.util.Collections.synchronizedList(mutableListOf()),
         val localSendFileNames: Map<String, String> = emptyMap(),
         val localSendFileTokens: Map<String, String> = emptyMap(),
@@ -164,6 +197,15 @@ class QuickShareService(
     private var activeSendSocket: Socket? = null
 
     @Volatile
+    private var activeSendRemoteSessionId: String? = null
+
+    @Volatile
+    private var activeSendLocalSessionId: String? = null
+
+    @Volatile
+    private var activeSendCancelledByRemote: Boolean = false
+
+    @Volatile
     private var activeLan: LanInterface? = null
 
     @Volatile
@@ -181,6 +223,9 @@ class QuickShareService(
     @Volatile
     private var activeSendCancelled = false
 
+    @Volatile
+    private var pendingPinDeferred: CompletableDeferred<String?>? = null
+
     private val pocketDeckPeers = ConcurrentHashMap<String, LanPeer>()
     private val localSendPeers = ConcurrentHashMap<String, LanPeer>()
 
@@ -192,6 +237,9 @@ class QuickShareService(
 
     private val _transfer = MutableStateFlow<ShareTransferState?>(null)
     val transfer: StateFlow<ShareTransferState?> = _transfer.asStateFlow()
+
+    private val _pinChallenge = MutableStateFlow<LocalSendPinChallenge?>(null)
+    val pinChallenge: StateFlow<LocalSendPinChallenge?> = _pinChallenge.asStateFlow()
 
     private val historyFile = File(context.filesDir, "share_history.json")
     private val historyLock = Any()
@@ -261,6 +309,7 @@ class QuickShareService(
         if (lan != null) {
             runCatching { sendDiscoveryPacketSync(lan, "goodbye") }
         }
+        clearPendingPin(null)
         sendJob?.cancel()
         sendJob = null
         runCatching { activeSendSocket?.close() }
@@ -329,20 +378,68 @@ class QuickShareService(
             sess.cancelled = true
             activeReceiveSession = null
             _incomingRequest.value = null
+            sess.activeCancelActions.values.forEach { act -> runCatching { act() } }
+            if (sess.req.protocol == ShareProtocol.PocketDeck) {
+                val lan = activeLan
+                val senderPeer = _peers.value.firstOrNull {
+                    it.protocol == ShareProtocol.PocketDeck && (it.deviceId == sess.req.senderId || it.ip == sess.req.senderIp)
+                }
+                if (lan != null && senderPeer != null) {
+                    scope?.launch(Dispatchers.IO) {
+                        runCatching {
+                            httpJson(
+                                lan,
+                                senderPeer.ip,
+                                senderPeer.port,
+                                "POST",
+                                "/api/share/cancel?sessionId=${URLEncoder.encode(sess.req.sessionId, "UTF-8")}",
+                                "{}",
+                            )
+                        }
+                    }
+                }
+            }
         }
         activeSendCancelled = true
+        clearPendingPin(null)
         runCatching { activeSendSocket?.close() }
         activeSendSocket = null
         sendJob?.cancel()
         sendJob = null
-        if (cur != null && (cur.phase == TransferPhase.WaitingAccept || cur.phase == TransferPhase.Transferring)) {
+        if (cur != null && (
+                cur.phase == TransferPhase.WaitingAccept ||
+                    cur.phase == TransferPhase.PinRequired ||
+                    cur.phase == TransferPhase.Transferring
+                )
+        ) {
             _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
         }
     }
 
+    fun submitSendPin(pin: String) {
+        val trimmed = pin.trim()
+        if (trimmed.isEmpty()) return
+        _pinChallenge.value = null
+        pendingPinDeferred?.complete(trimmed)
+        pendingPinDeferred = null
+    }
+
+    fun cancelSendPin() {
+        cancelTransfer()
+    }
+
+    private fun clearPendingPin(result: String? = null) {
+        _pinChallenge.value = null
+        pendingPinDeferred?.complete(result)
+        pendingPinDeferred = null
+    }
+
     fun dismissTransferBanner() {
         val cur = _transfer.value ?: return
-        if (cur.phase != TransferPhase.WaitingAccept && cur.phase != TransferPhase.Transferring) {
+        if (cur.phase != TransferPhase.WaitingAccept &&
+            cur.phase != TransferPhase.PinRequired &&
+            cur.phase != TransferPhase.Transferring
+        ) {
             _transfer.value = null
         }
     }
@@ -372,7 +469,10 @@ class QuickShareService(
         val s = scope ?: return
 
         sendJob?.cancel()
+        clearPendingPin(null)
         activeSendCancelled = false
+        activeSendCancelledByRemote = false
+        activeSendLocalSessionId = null
         val sessionId = UUID.randomUUID().toString()
         val totalBytes = validFiles.sumOf { it.length() }
         val fileCount = validFiles.size
@@ -419,10 +519,11 @@ class QuickShareService(
                 if (prepRes.first !in 200..299) {
                     _transfer.value = _transfer.value?.copy(
                         phase = TransferPhase.Failed,
-                        errorMessage = "Peer rejected or unreachable (${prepRes.first})",
+                        errorMessage = "Prepare failed (${prepRes.first})",
                     )
                     return@launch
                 }
+                activeSendLocalSessionId = sessionId
 
                 // 2) 轮询等待对方点击接收
                 val deadline = System.currentTimeMillis() + 90_000L
@@ -457,15 +558,17 @@ class QuickShareService(
                 }
 
                 if (activeSendCancelled) {
-                    runCatching {
-                        httpJson(
-                            lan,
-                            peer.ip,
-                            peer.port,
-                            "POST",
-                            "/api/share/cancel?sessionId=${URLEncoder.encode(sessionId, "UTF-8")}",
-                            "{}",
-                        )
+                    if (!activeSendCancelledByRemote) {
+                        runCatching {
+                            httpJson(
+                                lan,
+                                peer.ip,
+                                peer.port,
+                                "POST",
+                                "/api/share/cancel?sessionId=${URLEncoder.encode(sessionId, "UTF-8")}",
+                                "{}",
+                            )
+                        }
                     }
                     _transfer.value = _transfer.value?.copy(phase = TransferPhase.Cancelled)
                     return@launch
@@ -519,22 +622,37 @@ class QuickShareService(
                             speedBytesPerSec = speed,
                             currentFileIndex = idx + 1,
                             totalFiles = fileCount,
+                            activeFiles = if (fileCount > 1) {
+                                listOf(
+                                    ShareActiveFileProgress(
+                                        id = curFile.path,
+                                        fileName = curFile.name,
+                                        bytesTransferred = sent,
+                                        totalBytes = curFile.length(),
+                                        speedBytesPerSec = speed,
+                                    ),
+                                )
+                            } else {
+                                emptyList()
+                            },
                         )
                     }
                     if (uploadCode !in 200..299 || activeSendCancelled) break
                     batchSentBase += curFile.length()
                 }
 
-                if (activeSendCancelled) {
-                    runCatching {
-                        httpJson(
-                            lan,
-                            peer.ip,
-                            peer.port,
-                            "POST",
-                            "/api/share/cancel?sessionId=${URLEncoder.encode(sessionId, "UTF-8")}",
-                            "{}",
-                        )
+                if (activeSendCancelled || uploadCode == 499) {
+                    if (!activeSendCancelledByRemote && uploadCode != 499) {
+                        runCatching {
+                            httpJson(
+                                lan,
+                                peer.ip,
+                                peer.port,
+                                "POST",
+                                "/api/share/cancel?sessionId=${URLEncoder.encode(sessionId, "UTF-8")}",
+                                "{}",
+                            )
+                        }
                     }
                     _transfer.value = _transfer.value?.copy(phase = TransferPhase.Cancelled)
                 } else if (uploadCode in 200..299) {
@@ -552,14 +670,24 @@ class QuickShareService(
                         errorMessage = "Upload failed ($uploadCode)",
                     )
                 }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
             } catch (t: Throwable) {
-                if (activeSendCancelled) {
-                    _transfer.value = _transfer.value?.copy(phase = TransferPhase.Cancelled)
-                } else {
-                    _transfer.value = _transfer.value?.copy(
-                        phase = TransferPhase.Failed,
-                        errorMessage = t.message ?: "Transfer error",
-                    )
+                val cur = _transfer.value
+                if (cur?.sessionId == sessionId) {
+                    if (activeSendCancelled) {
+                        _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+                    } else {
+                        _transfer.value = cur.copy(
+                            phase = TransferPhase.Failed,
+                            errorMessage = t.message ?: "Transfer error",
+                        )
+                    }
+                }
+            } finally {
+                if (activeSendLocalSessionId == sessionId) {
+                    activeSendSocket = null
+                    activeSendLocalSessionId = null
                 }
             }
         }
@@ -567,7 +695,17 @@ class QuickShareService(
 
     // ───────────────────────── PocketDeck Native HTTP ─────────────────────────
 
+    private fun applyCors(req: HttpRequest, res: HttpResponseWriter): Boolean {
+        res.defaultHeaders = QUICKSHARE_CORS_HEADERS
+        if (req.method == "OPTIONS") {
+            res.sendBytes(204, ByteArray(0), "text/plain; charset=utf-8")
+            return true
+        }
+        return false
+    }
+
     private suspend fun handleHttp(req: HttpRequest, res: HttpResponseWriter) {
+        if (applyCors(req, res)) return
         when {
             req.method == "GET" && req.path == "/api/share/ping" -> {
                 res.sendJson(
@@ -666,9 +804,21 @@ class QuickShareService(
             sess.cancelled = true
             activeReceiveSession = null
             _incomingRequest.value = null
+            sess.activeCancelActions.values.forEach { act -> runCatching { act() } }
             val cur = _transfer.value
             if (cur?.sessionId == sid) {
                 _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+            }
+        } else {
+            val outSid = activeSendLocalSessionId
+            if (outSid != null && sid.isNotBlank() && sid == outSid) {
+                activeSendCancelledByRemote = true
+                activeSendCancelled = true
+                runCatching { activeSendSocket?.close() }
+                val cur = _transfer.value
+                if (cur?.direction == TransferDirection.Sending) {
+                    _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+                }
             }
         }
         res.sendJson(200, """{"ok":true}""")
@@ -684,7 +834,7 @@ class QuickShareService(
 
         val rawName = req.query["name"].orEmpty()
         val itemName = sanitizeFileName(rawName) ?: sess.req.fileName
-        val itemIdx = req.query["index"]?.toIntOrNull()?.coerceAtLeast(1) ?: (sess.receivedCount + 1)
+        val itemIdx = req.query["index"]?.toIntOrNull()?.coerceAtLeast(1) ?: (sess.receivedCount.get() + 1)
         val totalFiles = sess.req.fileCount.coerceAtLeast(1)
         val isLast = req.query["isLast"]?.let { it == "1" || it.equals("true", ignoreCase = true) }
             ?: (itemIdx >= totalFiles)
@@ -718,9 +868,17 @@ class QuickShareService(
         val finalTarget = uniqueFile(targetDir, itemName)
         val partFile = File(targetDir, ".share_${System.currentTimeMillis()}_${finalTarget.name}.part")
         val totalBatchBytes = sess.req.fileSize.coerceAtLeast(req.contentLength)
-        val baseBytes = sess.accumulatedBytes
-        val startMs = System.currentTimeMillis()
-        var lastEmitMs = startMs
+        val fileTotalBytes = req.contentLength.coerceAtLeast(0L)
+        val uploadKey = UUID.randomUUID().toString()
+        val nowStart = System.currentTimeMillis()
+        sess.sessionStartMs.compareAndSet(0L, nowStart)
+        sess.activeCancelActions[uploadKey] = req.cancelConnection
+        sess.activeFiles[uploadKey] = ShareActiveFileProgress(
+            id = uploadKey,
+            fileName = finalTarget.name,
+            bytesTransferred = 0L,
+            totalBytes = fileTotalBytes,
+        )
         var fileWritten = 0L
 
         val ok = runCatching {
@@ -728,22 +886,45 @@ class QuickShareService(
                 val written = req.copyBodyTo(out) { copied ->
                     if (sess.cancelled) throw IllegalStateException("Cancelled")
                     val now = System.currentTimeMillis()
-                    if (now - lastEmitMs >= 120L || (req.contentLength > 0L && copied >= req.contentLength)) {
-                        lastEmitMs = now
-                        val elapsedSec = ((now - startMs).coerceAtLeast(1L)) / 1000.0
-                        val speed = (copied / elapsedSec).toLong()
-                        _transfer.value = ShareTransferState(
-                            sessionId = sid,
-                            direction = TransferDirection.Receiving,
-                            phase = TransferPhase.Transferring,
-                            peerName = sess.req.senderName,
-                            fileName = finalTarget.name,
-                            bytesTransferred = baseBytes + copied,
-                            totalBytes = totalBatchBytes,
-                            speedBytesPerSec = speed,
-                            currentFileIndex = itemIdx,
-                            totalFiles = totalFiles,
-                        )
+                    val fileElapsedSec = ((now - nowStart).coerceAtLeast(1L)) / 1000.0
+                    val fileSpeed = (copied / fileElapsedSec).toLong()
+                    sess.activeFiles[uploadKey] = ShareActiveFileProgress(
+                        id = uploadKey,
+                        fileName = finalTarget.name,
+                        bytesTransferred = copied,
+                        totalBytes = fileTotalBytes,
+                        speedBytesPerSec = fileSpeed,
+                    )
+                    synchronized(sess.progressLock) {
+                        val hitFileEnd = req.contentLength > 0L && copied >= req.contentLength
+                        if (now - sess.lastEmitMs >= 120L || hitFileEnd) {
+                            sess.lastEmitMs = now
+                            val totalNow = sess.completedBytes.get() + sess.activeFiles.values.sumOf { it.bytesTransferred }
+                            val monotonicBytes = maxOf(totalNow, sess.lastEmittedBytes)
+                            sess.lastEmittedBytes = monotonicBytes
+                            val elapsedSec = ((now - sess.sessionStartMs.get()).coerceAtLeast(1L)) / 1000.0
+                            val speed = (monotonicBytes / elapsedSec).toLong()
+                            val activeSnapshot = sess.activeFiles.values.sortedBy { it.fileName }
+                            val displayName = if (activeSnapshot.size > 1) {
+                                "${finalTarget.name} (+${activeSnapshot.size - 1})"
+                            } else {
+                                finalTarget.name
+                            }
+                            val curIdx = (sess.receivedCount.get() + 1).coerceIn(1, totalFiles)
+                            _transfer.value = ShareTransferState(
+                                sessionId = sid,
+                                direction = TransferDirection.Receiving,
+                                phase = TransferPhase.Transferring,
+                                peerName = sess.req.senderName,
+                                fileName = displayName,
+                                bytesTransferred = monotonicBytes,
+                                totalBytes = maxOf(totalBatchBytes, monotonicBytes),
+                                speedBytesPerSec = speed,
+                                currentFileIndex = curIdx,
+                                totalFiles = totalFiles,
+                                activeFiles = activeSnapshot,
+                            )
+                        }
                     }
                 }
                 check(!sess.cancelled && (req.isChunked || written == req.contentLength)) { "Incomplete transfer" }
@@ -757,32 +938,49 @@ class QuickShareService(
         }
 
         if (!ok) {
-            activeReceiveSession = null
-            _transfer.value = ShareTransferState(
-                sessionId = sid,
-                direction = TransferDirection.Receiving,
-                phase = if (sess.cancelled) TransferPhase.Cancelled else TransferPhase.Failed,
-                peerName = sess.req.senderName,
-                fileName = finalTarget.name,
-                bytesTransferred = baseBytes,
-                totalBytes = totalBatchBytes,
-                currentFileIndex = itemIdx,
-                totalFiles = totalFiles,
-                errorMessage = if (sess.cancelled) null else "Receive failed",
-            )
-            res.sendJson(500, """{"ok":false}""")
+            synchronized(sess.progressLock) {
+                sess.activeCancelActions.remove(uploadKey)
+                sess.activeFiles.remove(uploadKey)
+            }
+            if (sess.completedOnce.compareAndSet(false, true)) {
+                activeReceiveSession = null
+                _transfer.value = ShareTransferState(
+                    sessionId = sid,
+                    direction = TransferDirection.Receiving,
+                    phase = if (sess.cancelled) TransferPhase.Cancelled else TransferPhase.Failed,
+                    peerName = sess.req.senderName,
+                    fileName = finalTarget.name,
+                    bytesTransferred = sess.lastEmittedBytes,
+                    totalBytes = totalBatchBytes,
+                    currentFileIndex = itemIdx,
+                    totalFiles = totalFiles,
+                    errorMessage = if (sess.cancelled) null else "Receive failed",
+                )
+            }
+            res.sendJson(if (sess.cancelled) 499 else 500, """{"ok":false}""")
             return
         }
 
-        sess.accumulatedBytes = baseBytes + fileWritten
-        sess.receivedCount += 1
-        sess.savedFiles.add(finalTarget)
-        if (isLast || sess.receivedCount >= totalFiles) {
+        val totalDoneBytes: Long
+        val doneCount: Int
+        synchronized(sess.progressLock) {
+            sess.activeCancelActions.remove(uploadKey)
+            sess.activeFiles.remove(uploadKey)
+            sess.savedFiles.add(finalTarget)
+            totalDoneBytes = sess.completedBytes.addAndGet(fileWritten)
+            doneCount = sess.receivedCount.incrementAndGet()
+            if (totalDoneBytes > sess.lastEmittedBytes) {
+                sess.lastEmittedBytes = totalDoneBytes
+            }
+        }
+        repo.notifyFilesChanged()
+        if ((isLast || doneCount >= totalFiles) && sess.completedOnce.compareAndSet(false, true)) {
             activeReceiveSession = null
             repo.refresh()
             val savedPaths = sess.savedFiles.map { it.absolutePath }
             val displayName = if (totalFiles > 1) "${sess.req.fileName} ($totalFiles files)" else finalTarget.name
             val primaryPath = if (totalFiles > 1) targetDir.absolutePath else finalTarget.absolutePath
+            val finalTotal = totalDoneBytes.coerceAtLeast(totalBatchBytes)
             recordHistoryItem(
                 ShareHistoryItem(
                     id = sid,
@@ -790,7 +988,7 @@ class QuickShareService(
                     filePath = primaryPath,
                     filePaths = savedPaths,
                     fileCount = savedPaths.size.coerceAtLeast(1),
-                    totalBytes = sess.accumulatedBytes.coerceAtLeast(totalBatchBytes),
+                    totalBytes = finalTotal,
                     senderName = sess.req.senderName,
                     senderIp = sess.req.senderIp,
                     platformName = sess.req.platformName,
@@ -803,8 +1001,8 @@ class QuickShareService(
                 phase = TransferPhase.Completed,
                 peerName = sess.req.senderName,
                 fileName = displayName,
-                bytesTransferred = sess.accumulatedBytes.coerceAtLeast(totalBatchBytes),
-                totalBytes = sess.accumulatedBytes.coerceAtLeast(totalBatchBytes),
+                bytesTransferred = finalTotal,
+                totalBytes = finalTotal,
                 savedPath = primaryPath,
                 currentFileIndex = totalFiles,
                 totalFiles = totalFiles,
@@ -974,6 +1172,7 @@ class QuickShareService(
     }
 
     private suspend fun handleLocalSendHttp(req: HttpRequest, res: HttpResponseWriter) {
+        if (applyCors(req, res)) return
         if (!localSendCompatEnabled) {
             res.sendJson(404, """{"message":"disabled"}""")
             return
@@ -1020,11 +1219,26 @@ class QuickShareService(
                 if (sess != null && (sid.isBlank() || sess.req.sessionId == sid)) {
                     sess.status = SessionStatus.CANCELLED
                     sess.cancelled = true
+                    sess.activeCancelActions.values.forEach { runCatching { it() } }
+                    sess.activeCancelActions.clear()
                     activeReceiveSession = null
-                    _incomingRequest.value = null
+                    if (_incomingRequest.value?.sessionId == sess.req.sessionId) {
+                        _incomingRequest.value = null
+                    }
                     val cur = _transfer.value
                     if (cur?.sessionId == sess.req.sessionId) {
                         _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+                    }
+                } else {
+                    val outSid = activeSendRemoteSessionId
+                    if (outSid != null && (sid.isBlank() || sid == outSid)) {
+                        activeSendCancelledByRemote = true
+                        activeSendCancelled = true
+                        runCatching { activeSendSocket?.close() }
+                        val cur = _transfer.value
+                        if (cur?.direction == TransferDirection.Sending) {
+                            _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+                        }
                     }
                 }
                 res.sendJson(200, "{}")
@@ -1107,34 +1321,75 @@ class QuickShareService(
         activeReceiveSession = sess
         _incomingRequest.value = incoming
 
-        // LocalSend prepare-upload 长轮询等待用户点击接收或拒绝
+        // LocalSend prepare-upload 长轮询等待用户点击接收或拒绝；同步探测对端是否已断开连接（取消发送）
         val deadline = System.currentTimeMillis() + 90_000L
+        var checkTick = 0
         while (sess.status == SessionStatus.PENDING && !sess.cancelled && System.currentTimeMillis() < deadline) {
-            delay(100)
+            if (checkTick % 2 == 1 && req.isPeerClosed()) {
+                sess.status = SessionStatus.CANCELLED
+                sess.cancelled = true
+                if (activeReceiveSession === sess) activeReceiveSession = null
+                if (_incomingRequest.value?.sessionId == sessionId) _incomingRequest.value = null
+                val cur = _transfer.value
+                if (cur?.sessionId == sessionId) {
+                    _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+                }
+                return
+            }
+            checkTick++
+            delay(120)
         }
 
         when (sess.status) {
             SessionStatus.ACCEPTED -> {
                 val filesTokensJson = JSONObject()
                 idToToken.forEach { (fid, tok) -> filesTokensJson.put(fid, tok) }
-                res.sendJson(
-                    200,
-                    JSONObject().apply {
-                        put("sessionId", sessionId)
-                        put("files", filesTokensJson)
-                    }.toString(),
-                )
+                val sendRes = runCatching {
+                    res.sendJson(
+                        200,
+                        JSONObject().apply {
+                            put("sessionId", sessionId)
+                            put("files", filesTokensJson)
+                        }.toString(),
+                    )
+                }
+                if (sendRes.isFailure) {
+                    sess.cancelled = true
+                    if (activeReceiveSession === sess) activeReceiveSession = null
+                    val cur = _transfer.value
+                    if (cur?.sessionId == sessionId) {
+                        _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+                    }
+                    return
+                }
+                // 看门狗：若对端在同意后 20 秒内始终未开始上传任何数据，自动结束等待态避免无限卡住
+                scope?.launch {
+                    delay(20_000L)
+                    if (activeReceiveSession === sess &&
+                        !sess.cancelled &&
+                        sess.receivedCount.get() == 0 &&
+                        sess.activeFiles.isEmpty() &&
+                        sess.completedBytes.get() == 0L
+                    ) {
+                        sess.cancelled = true
+                        activeReceiveSession = null
+                        val cur = _transfer.value
+                        if (cur?.sessionId == sessionId && cur.phase == TransferPhase.Transferring) {
+                            _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+                        }
+                    }
+                }
             }
             SessionStatus.REJECTED, SessionStatus.CANCELLED -> {
                 if (activeReceiveSession === sess) activeReceiveSession = null
-                _incomingRequest.value = null
-                res.sendJson(403, """{"message":"Rejected by user"}""")
+                if (_incomingRequest.value?.sessionId == sessionId) _incomingRequest.value = null
+                runCatching { res.sendJson(403, """{"message":"Rejected by user"}""") }
             }
             SessionStatus.PENDING -> {
                 sess.cancelled = true
                 if (activeReceiveSession === sess) activeReceiveSession = null
-                _incomingRequest.value = null
-                res.sendJson(408, """{"message":"Timed out waiting for acceptance"}""")
+                if (_incomingRequest.value?.sessionId == sessionId) _incomingRequest.value = null
+                runCatching { res.sendJson(408, """{"message":"Timed out waiting for acceptance"}""") }
             }
         }
     }
@@ -1155,7 +1410,7 @@ class QuickShareService(
             return
         }
         val totalFiles = sess.req.fileCount.coerceAtLeast(1)
-        val nextIdx = sess.receivedCount + 1
+        val nextIdx = (sess.receivedCount.get() + 1).coerceAtMost(totalFiles)
         streamReceiveSingleFile(
             req = req,
             res = res,
@@ -1164,7 +1419,7 @@ class QuickShareService(
             itemName = expectedName,
             itemIdx = nextIdx,
             totalFiles = totalFiles,
-            isLast = nextIdx >= totalFiles,
+            isLast = false,
             emptyResponseJson = "{}",
         )
     }
@@ -1176,7 +1431,10 @@ class QuickShareService(
         val s = scope ?: return
 
         sendJob?.cancel()
+        clearPendingPin(null)
         activeSendCancelled = false
+        activeSendCancelledByRemote = false
+        activeSendLocalSessionId = null
         val totalBytes = validFiles.sumOf { it.length() }
         val fileCount = validFiles.size
         val primaryName = if (fileCount == 1) validFiles.first().name else "${validFiles.first().name} +${fileCount - 1}"
@@ -1219,24 +1477,70 @@ class QuickShareService(
                     put("files", filesJson)
                 }.toString()
 
-                val prepRes = httpJsonAny(
-                    lan = lan,
-                    ip = peer.ip,
-                    port = peer.port,
-                    useHttps = peer.useHttps,
-                    sslContext = cert.clientSslContext,
-                    method = "POST",
-                    path = "/api/localsend/v2/prepare-upload",
-                    jsonBody = prepBody,
-                    readTimeoutMs = 95_000,
-                )
+                var pin: String? = null
+                var prepRes: Pair<Int, String>
+                var pinAttempt = 0
+                while (true) {
+                    if (activeSendCancelled) {
+                        _transfer.value = _transfer.value?.copy(phase = TransferPhase.Cancelled)
+                        return@launch
+                    }
+                    val prepPath = if (pin != null) {
+                        "/api/localsend/v2/prepare-upload?pin=${URLEncoder.encode(pin, "UTF-8")}"
+                    } else {
+                        "/api/localsend/v2/prepare-upload"
+                    }
+                    prepRes = httpJsonAny(
+                        lan = lan,
+                        ip = peer.ip,
+                        port = peer.port,
+                        useHttps = peer.useHttps,
+                        sslContext = cert.clientSslContext,
+                        method = "POST",
+                        path = prepPath,
+                        jsonBody = prepBody,
+                        readTimeoutMs = 95_000,
+                    )
+                    if (activeSendCancelled) {
+                        _transfer.value = _transfer.value?.copy(phase = TransferPhase.Cancelled)
+                        return@launch
+                    }
+                    if (prepRes.first != 401) break
 
-                if (activeSendCancelled) {
-                    _transfer.value = _transfer.value?.copy(phase = TransferPhase.Cancelled)
-                    return@launch
+                    val wrong = pinAttempt > 0
+                    pinAttempt++
+                    val deferred = CompletableDeferred<String?>()
+                    pendingPinDeferred = deferred
+                    _transfer.value = _transfer.value?.copy(phase = TransferPhase.PinRequired)
+                    _pinChallenge.value = LocalSendPinChallenge(
+                        sessionId = tempSessionId,
+                        peerName = peer.deviceName,
+                        wrongPin = wrong,
+                    )
+                    val entered = try {
+                        deferred.await()
+                    } finally {
+                        if (pendingPinDeferred === deferred) pendingPinDeferred = null
+                        if (_pinChallenge.value?.sessionId == tempSessionId) _pinChallenge.value = null
+                    }
+                    if (entered.isNullOrBlank() || activeSendCancelled) {
+                        activeSendCancelled = true
+                        _transfer.value = _transfer.value?.copy(phase = TransferPhase.Cancelled)
+                        return@launch
+                    }
+                    pin = entered
+                    _transfer.value = _transfer.value?.copy(phase = TransferPhase.WaitingAccept)
                 }
+
                 if (prepRes.first == 403) {
                     _transfer.value = _transfer.value?.copy(phase = TransferPhase.Rejected)
+                    return@launch
+                }
+                if (prepRes.first == 429) {
+                    _transfer.value = _transfer.value?.copy(
+                        phase = TransferPhase.Failed,
+                        errorMessage = "Too many PIN attempts (429)",
+                    )
                     return@launch
                 }
                 if (prepRes.first == 409) {
@@ -1256,6 +1560,7 @@ class QuickShareService(
 
                 val prepObj = JSONObject(prepRes.second)
                 remoteSessionId = prepObj.optString("sessionId", "")
+                activeSendRemoteSessionId = remoteSessionId.takeIf { it.isNotBlank() }
                 val tokensObj = prepObj.optJSONObject("files") ?: JSONObject()
 
                 var batchSentBase = 0L
@@ -1293,6 +1598,19 @@ class QuickShareService(
                             speedBytesPerSec = speed,
                             currentFileIndex = idx + 1,
                             totalFiles = fileCount,
+                            activeFiles = if (fileCount > 1) {
+                                listOf(
+                                    ShareActiveFileProgress(
+                                        id = curFile.path,
+                                        fileName = curFile.name,
+                                        bytesTransferred = sent,
+                                        totalBytes = curFile.length(),
+                                        speedBytesPerSec = speed,
+                                    ),
+                                )
+                            } else {
+                                emptyList()
+                            },
                         )
                     }
                     if (uploadCode !in 200..299 || activeSendCancelled) break
@@ -1301,7 +1619,7 @@ class QuickShareService(
                 }
 
                 if (activeSendCancelled) {
-                    if (remoteSessionId.isNotBlank()) {
+                    if (remoteSessionId.isNotBlank() && !activeSendCancelledByRemote) {
                         runCatching {
                             httpJsonAny(
                                 lan, peer.ip, peer.port, peer.useHttps, cert.clientSslContext,
@@ -1325,17 +1643,26 @@ class QuickShareService(
                         errorMessage = "Upload failed ($uploadCode)",
                     )
                 }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
             } catch (t: Throwable) {
-                if (activeSendCancelled) {
-                    _transfer.value = _transfer.value?.copy(phase = TransferPhase.Cancelled)
-                } else {
-                    _transfer.value = _transfer.value?.copy(
-                        phase = TransferPhase.Failed,
-                        errorMessage = t.message ?: "LocalSend error",
-                    )
+                val cur = _transfer.value
+                if (cur?.sessionId == tempSessionId) {
+                    if (activeSendCancelled) {
+                        _transfer.value = cur.copy(phase = TransferPhase.Cancelled)
+                    } else {
+                        _transfer.value = cur.copy(
+                            phase = TransferPhase.Failed,
+                            errorMessage = t.message ?: "LocalSend error",
+                        )
+                    }
                 }
             } finally {
-                activeSendSocket = null
+                if (_transfer.value?.sessionId == tempSessionId || activeSendRemoteSessionId == remoteSessionId) {
+                    clearPendingPin(null)
+                    activeSendSocket = null
+                    activeSendRemoteSessionId = null
+                }
             }
         }
     }
@@ -1359,6 +1686,7 @@ class QuickShareService(
                 val f = File(p)
                 if (f.isFile) runCatching { f.delete() }
             }
+            repo.notifyFilesChanged()
             repo.refresh()
         }
     }
@@ -1378,6 +1706,7 @@ class QuickShareService(
                     if (f.isFile) runCatching { f.delete() }
                 }
             }
+            repo.notifyFilesChanged()
             repo.refresh()
         }
     }
@@ -1592,13 +1921,14 @@ class QuickShareService(
         path: String,
         jsonBody: String?,
         readTimeoutMs: Int = 10_000,
+        trackAsActiveSend: Boolean = false,
     ): Pair<Int, String> {
         val sock = if (useHttps && sslContext != null) {
             LanInterfaces.openBoundTlsSocket(lan, sslContext, ip, port, connectTimeoutMs = 4000, readTimeoutMs = readTimeoutMs)
         } else {
             LanInterfaces.openBoundSocket(lan, ip, port, connectTimeoutMs = 4000, readTimeoutMs = readTimeoutMs)
         }
-        activeSendSocket = sock
+        if (trackAsActiveSend) activeSendSocket = sock
         return sock.use { s ->
             val bodyBytes = jsonBody?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
             val out = BufferedOutputStream(s.getOutputStream())
@@ -1701,15 +2031,40 @@ class QuickShareService(
         val statusLine = readLine(input) ?: return 500 to ""
         val code = statusLine.split(' ').getOrNull(1)?.toIntOrNull() ?: 500
         var contentLen = -1
+        var chunked = false
         while (true) {
             val line = readLine(input) ?: break
             if (line.isEmpty()) break
             val idx = line.indexOf(':')
-            if (idx > 0 && line.substring(0, idx).trim().equals("content-length", ignoreCase = true)) {
-                contentLen = line.substring(idx + 1).trim().toIntOrNull() ?: -1
+            if (idx > 0) {
+                val hName = line.substring(0, idx).trim()
+                val hVal = line.substring(idx + 1).trim()
+                if (hName.equals("content-length", ignoreCase = true)) {
+                    contentLen = hVal.toIntOrNull() ?: -1
+                } else if (hName.equals("transfer-encoding", ignoreCase = true) && hVal.contains("chunked", ignoreCase = true)) {
+                    chunked = true
+                }
             }
         }
-        val body = if (contentLen > 0) {
+        val body = if (chunked) {
+            val baos = ByteArrayOutputStream()
+            while (baos.size() < MAX_CONTROL_RESPONSE_BYTES) {
+                val sizeLine = readLine(input)?.substringBefore(';')?.trim() ?: break
+                val chunkSize = sizeLine.toIntOrNull(16) ?: break
+                if (chunkSize <= 0) break
+                var rem = chunkSize
+                val tmp = ByteArray(minOf(chunkSize, 4096))
+                while (rem > 0) {
+                    val n = input.read(tmp, 0, minOf(rem, tmp.size))
+                    if (n <= 0) break
+                    val allowed = minOf(n, MAX_CONTROL_RESPONSE_BYTES - baos.size())
+                    if (allowed > 0) baos.write(tmp, 0, allowed)
+                    rem -= n
+                }
+                readLine(input) // trailing CRLF
+            }
+            String(baos.toByteArray(), StandardCharsets.UTF_8)
+        } else if (contentLen > 0) {
             val capped = minOf(contentLen, MAX_CONTROL_RESPONSE_BYTES)
             val buf = ByteArray(capped)
             var read = 0

@@ -22,6 +22,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -103,10 +105,9 @@ fun TopBar(
     lanWebActive: Boolean = false,
     lanPendingIncoming: Boolean = false,
     lanTransferWaiting: Boolean = false,
-    lanTransferActive: Boolean = false,
-    lanTransferSending: Boolean = false,
-    lanTransferPercent: Int = 0,
+    lanTaskProgress: Float? = null,
     onLanBadgeClick: () -> Unit = {},
+    onWifiClick: () -> Unit = onLanBadgeClick,
     onTabClick: (Int) -> Unit = {},
     onPrevTab: () -> Unit = {},
     onNextTab: () -> Unit = {},
@@ -291,14 +292,16 @@ fun TopBar(
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 可滚动标签行（左右边缘 20px 透明渐变遮罩；物理 L1 / R1 按键仍可切换标签）
-        val fadeLeft = listState.canScrollBackward
-        val fadeRight = listState.canScrollForward
+        // 可滚动标签行（仅在需要边缘渐变时启用离屏合成，避免无滚动时的多余离屏渲染开销）
+        val fadeLeft by remember { androidx.compose.runtime.derivedStateOf { listState.canScrollBackward } }
+        val fadeRight by remember { androidx.compose.runtime.derivedStateOf { listState.canScrollForward } }
         LazyRow(
             state = listState,
             modifier = Modifier
                 .weight(1f)
-                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                .graphicsLayer(
+                    compositingStrategy = if (fadeLeft || fadeRight) CompositingStrategy.Offscreen else CompositingStrategy.Auto,
+                )
                 .drawWithContent {
                     drawContent()
                     val w = size.width
@@ -357,45 +360,79 @@ fun TopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            // 局域网快传 / Web 管理与传输状态醒目提醒（点击回到管理/接收界面，防止误关或忘关）
-            if (lanSharingActive || lanWebActive || lanPendingIncoming || lanTransferActive || lanTransferWaiting) {
-                val lanLabel = when {
-                    lanPendingIncoming -> stringResource(R.string.lan_status_pending)
-                    lanTransferWaiting -> stringResource(R.string.lan_status_waiting)
-                    lanTransferActive && lanTransferSending -> stringResource(R.string.lan_status_sending_pct, lanTransferPercent)
-                    lanTransferActive -> stringResource(R.string.lan_status_receiving_pct, lanTransferPercent)
-                    lanSharingActive && lanWebActive -> stringResource(R.string.lan_status_both)
-                    lanSharingActive -> stringResource(R.string.lan_status_share)
-                    else -> stringResource(R.string.lan_status_web)
-                }
+            // 局域网快传 / Web 管理与任务进度提醒（文字态优先且不显示 Logo；空闲或进度条态仅显示扁平单色 Logo + 半透明进度填充）
+            val hasTask = lanTaskProgress != null
+            if (lanSharingActive || lanWebActive || lanPendingIncoming || lanTransferWaiting || hasTask) {
+                val showTextOnly = lanPendingIncoming || lanTransferWaiting
+                val animProgress by animateFloatAsState(
+                    targetValue = (lanTaskProgress ?: 0f).coerceIn(0f, 1f),
+                    animationSpec = tween(durationMillis = 200),
+                    label = "lan_task_progress",
+                )
+                val isColored = lanPendingIncoming || hasTask || lanTransferWaiting
                 val accent = when {
                     lanPendingIncoming -> Color(0xFFEC4899)
-                    lanTransferActive || lanTransferWaiting -> Color(0xFF0EA5E9)
-                    lanSharingActive -> Color(0xFF10B981)
-                    else -> Color(0xFFF59E0B)
+                    hasTask || lanTransferWaiting -> Color(0xFF0EA5E9)
+                    else -> statusTint
                 }
+                val bgTint = when {
+                    !isColored -> statusTint.copy(alpha = 0.06f)
+                    !showTextOnly && hasTask -> accent.copy(alpha = 0.12f)
+                    else -> accent.copy(alpha = 0.16f)
+                }
+                val borderTint = if (isColored) accent.copy(alpha = 0.85f) else statusTint.copy(alpha = 0.24f)
+
                 Row(
                     Modifier
                         .clip(DeckShapes.tabPill)
-                        .background(accent.copy(alpha = 0.18f))
-                        .border(1.2.dp, accent, DeckShapes.tabPill)
+                        .background(bgTint)
+                        .drawBehind {
+                            if (!showTextOnly && hasTask && animProgress > 0f) {
+                                drawRect(
+                                    color = accent.copy(alpha = 0.28f),
+                                    size = Size(size.width * animProgress, size.height),
+                                )
+                            }
+                        }
+                        .border(0.8.dp, borderTint, DeckShapes.tabPill)
                         .soundClickable(onClick = onLanBadgeClick)
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    Box(
-                        Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(accent),
-                    )
-                    Text(
-                        text = lanLabel,
-                        style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
-                        color = accent,
-                        maxLines = 1,
-                    )
+                    if (showTextOnly) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(accent),
+                        )
+                        Text(
+                            text = stringResource(
+                                if (lanPendingIncoming) R.string.lan_status_pending else R.string.lan_status_waiting,
+                            ),
+                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold, fontSize = 10.5.sp),
+                            color = accent,
+                            maxLines = 1,
+                        )
+                    } else {
+                        val showShareLogo = lanSharingActive || (hasTask && !lanWebActive)
+                        val showWebLogo = lanWebActive
+                        if (showShareLogo) {
+                            Box(
+                                Modifier
+                                    .size(13.dp)
+                                    .drawBehind { drawQuickShareLogo(accent) },
+                            )
+                        }
+                        if (showWebLogo) {
+                            Box(
+                                Modifier
+                                    .size(13.dp)
+                                    .drawBehind { drawWebGlobeLogo(accent) },
+                            )
+                        }
+                    }
                 }
             }
 
@@ -454,20 +491,28 @@ fun TopBar(
                 )
             }
 
-            // Wi-Fi 图标
+            // Wi-Fi 图标（点击可快捷呼出局域网服务与快传控制面板）
             if (showWifi) {
                 Box(
                     Modifier
-                        .size(16.dp)
-                        .drawBehind {
-                            drawWifiIcon(
-                                level = wifiLevel,
-                                activeColor = statusTint,
-                                inactiveColor = statusInactive,
-                                slashColor = statusSlash,
-                            )
-                        }
-                )
+                        .clip(RoundedCornerShape(6.dp))
+                        .soundClickable(onClick = onWifiClick)
+                        .padding(horizontal = 3.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(16.dp)
+                            .drawBehind {
+                                drawWifiIcon(
+                                    level = wifiLevel,
+                                    activeColor = statusTint,
+                                    inactiveColor = statusInactive,
+                                    slashColor = statusSlash,
+                                )
+                            },
+                    )
+                }
             }
 
             // 电池图标
@@ -880,4 +925,45 @@ fun ButtonBadge(text: String, modifier: Modifier = Modifier) {
             maxLines = 1,
         )
     }
+}
+
+/** 扁平单色「快传」双向传输箭头 Logo。 */
+private fun DrawScope.drawQuickShareLogo(color: Color) {
+    val w = size.width
+    val h = size.height
+    val sw = (w * 0.125f).coerceAtLeast(1.3f)
+    val cap = StrokeCap.Round
+    // 上方右向箭头 →
+    val yTop = h * 0.30f
+    drawLine(color, Offset(w * 0.14f, yTop), Offset(w * 0.86f, yTop), strokeWidth = sw, cap = cap)
+    drawLine(color, Offset(w * 0.64f, h * 0.12f), Offset(w * 0.86f, yTop), strokeWidth = sw, cap = cap)
+    drawLine(color, Offset(w * 0.64f, h * 0.48f), Offset(w * 0.86f, yTop), strokeWidth = sw, cap = cap)
+    // 下方左向箭头 ←
+    val yBot = h * 0.70f
+    drawLine(color, Offset(w * 0.86f, yBot), Offset(w * 0.14f, yBot), strokeWidth = sw, cap = cap)
+    drawLine(color, Offset(w * 0.36f, h * 0.52f), Offset(w * 0.14f, yBot), strokeWidth = sw, cap = cap)
+    drawLine(color, Offset(w * 0.36f, h * 0.88f), Offset(w * 0.14f, yBot), strokeWidth = sw, cap = cap)
+}
+
+/** 扁平单色「Web」地球网格 Logo。 */
+private fun DrawScope.drawWebGlobeLogo(color: Color) {
+    val w = size.width
+    val h = size.height
+    val sw = (w * 0.105f).coerceAtLeast(1.2f)
+    val pad = sw * 0.8f
+    val r = (minOf(w, h) / 2f) - pad
+    val cx = w / 2f
+    val cy = h / 2f
+    // 外圆
+    drawCircle(color, radius = r, center = Offset(cx, cy), style = Stroke(width = sw))
+    // 经线椭圆
+    val ew = r * 1.05f
+    drawOval(
+        color = color,
+        topLeft = Offset(cx - ew / 2f, cy - r),
+        size = Size(ew, r * 2f),
+        style = Stroke(width = sw * 0.9f),
+    )
+    // 纬线（赤道）
+    drawLine(color, Offset(cx - r, cy), Offset(cx + r, cy), strokeWidth = sw * 0.9f)
 }

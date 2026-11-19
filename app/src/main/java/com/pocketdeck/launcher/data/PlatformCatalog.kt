@@ -188,8 +188,11 @@ object PlatformCatalog {
 
     private val knownIds by lazy { known.map { it.id }.toSet() }
 
-    /** 文件夹名是否对应一个已知平台（含别名）。 */
-    fun isKnown(folder: String): Boolean = forFolder(folder).id in knownIds
+    /** 文件夹名是否对应一个已知平台（含别名），O(1) 零分配。 */
+    fun isKnown(folder: String): Boolean {
+        val lower = folder.lowercase()
+        return (ALIASES[lower] ?: lower) in byId
+    }
 
     fun sortKey(id: String): Int = order[id] ?: Int.MAX_VALUE
 }

@@ -42,6 +42,7 @@ object ArchiveManager {
         "txt", "md", "log", "cfg", "ini", "conf", "json", "xml", "yaml", "yml",
         "toml", "properties", "cue", "m3u", "cht", "nfo", "tsv", "csv",
         "sh", "bat", "lpl", "opt", "glsl", "slang", "glslp", "slangp", "inf",
+        "js", "mjs", "cjs", "jsx", "ts", "tsx", "css", "scss", "html", "htm", "py", "java", "kt", "sql",
     )
 
     fun isArchive(file: File): Boolean {
@@ -162,6 +163,7 @@ object ArchiveManager {
         destDir: File,
         onProgress: (count: Int, entryName: String, bytesDone: Long) -> Unit = { _, _, _ -> },
         isCancelled: () -> Boolean = { false },
+        onBytesProgress: (entryName: String, bytesDone: Long, totalBytes: Long) -> Unit = { _, _, _ -> },
     ): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
             if (!destDir.exists()) check(destDir.mkdirs()) { "Cannot create directory ${destDir.path}" }
@@ -170,6 +172,17 @@ object ArchiveManager {
             val lower = file.name.lowercase()
             var count = 0
             var bytesDone = 0L
+            var totalBytes = 0L
+            var lastReportMs = 0L
+
+            fun reportProgress(entryName: String, force: Boolean = false) {
+                val now = System.currentTimeMillis()
+                if (force || now - lastReportMs >= 150L) {
+                    lastReportMs = now
+                    onProgress(count, entryName, bytesDone)
+                    onBytesProgress(entryName, bytesDone, totalBytes)
+                }
+            }
 
             fun resolveSafeTarget(entryName: String): File {
                 val normalized = entryName.replace('\\', '/').trimStart('/')
@@ -181,7 +194,7 @@ object ArchiveManager {
                 return target
             }
 
-            fun copyStreamChecked(input: InputStream, target: File) {
+            fun copyStreamChecked(input: InputStream, target: File, entryName: String) {
                 require(count <= MAX_EXTRACT_FILES) { "Too many archive entries (limit $MAX_EXTRACT_FILES)" }
                 target.parentFile?.mkdirs()
                 val buf = ByteArray(64 * 1024)
@@ -193,6 +206,7 @@ object ArchiveManager {
                         bytesDone += n
                         require(bytesDone <= MAX_EXTRACT_BYTES) { "Extracted archive exceeds safety size limit" }
                         out.write(buf, 0, n)
+                        reportProgress(entryName)
                     }
                 }
             }
@@ -200,6 +214,7 @@ object ArchiveManager {
             when {
                 lower.endsWith(".zip") || lower.endsWith(".cbz") -> {
                     openZipWithFallback(file) { zf ->
+                        totalBytes = zf.entries.asSequence().sumOf { it.size.coerceAtLeast(0L) }
                         val en = zf.entries
                         while (en.hasMoreElements()) {
                             if (isCancelled()) error("Cancelled")
@@ -209,14 +224,15 @@ object ArchiveManager {
                                 target.mkdirs()
                             } else {
                                 count++
-                                onProgress(count, e.name, bytesDone)
-                                zf.getInputStream(e).use { copyStreamChecked(it, target) }
+                                reportProgress(e.name, force = true)
+                                zf.getInputStream(e).use { copyStreamChecked(it, target, e.name) }
                             }
                         }
                     }
                 }
                 lower.endsWith(".7z") -> {
                     SevenZFile.builder().setFile(file).get().use { sz ->
+                        totalBytes = sz.entries.sumOf { it.size.coerceAtLeast(0L) }
                         while (true) {
                             if (isCancelled()) error("Cancelled")
                             val e = sz.nextEntry ?: break
@@ -226,7 +242,7 @@ object ArchiveManager {
                             } else {
                                 count++
                                 require(count <= MAX_EXTRACT_FILES) { "Too many archive entries" }
-                                onProgress(count, e.name, bytesDone)
+                                reportProgress(e.name, force = true)
                                 target.parentFile?.mkdirs()
                                 target.outputStream().use { out ->
                                     val buf = ByteArray(64 * 1024)
@@ -237,6 +253,7 @@ object ArchiveManager {
                                         bytesDone += n
                                         require(bytesDone <= MAX_EXTRACT_BYTES) { "Extracted archive exceeds safety size limit" }
                                         out.write(buf, 0, n)
+                                        reportProgress(e.name)
                                     }
                                 }
                             }
@@ -259,13 +276,30 @@ object ArchiveManager {
                                 require(bytesDone + fh.fullUnpackSize.coerceAtLeast(0L) <= MAX_EXTRACT_BYTES) {
                                     "Extracted archive exceeds safety size limit"
                                 }
-                                onProgress(count, cleanName, bytesDone)
+                                reportProgress(cleanName, force = true)
                                 target.parentFile?.mkdirs()
-                                target.outputStream().use { out ->
-                                    rar.extractFile(fh, out)
+                                try {
+                                    target.outputStream().use { rawOut ->
+                                        val guardedOut = object : java.io.FilterOutputStream(rawOut) {
+                                            override fun write(b: Int) {
+                                                if (isCancelled()) error("Cancelled")
+                                                bytesDone += 1L
+                                                require(bytesDone <= MAX_EXTRACT_BYTES) { "Extracted archive exceeds safety size limit" }
+                                                out.write(b)
+                                            }
+                                            override fun write(b: ByteArray, off: Int, len: Int) {
+                                                if (isCancelled()) error("Cancelled")
+                                                bytesDone += len.toLong()
+                                                require(bytesDone <= MAX_EXTRACT_BYTES) { "Extracted archive exceeds safety size limit" }
+                                                out.write(b, off, len)
+                                            }
+                                        }
+                                        rar.extractFile(fh, guardedOut)
+                                    }
+                                } catch (t: Throwable) {
+                                    runCatching { target.delete() }
+                                    throw t
                                 }
-                                bytesDone += target.length()
-                                require(bytesDone <= MAX_EXTRACT_BYTES) { "Extracted archive exceeds safety size limit" }
                             }
                         }
                     }
@@ -275,13 +309,14 @@ object ArchiveManager {
                         while (true) {
                             if (isCancelled()) error("Cancelled")
                             val e = tis.nextEntry ?: break
+                            if (e.isSymbolicLink || e.isLink) continue
                             val target = resolveSafeTarget(e.name)
                             if (e.isDirectory) {
                                 target.mkdirs()
                             } else {
                                 count++
-                                onProgress(count, e.name, bytesDone)
-                                copyStreamChecked(tis, target)
+                                reportProgress(e.name, force = true)
+                                copyStreamChecked(tis, target, e.name)
                             }
                         }
                     }
@@ -290,14 +325,19 @@ object ArchiveManager {
                     val outName = file.nameWithoutExtension.ifBlank { "${file.name}.out" }
                     val target = resolveSafeTarget(outName)
                     count = 1
-                    onProgress(1, outName, 0L)
+                    reportProgress(outName, force = true)
                     val base = BufferedInputStream(FileInputStream(file), 64 * 1024)
-                    val comp: InputStream = when {
-                        lower.endsWith(".gz") -> GzipCompressorInputStream(base)
-                        lower.endsWith(".bz2") -> BZip2CompressorInputStream(base)
-                        else -> XZCompressorInputStream(base)
+                    val comp: InputStream = try {
+                        when {
+                            lower.endsWith(".gz") -> GzipCompressorInputStream(base)
+                            lower.endsWith(".bz2") -> BZip2CompressorInputStream(base)
+                            else -> XZCompressorInputStream(base)
+                        }
+                    } catch (t: Throwable) {
+                        runCatching { base.close() }
+                        throw t
                     }
-                    comp.use { copyStreamChecked(it, target) }
+                    comp.use { copyStreamChecked(it, target, outName) }
                 }
                 else -> error("Unsupported archive format")
             }
@@ -310,13 +350,22 @@ object ArchiveManager {
         destZip: File,
         onProgress: (entryName: String) -> Unit = {},
         isCancelled: () -> Boolean = { false },
+        onBytesProgress: (entryName: String, bytesDone: Long, totalBytes: Long) -> Unit = { _, _, _ -> },
     ): Result<File> = withContext(Dispatchers.IO) {
         val part = File(destZip.parentFile ?: destZip.absoluteFile.parentFile, ".zip_${System.currentTimeMillis()}.part")
+        val partCanon = runCatching { part.canonicalPath }.getOrDefault(part.absolutePath)
+        val destCanon = runCatching { destZip.canonicalPath }.getOrDefault(destZip.absolutePath)
         runCatching {
+            val totalBytes = sources.sumOf(::measureEntrySize)
+            var bytesDone = 0L
+            var lastReportMs = 0L
+            onBytesProgress(destZip.name, 0L, totalBytes)
+
             ZipOutputStream(BufferedOutputStream(part.outputStream(), 64 * 1024)).use { zos ->
                 fun writeFile(file: File, entryName: String) {
                     if (isCancelled()) error("Cancelled")
                     onProgress(entryName)
+                    onBytesProgress(entryName, bytesDone, totalBytes)
                     zos.putNextEntry(ZipEntry(entryName))
                     file.inputStream().use { fis ->
                         val buf = ByteArray(64 * 1024)
@@ -325,6 +374,12 @@ object ArchiveManager {
                             val n = fis.read(buf)
                             if (n <= 0) break
                             zos.write(buf, 0, n)
+                            bytesDone += n
+                            val now = System.currentTimeMillis()
+                            if (now - lastReportMs >= 150L) {
+                                lastReportMs = now
+                                onBytesProgress(entryName, bytesDone, totalBytes)
+                            }
                         }
                     }
                     zos.closeEntry()
@@ -332,6 +387,8 @@ object ArchiveManager {
 
                 fun walk(entry: File, prefix: String) {
                     if (isCancelled()) error("Cancelled")
+                    val entryCanon = runCatching { entry.canonicalPath }.getOrDefault(entry.absolutePath)
+                    if (entryCanon == partCanon || entryCanon == destCanon) return
                     val name = if (prefix.isEmpty()) entry.name else "$prefix/${entry.name}"
                     if (entry.isDirectory) {
                         val children = entry.listFiles().orEmpty()
@@ -354,6 +411,14 @@ object ArchiveManager {
         }.onFailure {
             runCatching { part.delete() }
         }
+    }
+
+    private fun measureEntrySize(entry: File): Long {
+        if (entry.isFile) return entry.length()
+        if (!entry.isDirectory) return 0L
+        var sum = 0L
+        entry.listFiles()?.forEach { sum += measureEntrySize(it) }
+        return sum
     }
 
     private fun isTarArchive(lower: String): Boolean =

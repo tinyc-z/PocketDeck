@@ -14,6 +14,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -57,6 +59,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -67,12 +70,16 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.data.CredentialKind
 import com.pocketdeck.launcher.data.ScraperCredentials
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.ButtonBadge
+import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
+import com.pocketdeck.launcher.ui.components.scrimTapDismiss
+import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -642,19 +649,19 @@ fun KeyBindCaptureDialog(
             .clickable(onClick = onDismiss),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
-                .width(420.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(24.dp),
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier.width(420.dp),
+            contentPadding = PaddingValues(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 stringResource(R.string.keybind_capture_title, actionLabel),
                 style = DeckType.menuTitle,
                 color = DeckColors.TextPrimary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 36.dp),
             )
             Spacer(Modifier.height(10.dp))
             Text(
@@ -699,7 +706,7 @@ fun KeyBindCaptureDialog(
             Spacer(Modifier.height(18.dp))
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -710,15 +717,6 @@ fun KeyBindCaptureDialog(
                         .clip(DeckShapes.menuButton)
                         .background(DeckColors.Ruby.copy(alpha = 0.10f))
                         .clickable(onClick = onClear)
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-                Text(
-                    stringResource(R.string.menu_cancel),
-                    style = DeckType.menuButton,
-                    color = DeckColors.TextSecondary,
-                    modifier = Modifier
-                        .clip(DeckShapes.menuButton)
-                        .clickable(onClick = onDismiss)
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
@@ -1095,19 +1093,19 @@ fun FontPickerDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            Modifier
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
                 .width(480.dp)
-                .heightIn(max = 580.dp)
-                .clip(DeckShapes.menuPanel)
-                .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
-                .padding(20.dp),
+                .heightIn(max = 580.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
             Text(
                 stringResource(R.string.font_picker_title),
                 style = DeckType.menuTitle,
                 color = DeckColors.TextPrimary,
+                modifier = Modifier.padding(end = 36.dp),
             )
             Spacer(Modifier.height(10.dp))
 
@@ -1228,16 +1226,6 @@ fun FontPickerDialog(
                         }
                     }
                 }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text(
-                    stringResource(R.string.menu_cancel),
-                    style = DeckType.menuButton,
-                    color = DeckColors.TextSecondary,
-                    modifier = Modifier
-                        .clickable(onClick = onDismiss)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
             }
         }
     }

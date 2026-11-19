@@ -152,6 +152,8 @@ class CoverSource(
         candidateOrigins.clear()
         _coverInfo.value = emptyMap()
         prefs.edit().clear().apply()
+        runCatching { webCacheDir.listFiles()?.forEach { it.delete() } }
+        runCatching { indexDir.listFiles()?.forEach { it.delete() } }
         client.clearApiCache()
         _indexVersion.value += 1
     }
@@ -185,7 +187,7 @@ class CoverSource(
         val cred = credentials
         val needNodes = enabledApiNodes.filter { node ->
             val key = "${node.id}::${game.id}"
-            client.cachedHit(node.id, game.id) == null && scrapingInFlight.putIfAbsent(key, true) == null
+            client.cachedHitInMemory(node.id, game.id) == null && scrapingInFlight.putIfAbsent(key, true) == null
         }
         if (needNodes.isEmpty()) return
 
@@ -195,6 +197,11 @@ class CoverSource(
                 for (node in needNodes) {
                     val key = "${node.id}::${game.id}"
                     try {
+                        val existing = client.cachedHit(node.id, game.id)
+                        if (existing != null) {
+                            if (existing.coverUrls.isNotEmpty()) gotCover = true
+                            continue
+                        }
                         val hit = client.queryProvider(node.id, game, platform, cred)
                         if (hit != null && hit.coverUrls.isNotEmpty()) {
                             gotCover = true
@@ -233,6 +240,22 @@ class CoverSource(
                 }
             }
         }
+    }
+
+    /**
+     * 快速滚动期间使用的纯内存 O(1) 候选封面查询：仅返回 custom / 已缓存命中的 URL / local，
+     * 不做任何正则表达式、索引查找或联网候选拼装，确保主线程零卡顿。
+     */
+    fun fastMemoryCandidates(game: Game): List<Any> {
+        val custom = game.customCover
+        val cached = cachedUrl(game.id)
+        val local = game.localCover
+        if (custom == null && cached == null && local == null) return emptyList()
+        val out = ArrayList<Any>(3)
+        if (custom != null) out += File(custom)
+        if (cached != null) out += cached
+        if (local != null && local != custom) out += File(local)
+        return out
     }
 
     fun candidates(
@@ -311,19 +334,19 @@ class CoverSource(
                     }
                 }
                 ScraperCatalog.CoverIds.HASHEOUS -> {
-                    client.cachedHit(node.id, game.id)?.coverUrls?.forEach {
+                    client.cachedHitInMemory(node.id, game.id)?.coverUrls?.forEach {
                         addUrl(it, node.id, CoverMatchMode.ApiHash)
                     }
                 }
                 ScraperCatalog.CoverIds.SCREENSCRAPER -> {
-                    client.cachedHit(node.id, game.id)?.coverUrls?.forEach {
+                    client.cachedHitInMemory(node.id, game.id)?.coverUrls?.forEach {
                         addUrl(it, node.id, CoverMatchMode.ApiHash)
                     }
                 }
                 ScraperCatalog.CoverIds.ARCADEITALIA,
                 ScraperCatalog.CoverIds.THEGAMESDB,
                 ScraperCatalog.CoverIds.IGDB -> {
-                    client.cachedHit(node.id, game.id)?.coverUrls?.forEach {
+                    client.cachedHitInMemory(node.id, game.id)?.coverUrls?.forEach {
                         addUrl(it, node.id, CoverMatchMode.ApiSearch)
                     }
                 }
@@ -412,18 +435,43 @@ class CoverSource(
         verified
     }
 
-    private fun urlExists(urlStr: String): Boolean = runCatching {
-        val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 4_000
-            readTimeout = 4_000
-            requestMethod = "HEAD"
-            instanceFollowRedirects = true
+    private fun urlExists(urlStr: String): Boolean {
+        val t0 = System.currentTimeMillis()
+        var code: Int? = null
+        return try {
+            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 4_000
+                readTimeout = 4_000
+                requestMethod = "HEAD"
+                instanceFollowRedirects = true
+            }
+            code = conn.responseCode
+            val ct = conn.contentType.orEmpty().lowercase()
+            conn.disconnect()
+            val ok = code in 200..299 && (ct.isEmpty() || ct.startsWith("image/") || ct == "application/octet-stream")
+            ScrapeLogStore.log(
+                "COVER",
+                ScrapeLogStore.nodeFromUrl(urlStr),
+                "HEAD",
+                url = urlStr,
+                status = code,
+                elapsedMs = System.currentTimeMillis() - t0,
+                result = if (ok) "hit ($ct)" else "miss ($ct)",
+            )
+            ok
+        } catch (t: Throwable) {
+            ScrapeLogStore.log(
+                "COVER",
+                ScrapeLogStore.nodeFromUrl(urlStr),
+                "HEAD",
+                url = urlStr,
+                status = code,
+                elapsedMs = System.currentTimeMillis() - t0,
+                error = "${t.javaClass.simpleName}: ${t.message}",
+            )
+            false
         }
-        val code = conn.responseCode
-        val ct = conn.contentType.orEmpty().lowercase()
-        conn.disconnect()
-        code in 200..299 && (ct.isEmpty() || ct.startsWith("image/") || ct == "application/octet-stream")
-    }.getOrDefault(false)
+    }
 
     /** 0 表示已有缓存/自定义可直接尝试首项；-1 表示已全部失败；null 表示正常按序试探。 */
     fun knownIndex(key: String, platform: Platform?): Int? {
@@ -431,7 +479,7 @@ class CoverSource(
         if (failedKeys[key] == true) return -1
         val system = platform?.libretroSystem
         val allApiCached = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
-            .all { client.cachedHit(it.id, key) != null }
+            .all { client.cachedHitInMemory(it.id, key) != null }
         if (allApiCached && (system == null || systemIndexes.containsKey(system)) && prefs.getBoolean("fail_$key", false)) {
             return -1
         }
@@ -439,33 +487,40 @@ class CoverSource(
     }
 
     fun rememberSuccess(key: String, model: Any?) {
-        failedKeys.remove(key)
+        val wasFailed = failedKeys.remove(key) != null
         val modelStr = model?.toString()
         val origin = modelStr?.let { candidateOrigins["$key::$it"] }
             ?: modelStr?.let { inferOrigin(key, it, model) }
         if (origin != null) {
-            _coverInfo.update { it + (key to CoverResolutionInfo(origin.first, origin.second, modelStr)) }
-        }
-        val editor = prefs.edit().remove("fail_$key")
-        if (model is String && model.startsWith("http")) {
-            val prev = resolvedUrls.put(key, model)
-            if (prev != model) {
-                editor.putString("url_$key", model)
-            }
-            if (origin != null) {
-                editor.putString("meta_$key", "${origin.first}|${origin.second.name}")
+            val info = CoverResolutionInfo(origin.first, origin.second, modelStr)
+            if (_coverInfo.value[key] != info) {
+                _coverInfo.update { cur -> if (cur[key] == info) cur else cur + (key to info) }
             }
         }
-        editor.apply()
+        val httpUrl = (model as? String)?.takeIf { it.startsWith("http") }
+        val urlChanged = if (httpUrl != null) resolvedUrls.put(key, httpUrl) != httpUrl else false
+        if (wasFailed || urlChanged) {
+            val editor = prefs.edit().remove("fail_$key")
+            if (urlChanged && httpUrl != null) {
+                editor.putString("url_$key", httpUrl)
+                if (origin != null) {
+                    editor.putString("meta_$key", "${origin.first}|${origin.second.name}")
+                }
+            }
+            editor.apply()
+        }
     }
 
     fun rememberFailure(key: String, platform: Platform?) {
-        failedKeys[key] = true
-        _coverInfo.update { it - key }
+        val prevFailed = failedKeys.put(key, true)
+        if (_coverInfo.value.containsKey(key)) {
+            _coverInfo.update { it - key }
+        }
+        if (prevFailed == true) return
         if (!NetworkStatus.isOnline(appCtx)) return
         val system = platform?.libretroSystem
         val allApiCached = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
-            .all { client.cachedHit(it.id, key) != null }
+            .all { client.cachedHitInMemory(it.id, key) != null }
         if (allApiCached && (system == null || systemIndexes.containsKey(system))) {
             prefs.edit().putBoolean("fail_$key", true).apply()
         }
@@ -574,18 +629,23 @@ class CoverSource(
     }
 
     suspend fun downloadImageBytes(urlStr: String): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
-        runCatching {
-            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+        val t0 = System.currentTimeMillis()
+        var code: Int? = null
+        var conn: HttpURLConnection? = null
+        try {
+            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8_000
                 readTimeout = 12_000
                 requestMethod = "GET"
                 instanceFollowRedirects = true
                 setRequestProperty("User-Agent", "PocketDeck/0.3")
             }
-            if (conn.responseCode !in 200..299) {
-                conn.disconnect()
-                return@runCatching null
+            code = conn.responseCode
+            if (code !in 200..299) {
+                ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "non-2xx")
+                return@withContext null
             }
+            var overflow = false
             val bytes = conn.inputStream.use { input ->
                 val baos = ByteArrayOutputStream()
                 val buf = ByteArray(16 * 1024)
@@ -594,17 +654,32 @@ class CoverSource(
                     val n = input.read(buf)
                     if (n <= 0) break
                     total += n
-                    if (total > 10 * 1024 * 1024) break
+                    if (total > 10 * 1024 * 1024) {
+                        overflow = true
+                        break
+                    }
                     baos.write(buf, 0, n)
                 }
                 baos.toByteArray()
             }
+            if (overflow) {
+                ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "exceeds 10MB limit")
+                return@withContext null
+            }
             val ct = conn.contentType.orEmpty().substringBefore(';').trim().lowercase()
-            conn.disconnect()
-            if (bytes.size < 32) return@runCatching null
+            if (bytes.size < 32) {
+                ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "too small (${bytes.size}B)")
+                return@withContext null
+            }
             val mime = if (ct.startsWith("image/")) ct else detectImageMime(bytes)
+            ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${bytes.size}B ($mime)")
             mime to bytes
-        }.getOrNull()
+        } catch (t: Throwable) {
+            ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
+            null
+        } finally {
+            conn?.disconnect()
+        }
     }
 
     private fun readCoilDiskCache(url: String): ByteArray? = runCatching {
@@ -674,8 +749,13 @@ class CoverSource(
         return prov to mode
     }
 
-    private fun cachedUrl(key: String): String? =
-        resolvedUrls[key] ?: prefs.getString("url_$key", null)?.also { resolvedUrls[key] = it }
+    private fun cachedUrl(key: String): String? {
+        val mem = resolvedUrls[key]
+        if (mem != null) return mem.ifEmpty { null }
+        val fromPrefs = prefs.getString("url_$key", null)
+        resolvedUrls[key] = fromPrefs ?: NO_URL_SENTINEL
+        return fromPrefs
+    }
 
     private fun buildDirectNames(game: Game, officialName: String?): List<String> {
         val directNames = LinkedHashSet<String>()
@@ -714,44 +794,54 @@ class CoverSource(
         return list
     }
 
-    private fun fetchOnlineBoxartList(system: String, cacheFile: File): List<String> = runCatching {
+    private fun fetchOnlineBoxartList(system: String, cacheFile: File): List<String> {
         val url = "https://thumbnails.libretro.com/${Uri.encode(system)}/Named_Boxarts/"
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 30_000
-            requestMethod = "GET"
-        }
-        if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-            conn.disconnect()
-            return emptyList()
-        }
-        val names = LinkedHashSet<String>(4096)
-        conn.inputStream.bufferedReader().useLines { lines ->
-            for (line in lines) {
-                val m = HREF_PNG_REGEX.find(line) ?: continue
-                val encodedHref = m.groupValues[1]
-                val decoded = runCatching {
-                    URLDecoder.decode(encodedHref.replace("+", "%2B"), "UTF-8")
-                }.getOrDefault(encodedHref)
-                if (decoded.endsWith(".png", ignoreCase = true) && !decoded.startsWith("/")) {
-                    names += decoded
+        val t0 = System.currentTimeMillis()
+        var code: Int? = null
+        return try {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 30_000
+                requestMethod = "GET"
+            }
+            code = conn.responseCode
+            if (code != HttpURLConnection.HTTP_OK) {
+                conn.disconnect()
+                ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "non-200")
+                return emptyList()
+            }
+            val names = LinkedHashSet<String>(4096)
+            conn.inputStream.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    val m = HREF_PNG_REGEX.find(line) ?: continue
+                    val encodedHref = m.groupValues[1]
+                    val decoded = runCatching {
+                        URLDecoder.decode(encodedHref.replace("+", "%2B"), "UTF-8")
+                    }.getOrDefault(encodedHref)
+                    if (decoded.endsWith(".png", ignoreCase = true) && !decoded.startsWith("/")) {
+                        names += decoded
+                    }
                 }
             }
+            conn.disconnect()
+            if (names.isNotEmpty()) {
+                val tmp = File(indexDir, "${cacheFile.name}.tmp")
+                tmp.writeText(names.joinToString("\n"))
+                tmp.renameTo(cacheFile)
+            }
+            ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${names.size} entries")
+            names.toList()
+        } catch (t: Throwable) {
+            ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
+            emptyList()
         }
-        conn.disconnect()
-        if (names.isNotEmpty()) {
-            val tmp = File(indexDir, "${cacheFile.name}.tmp")
-            tmp.writeText(names.joinToString("\n"))
-            tmp.renameTo(cacheFile)
-        }
-        names.toList()
-    }.getOrDefault(emptyList())
+    }
 
     private fun buildIndex(names: List<String>): BoxartIndex {
         val byExact = HashMap<String, String>(names.size)
         val grouped = HashMap<String, MutableList<String>>(names.size)
         for (fileName in names) {
-            val noExt = fileName.removeSuffix(".png")
+            val noExt = if (fileName.endsWith(".png", ignoreCase = true)) fileName.dropLast(4) else fileName
             byExact[noExt.lowercase()] = fileName
             val compact = compactKey(noExt)
             if (compact.isNotEmpty()) {
@@ -765,6 +855,7 @@ class CoverSource(
     }
 
     private companion object {
+        const val NO_URL_SENTINEL = ""
         val API_COVER_NODES = setOf(
             ScraperCatalog.CoverIds.HASHEOUS,
             ScraperCatalog.CoverIds.ARCADEITALIA,
@@ -777,12 +868,14 @@ class CoverSource(
         val TAGS = Regex("""\s*[(\[][^)\]]*[)\]]""")
         val NON_ALNUM = Regex("""[^a-z0-9一-鿿]""")
         val HREF_PNG_REGEX = Regex("""href="([^"]+\.png)"""", RegexOption.IGNORE_CASE)
+        val SAFE_FILE_REGEX = Regex("""[^a-zA-Z0-9._-]""")
+        val WHITESPACE_REGEX = Regex("""\s+""")
 
         fun sanitize(name: String) = name.replace(ILLEGAL, "_")
-        fun sanitizeFileName(name: String) = name.replace(Regex("""[^a-zA-Z0-9._-]"""), "_")
+        fun sanitizeFileName(name: String) = name.replace(SAFE_FILE_REGEX, "_")
 
         fun stripTags(s: String): String =
-            s.replace('_', ' ').replace(TAGS, "").replace(Regex("""\s+"""), " ").trim()
+            s.replace('_', ' ').replace(TAGS, "").replace(WHITESPACE_REGEX, " ").trim()
 
         fun compactKey(s: String): String {
             var clean = stripTags(s)

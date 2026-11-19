@@ -55,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -243,7 +244,7 @@ private fun itemCountForSection(
         4 + bgImageRow + ViewMode.entries.size + galleryRow + 2 + metaFields
     }
     SettingsSection.Tabs -> state.manageTabs.size + 2 + state.uncategorizedPlatforms.size
-    SettingsSection.Scraping -> state.coverSources.size + 1 + state.metadataSources.size + 1
+    SettingsSection.Scraping -> state.coverSources.size + 1 + state.metadataSources.size + 2
     SettingsSection.Input -> 2 + (if (state.keySoundEnabled) 1 else 0) + KeyAction.entries.size + 1  // Swap ABXY + 按键音 (+ 风格) + 快捷键绑定 + 还原默认
     SettingsSection.StatusBar -> 8  // 时钟, 电池, WiFi, 蓝牙, 移动信号, 耳机, 飞行模式, 勿扰
     SettingsSection.Launcher -> 1 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
@@ -317,6 +318,7 @@ fun SettingsScreen(
     var nameSpec by remember { mutableStateOf<NameDialogSpec?>(null) }
     val nameState = remember(nameSpec) { nameSpec?.let { NameDialogState(it) } }
     var credDialogKind by remember { mutableStateOf<CredentialKind?>(null) }
+    var showScrapeLogs by remember { mutableStateOf(false) }
     var bindingCategorySpec by remember { mutableStateOf<BindingCategorySpec?>(null) }
     var launcherPickerPlatform by remember { mutableStateOf<Platform?>(null) }
     var showHiddenDialog by remember { mutableStateOf(false) }
@@ -381,6 +383,7 @@ fun SettingsScreen(
         nameSpec,
         browsing,
         credDialogKind,
+        showScrapeLogs,
         bindingCategorySpec,
         launcherPickerPlatform,
         showHiddenDialog,
@@ -391,7 +394,7 @@ fun SettingsScreen(
         showResetBindingsConfirm,
         isCovered,
     ) {
-        if (nameSpec == null && !browsing && credDialogKind == null && bindingCategorySpec == null &&
+        if (nameSpec == null && !browsing && credDialogKind == null && !showScrapeLogs && bindingCategorySpec == null &&
             launcherPickerPlatform == null && !showHiddenDialog && !showFontPicker &&
             editingSystemTab == null && capturingAction == null && pendingKeyConflict == null &&
             !showResetBindingsConfirm && !isCovered
@@ -654,13 +657,14 @@ fun SettingsScreen(
                         }
                         menu = ActionMenuState(metaNames[cfg.id] ?: desc.id, items)
                     }
-                    else -> {
+                    idx == metaStart + metaCount -> {
                         if (!NetworkStatus.isOnline(context)) {
                             Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
                         } else {
                             manage.refreshAllMetadata()
                         }
                     }
+                    else -> showScrapeLogs = true
                 }
                 return true
             }
@@ -741,35 +745,40 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(DeckColors.Background)
             .focusRequester(focusRequester)
+            .focusProperties { canFocus = !isCovered }
             .focusable()
             .onPreviewKeyEvent { event ->
+                if (isCovered) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
-                // 名称输入框：只拦截手柄 A/B，其余按键交给输入框
+                // 名称输入框：只拦截手柄确认/取消，其余按键交给输入框
                 nameSpec?.let { spec ->
-                    return@onPreviewKeyEvent when (event.key) {
-                        Key.ButtonB, Key.Back, Key.Escape -> { nameSpec = null; true }
-                        Key.ButtonA -> {
+                    return@onPreviewKeyEvent when {
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> {
+                            nameSpec = null; true
+                        }
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
                             spec.onConfirm(nameState?.value?.text.orEmpty()); nameSpec = null; true
                         }
                         else -> false
                     }
                 }
 
-                // 刮削凭据输入框：允许 Back/B 关闭
+                // 日志独立界面：交由 ScrapeLogsScreen 自行处理焦点与按键
+                if (showScrapeLogs) return@onPreviewKeyEvent false
+
+                // 刮削凭据输入框：允许 Back/取消 关闭
                 if (credDialogKind != null) {
-                    return@onPreviewKeyEvent when (event.key) {
-                        Key.ButtonB, Key.Back, Key.Escape -> { credDialogKind = null; true }
-                        else -> false
-                    }
+                    return@onPreviewKeyEvent if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
+                        credDialogKind = null; true
+                    } else false
                 }
 
-                // 系统标签名编辑框 / 凭据框：允许 B / Back 关闭
+                // 系统标签名编辑框 / 凭据框：允许 Back/取消 关闭
                 if (editingSystemTab != null) {
-                    return@onPreviewKeyEvent when (event.key) {
-                        Key.ButtonB, Key.Back, Key.Escape -> { editingSystemTab = null; true }
-                        else -> false
-                    }
+                    return@onPreviewKeyEvent if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
+                        editingSystemTab = null; true
+                    } else false
                 }
 
                 // 字体选择 / 分类关联平台 / 启动器选择弹窗：交由弹窗自行处理方向与确认/取消按键
@@ -1204,6 +1213,7 @@ fun SettingsScreen(
                                         manage.refreshAllMetadata()
                                     }
                                 },
+                                onViewLogs = { showScrapeLogs = true },
                                 highlightIndex = highlight,
                             )
                             SettingsSection.Input -> InputSection(
@@ -1295,6 +1305,13 @@ fun SettingsScreen(
                 onDismiss = { nameSpec = null },
             )
         }
+        if (showScrapeLogs) {
+            ScrapeLogsScreen(
+                onBack = { showScrapeLogs = false },
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
+            )
+        }
         credDialogKind?.let { kind ->
             ScraperCredentialDialog(
                 kind = kind,
@@ -1329,9 +1346,6 @@ fun SettingsScreen(
                     bindingCategorySpec = null
                 },
                 onDismiss = {
-                    if (spec.catId == null) {
-                        manage.createCategory(spec.name, emptyList())
-                    }
                     bindingCategorySpec = null
                 },
             )
@@ -2355,6 +2369,7 @@ private fun ScrapingSection(
     onRowClick: (Int) -> Unit,
     onClearCoverCache: () -> Unit,
     onRefreshMetadata: () -> Unit,
+    onViewLogs: () -> Unit,
     highlightIndex: Int = -1,
 ) {
     SectionTitle(stringResource(R.string.settings_scraping))
@@ -2443,6 +2458,12 @@ private fun ScrapingSection(
         label = stringResource(R.string.scraping_refresh_meta),
         highlighted = highlightIndex == metaOffset + metadataSources.size,
         onClick = onRefreshMetadata,
+    )
+    Spacer(Modifier.height(6.dp))
+    ActionRow(
+        label = stringResource(R.string.scraping_view_logs),
+        highlighted = highlightIndex == metaOffset + metadataSources.size + 1,
+        onClick = onViewLogs,
     )
 }
 

@@ -30,7 +30,7 @@ object KeySound {
     @Volatile
     private var pool: SoundPool? = null
 
-    private val soundIds = EnumMap<KeySoundStyle, Int>(KeySoundStyle::class.java)
+    private val soundIds = ConcurrentHashMap<KeySoundStyle, Int>()
     private val loadedIds = ConcurrentHashMap.newKeySet<Int>()
 
     @Volatile
@@ -114,7 +114,7 @@ object KeySound {
         } else {
             runCatching {
                 val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                am?.playSoundEffect(SoundEffectConstants.CLICK, 0.8f)
+                am?.playSoundEffect(AudioManager.FX_KEY_CLICK, 0.8f)
             }
         }
     }

@@ -8,7 +8,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -112,6 +114,82 @@ fun Modifier.gamepadClickable(
             },
         )
         .clickable {
+            KeySound.playTouch(context)
+            onClick()
+        }
+}
+
+/**
+ * 显式焦点序列控制器：用于含滚动容器（verticalScroll / LazyColumn）的弹窗与全屏页面，
+ * 不依赖 Android Touch Mode 下的 Compose 2D 空间寻焦，彻底避免从桌面进入无焦点或按到底部丢焦点。
+ */
+@Stable
+class DpadNavController {
+    internal val actions = LinkedHashMap<String, () -> Unit>()
+    var focusedId by mutableStateOf<String?>(null)
+    var keyboardActive by mutableStateOf(false)
+    val rootFr = FocusRequester()
+
+    fun move(delta: Int) {
+        val keys = actions.keys.toList()
+        if (keys.isEmpty()) return
+        keyboardActive = true
+        val cur = keys.indexOf(focusedId)
+        val next = if (cur < 0) {
+            if (delta >= 0) 0 else keys.lastIndex
+        } else {
+            (cur + delta).coerceIn(0, keys.lastIndex)
+        }
+        focusedId = keys[next]
+    }
+
+    fun triggerCurrent(): Boolean {
+        val key = focusedId?.takeIf { it in actions } ?: actions.keys.firstOrNull() ?: return false
+        keyboardActive = true
+        focusedId = key
+        actions[key]?.invoke()
+        return true
+    }
+
+    fun ensureDefault(preferredId: String? = null, inTouchMode: Boolean = false) {
+        if (focusedId == null || focusedId !in actions) {
+            focusedId = preferredId?.takeIf { it in actions } ?: actions.keys.firstOrNull()
+            if (!inTouchMode) keyboardActive = true
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun Modifier.dpadNavItem(
+    nav: DpadNavController,
+    id: String,
+    shape: Shape = DeckShapes.menuButton,
+    showFocusBorder: Boolean = true,
+    onClick: () -> Unit,
+): Modifier {
+    nav.actions[id] = onClick
+    DisposableEffect(nav, id) {
+        onDispose { nav.actions.remove(id) }
+    }
+    val context = LocalContext.current
+    val isFocused = nav.keyboardActive && nav.focusedId == id
+    val bringIntoView = remember { BringIntoViewRequester() }
+    LaunchedEffect(isFocused) {
+        if (isFocused) bringIntoView.bringIntoView()
+    }
+    return this
+        .bringIntoViewRequester(bringIntoView)
+        .then(
+            if (showFocusBorder && isFocused) {
+                Modifier.border(1.8.dp, DeckColors.Ruby, shape)
+            } else {
+                Modifier
+            },
+        )
+        .clickable {
+            nav.focusedId = id
+            nav.keyboardActive = false
             KeySound.playTouch(context)
             onClick()
         }

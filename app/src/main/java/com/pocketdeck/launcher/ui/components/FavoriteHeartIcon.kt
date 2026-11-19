@@ -28,37 +28,37 @@ fun FavoriteHeartIcon(
         val w = this.size.width
         val h = this.size.height
         val path = Path().apply {
-            // 对称圆润心形路径
-            moveTo(w * 0.50f, h * 0.88f)
+            // 对称圆润心形路径（垂直微调 +0.04f 以在圆形角标内实现视觉居中）
+            moveTo(w * 0.50f, h * 0.92f)
             cubicTo(
-                w * 0.48f, h * 0.86f,
-                w * 0.08f, h * 0.60f,
-                w * 0.08f, h * 0.34f,
+                w * 0.48f, h * 0.90f,
+                w * 0.08f, h * 0.64f,
+                w * 0.08f, h * 0.38f,
             )
             cubicTo(
-                w * 0.08f, h * 0.16f,
-                w * 0.22f, h * 0.08f,
-                w * 0.36f, h * 0.08f,
+                w * 0.08f, h * 0.20f,
+                w * 0.22f, h * 0.12f,
+                w * 0.36f, h * 0.12f,
             )
             cubicTo(
-                w * 0.44f, h * 0.08f,
-                w * 0.49f, h * 0.13f,
-                w * 0.50f, h * 0.19f,
+                w * 0.44f, h * 0.12f,
+                w * 0.49f, h * 0.17f,
+                w * 0.50f, h * 0.23f,
             )
             cubicTo(
-                w * 0.51f, h * 0.13f,
-                w * 0.56f, h * 0.08f,
-                w * 0.64f, h * 0.08f,
+                w * 0.51f, h * 0.17f,
+                w * 0.56f, h * 0.12f,
+                w * 0.64f, h * 0.12f,
             )
             cubicTo(
-                w * 0.78f, h * 0.08f,
-                w * 0.92f, h * 0.16f,
-                w * 0.92f, h * 0.34f,
+                w * 0.78f, h * 0.12f,
+                w * 0.92f, h * 0.20f,
+                w * 0.92f, h * 0.38f,
             )
             cubicTo(
-                w * 0.92f, h * 0.60f,
-                w * 0.52f, h * 0.86f,
-                w * 0.50f, h * 0.88f,
+                w * 0.92f, h * 0.64f,
+                w * 0.52f, h * 0.90f,
+                w * 0.50f, h * 0.92f,
             )
             close()
         }

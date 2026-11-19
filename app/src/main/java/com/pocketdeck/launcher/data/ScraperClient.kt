@@ -30,10 +30,10 @@ data class ScrapeHit(
  */
 class ScraperClient(context: Context) {
 
-    private val appCtx = context.applicationContext
+    private val appCtx = context.applicationContext.also { ScrapeLogStore.init(it) }
     private val apiCacheDir = File(appCtx.cacheDir, "scraper_api").apply { mkdirs() }
     private val crcCache = ConcurrentHashMap<String, String>()
-    private val memHits = ConcurrentHashMap<String, ScrapeHit>()
+    private val memHits = ConcurrentHashMap<String, Any>()
 
     @Volatile
     private var igdbToken: String? = null
@@ -41,12 +41,25 @@ class ScraperClient(context: Context) {
     @Volatile
     private var igdbTokenExpireMs: Long = 0L
 
+    /** 仅查询内存命中的刮削缓存（O(1)，无任何磁盘 I/O，可安全在主线程调用）。 */
+    fun cachedHitInMemory(providerId: String, gameId: String): ScrapeHit? =
+        memHits["$providerId::$gameId"] as? ScrapeHit
+
     fun cachedHit(providerId: String, gameId: String): ScrapeHit? {
         val key = "$providerId::$gameId"
-        memHits[key]?.let { return it }
+        val cached = memHits[key]
+        if (cached === MISS_SENTINEL) return null
+        if (cached is ScrapeHit) return cached
         val file = cacheFile(providerId, gameId)
-        if (!file.isFile) return null
-        val hit = readCachedHit(file) ?: return null
+        if (!file.isFile) {
+            memHits[key] = MISS_SENTINEL
+            return null
+        }
+        val hit = readCachedHit(file)
+        if (hit == null) {
+            memHits[key] = MISS_SENTINEL
+            return null
+        }
         memHits[key] = hit
         return hit
     }
@@ -139,7 +152,7 @@ class ScraperClient(context: Context) {
     private fun queryHasheous(game: Game): ScrapeHit? {
         val crc = computeRomCrc32(File(game.id)) ?: return null
         val body = httpGet("https://hasheous.org/api/v1/Lookup/ByHash/crc/$crc?returnAllMetadata=true")
-            ?: return ScrapeHit()
+            ?: return null
         return runCatching {
             val o = JSONObject(body)
             val name = o.optString("name").takeIf { it.isNotBlank() }
@@ -228,7 +241,7 @@ class ScraperClient(context: Context) {
             if (qid == null) return@runCatching ScrapeHit()
 
             val entBody = httpGet("https://www.wikidata.org/w/api.php?action=wbgetentities&ids=$qid&props=claims&format=json")
-                ?: return@runCatching ScrapeHit()
+                ?: return@runCatching null
             val claims = JSONObject(entBody).optJSONObject("entities")
                 ?.optJSONObject(qid)?.optJSONObject("claims") ?: return@runCatching ScrapeHit()
 
@@ -431,8 +444,13 @@ class ScraperClient(context: Context) {
     // ───────────────────────── HTTP & Cache Helpers ─────────────────────────
 
     private fun httpGet(urlStr: String): String? {
-        if (!NetworkStatus.isOnline(appCtx)) return null
-        return runCatching {
+        if (!NetworkStatus.isOnline(appCtx)) {
+            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, error = "offline")
+            return null
+        }
+        val t0 = System.currentTimeMillis()
+        var code: Int? = null
+        return try {
             val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8_000
                 readTimeout = 12_000
@@ -441,17 +459,33 @@ class ScraperClient(context: Context) {
                 setRequestProperty("Accept", "application/json")
             }
             try {
-                if (conn.responseCode !in 200..299) return null
-                conn.inputStream.bufferedReader().use { it.readText() }
+                code = conn.responseCode
+                val elapsed = System.currentTimeMillis() - t0
+                if (code !in 200..299) {
+                    val errBody = runCatching { conn.errorStream?.bufferedReader()?.readText()?.take(140) }.getOrNull()
+                    ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, status = code, elapsedMs = elapsed, error = errBody ?: "non-2xx")
+                    return null
+                }
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, status = code, elapsedMs = elapsed, result = "${text.length}B ${text.take(120)}")
+                text
             } finally {
                 conn.disconnect()
             }
-        }.getOrNull()
+        } catch (t: Throwable) {
+            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
+            null
+        }
     }
 
     private fun httpPost(urlStr: String, body: String, headers: Map<String, String>): String? {
-        if (!NetworkStatus.isOnline(appCtx)) return null
-        return runCatching {
+        if (!NetworkStatus.isOnline(appCtx)) {
+            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, error = "offline")
+            return null
+        }
+        val t0 = System.currentTimeMillis()
+        var code: Int? = null
+        return try {
             val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8_000
                 readTimeout = 12_000
@@ -464,16 +498,32 @@ class ScraperClient(context: Context) {
                 if (body.isNotEmpty()) {
                     conn.outputStream.bufferedWriter().use { it.write(body) }
                 }
-                if (conn.responseCode !in 200..299) return null
-                conn.inputStream.bufferedReader().use { it.readText() }
+                code = conn.responseCode
+                val elapsed = System.currentTimeMillis() - t0
+                if (code !in 200..299) {
+                    val errBody = runCatching { conn.errorStream?.bufferedReader()?.readText()?.take(140) }.getOrNull()
+                    ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, status = code, elapsedMs = elapsed, error = errBody ?: "non-2xx")
+                    return null
+                }
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, status = code, elapsedMs = elapsed, result = "${text.length}B ${text.take(120)}")
+                text
             } finally {
                 conn.disconnect()
             }
-        }.getOrNull()
+        } catch (t: Throwable) {
+            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
+            null
+        }
     }
 
-    private fun cacheFile(providerId: String, gameId: String): File =
-        File(apiCacheDir, "${providerId}_${gameId.hashCode().toUInt()}.json")
+    private fun cacheFile(providerId: String, gameId: String): File {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(gameId.toByteArray(Charsets.UTF_8))
+            .take(12)
+            .joinToString("") { "%02x".format(it) }
+        return File(apiCacheDir, "${providerId}_$digest.json")
+    }
 
     private fun readCachedHit(file: File): ScrapeHit? = runCatching {
         val o = JSONObject(file.readText())
@@ -510,6 +560,7 @@ class ScraperClient(context: Context) {
     }
 
     private companion object {
+        val MISS_SENTINEL = Any()
         const val USER_AGENT = "PocketDeck/0.3 (Android Handheld Launcher)"
         const val MAX_CRC_SIZE = 32L * 1024 * 1024
         val TAGS_REGEX = Regex("""\s*[(\[][^)\]]*[)\]]""")

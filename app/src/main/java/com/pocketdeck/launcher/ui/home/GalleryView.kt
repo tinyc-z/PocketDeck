@@ -93,6 +93,7 @@ fun GalleryView(
     onFocusChange: (Int) -> Unit,
     onLaunch: (Game) -> Unit,
     onLongPress: ((Game) -> Unit)? = null,
+    fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
     focusCardHeight: Dp = 208.dp,
     smallCardHeight: Dp = 95.dp,
@@ -117,8 +118,8 @@ fun GalleryView(
     val latestFocusIndex by rememberUpdatedState(focusIndex)
     val latestOnFocusChange by rememberUpdatedState(onFocusChange)
 
-    // 切平台或列表长度变化时立即对齐焦点
-    LaunchedEffect(games.firstOrNull()?.platformId, games.size) {
+    // 切平台、排序或列表变化时立即对齐焦点
+    LaunchedEffect(games.firstOrNull()?.id, games.lastOrNull()?.id, games.size) {
         animatedFocus.snapTo(focusIndex.toFloat())
     }
 
@@ -137,7 +138,7 @@ fun GalleryView(
     }
 
     val dragAlpha by animateFloatAsState(
-        targetValue = if (isDragging) 0.45f else 1f,
+        targetValue = if (isDragging || fastScrolling) 0.45f else 1f,
         animationSpec = tween(120),
         label = "titleDragAlpha",
     )
@@ -145,6 +146,10 @@ fun GalleryView(
     val titleSlidePx = with(density) { 28.dp.roundToPx() }
 
     val focusedGame = games.getOrNull(focusIndex)
+    var settledMetaGame by remember(listKey, games.size) { mutableStateOf(focusedGame) }
+    if ((!fastScrolling && !isDragging) || settledMetaGame == null) {
+        settledMetaGame = focusedGame
+    }
     val focusCardHPx = with(density) { focusCardHeight.toPx() }
     val smallCardHPx = with(density) { smallCardHeight.toPx() }
     val spacingPx = with(density) { cardSpacing.toPx() }
@@ -164,37 +169,47 @@ fun GalleryView(
     val stepPx = (avgSmallW + spacingPx).coerceAtLeast(60f)
 
     Column(modifier) {
-        // 标题：焦点游戏名（带左右方向进入动画）
+        // 标题：焦点游戏名（常态带左右滑动进入动画；快滚连按期间直接刷新 Text 避免重叠重组合开销）
         Box(
             Modifier
                 .fillMaxWidth()
                 .padding(start = leftMargin, end = 16.dp)
                 .height(32.dp)
-                .graphicsLayer { alpha = dragAlpha },
+                .graphicsLayer { alpha = if (isDragging) dragAlpha else 1f },
         ) {
-            AnimatedContent(
-                targetState = Triple(listKey, focusIndex, focusedGame?.title.orEmpty()),
-                transitionSpec = {
-                    if (targetState.first != initialState.first) {
-                        fadeIn(tween(150)).togetherWith(fadeOut(tween(100)))
-                    } else {
-                        val dir = if (targetState.second >= initialState.second) 1 else -1
-                        (fadeIn(tween(170)) + slideInHorizontally(tween(190)) { dir * titleSlidePx })
-                            .togetherWith(
-                                fadeOut(tween(100)) + slideOutHorizontally(tween(130)) { -dir * (titleSlidePx / 2) },
-                            )
-                            .using(SizeTransform(clip = false))
-                    }
-                },
-                label = "galleryTitle",
-            ) { (_, _, title) ->
+            if (fastScrolling) {
                 Text(
-                    title,
+                    focusedGame?.title.orEmpty(),
                     style = DeckType.gameTitle,
                     color = DeckColors.Ruby,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            } else {
+                AnimatedContent(
+                    targetState = Triple(listKey, focusIndex, focusedGame?.title.orEmpty()),
+                    transitionSpec = {
+                        if (targetState.first != initialState.first) {
+                            fadeIn(tween(150)).togetherWith(fadeOut(tween(100)))
+                        } else {
+                            val dir = if (targetState.second >= initialState.second) 1 else -1
+                            (fadeIn(tween(170)) + slideInHorizontally(tween(190)) { dir * titleSlidePx })
+                                .togetherWith(
+                                    fadeOut(tween(100)) + slideOutHorizontally(tween(130)) { -dir * (titleSlidePx / 2) },
+                                )
+                                .using(SizeTransform(clip = false))
+                        }
+                    },
+                    label = "galleryTitle",
+                ) { (_, _, title) ->
+                    Text(
+                        title,
+                        style = DeckType.gameTitle,
+                        color = DeckColors.Ruby,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
@@ -276,6 +291,7 @@ fun GalleryView(
                         height = focusCardHeight,
                         isFocused = isCardFocused,
                         isFavorite = game.id in favorites,
+                        fastScrolling = fastScrolling || isDragging,
                         onClick = {
                             if (isCardFocused) {
                                 onLaunch(game)
@@ -311,14 +327,14 @@ fun GalleryView(
             }
         }
 
-        // 元数据行：Release date / Genre / Developer / Publisher / File size（左对齐焦点卡片）
+        // 元数据行：Release date / Genre / Developer / Publisher / File size（快滚/拖动期冻结并在停稳后同步，避免高速滚动抖动）
         if (showMetadata) {
             Spacer(Modifier.height(10.dp))
-            val meta = focusedGame?.let { metadataMap[it.id] }
+            val meta = settledMetaGame?.let { metadataMap[it.id] }
             MetadataRow(
                 metadata = meta,
                 metaDisplay = metaDisplay,
-                fileSizeBytes = focusedGame?.fileSize ?: 0L,
+                fileSizeBytes = settledMetaGame?.fileSize ?: 0L,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = leftMargin, end = 24.dp)
@@ -482,6 +498,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
     index: Int,
     total: Int,
     placeAtTop: Boolean,
+    fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (game == null) return
@@ -516,9 +533,13 @@ internal fun BoxScope.FocusedGameFloatingPill(
             color = DeckColors.Ruby,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .basicMarquee(iterations = Int.MAX_VALUE),
+            modifier = if (fastScrolling) {
+                Modifier.weight(1f, fill = false)
+            } else {
+                Modifier
+                    .weight(1f, fill = false)
+                    .basicMarquee(iterations = Int.MAX_VALUE)
+            },
         )
         platform?.shortName?.takeIf { it.isNotBlank() }?.let { shortName ->
             Spacer(Modifier.width(8.dp))

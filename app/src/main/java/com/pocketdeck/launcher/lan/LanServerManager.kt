@@ -3,15 +3,19 @@ package com.pocketdeck.launcher.lan
 import android.content.Context
 import android.content.res.Configuration
 import com.pocketdeck.launcher.data.CoverSource
+import com.pocketdeck.launcher.data.FileTask
 import com.pocketdeck.launcher.data.GameRepository
 import com.pocketdeck.launcher.data.MetadataRepository
 import com.pocketdeck.launcher.data.UserStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,19 +32,58 @@ data class LanServerState(
     val webPassword: String? = null,
     val webPort: Int = -1,
     val webClients: List<WebClientInfo> = emptyList(),
+    val webActiveTransfers: List<WebActiveTransfer> = emptyList(),
+    val webTransferHistory: List<WebTransferHistoryItem> = emptyList(),
+    val fileTasks: List<FileTask> = emptyList(),
     val shareRunning: Boolean = false,
     val shareIp: String? = null,
     val sharePort: Int = -1,
     val localSendCompat: Boolean = true,
     val peers: List<LanPeer> = emptyList(),
     val incomingRequest: IncomingShareRequest? = null,
+    val pinChallenge: LocalSendPinChallenge? = null,
     val transfer: ShareTransferState? = null,
     val shareHistory: List<ShareHistoryItem> = emptyList(),
     val lastError: String? = null,
 ) {
     val anyRunning: Boolean get() = webRunning || shareRunning
+    val webTransferring: Boolean get() = webActiveTransfers.isNotEmpty()
+    val webUploadSpeedBps: Long
+        get() = webActiveTransfers.filter { it.direction == WebTransferDirection.Upload }.sumOf { it.speedBytesPerSec }
+    val webDownloadSpeedBps: Long
+        get() = webActiveTransfers.filter { it.direction == WebTransferDirection.Download }.sumOf { it.speedBytesPerSec }
     val selectedInterface: LanInterface?
         get() = interfaces.firstOrNull { it.interfaceName == selectedInterfaceName } ?: interfaces.firstOrNull()
+
+    /**
+     * 汇总所有进行中的任务（快传收发、Web 上传/下载、文件移动/复制/压缩/解压/删除）：
+     * - 无活跃任务返回 null
+     * - 存在多个任务时取进度最慢的（最小百分比 0f..1f）返回
+     */
+    val slowestActiveTaskProgress: Float?
+        get() {
+            val progresses = ArrayList<Float>(4)
+            val tx = transfer
+            if (tx != null && tx.phase == TransferPhase.Transferring) {
+                val p = if (tx.totalBytes > 0L) {
+                    (tx.bytesTransferred.toFloat() / tx.totalBytes.toFloat()).coerceIn(0f, 1f)
+                } else 0f
+                progresses += p
+            }
+            for (wt in webActiveTransfers) {
+                val p = if (wt.totalBytes > 0L) {
+                    (wt.bytesTransferred.toFloat() / wt.totalBytes.toFloat()).coerceIn(0f, 1f)
+                } else 0f
+                progresses += p
+            }
+            for (ft in fileTasks) {
+                val p = if (ft.totalBytes > 0L) {
+                    (ft.bytesDone.toFloat() / ft.totalBytes.toFloat()).coerceIn(0f, 1f)
+                } else 0f
+                progresses += p
+            }
+            return progresses.minOrNull()
+        }
 }
 
 /**
@@ -83,39 +126,67 @@ class LanServerManager(
                 quickShare.setLocalSendCompat(u.localSendCompat)
                 val sysDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
                 webServer.updateTheme(u.theme, u.themeAccent, sysDark)
-                _state.value = _state.value.copy(
+                _state.update { it.copy(
                     deviceId = id,
                     deviceName = name,
                     localSendCompat = u.localSendCompat,
-                )
+                ) }
             }
         }
         scope.launch {
             quickShare.peers.collectLatest { peers ->
-                _state.value = _state.value.copy(peers = peers)
+                _state.update { it.copy(peers = peers) }
             }
         }
         scope.launch {
             quickShare.incomingRequest.collectLatest { req ->
-                _state.value = _state.value.copy(incomingRequest = req)
+                _state.update { it.copy(incomingRequest = req) }
             }
         }
         scope.launch {
             quickShare.transfer.collectLatest { tx ->
-                _state.value = _state.value.copy(transfer = tx)
+                _state.update { it.copy(transfer = tx) }
+            }
+        }
+        scope.launch {
+            quickShare.pinChallenge.collectLatest { pin ->
+                _state.update { it.copy(pinChallenge = pin) }
             }
         }
         scope.launch {
             quickShare.history.collectLatest { hist ->
-                _state.value = _state.value.copy(shareHistory = hist)
+                _state.update { it.copy(shareHistory = hist) }
             }
         }
         scope.launch {
             webServer.connectedClients.collectLatest { clients ->
-                _state.value = _state.value.copy(webClients = clients)
+                _state.update { it.copy(webClients = clients) }
+            }
+        }
+        scope.launch {
+            webServer.activeTransfers.collectLatest { active ->
+                _state.update { it.copy(webActiveTransfers = active) }
+                while (isActive && active.isNotEmpty()) {
+                    delay(1000L)
+                    webServer.tickActiveTransfers()
+                }
+            }
+        }
+        scope.launch {
+            webServer.transferHistory.collectLatest { hist ->
+                _state.update { it.copy(webTransferHistory = hist) }
+            }
+        }
+        scope.launch {
+            repo.fileTasks.collectLatest { tasks ->
+                _state.update { it.copy(fileTasks = tasks) }
             }
         }
     }
+
+    fun cancelFileTask(id: String): Boolean = repo.cancelFileTask(id)
+
+    fun cancelWebTransfer(id: String): Boolean = webServer.cancelActiveTransfer(id)
 
     fun refreshInterfaces(): List<LanInterface> {
         val list = LanInterfaces.listAvailable(context)
@@ -125,19 +196,19 @@ class LanServerManager(
         } else {
             list.firstOrNull()?.interfaceName
         }
-        _state.value = _state.value.copy(interfaces = list, selectedInterfaceName = nextSel)
+        _state.update { it.copy(interfaces = list, selectedInterfaceName = nextSel) }
         return list
     }
 
     fun selectInterface(interfaceName: String) {
         scope.launch(Dispatchers.IO) {
             opMutex.withLock {
+                val prevIface = _state.value.selectedInterfaceName
                 val list = refreshInterfaces()
                 val chosen = list.firstOrNull { it.interfaceName == interfaceName } ?: return@withLock
                 val wasWeb = webServer.isRunning
                 val wasShare = quickShare.isRunning
-                val prevIface = _state.value.selectedInterfaceName
-                _state.value = _state.value.copy(selectedInterfaceName = chosen.interfaceName, lastError = null)
+                _state.update { it.copy(selectedInterfaceName = chosen.interfaceName, lastError = null) }
                 if (prevIface != chosen.interfaceName) {
                     if (wasWeb) startWebLocked(chosen)
                     if (wasShare) startShareLocked(chosen)
@@ -172,22 +243,22 @@ class LanServerManager(
             list.firstOrNull { it.interfaceName == _state.value.selectedInterfaceName } ?: list.firstOrNull()
         }
         if (lan == null) {
-            _state.value = _state.value.copy(lastError = "NO_LAN_INTERFACE")
+            _state.update { it.copy(lastError = "NO_LAN_INTERFACE") }
             return false
         }
         return runCatching {
             val port = webServer.start(lan)
-            _state.value = _state.value.copy(
+            _state.update { it.copy(
                 selectedInterfaceName = lan.interfaceName,
                 webRunning = true,
                 webUrl = webServer.accessUrl,
                 webPassword = webServer.dynamicPassword,
                 webPort = port,
                 lastError = null,
-            )
+            ) }
             true
-        }.getOrElse {
-            _state.value = _state.value.copy(lastError = it.message ?: "WEB_START_FAILED")
+        }.getOrElse { err ->
+            _state.update { it.copy(lastError = err.message ?: "WEB_START_FAILED") }
             false
         }
     }
@@ -200,18 +271,22 @@ class LanServerManager(
 
     private fun stopWebLocked() {
         webServer.stop()
-        _state.value = _state.value.copy(
+        _state.update { it.copy(
             webRunning = false,
             webUrl = null,
             webPassword = null,
             webPort = -1,
-        )
+        ) }
     }
 
     fun refreshWebPassword() {
-        if (!webServer.isRunning) return
-        val pwd = webServer.refreshPassword()
-        _state.value = _state.value.copy(webPassword = pwd)
+        scope.launch(Dispatchers.IO) {
+            opMutex.withLock {
+                if (!webServer.isRunning) return@withLock
+                val pwd = webServer.refreshPassword()
+                _state.update { it.copy(webPassword = pwd) }
+            }
+        }
     }
 
     fun startQuickShare(explicitIface: LanInterface? = null) {
@@ -225,7 +300,7 @@ class LanServerManager(
             list.firstOrNull { it.interfaceName == _state.value.selectedInterfaceName } ?: list.firstOrNull()
         }
         if (lan == null) {
-            _state.value = _state.value.copy(lastError = "NO_LAN_INTERFACE")
+            _state.update { it.copy(lastError = "NO_LAN_INTERFACE") }
             return false
         }
         val id = _state.value.deviceId.ifBlank { UUID.randomUUID().toString() }
@@ -233,16 +308,16 @@ class LanServerManager(
         val lsCompat = _state.value.localSendCompat
         return runCatching {
             val port = quickShare.start(lan, id, name, lsCompat)
-            _state.value = _state.value.copy(
+            _state.update { it.copy(
                 selectedInterfaceName = lan.interfaceName,
                 shareRunning = true,
                 shareIp = lan.ipAddress,
                 sharePort = port,
                 lastError = null,
-            )
+            ) }
             true
-        }.getOrElse {
-            _state.value = _state.value.copy(lastError = it.message ?: "SHARE_START_FAILED")
+        }.getOrElse { err ->
+            _state.update { it.copy(lastError = err.message ?: "SHARE_START_FAILED") }
             false
         }
     }
@@ -255,13 +330,14 @@ class LanServerManager(
 
     private fun stopShareLocked() {
         quickShare.stop()
-        _state.value = _state.value.copy(
+        _state.update { it.copy(
             shareRunning = false,
             shareIp = null,
             sharePort = -1,
             peers = emptyList(),
             incomingRequest = null,
-        )
+            pinChallenge = null,
+        ) }
     }
 
     fun stopAll() {
@@ -286,14 +362,22 @@ class LanServerManager(
     fun acceptIncoming(sessionId: String, targetDir: File) = quickShare.acceptIncoming(sessionId, targetDir)
     fun rejectIncoming(sessionId: String) = quickShare.rejectIncoming(sessionId)
     fun cancelTransfer() = quickShare.cancelTransfer()
+    fun submitQuickSharePin(pin: String) = quickShare.submitSendPin(pin)
+    fun cancelQuickSharePin() = quickShare.cancelSendPin()
     fun dismissTransferBanner() = quickShare.dismissTransferBanner()
     fun deleteShareHistoryItem(id: String, deleteFiles: Boolean = false) = quickShare.deleteHistoryItem(id, deleteFiles)
     fun clearShareHistory(deleteFiles: Boolean = false) = quickShare.clearHistory(deleteFiles)
-    fun kickWebClient(ip: String) = webServer.kickClient(ip)
+    fun deleteWebTransferHistoryItem(id: String) = webServer.deleteTransferHistoryItem(id)
+    fun clearWebTransferHistory() = webServer.clearTransferHistory()
+    fun kickWebClient(ip: String) {
+        scope.launch(Dispatchers.IO) {
+            webServer.kickClient(ip)
+        }
+    }
 
     fun setLocalSendCompat(enabled: Boolean) {
         quickShare.setLocalSendCompat(enabled)
-        _state.value = _state.value.copy(localSendCompat = enabled)
+        _state.update { it.copy(localSendCompat = enabled) }
         scope.launch {
             userStore.update { it.copy(localSendCompat = enabled) }
         }
