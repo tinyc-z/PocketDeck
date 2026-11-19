@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-val appVersionName = "0.4.0"
+val appVersionName = "0.5.0"
 
 val gitCommitCount: Int? = if (rootProject.file(".git").exists()) {
     providers.exec {
