@@ -87,8 +87,10 @@ import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
 import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.lifecycle.LifecycleEventObserver
@@ -128,6 +130,7 @@ fun TopBar(
     onTabClick: (Int) -> Unit = {},
     onPrevTab: () -> Unit = {},
     onNextTab: () -> Unit = {},
+    rapidTabSwitchFlow: StateFlow<Boolean>? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -292,8 +295,10 @@ fun TopBar(
         }
     }
 
-    // 动态滑块胶囊状态：位置 X 与宽度 W 同步弹性过渡，并自动将选中标签滚入可视居中区；减少动态效果时直接瞬切
+    // 动态滑块胶囊状态：单按/点击时位置 X 与宽度 W 弹性滑移，长按连切或减少动态效果时零帧瞬切回无动画效果
     val reduceMotion = LocalReduceMotion.current
+    val rapidTabSwitch = rapidTabSwitchFlow?.collectAsState()?.value ?: false
+    val noTabAnim = reduceMotion || rapidTabSwitch
     val scrollState = rememberScrollState()
     val tabBounds = remember(tabs) { mutableStateMapOf<Int, Pair<Float, Float>>() }
     var pillHeightPx by remember { mutableFloatStateOf(0f) }
@@ -305,20 +310,20 @@ fun TopBar(
     val safeSelected = selectedIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
     val targetBounds = tabBounds[safeSelected]
 
-    LaunchedEffect(safeSelected, targetBounds, viewportWidthPx, reduceMotion) {
+    LaunchedEffect(safeSelected, targetBounds, viewportWidthPx, noTabAnim) {
         val (tx, tw) = targetBounds ?: return@LaunchedEffect
         val scrollTarget = if (viewportWidthPx > 0) {
             (tx + tw / 2f - viewportWidthPx / 2f).roundToInt().coerceIn(0, scrollState.maxValue)
         } else {
             null
         }
-        if (!pillInitialized || pillW.value <= 0f || reduceMotion) {
+        if (!pillInitialized || pillW.value <= 0f || noTabAnim) {
             pillX.snapTo(tx)
             pillW.snapTo(tw)
             pillInitialized = true
             if (scrollTarget != null) scrollState.scrollTo(scrollTarget)
         } else {
-            val pillSpec = spring<Float>(dampingRatio = 0.86f, stiffness = 1100f)
+            val pillSpec = spring<Float>(dampingRatio = 0.80f, stiffness = 560f)
             coroutineScope {
                 launch { pillX.animateTo(tx, pillSpec) }
                 launch { pillW.animateTo(tw, pillSpec) }
@@ -326,7 +331,7 @@ fun TopBar(
                     launch {
                         scrollState.animateScrollTo(
                             scrollTarget,
-                            tween(durationMillis = 120, easing = FastOutSlowInEasing),
+                            tween(durationMillis = 180, easing = FastOutSlowInEasing),
                         )
                     }
                 }
@@ -385,10 +390,10 @@ fun TopBar(
                     .fillMaxHeight()
                     .horizontalScroll(scrollState)
                     .drawBehind {
-                        val w = pillW.value
+                        val w = if (noTabAnim && targetBounds != null) targetBounds.second else pillW.value
                         val h = pillHeightPx
                         if (w > 0f && h > 0f) {
-                            val x = pillX.value
+                            val x = if (noTabAnim && targetBounds != null) targetBounds.first else pillX.value
                             val y = (size.height - h) / 2f
                             val r = h / 2f
                             if (!reduceMotion) {
@@ -425,7 +430,7 @@ fun TopBar(
                     tabs.forEachIndexed { i, tab ->
                         val selected = i == safeSelected
                         val targetTextColor = if (selected) Color.White else DeckColors.TextLabel
-                        val textColor = if (reduceMotion) {
+                        val textColor = if (noTabAnim) {
                             targetTextColor
                         } else {
                             animateColorAsState(

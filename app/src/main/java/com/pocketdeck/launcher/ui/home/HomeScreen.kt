@@ -258,11 +258,13 @@ fun HomeScreen(
     // 快滚/导航动画状态用 StateFlow + 协程 Job 管理，绝不在 HomeScreen 顶层读取，避免每次方向键触发 1200 行顶层全树重组
     val fastScrollingFlow = remember { MutableStateFlow(false) }
     val navAnimatingFlow = remember { MutableStateFlow(false) }
+    val rapidTabSwitchFlow = remember { MutableStateFlow(false) }
     val scrollCtrl = remember {
         object {
             var lastNavKeyMs: Long = 0L
             var fastScrollJob: Job? = null
             var navAnimJob: Job? = null
+            var rapidTabJob: Job? = null
         }
     }
 
@@ -339,6 +341,16 @@ fun HomeScreen(
                             event.key == Key.DirectionUp || event.key == Key.DirectionDown
                 }
                 if (event.type == KeyEventType.KeyUp) {
+                    val isTabKey = GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings) ||
+                        GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) ||
+                        (state.viewMode == ViewMode.List && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight))
+                    if (isTabKey && rapidTabSwitchFlow.value) {
+                        scrollCtrl.rapidTabJob?.cancel()
+                        scrollCtrl.rapidTabJob = scope.launch {
+                            delay(60L)
+                            rapidTabSwitchFlow.value = false
+                        }
+                    }
                     if (isGameScrollKey && fastScrollingFlow.value) {
                         scrollCtrl.fastScrollJob?.cancel()
                         scrollCtrl.fastScrollJob = scope.launch {
@@ -358,6 +370,20 @@ fun HomeScreen(
                             GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) ||
                             (state.viewMode == ViewMode.List && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight))
                         )
+                if (isHomeTabSwitchKey) {
+                    // 仅按住连发（repeatCount > 0）时临时降级为无动画瞬切；所有短按与点按保持弹性动画（除非开启减少动态效果）
+                    if (event.nativeKeyEvent.repeatCount > 0) {
+                        rapidTabSwitchFlow.value = true
+                        scrollCtrl.rapidTabJob?.cancel()
+                        scrollCtrl.rapidTabJob = scope.launch {
+                            delay(220L)
+                            rapidTabSwitchFlow.value = false
+                        }
+                    } else if (rapidTabSwitchFlow.value) {
+                        scrollCtrl.rapidTabJob?.cancel()
+                        rapidTabSwitchFlow.value = false
+                    }
+                }
 
                 if (state.keySoundEnabled &&
                     !capturingKeyBind &&
@@ -581,6 +607,7 @@ fun HomeScreen(
                 onTabClick = stableSelectTab,
                 onPrevTab = stablePrevTab,
                 onNextTab = stableNextTab,
+                rapidTabSwitchFlow = rapidTabSwitchFlow,
             )
 
             // 搜索栏置顶在 TopBar 下方，不遮挡搜索结果和键盘区域
