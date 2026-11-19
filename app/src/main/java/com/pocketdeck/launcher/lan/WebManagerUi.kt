@@ -2224,6 +2224,52 @@ function appendGamesBatch(batch) {
   renderGamesFooter();
 }
 
+// 封面模式：鼠标停留 120ms 后与掌机网格一致的微幅 3D 立体倾斜呼吸（rotateY ±3° / 5.6s、rotateX ±2.2° / 4.4s）
+(function setupCardHoverTilt() {
+  const reduceMq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  let activeCard = null, delayTimer = null, rafId = 0, startTs = 0;
+  const TWO_PI = Math.PI * 2;
+  function stop() {
+    clearTimeout(delayTimer); delayTimer = null;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    if (activeCard) { activeCard.style.transform = ''; activeCard.style.transition = ''; }
+    activeCard = null;
+  }
+  function frame(ts) {
+    if (!activeCard || !activeCard.isConnected) { stop(); return; }
+    if (!startTs) startTs = ts;
+    const t = (ts - startTs) / 1000;
+    const env = Math.min(1, t / 0.65);
+    const ry = Math.sin(t * TWO_PI / 5.6) * 3.0 * env;
+    const rx = Math.cos(t * TWO_PI / 4.4) * 2.2 * env;
+    const ty = -3 + Math.sin(t * TWO_PI / 4.4) * 0.8 * env;
+    activeCard.style.transform = 'perspective(900px) translateY(' + ty.toFixed(2) + 'px) rotateX(' + rx.toFixed(3) + 'deg) rotateY(' + ry.toFixed(3) + 'deg)';
+    rafId = requestAnimationFrame(frame);
+  }
+  function start(card) {
+    stop();
+    if (reduceMq && reduceMq.matches) return;
+    activeCard = card;
+    delayTimer = setTimeout(() => {
+      if (activeCard !== card) return;
+      card.style.transition = 'box-shadow .16s ease, border-color .16s';
+      startTs = 0;
+      rafId = requestAnimationFrame(frame);
+    }, 120);
+  }
+  document.addEventListener('mouseover', e => {
+    const card = e.target.closest ? e.target.closest('.gcard') : null;
+    if (card && card !== activeCard) start(card);
+  });
+  document.addEventListener('mouseout', e => {
+    if (!activeCard) return;
+    const to = e.relatedTarget;
+    if (!to || !activeCard.contains(to)) stop();
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
+})();
+
 function matchesCurrentGameFilter(g) {
   const vis = activeFilterMode;
   if (vis === 'visible' && g.hidden) return false;
