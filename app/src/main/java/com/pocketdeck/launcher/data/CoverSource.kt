@@ -38,6 +38,12 @@ data class ScrapedCoverCandidate(
     val nodeId: String,
 )
 
+data class IndexCoverMatch(
+    val title: String,
+    val url: String,
+    val fallbackUrls: List<String> = emptyList(),
+)
+
 enum class CoverMatchMode {
     CustomFile,
     LocalFile,
@@ -394,8 +400,8 @@ class CoverSource(
         }
     }
 
-    /** 手动搜索刮削：按关键词检索当前平台的 Libretro Boxart 索引，返回 `(title, coverUrl)` 列表。 */
-    suspend fun searchIndexCandidates(keyword: String, platform: Platform?): List<Pair<String, String>> {
+    /** 手动搜索刮削：按关键词检索当前平台的 Libretro Boxart 索引，返回含三镜像兜底的候选列表。 */
+    suspend fun searchIndexCandidates(keyword: String, platform: Platform?): List<IndexCoverMatch> {
         val system = platform?.libretroSystem ?: return emptyList()
         if (!systemIndexes.containsKey(system)) {
             loadSystemIndex(system)
@@ -403,10 +409,19 @@ class CoverSource(
         val index = systemIndexes[system] ?: return emptyList()
         val queries = TitleNormalizer.buildQueryVariants(keyword, keyword, null)
         val matches = index.findManualMatches(queries, limit = 12)
-        val mirror = activeLibretroMirror
+        val primary = activeLibretroMirror
+        val fb1 = (primary + 1) % 3
+        val fb2 = (primary + 2) % 3
         return matches.map { fileName ->
             val cleanName = if (fileName.endsWith(".png", true)) fileName.dropLast(4) else fileName
-            cleanName to buildLibretroBoxartUrl(system, fileName, mirror)
+            IndexCoverMatch(
+                title = cleanName,
+                url = buildLibretroBoxartUrl(system, fileName, primary),
+                fallbackUrls = listOf(
+                    buildLibretroBoxartUrl(system, fileName, fb1),
+                    buildLibretroBoxartUrl(system, fileName, fb2),
+                ),
+            )
         }
     }
 

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -56,6 +57,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.ManualScrapeCandidate
 import com.pocketdeck.launcher.data.ScrapeProgress
@@ -153,7 +155,21 @@ fun ManualScrapeDialog(
     var searchedOnce by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<ManualScrapeCandidate>>(emptyList()) }
     var selectedIdx by remember { mutableIntStateOf(0) }
+    val listState = rememberLazyListState()
+    val resolvedUrls = remember(results) { mutableMapOf<Int, String>() }
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.88f).dp
+
+    fun applyAt(idx: Int) {
+        val cand = results.getOrNull(idx) ?: return
+        val workingUrl = resolvedUrls[idx] ?: cand.coverUrl
+        onApply(if (workingUrl != cand.coverUrl) cand.copy(coverUrl = workingUrl) else cand)
+    }
+
+    LaunchedEffect(selectedIdx, results.size) {
+        if (results.isNotEmpty() && selectedIdx in results.indices) {
+            listState.animateScrollToItem(selectedIdx)
+        }
+    }
 
     fun dismissKeyboard() {
         keyboardController?.hide()
@@ -206,7 +222,7 @@ fun ManualScrapeDialog(
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) && results.isNotEmpty() -> {
-                        results.getOrNull(selectedIdx)?.let(onApply)
+                        applyAt(selectedIdx)
                         true
                     }
                     else -> false
@@ -318,7 +334,8 @@ fun ManualScrapeDialog(
                 }
                 else -> {
                     LazyColumn(
-                        Modifier
+                        state = listState,
+                        modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f, fill = false)
                             .heightIn(max = 360.dp),
@@ -326,6 +343,11 @@ fun ManualScrapeDialog(
                     ) {
                         itemsIndexed(results) { idx, cand ->
                             val hl = idx == selectedIdx
+                            val allUrls = remember(cand) {
+                                (listOfNotNull(cand.coverUrl) + cand.fallbackCoverUrls).distinct()
+                            }
+                            var urlIdx by remember(cand) { mutableIntStateOf(0) }
+                            val activeUrl = allUrls.getOrNull(urlIdx)
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -334,7 +356,7 @@ fun ManualScrapeDialog(
                                     .brandBorder(active = hl, shape = RoundedCornerShape(10.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                                     .soundClickable {
                                         selectedIdx = idx
-                                        onApply(cand)
+                                        applyAt(idx)
                                     }
                                     .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -347,12 +369,27 @@ fun ManualScrapeDialog(
                                         .background(DeckColors.DialogBg),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    if (!cand.coverUrl.isNullOrBlank()) {
+                                    if (!activeUrl.isNullOrBlank()) {
                                         AsyncImage(
-                                            model = cand.coverUrl,
+                                            model = activeUrl,
                                             contentDescription = cand.title,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize(),
+                                            onState = { st ->
+                                                when (st) {
+                                                    is AsyncImagePainter.State.Success -> {
+                                                        resolvedUrls[idx] = activeUrl
+                                                    }
+                                                    is AsyncImagePainter.State.Error -> {
+                                                        if (urlIdx + 1 < allUrls.size) {
+                                                            urlIdx += 1
+                                                        } else {
+                                                            urlIdx = -1
+                                                        }
+                                                    }
+                                                    else -> Unit
+                                                }
+                                            },
                                         )
                                     } else {
                                         DeckIcon(DeckIcons.Image, tint = DeckColors.TextSecondary, size = 18.dp)

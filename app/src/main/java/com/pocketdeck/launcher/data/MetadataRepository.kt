@@ -54,6 +54,7 @@ data class ManualScrapeCandidate(
     val providerId: String,
     val coverUrl: String? = null,
     val metadata: GameMetadata = GameMetadata(),
+    val fallbackCoverUrls: List<String> = emptyList(),
 )
 
 /**
@@ -654,15 +655,16 @@ class MetadataRepository(
         val boxarts = runCatching { covers.searchIndexCandidates(cleanKeyword, platform) }.getOrDefault(emptyList())
         val system = platform?.libretroSystem
         val table = system?.let { systemTables[it] }
-        for ((title, url) in boxarts) {
-            val meta = table?.find(title, title, null, null)?.row?.meta
+        for (match in boxarts) {
+            val meta = table?.find(match.title, match.title, null, null)?.row?.meta
                 ?: GameMetadata()
             addCandidate(
                 ManualScrapeCandidate(
-                    title = title,
+                    title = match.title,
                     providerId = ScraperCatalog.CoverIds.LIBRETRO_BOXARTS,
-                    coverUrl = url,
+                    coverUrl = match.url,
                     metadata = meta,
+                    fallbackCoverUrls = match.fallbackUrls,
                 ),
             )
         }
