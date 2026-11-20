@@ -172,21 +172,6 @@ internal fun HomeOverlays(
         )
     }
 
-    // 手动搜索刮削弹窗
-    state.manualScrapeGame?.let { game ->
-        com.pocketdeck.launcher.ui.components.ManualScrapeDialog(
-            game = game,
-            swapAbxy = state.swapAbxy,
-            keyBindings = state.keyBindings,
-            onSearch = { kw -> vm.manualSearchScrape(kw, game) },
-            onApply = { cand ->
-                vm.applyManualScrape(game, cand)
-                Toast.makeText(context, context.getString(R.string.manual_scrape_applied), Toast.LENGTH_SHORT).show()
-            },
-            onDismiss = { vm.closeManualScrape() },
-        )
-    }
-
     // 游戏属性详情弹窗
     state.propertiesGame?.let { game ->
         val metaResolutionMap by vm.metaResolutionMap.collectAsState()
@@ -261,6 +246,21 @@ internal fun HomeOverlays(
                 }
             },
             onManualScrape = { vm.openManualScrape(game) },
+        )
+    }
+
+    // 手动搜索刮削弹窗（放在 EditGameScreen 之后，避免从编辑页打开时被遮挡）
+    state.manualScrapeGame?.let { game ->
+        com.pocketdeck.launcher.ui.components.ManualScrapeDialog(
+            game = game,
+            swapAbxy = state.swapAbxy,
+            keyBindings = state.keyBindings,
+            onSearch = { kw -> vm.manualSearchScrape(kw, game) },
+            onApply = { cand ->
+                vm.applyManualScrape(game, cand)
+                Toast.makeText(context, context.getString(R.string.manual_scrape_applied), Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { vm.closeManualScrape() },
         )
     }
 
