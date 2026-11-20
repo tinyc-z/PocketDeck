@@ -203,30 +203,11 @@ internal fun LanShareServiceCard(
                 )
             }
         } else {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    stringResource(R.string.lan_share_desc),
-                    style = DeckType.settingsLabel,
-                    color = DeckColors.TextSecondary,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    stringResource(R.string.lan_service_enable_btn),
-                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color.White,
-                    modifier = Modifier
-                        .clip(DeckShapes.tabPill)
-                        .brandBackground(DeckShapes.tabPill)
-                        .dpadNavItem(nav, "enable_share", shape = DeckShapes.tabPill) {
-                            onToggleQuickShare(true)
-                        }
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                )
-            }
+            Text(
+                stringResource(R.string.lan_share_desc),
+                style = DeckType.settingsLabel,
+                color = DeckColors.TextSecondary,
+            )
         }
 
         Row(
