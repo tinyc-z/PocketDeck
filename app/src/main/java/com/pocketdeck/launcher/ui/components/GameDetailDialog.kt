@@ -104,7 +104,8 @@ fun GameDetailDialog(
     var discIdx by remember(game.id, pickingDisc) { mutableIntStateOf(0) }
     val cfg = LocalConfiguration.current
     val isNarrow = cfg.screenWidthDp < 480
-    val maxHeight = (cfg.screenHeightDp * 0.88f).dp
+    val isShort = cfg.screenHeightDp <= 340
+    val maxHeight = (cfg.screenHeightDp * if (isShort) 0.92f else 0.88f).dp
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
 
@@ -196,11 +197,25 @@ fun GameDetailDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = if (isNarrow) 16.dp else 28.dp, vertical = if (isNarrow) 12.dp else 18.dp)
+                .padding(
+                    horizontal = if (isNarrow) 16.dp else 28.dp,
+                    vertical = when {
+                        isShort -> 8.dp
+                        isNarrow -> 12.dp
+                        else -> 18.dp
+                    },
+                )
                 .widthIn(max = 600.dp)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight),
-            contentPadding = PaddingValues(horizontal = if (isNarrow) 14.dp else 20.dp, vertical = if (isNarrow) 14.dp else 18.dp),
+            contentPadding = PaddingValues(
+                horizontal = if (isNarrow) 14.dp else 20.dp,
+                vertical = when {
+                    isShort -> 10.dp
+                    isNarrow -> 14.dp
+                    else -> 18.dp
+                },
+            ),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
         ) {
@@ -338,8 +353,8 @@ fun GameDetailDialog(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val coverH = 88.dp
-                        val coverW = (coverH * platform.coverAspect).coerceIn(62.dp, 96.dp)
+                        val coverH = if (isShort) 72.dp else 88.dp
+                        val coverW = (coverH * platform.coverAspect).coerceIn(54.dp, if (isShort) 80.dp else 96.dp)
                         GameCoverCard(
                             game = game,
                             platform = platform,
@@ -421,9 +436,9 @@ fun GameDetailDialog(
                 }
             }
 
-            Spacer(Modifier.height(if (isNarrow) 10.dp else 14.dp))
+            Spacer(Modifier.height(when { isShort -> 6.dp; isNarrow -> 10.dp; else -> 14.dp }))
             HorizontalDivider(color = DeckColors.Line)
-            Spacer(Modifier.height(if (isNarrow) 10.dp else 12.dp))
+            Spacer(Modifier.height(when { isShort -> 6.dp; isNarrow -> 10.dp; else -> 12.dp }))
 
             @Composable
             fun ActionPill(act: DetailAction, idx: Int, modifier: Modifier) {
