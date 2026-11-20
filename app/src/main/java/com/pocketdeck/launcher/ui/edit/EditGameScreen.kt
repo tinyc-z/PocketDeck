@@ -585,6 +585,7 @@ fun EditGameScreen(
                 platform = platform,
                 currentLauncherId = customLauncherId,
                 defaultLabel = stringResource(R.string.edit_launcher_follow_platform),
+                testGame = game,
                 swapAbxy = swapAbxy,
                 keyBindings = keyBindings,
                 onSelect = { id ->

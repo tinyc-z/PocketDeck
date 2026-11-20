@@ -411,6 +411,37 @@
     <string name="launcher_save_preset">存为预设</string>
     <string name="launcher_preset_name">预设名称</string>
     <string name="launcher_presets_title">预设</string>
+    <string name="launcher_auto_will_use">将使用 %s</string>
+    <string name="launcher_auto_none">未安装可用的模拟器</string>
+    <string name="launcher_section_installed">已安装</string>
+    <string name="launcher_tag_recommended">推荐</string>
+    <string name="launcher_tag_multicore">多核心</string>
+    <string name="launcher_tag_detected">已检测到</string>
+    <string name="launcher_ra_cores_count">%d 个核心可选</string>
+    <string name="launcher_variants_count">已安装 %d 个版本</string>
+    <string name="launcher_ra_core_title">RetroArch 核心</string>
+    <string name="launcher_ra_auto_core_row">自动选择核心</string>
+    <string name="launcher_ra_other_detected">其他已检测到的核心</string>
+    <string name="launcher_ra_manual">手动输入核心名…</string>
+    <string name="launcher_ra_detect_hint">无法确认核心是否已下载，启动失败时请到 RetroArch「在线更新」里下载核心</string>
+    <string name="launcher_variant_title">选择版本</string>
+    <string name="launcher_variant_auto">自动（首个已安装）</string>
+    <string name="launcher_open_store">获取</string>
+    <string name="launcher_other_app_desc">列表里没有时再用</string>
+    <string name="launcher_recognized">已识别为 %s，已自动配置</string>
+    <string name="launcher_custom_detected">已自动识别启动方式：%s</string>
+    <string name="launcher_custom_test">测试启动</string>
+    <string name="launcher_custom_test_desc">用这个应用打开《%s》试试</string>
+    <string name="launcher_custom_test_failed">启动失败，可以在「高级设置」里换一种启动方式</string>
+    <string name="launcher_advanced">高级设置</string>
+    <string name="launcher_save">保存</string>
+    <string name="launcher_note_balanced">速度与准确度均衡</string>
+    <string name="launcher_note_accurate">精度最高，更耗电</string>
+    <string name="launcher_note_fast">轻量，低配更流畅</string>
+    <string name="launcher_note_legacy">旧版本，兼容性备用</string>
+    <string name="launcher_note_hw">硬件渲染，可提升分辨率</string>
+    <string name="launcher_note_arcade_new">新版街机 ROM 集</string>
+    <string name="launcher_note_arcade_old">MAME 0.78 ROM 集</string>
 
     <!-- Keybind Reset Confirm & Background Styles -->
     <string name="keybind_reset_confirm_title">重置按键？</string>

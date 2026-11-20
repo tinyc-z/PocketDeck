@@ -33,6 +33,7 @@ enum class CustomLaunchMode {
 object CustomLauncherCodec {
     const val PREFIX_RA_CORE = "ra_core:"
     const val PREFIX_CUSTOM_APP = "app:"
+    const val PREFIX_EMU_PKG = "emu:"
 
     data class CustomAppSpec(
         val packageName: String,
@@ -40,6 +41,20 @@ object CustomLauncherCodec {
         val extraKey: String = "",
         val activityClass: String = "",
     )
+
+    /** 指定内置模拟器的某个已安装版本（如 Dolphin MMJR / PPSSPP Gold）：`emu:<emuId>|<pkg>`。 */
+    fun encodeEmuVariant(emuId: String, pkg: String): String = "$PREFIX_EMU_PKG$emuId|$pkg"
+    fun decodeEmuVariant(id: String?): Pair<String, String>? {
+        if (id == null || !id.startsWith(PREFIX_EMU_PKG)) return null
+        val parts = id.removePrefix(PREFIX_EMU_PKG).split('|')
+        val emuId = parts.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return null
+        val pkg = parts.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return null
+        return emuId to pkg
+    }
+
+    /** 启动器 ID 对应的内置模拟器 ID（纯 ID 或版本编码），其它类型返回 null。 */
+    fun emulatorIdOf(id: String?): String? = decodeEmuVariant(id)?.first
+        ?: id?.takeIf { !it.contains(':') && it != GameLauncher.RETROARCH_ID }
 
     fun encodeRaCore(core: String): String = "$PREFIX_RA_CORE$core"
     fun decodeRaCore(id: String?): String? =
@@ -584,6 +599,13 @@ object EmulatorRegistry {
     )
 
     fun byId(id: String): EmulatorDef? = ALL.firstOrNull { it.id == id }
+
+    /** 按包名反查内置模拟器（用于“其他应用”流程自动识别）。 */
+    fun findByPackage(pkg: String): EmulatorDef? = ALL.firstOrNull { pkg in it.packages }
+
+    /** 某模拟器所有已安装的版本包名。 */
+    fun installedPackages(context: Context, emu: EmulatorDef): List<String> =
+        emu.packages.filter { isPackageInstalled(context, it) }
 
     /** 返回某平台在注册表中支持的全部独立模拟器列表（含未安装的）。 */
     fun allForPlatform(platformId: String): List<EmulatorDef> =

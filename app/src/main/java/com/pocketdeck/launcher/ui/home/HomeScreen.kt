@@ -1052,6 +1052,7 @@ fun HomeScreen(
                     setPlatformAspect = vm::setPlatformAspect,
                     saveCustomLauncherPreset = vm::saveCustomLauncherPreset,
                     deleteCustomLauncherPreset = vm::deleteCustomLauncherPreset,
+                    sampleGameFor = { pid -> fullLibrary?.games?.get(pid)?.firstOrNull() },
                     openLibraryHidden = { vm.openLibraryManager(hiddenOnly = true) },
                 ),
                 isCovered = state.showLibraryManager,

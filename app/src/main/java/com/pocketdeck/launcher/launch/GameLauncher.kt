@@ -88,6 +88,29 @@ object GameLauncher {
     fun isRetroArchInstalled(context: Context): Boolean =
         RETROARCH_PACKAGES.any { isInstalled(context, it) }
 
+    fun isRetroArchPackage(pkg: String): Boolean = pkg in RETROARCH_PACKAGES
+
+    /** 平台推荐核心顺序（第一个为推荐核心）。 */
+    fun platformCoreCandidates(platform: Platform): List<String> = buildList {
+        platform.core?.let { add(it) }
+        CORE_CANDIDATES[platform.id]?.forEach { c -> if (c !in this) add(c) }
+    }
+
+    /** 所有平台候选表里出现过的核心（用于过滤掉明显属于其他平台的已检测核心）。 */
+    fun allKnownCores(): Set<String> = CORE_CANDIDATES.values.flatten().map { it.lowercase() }.toSet()
+
+    /** 从 RetroArch 配置目录 / 播放列表中检测到用过的核心（无法读取 RetroArch 私有目录，仅作参考）。 */
+    fun detectedRetroArchCores(context: Context): Set<String> {
+        val raPkg = RETROARCH_PACKAGES.firstOrNull { isInstalled(context, it) } ?: return emptySet()
+        return detectConfiguredCores(raPkg)
+    }
+
+    /** 自动模式下 RetroArch 会使用的核心。 */
+    fun autoRetroArchCore(context: Context, platform: Platform): String? {
+        val raPkg = RETROARCH_PACKAGES.firstOrNull { isInstalled(context, it) } ?: return null
+        return resolveInstalledCore(raPkg, platform)
+    }
+
     fun installedRetroArchCores(context: Context, platform: Platform?): List<String> {
         val raPkg = RETROARCH_PACKAGES.firstOrNull { isInstalled(context, it) } ?: return emptyList()
         val configured = detectConfiguredCores(raPkg)
@@ -127,7 +150,7 @@ object GameLauncher {
         val raEntry = if (raPkg != null) {
             val platform = PlatformCatalog.forFolder(platformId)
             val core = resolveInstalledCore(raPkg, platform)
-            if (core != null) RETROARCH_ID to "RetroArch ($core)" else null
+            if (core != null) RETROARCH_ID to "RetroArch · ${RetroArchCoreCatalog.displayName(core)}" else null
         } else null
 
         val result = mutableListOf<Pair<String, String>>()
@@ -159,22 +182,28 @@ object GameLauncher {
         if (launcherId == RETROARCH_ID) {
             val raPkg = RETROARCH_PACKAGES.firstOrNull { isInstalled(context, it) }
             val core = raPkg?.let { resolveInstalledCore(it, PlatformCatalog.forFolder(platformId)) }
-            return if (core != null) "RetroArch ($core)" else "RetroArch"
+            return if (core != null) "RetroArch · ${RetroArchCoreCatalog.displayName(core)}" else "RetroArch"
         }
         CustomLauncherCodec.decodeRaCore(launcherId)?.let { core ->
-            return "RetroArch ($core)"
+            return "RetroArch · ${RetroArchCoreCatalog.displayName(core)}"
+        }
+        CustomLauncherCodec.decodeEmuVariant(launcherId)?.let { (emuId, pkg) ->
+            val emu = EmulatorRegistry.byId(emuId) ?: return emuId
+            val label = appLabel(context, pkg)
+            return if (label == null || label.equals(emu.displayName, ignoreCase = true)) emu.displayName
+            else "${emu.displayName} · $label"
         }
         CustomLauncherCodec.decodeCustomApp(launcherId)?.let { spec ->
-            val appLabel = runCatching {
-                val pm = context.packageManager
-                val ai = pm.getApplicationInfo(spec.packageName, 0)
-                pm.getApplicationLabel(ai).toString()
-            }.getOrDefault(spec.packageName)
-            return appLabel
+            return appLabel(context, spec.packageName) ?: spec.packageName
         }
         EmulatorRegistry.byId(launcherId)?.let { return it.displayName }
         return launcherId
     }
+
+    fun appLabel(context: Context, pkg: String): String? = runCatching {
+        val pm = context.packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    }.getOrNull()
 
     /**
      * 启动游戏。
@@ -212,7 +241,14 @@ object GameLauncher {
             return launchWithRetroArch(context, game, resolvedPlatform, coreOverride = core)
         }
 
-        // 3. 用户指定了内置独立模拟器
+        // 3. 用户指定了内置独立模拟器（可带具体版本包名）
+        CustomLauncherCodec.decodeEmuVariant(preferredEmulatorId)?.let { (emuId, pkg) ->
+            val emu = EmulatorRegistry.byId(emuId) ?: return Result.Error("Unknown emulator: $emuId")
+            val usePkg = pkg.takeIf { isInstalled(context, it) }
+                ?: EmulatorRegistry.installedPackage(context, emu)
+                ?: return Result.Error("${emu.displayName} is not installed")
+            return launchStandalone(context, game, emu, usePkg)
+        }
         if (preferredEmulatorId != null && preferredEmulatorId != RETROARCH_ID) {
             val standaloneResult = launchWithStandalone(context, game, preferredEmulatorId)
             if (standaloneResult is Result.Ok) return standaloneResult

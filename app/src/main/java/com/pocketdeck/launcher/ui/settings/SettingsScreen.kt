@@ -165,6 +165,7 @@ class ManageCallbacks(
     val setPlatformAspect: (String, Float?) -> Unit = { _, _ -> },
     val saveCustomLauncherPreset: (String, String) -> Unit = { _, _ -> },
     val deleteCustomLauncherPreset: (String) -> Unit = {},
+    val sampleGameFor: (String) -> com.pocketdeck.launcher.data.model.Game? = { null },
     val openLibraryHidden: () -> Unit = {},
 )
 
@@ -1153,6 +1154,7 @@ fun SettingsScreen(
                 customLaunchers = state.customLaunchers,
                 onSavePreset = manage.saveCustomLauncherPreset,
                 onDeletePreset = manage.deleteCustomLauncherPreset,
+                testGame = remember(plat.id) { manage.sampleGameFor(plat.id) },
                 swapAbxy = state.swapAbxy,
                 keyBindings = state.keyBindings,
             )

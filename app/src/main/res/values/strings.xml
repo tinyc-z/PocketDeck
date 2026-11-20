@@ -412,6 +412,37 @@
     <string name="launcher_save_preset">Save as preset</string>
     <string name="launcher_preset_name">Preset name</string>
     <string name="launcher_presets_title">Presets</string>
+    <string name="launcher_auto_will_use">Will use %s</string>
+    <string name="launcher_auto_none">No compatible emulator installed</string>
+    <string name="launcher_section_installed">Installed</string>
+    <string name="launcher_tag_recommended">Recommended</string>
+    <string name="launcher_tag_multicore">Multi-core</string>
+    <string name="launcher_tag_detected">Detected</string>
+    <string name="launcher_ra_cores_count">%d cores</string>
+    <string name="launcher_variants_count">%d versions installed</string>
+    <string name="launcher_ra_core_title">RetroArch core</string>
+    <string name="launcher_ra_auto_core_row">Pick automatically</string>
+    <string name="launcher_ra_other_detected">Other detected cores</string>
+    <string name="launcher_ra_manual">Type core name…</string>
+    <string name="launcher_ra_detect_hint">Core downloads can\'t be verified. If launch fails, download the core in RetroArch → Online Updater.</string>
+    <string name="launcher_variant_title">Choose version</string>
+    <string name="launcher_variant_auto">Auto (first installed)</string>
+    <string name="launcher_open_store">Get</string>
+    <string name="launcher_other_app_desc">Use when your emulator isn\'t listed</string>
+    <string name="launcher_recognized">Recognized as %s and configured automatically</string>
+    <string name="launcher_custom_detected">Launch method detected: %s</string>
+    <string name="launcher_custom_test">Test launch</string>
+    <string name="launcher_custom_test_desc">Try opening “%s” with this app</string>
+    <string name="launcher_custom_test_failed">Launch failed. Try another method under Advanced.</string>
+    <string name="launcher_advanced">Advanced settings</string>
+    <string name="launcher_save">Save</string>
+    <string name="launcher_note_balanced">Balanced speed and accuracy</string>
+    <string name="launcher_note_accurate">Most accurate, uses more power</string>
+    <string name="launcher_note_fast">Lightweight, smoother on low-end devices</string>
+    <string name="launcher_note_legacy">Older version, for compatibility</string>
+    <string name="launcher_note_hw">Hardware rendering, supports upscaling</string>
+    <string name="launcher_note_arcade_new">Latest arcade romsets</string>
+    <string name="launcher_note_arcade_old">MAME 0.78 romsets</string>
 
     <!-- Keybind Reset Confirm & Background Styles -->
     <string name="keybind_reset_confirm_title">Reset buttons?</string>
