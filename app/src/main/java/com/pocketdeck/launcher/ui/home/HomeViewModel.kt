@@ -57,9 +57,12 @@ data class HomeUiState(
     val searching: Boolean = false,
     val searchQuery: String = "",
     val menuGame: Game? = null,
+    val detailGame: Game? = null,
     val propertiesGame: Game? = null,
     val editingGame: Game? = null,
     val manualScrapeGame: Game? = null,
+    val quickHudEnabled: Boolean = false,
+    val showQuickHud: Boolean = false,
     val showApps: Boolean = false,
     val showLibraryManager: Boolean = false,
     val libraryManagerHiddenOnly: Boolean = false,
@@ -178,6 +181,7 @@ class HomeViewModel(
     val scrapeProgress: StateFlow<com.pocketdeck.launcher.data.ScrapeProgress> = metadataRepo.scrapeProgress
 
     private val _focusPerTab = HashMap<String, Int>()
+    private val _focusGameIdPerTab = HashMap<String, String>()
     private var initialTabPicked = false
     private var focusResolveJob: Job? = null
     private var activeSessionGameId: String? = null
@@ -350,8 +354,15 @@ class HomeViewModel(
         val focusIdx = if (current.searching) {
             _focusIndex.value.coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
         } else {
-            _focusPerTab.getOrDefault(tab?.id.orEmpty(), _focusIndex.value)
-                .coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
+            val tabId = tab?.id.orEmpty()
+            val savedGameId = _focusGameIdPerTab[tabId]
+            val byIdIdx = if (savedGameId != null) filteredGames.indexOfFirst { it.id == savedGameId } else -1
+            if (byIdIdx >= 0) {
+                byIdIdx
+            } else {
+                _focusPerTab.getOrDefault(tabId, _focusIndex.value)
+                    .coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
+            }
         }
         _focusIndex.value = focusIdx
         val platformsById = lib.platforms.associateBy { it.id }
@@ -438,6 +449,7 @@ class HomeViewModel(
             keySoundEnabled = user.keySoundEnabled,
             reduceMotion = user.reduceMotion,
             playStats = user.playStats,
+            quickHudEnabled = user.quickHudEnabled,
         )
         _state.value = newState
         preloadAssets(filteredGames, focusIdx, newState::platformFor)
@@ -734,7 +746,10 @@ class HomeViewModel(
         val newIdx = index.coerceIn(0, (s.games.size - 1).coerceAtLeast(0))
         if (newIdx == _focusIndex.value) return
         if (!s.searching) {
-            s.tabs.getOrNull(s.selectedTab)?.let { _focusPerTab[it.id] = newIdx }
+            s.tabs.getOrNull(s.selectedTab)?.let { tab ->
+                _focusPerTab[tab.id] = newIdx
+                s.games.getOrNull(newIdx)?.let { _focusGameIdPerTab[tab.id] = it.id }
+            }
         }
         // 只更新独立 focusIndex 流，不拷贝 HomeUiState，避免主界面 1200 行全树重组
         _focusIndex.value = newIdx
@@ -802,11 +817,61 @@ class HomeViewModel(
     suspend fun computeCrc32(path: String): String? = metadataRepo.computeCrc32(path)
 
     fun openEdit(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, editingGame = game)
+        _state.value = _state.value.copy(menuGame = null, detailGame = null, editingGame = game)
     }
 
     fun closeEdit() {
         _state.value = _state.value.copy(editingGame = null)
+    }
+
+    fun openDetail(game: Game) {
+        _state.value = _state.value.copy(menuGame = null, detailGame = game)
+    }
+
+    fun closeDetail() {
+        _state.value = _state.value.copy(detailGame = null)
+    }
+
+    fun toggleQuickHud() {
+        val cur = _state.value
+        if (!cur.quickHudEnabled && !cur.showQuickHud) return
+        _state.value = cur.copy(showQuickHud = !cur.showQuickHud)
+    }
+
+    fun closeQuickHud() {
+        _state.value = _state.value.copy(showQuickHud = false)
+    }
+
+    fun toggleQuickHudEnabled() {
+        viewModelScope.launch {
+            repo.updatePrefs { it.copy(quickHudEnabled = !it.quickHudEnabled) }
+        }
+    }
+
+    /** I6: 手柄 L2/R2 按首字母 A–Z / `#` 跳跃并返回目标首字母徽章文本。 */
+    fun jumpLetter(direction: Int): String? {
+        val games = _state.value.games
+        if (games.isEmpty()) return null
+        fun bucketOf(title: String): String {
+            val ch = title.trim().firstOrNull()?.uppercaseChar() ?: return "#"
+            return if (ch in 'A'..'Z') ch.toString() else "#"
+        }
+        val buckets = ArrayList<Pair<String, Int>>()
+        var lastBucket: String? = null
+        games.forEachIndexed { idx, g ->
+            val b = bucketOf(g.title)
+            if (b != lastBucket) {
+                buckets += b to idx
+                lastBucket = b
+            }
+        }
+        if (buckets.isEmpty()) return null
+        val curIdx = _focusIndex.value.coerceIn(0, games.lastIndex)
+        val curBucketPos = buckets.indexOfLast { it.second <= curIdx }.coerceAtLeast(0)
+        val nextPos = (curBucketPos + direction + buckets.size) % buckets.size
+        val (letter, targetIdx) = buckets[nextPos]
+        setFocus(targetIdx)
+        return letter
     }
 
     fun openManualScrape(game: Game) {

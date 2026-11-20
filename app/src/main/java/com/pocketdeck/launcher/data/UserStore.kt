@@ -231,6 +231,8 @@ data class UserData(
     val localSendCompat: Boolean = true,
     /** 单游戏游玩统计（gameId -> PlayStats）。 */
     val playStats: Map<String, PlayStats> = emptyMap(),
+    /** 实验性功能：掌机快捷 HUD 浮层开关（默认关闭）。 */
+    val quickHudEnabled: Boolean = false,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "user")
@@ -294,6 +296,7 @@ class UserStore(private val context: Context) {
         val deviceName = stringPreferencesKey("device_name")
         val localSendCompat = booleanPreferencesKey("local_send_compat")
         val playStats = stringPreferencesKey("play_stats")
+        val quickHudEnabled = booleanPreferencesKey("quick_hud_enabled")
     }
 
     private companion object {
@@ -522,6 +525,7 @@ class UserStore(private val context: Context) {
             deviceName = this[K.deviceName].orEmpty(),
             localSendCompat = this[K.localSendCompat] ?: true,
             playStats = PlayStatsCodec.decodePlayStats(this[K.playStats]),
+            quickHudEnabled = this[K.quickHudEnabled] ?: false,
         )
     }
 
@@ -717,6 +721,7 @@ class UserStore(private val context: Context) {
         if (new.deviceName.isNotBlank()) p[K.deviceName] = new.deviceName
         p[K.localSendCompat] = new.localSendCompat
         p[K.playStats] = PlayStatsCodec.encodePlayStats(new.playStats)
+        p[K.quickHudEnabled] = new.quickHudEnabled
     }
 
     object PlayStatsCodec {

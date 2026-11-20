@@ -47,6 +47,7 @@ internal fun handleHomePreviewKeyEvent(
     openAllFilesAccess: () -> Unit,
     launchCurrentGame: () -> Unit,
     showCurrentGameMenu: () -> Unit,
+    onLetterJump: (Int) -> Unit,
     openLanControlFromStatusBar: () -> Unit,
 ): Boolean {
     val isGameScrollKey = when (state.viewMode) {
@@ -114,8 +115,8 @@ internal fun handleHomePreviewKeyEvent(
     }
 
     // 弹窗/全屏子页面自己处理按键
-    if (state.menuGame != null || state.propertiesGame != null || state.editingGame != null ||
-        state.manualScrapeGame != null ||
+    if (state.menuGame != null || state.detailGame != null || state.propertiesGame != null || state.editingGame != null ||
+        state.manualScrapeGame != null || state.showQuickHud ||
         state.showLibraryManager || state.showApps || state.showSettings ||
         showLanControlFromStatusBar || showQuickShareScreen
     ) {
@@ -196,6 +197,18 @@ internal fun handleHomePreviewKeyEvent(
         }
         GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) -> {
             vm.prevTab()
+            true
+        }
+        GamepadKeys.isPrevLetter(event.key, state.swapAbxy, state.keyBindings) -> {
+            onLetterJump(-1)
+            true
+        }
+        GamepadKeys.isNextLetter(event.key, state.swapAbxy, state.keyBindings) -> {
+            onLetterJump(1)
+            true
+        }
+        state.quickHudEnabled && GamepadKeys.isQuickHud(event.key, state.swapAbxy, state.keyBindings) -> {
+            vm.toggleQuickHud()
             true
         }
         event.key == Key.DirectionRight -> {

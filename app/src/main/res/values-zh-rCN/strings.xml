@@ -763,4 +763,29 @@
     <string name="settings_ra_cores_authorized">已授权</string>
     <string name="settings_ra_cores_pick">去授权</string>
     <string name="settings_ra_cores_scanned_toast">已扫描到 %1$d 个 RetroArch 核心</string>
+    <!-- Wave 4: Letter Jump, Game Detail, Update Checker & Quick HUD -->
+    <string name="key_action_prev_letter">上一字母（L2）</string>
+    <string name="key_action_next_letter">下一字母（R2）</string>
+    <string name="key_action_quick_hud">快捷 HUD</string>
+    <string name="menu_detail">游戏详情</string>
+    <string name="detail_play_count">游玩次数</string>
+    <string name="detail_play_time">累计时长</string>
+    <string name="detail_last_played">上次游玩</string>
+    <string name="detail_never_played">从未游玩</string>
+    <string name="detail_multi_disc_fmt">%1$d 张光盘</string>
+    <string name="settings_group_experimental">实验性功能</string>
+    <string name="settings_quick_hud_title">掌机快捷 HUD</string>
+    <string name="settings_quick_hud_desc">开启后可通过快捷键唤出浮层，快速调节亮度、音量及局域网服务</string>
+    <string name="quick_hud_title">快捷 HUD</string>
+    <string name="quick_hud_brightness">屏幕亮度</string>
+    <string name="quick_hud_volume">媒体音量</string>
+    <string name="quick_hud_offline">未联网</string>
+    <string name="settings_check_update">检查更新</string>
+    <string name="update_checking">检查中...</string>
+    <string name="update_up_to_date">当前已是最新版本</string>
+    <string name="update_check_failed">检查更新失败：%1$s</string>
+    <string name="update_available_title">发现新版本：%1$s</string>
+    <string name="update_download_install">下载并安装</string>
+    <string name="update_downloading_fmt">正在下载 %1$d%%</string>
+    <string name="update_download_failed">下载失败：%1$s</string>
 </resources>

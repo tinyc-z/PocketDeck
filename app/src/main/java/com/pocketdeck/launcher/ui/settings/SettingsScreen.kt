@@ -1,5 +1,6 @@
 package com.pocketdeck.launcher.ui.settings
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
@@ -9,16 +10,24 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -33,10 +42,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -47,8 +59,12 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.ui.theme.DeckColors
+import com.pocketdeck.launcher.ui.theme.DeckShapes
+import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.data.AppLocale
 import com.pocketdeck.launcher.data.AppTheme
 import com.pocketdeck.launcher.data.BackgroundStyle
@@ -134,6 +150,7 @@ data class SettingsState(
     val lanShareRunning: Boolean = false,
     val lanWebRunning: Boolean = false,
     val scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
+    val quickHudEnabled: Boolean = false,
 )
 
 class ManageCallbacks(
@@ -171,6 +188,7 @@ class ManageCallbacks(
     val sampleGameFor: (String) -> com.pocketdeck.launcher.data.model.Game? = { null },
     val openLibraryHidden: () -> Unit = {},
     val openLanService: () -> Unit = {},
+    val toggleQuickHudEnabled: () -> Unit = {},
 )
 
 data class LauncherRow(
@@ -231,8 +249,8 @@ private fun itemCountForSection(
     SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 3
     SettingsSection.Emulators -> 2 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
     SettingsSection.Controls -> 1 + KeyAction.entries.size + 1
-    // Language(0), 12h(1), UI sounds(2), LAN & Share(3), StatusBar x8(4..11), About x4(12..15)
-    SettingsSection.System -> 16
+    // Language(0), 12h(1), UI sounds(2), LAN & Share(3), StatusBar x8(4..11), Experimental(12), About x5(13..17)
+    SettingsSection.System -> 18
 }
 
 private fun launcherPlatformsFor(
@@ -346,6 +364,37 @@ fun SettingsScreen(
     var raCoreRefreshTick by remember { mutableIntStateOf(0) }
     var raCoreCount by remember { mutableIntStateOf(0) }
     var raSafAuthorized by remember { mutableStateOf(false) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var availableRelease by remember { mutableStateOf<com.pocketdeck.launcher.data.ReleaseInfo?>(null) }
+    var updateDownloadProgress by remember { mutableStateOf<Float?>(null) }
+    fun triggerCheckUpdate() {
+        if (checkingUpdate) return
+        if (!NetworkStatus.isOnline(context)) {
+            Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
+            return
+        }
+        checkingUpdate = true
+        scope.launch {
+            val curVer = runCatching {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            }.getOrNull().orEmpty().ifBlank { com.pocketdeck.launcher.BuildConfig.VERSION_NAME }
+            val res = com.pocketdeck.launcher.data.UpdateChecker.checkLatestRelease(curVer)
+            checkingUpdate = false
+            res.onSuccess { info ->
+                if (info != null) {
+                    availableRelease = info
+                } else {
+                    Toast.makeText(context, context.getString(R.string.update_up_to_date), Toast.LENGTH_SHORT).show()
+                }
+            }.onFailure { err ->
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.update_check_failed, err.message.orEmpty()),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
     LaunchedEffect(raCoreRefreshTick) {
         val (cnt, authed) = withContext(Dispatchers.IO) {
             val scanned = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.scanSafAndExternalCores(context)
@@ -723,8 +772,10 @@ fun SettingsScreen(
                 9 -> onToggleShowHeadset()
                 10 -> onToggleShowAirplane()
                 11 -> onToggleShowDnd()
-                12, 13, 14 -> Unit
-                15 -> openProjectUrl(context)
+                12 -> manage.toggleQuickHudEnabled()
+                13, 14, 15 -> Unit
+                16 -> triggerCheckUpdate()
+                17 -> openProjectUrl(context)
             }
         }
     }
@@ -1114,6 +1165,9 @@ fun SettingsScreen(
                                             onToggleShowHeadset = onToggleShowHeadset,
                                             onToggleShowAirplane = onToggleShowAirplane,
                                             onToggleShowDnd = onToggleShowDnd,
+                                            onToggleQuickHudEnabled = manage.toggleQuickHudEnabled,
+                                            onCheckUpdate = ::triggerCheckUpdate,
+                                            checkingUpdate = checkingUpdate,
                                             onOpenProjectUrl = { openProjectUrl(context) },
                                             highlightIndex = hl,
                                         )
@@ -1154,6 +1208,115 @@ fun SettingsScreen(
         }
         if (showScrapeLogs) {
             ScrapeLogsScreen(onBack = { showScrapeLogs = false }, swapAbxy = state.swapAbxy, keyBindings = state.keyBindings)
+        }
+        availableRelease?.let { rel ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(DeckColors.CardShadow)
+                    .clickable(enabled = updateDownloadProgress == null) { availableRelease = null },
+                contentAlignment = Alignment.Center,
+            ) {
+                com.pocketdeck.launcher.ui.components.DialogPanelCard(
+                    onDismiss = { if (updateDownloadProgress == null) availableRelease = null },
+                    modifier = Modifier
+                        .padding(horizontal = 32.dp, vertical = 20.dp)
+                        .widthIn(max = 460.dp)
+                        .fillMaxWidth(),
+                    swapAbxy = state.swapAbxy,
+                    keyBindings = state.keyBindings,
+                ) {
+                    Text(
+                        text = stringResource(R.string.update_available_title, rel.tagName),
+                        style = DeckType.menuTitle,
+                        color = DeckColors.TextPrimary,
+                        modifier = Modifier.padding(end = 32.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (rel.changelog.isNotBlank()) {
+                        Text(
+                            text = rel.changelog,
+                            style = DeckType.metaLabel,
+                            color = DeckColors.TextSecondary,
+                            maxLines = 10,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    val dlProg = updateDownloadProgress
+                    if (dlProg != null) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { dlProg.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(DeckShapes.tabPill),
+                            color = DeckColors.Ruby,
+                            trackColor = DeckColors.DialogBg,
+                            gapSize = 0.dp,
+                            drawStopIndicator = {},
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = stringResource(R.string.update_downloading_fmt, (dlProg * 100f).toInt()),
+                            style = DeckType.metaLabel,
+                            color = DeckColors.Ruby,
+                        )
+                    } else {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                        ) {
+                            Text(
+                                text = stringResource(android.R.string.cancel),
+                                style = DeckType.menuButton,
+                                color = DeckColors.TextSecondary,
+                                modifier = Modifier
+                                    .clip(DeckShapes.menuButton)
+                                    .background(DeckColors.Surface)
+                                    .clickable { availableRelease = null }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.update_download_install),
+                                style = DeckType.menuButton,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .clip(DeckShapes.menuButton)
+                                    .background(com.pocketdeck.launcher.ui.theme.DeckBrand.brandBrush)
+                                    .clickable {
+                                        val url = rel.apkUrl
+                                        if (url.isNullOrBlank()) {
+                                            runCatching {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(rel.htmlUrl)))
+                                            }
+                                            availableRelease = null
+                                        } else {
+                                            updateDownloadProgress = 0f
+                                            scope.launch {
+                                                val res = com.pocketdeck.launcher.data.UpdateChecker.downloadApk(context, url) { p ->
+                                                    updateDownloadProgress = p
+                                                }
+                                                updateDownloadProgress = null
+                                                res.onSuccess { apk ->
+                                                    availableRelease = null
+                                                    com.pocketdeck.launcher.data.UpdateChecker.installApk(context, apk)
+                                                }.onFailure { err ->
+                                                    Toast.makeText(
+                                                        context,
+                                                        context.getString(R.string.update_download_failed, err.message.orEmpty()),
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
         credDialogKind?.let { kind ->
             ScraperCredentialDialog(

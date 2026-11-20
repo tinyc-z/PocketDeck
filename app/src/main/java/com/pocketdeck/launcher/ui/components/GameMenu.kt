@@ -85,6 +85,7 @@ fun GameMenu(
     onLaunchDisc: ((String) -> Unit)? = null,
     onGenerateM3u: (() -> Unit)? = null,
     onManualScrape: (() -> Unit)? = null,
+    onDetail: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -114,6 +115,9 @@ fun GameMenu(
     } else {
         buildList {
             add(MenuActionItem(HomeIcons.Play, stringResource(R.string.menu_play), isPrimary = true, onClick = onLaunch))
+            if (onDetail != null) {
+                add(MenuActionItem(HomeIcons.Info, stringResource(R.string.menu_detail), onClick = onDetail))
+            }
             if (game.discFiles.size > 1 && onLaunchDisc != null) {
                 add(MenuActionItem(HomeIcons.Play, chooseDiscLabel, onClick = { pickingDisc = true }))
             }

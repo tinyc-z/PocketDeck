@@ -94,4 +94,12 @@ class TitleNormalizerTest {
         val decoded = com.pocketdeck.launcher.data.UserStore.PlayStatsCodec.decodePlayStats(encoded)
         assertEquals(input, decoded)
     }
+
+    @Test
+    fun updateCheckerComparesSemverCorrectly() {
+        assertTrue(com.pocketdeck.launcher.data.UpdateChecker.isNewerVersion("v0.6.0", "0.5.1"))
+        assertTrue(com.pocketdeck.launcher.data.UpdateChecker.isNewerVersion("1.0.0", "0.9.9"))
+        assertTrue(!com.pocketdeck.launcher.data.UpdateChecker.isNewerVersion("0.5.1", "0.5.1"))
+        assertTrue(!com.pocketdeck.launcher.data.UpdateChecker.isNewerVersion("0.5.0", "0.5.1"))
+    }
 }

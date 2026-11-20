@@ -105,6 +105,53 @@ internal fun HomeOverlays(
                 }
             } else null,
             onManualScrape = { vm.openManualScrape(game) },
+            onDetail = { vm.openDetail(game) },
+        )
+    }
+
+    // F2 游戏详情预览卡
+    state.detailGame?.let { game ->
+        com.pocketdeck.launcher.ui.components.GameDetailDialog(
+            game = game,
+            platform = state.platformFor(game),
+            covers = vm.covers,
+            metadata = state.metadataMap[game.id],
+            officialName = state.officialNames[game.id],
+            playStats = state.playStats[game.id],
+            isFavorite = game.id in state.favorites,
+            swapAbxy = state.swapAbxy,
+            keyBindings = state.keyBindings,
+            onLaunch = {
+                vm.closeDetail()
+                launchGame(game)
+            },
+            onToggleFavorite = { vm.toggleFavorite(game.id) },
+            onEdit = { vm.openEdit(game) },
+            onManualScrape = {
+                vm.closeDetail()
+                vm.openManualScrape(game)
+            },
+            onProperties = {
+                vm.closeDetail()
+                vm.openProperties(game)
+            },
+            onDismiss = { vm.closeDetail() },
+        )
+    }
+
+    // F10 掌机快捷 HUD 浮层（实验性功能）
+    if (state.showQuickHud) {
+        com.pocketdeck.launcher.ui.components.QuickHudOverlay(
+            lanState = lanState,
+            swapAbxy = state.swapAbxy,
+            keyBindings = state.keyBindings,
+            onToggleQuickShare = { on ->
+                if (on) lanManager.startQuickShare() else lanManager.stopQuickShare()
+            },
+            onToggleWebServer = { on ->
+                if (on) lanManager.startWebServer() else lanManager.stopWebServer()
+            },
+            onDismiss = { vm.closeQuickHud() },
         )
     }
 
@@ -275,6 +322,7 @@ internal fun HomeOverlays(
                 lanShareRunning = lanState.shareRunning,
                 lanWebRunning = lanState.webRunning,
                 scrapeProgress = scrapeProgress,
+                quickHudEnabled = state.quickHudEnabled,
             ),
             onDismiss = {
                 onCapturingKeyBindChange(false)
@@ -343,6 +391,7 @@ internal fun HomeOverlays(
                 sampleGameFor = { pid -> fullLibrary?.games?.get(pid)?.firstOrNull() },
                 openLibraryHidden = { vm.openLibraryManager(hiddenOnly = true) },
                 openLanService = { onShowLanControlFromStatusBarChange(true) },
+                toggleQuickHudEnabled = vm::toggleQuickHudEnabled,
             ),
             isCovered = state.showLibraryManager || showLanControlFromStatusBar || showQuickShareScreen,
             onLanguageChange = { code ->

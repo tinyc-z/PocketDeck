@@ -131,6 +131,14 @@ fun HomeScreen(
     var searchFieldFocused by remember { mutableStateOf(false) }
     var prevImeVisible by remember { mutableStateOf(false) }
     var capturingKeyBind by remember { mutableStateOf(false) }
+    var letterBadge by remember { mutableStateOf<String?>(null) }
+    var letterBadgeTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(letterBadgeTick) {
+        if (letterBadge != null) {
+            delay(650L)
+            letterBadge = null
+        }
+    }
 
     var hasStorageAccess by remember {
         mutableStateOf(
@@ -194,9 +202,11 @@ fun HomeScreen(
     }
 
     val hasChildFocusOverlay = state.menuGame != null ||
+        state.detailGame != null ||
         state.propertiesGame != null ||
         state.editingGame != null ||
         state.manualScrapeGame != null ||
+        state.showQuickHud ||
         state.showLibraryManager ||
         state.showApps ||
         state.showSettings ||
@@ -211,8 +221,10 @@ fun HomeScreen(
         when {
             showQuickShareScreen -> showQuickShareScreen = false
             showLanControlFromStatusBar -> showLanControlFromStatusBar = false
+            state.showQuickHud -> vm.closeQuickHud()
             state.showLibraryManager -> vm.closeLibraryManager()
             state.manualScrapeGame != null -> vm.closeManualScrape()
+            state.detailGame != null -> vm.closeDetail()
             state.propertiesGame != null -> vm.closeProperties()
             state.editingGame != null -> vm.closeEdit()
             state.menuGame != null -> vm.hideMenu()
@@ -330,6 +342,12 @@ fun HomeScreen(
                         openAllFilesAccess = { openAllFilesAccessSettings(context) },
                         launchCurrentGame = ::launchCurrentGame,
                         showCurrentGameMenu = ::showCurrentGameMenu,
+                        onLetterJump = { dir ->
+                            vm.jumpLetter(dir)?.let { ch ->
+                                letterBadge = ch
+                                letterBadgeTick++
+                            }
+                        },
                         openLanControlFromStatusBar = { showLanControlFromStatusBar = true },
                     )
                 },
@@ -612,6 +630,26 @@ fun HomeScreen(
                 onCapturingKeyBindChange = { capturingKeyBind = it },
                 launchGame = launchGame,
             )
+
+            letterBadge?.let { ch ->
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                        .background(com.pocketdeck.launcher.ui.theme.DeckBrand.brandBrush)
+                        .padding(horizontal = 30.dp, vertical = 18.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = ch,
+                        style = DeckType.menuTitle.copy(
+                            fontSize = androidx.compose.ui.unit.TextUnit(44f, androidx.compose.ui.unit.TextUnitType.Sp),
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        ),
+                        color = Color.White,
+                    )
+                }
+            }
 
             if (state.scanning && state.games.isNotEmpty()) {
                 Text(

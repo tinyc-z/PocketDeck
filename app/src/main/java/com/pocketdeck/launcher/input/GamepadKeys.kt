@@ -8,6 +8,9 @@ import androidx.compose.ui.input.key.nativeKeyCode
 enum class KeyAction {
     PrevTab,
     NextTab,
+    PrevLetter,
+    NextLetter,
+    QuickHud,
     Apps,
     Settings,
     Play,
@@ -27,6 +30,9 @@ object GamepadKeys {
     fun defaultKeyCode(action: KeyAction, swapAbxy: Boolean): Int = when (action) {
         KeyAction.PrevTab -> KeyEvent.KEYCODE_BUTTON_L1
         KeyAction.NextTab -> KeyEvent.KEYCODE_BUTTON_R1
+        KeyAction.PrevLetter -> KeyEvent.KEYCODE_BUTTON_L2
+        KeyAction.NextLetter -> KeyEvent.KEYCODE_BUTTON_R2
+        KeyAction.QuickHud -> KeyEvent.KEYCODE_BUTTON_THUMBL
         KeyAction.Apps -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_A else KeyEvent.KEYCODE_BUTTON_B
         KeyAction.Settings -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_X else KeyEvent.KEYCODE_BUTTON_Y
         KeyAction.Play -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_B else KeyEvent.KEYCODE_BUTTON_A
@@ -68,6 +74,9 @@ object GamepadKeys {
             KeyAction.Menu -> key == Key.Menu || key == Key.F3
             KeyAction.PrevTab -> key == Key.PageUp
             KeyAction.NextTab -> key == Key.PageDown
+            KeyAction.PrevLetter -> key == Key.LeftBracket
+            KeyAction.NextLetter -> key == Key.RightBracket
+            KeyAction.QuickHud -> key == Key.F8
             KeyAction.Apps -> key == Key.F1
             KeyAction.Settings -> key == Key.F2
             KeyAction.ViewMode -> key == Key.F4
@@ -117,6 +126,24 @@ object GamepadKeys {
         swapAbxy: Boolean,
         bindings: Map<KeyAction, Int> = emptyMap(),
     ): Boolean = matches(key, KeyAction.NextTab, bindings, swapAbxy)
+
+    fun isPrevLetter(
+        key: Key,
+        swapAbxy: Boolean,
+        bindings: Map<KeyAction, Int> = emptyMap(),
+    ): Boolean = matches(key, KeyAction.PrevLetter, bindings, swapAbxy)
+
+    fun isNextLetter(
+        key: Key,
+        swapAbxy: Boolean,
+        bindings: Map<KeyAction, Int> = emptyMap(),
+    ): Boolean = matches(key, KeyAction.NextLetter, bindings, swapAbxy)
+
+    fun isQuickHud(
+        key: Key,
+        swapAbxy: Boolean,
+        bindings: Map<KeyAction, Int> = emptyMap(),
+    ): Boolean = matches(key, KeyAction.QuickHud, bindings, swapAbxy)
 
     fun isViewMode(
         key: Key,

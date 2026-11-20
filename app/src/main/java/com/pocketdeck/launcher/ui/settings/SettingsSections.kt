@@ -845,6 +845,9 @@ internal fun SystemSettingsSection(
     onToggleShowHeadset: () -> Unit,
     onToggleShowAirplane: () -> Unit,
     onToggleShowDnd: () -> Unit,
+    onToggleQuickHudEnabled: () -> Unit = {},
+    onCheckUpdate: () -> Unit = {},
+    checkingUpdate: Boolean = false,
     onOpenProjectUrl: () -> Unit,
     highlightIndex: Int,
 ) {
@@ -969,7 +972,20 @@ internal fun SystemSettingsSection(
         }
     }
 
-    // 关于卡片（含可手柄聚焦的源代码链接）
+    // 实验性功能（独立子分组，后续所有实验性开关统一归入此分组）
+    Spacer(Modifier.height(14.dp))
+    GroupHeader(stringResource(R.string.settings_group_experimental))
+    GroupCard {
+        SettingRow(
+            label = stringResource(R.string.settings_quick_hud_title),
+            description = stringResource(R.string.settings_quick_hud_desc),
+            highlighted = highlightIndex == 12,
+            onClick = onToggleQuickHudEnabled,
+            trailing = { DeckSwitch(state.quickHudEnabled) },
+        )
+    }
+
+    // 关于卡片（含可手柄聚焦的检查更新与源代码链接）
     Spacer(Modifier.height(14.dp))
     val versionName = remember {
         runCatching {
@@ -1019,28 +1035,41 @@ internal fun SystemSettingsSection(
     GroupCard {
         SettingRow(
             label = stringResource(R.string.settings_version),
-            highlighted = highlightIndex == 12,
+            highlighted = highlightIndex == 13,
             onClick = {},
             trailing = { ValueChevron("v$versionName", chevron = false) },
         )
         RowDivider()
         SettingRow(
             label = stringResource(R.string.settings_build),
-            highlighted = highlightIndex == 13,
+            highlighted = highlightIndex == 14,
             onClick = {},
             trailing = { ValueChevron("#${BuildConfig.BUILD_NUMBER} · ${BuildConfig.BUILD_TIME}", chevron = false) },
         )
         RowDivider()
         SettingRow(
             label = stringResource(R.string.settings_android_compat),
-            highlighted = highlightIndex == 14,
+            highlighted = highlightIndex == 15,
             onClick = {},
             trailing = { ValueChevron("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", chevron = false) },
         )
         RowDivider()
         SettingRow(
+            label = stringResource(R.string.settings_check_update),
+            highlighted = highlightIndex == 16,
+            onClick = onCheckUpdate,
+            trailing = {
+                ValueChevron(
+                    value = if (checkingUpdate) stringResource(R.string.update_checking) else "",
+                    chevron = !checkingUpdate,
+                    valueColor = DeckColors.Ruby,
+                )
+            },
+        )
+        RowDivider()
+        SettingRow(
             label = stringResource(R.string.settings_project),
-            highlighted = highlightIndex == 15,
+            highlighted = highlightIndex == 17,
             onClick = onOpenProjectUrl,
             trailing = { ValueChevron(repoDisplay, chevron = true, valueColor = DeckColors.Ruby) },
         )
@@ -1216,6 +1245,9 @@ internal fun sortOrderLabel(order: CategorySortOrder): String = when (order) {
 internal fun keyActionLabel(action: KeyAction): String = when (action) {
     KeyAction.PrevTab -> stringResource(R.string.key_action_prev_tab)
     KeyAction.NextTab -> stringResource(R.string.key_action_next_tab)
+    KeyAction.PrevLetter -> stringResource(R.string.key_action_prev_letter)
+    KeyAction.NextLetter -> stringResource(R.string.key_action_next_letter)
+    KeyAction.QuickHud -> stringResource(R.string.key_action_quick_hud)
     KeyAction.Apps -> stringResource(R.string.key_action_apps)
     KeyAction.Settings -> stringResource(R.string.key_action_settings)
     KeyAction.Play -> stringResource(R.string.key_action_play)

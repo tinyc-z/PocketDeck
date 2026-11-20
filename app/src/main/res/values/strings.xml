@@ -764,4 +764,29 @@
     <string name="settings_ra_cores_authorized">Authorized</string>
     <string name="settings_ra_cores_pick">Authorize</string>
     <string name="settings_ra_cores_scanned_toast">Found %1$d RetroArch cores</string>
+    <!-- Wave 4: Letter Jump, Game Detail, Update Checker & Quick HUD -->
+    <string name="key_action_prev_letter">Previous letter (L2)</string>
+    <string name="key_action_next_letter">Next letter (R2)</string>
+    <string name="key_action_quick_hud">Quick HUD</string>
+    <string name="menu_detail">Details</string>
+    <string name="detail_play_count">Plays</string>
+    <string name="detail_play_time">Play time</string>
+    <string name="detail_last_played">Last played</string>
+    <string name="detail_never_played">Never</string>
+    <string name="detail_multi_disc_fmt">%1$d discs</string>
+    <string name="settings_group_experimental">Experimental</string>
+    <string name="settings_quick_hud_title">Handheld Quick HUD</string>
+    <string name="settings_quick_hud_desc">Toggle brightness, volume, Quick Share and Web Manager overlay via hotkey</string>
+    <string name="quick_hud_title">Quick HUD</string>
+    <string name="quick_hud_brightness">Brightness</string>
+    <string name="quick_hud_volume">Media Volume</string>
+    <string name="quick_hud_offline">Offline</string>
+    <string name="settings_check_update">Check for updates</string>
+    <string name="update_checking">Checking...</string>
+    <string name="update_up_to_date">PocketDeck is up to date</string>
+    <string name="update_check_failed">Update check failed: %1$s</string>
+    <string name="update_available_title">Update available: %1$s</string>
+    <string name="update_download_install">Download &amp; Install</string>
+    <string name="update_downloading_fmt">Downloading %1$d%%</string>
+    <string name="update_download_failed">Download failed: %1$s</string>
 </resources>
