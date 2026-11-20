@@ -120,6 +120,8 @@ internal fun LanShareServiceCard(
     state: LanServerState,
     nav: DpadNavController,
     onToggleQuickShare: (Boolean) -> Unit,
+    onRandomizeDeviceName: () -> Unit,
+    onOpenRenameDialog: () -> Unit,
     onScanPeers: () -> Unit,
     onToggleLocalSendCompat: (Boolean) -> Unit,
     onOpenQuickShareScreen: (() -> Unit)?,
@@ -127,50 +129,50 @@ internal fun LanShareServiceCard(
     Column(
         Modifier
             .fillMaxWidth()
-            .cardSurface(RoundedCornerShape(DeckBrand.RadiusM), elevation = 2.dp)
-            .border(0.8.dp, DeckColors.Line, RoundedCornerShape(DeckBrand.RadiusM))
-            .padding(14.dp),
+            .clip(RoundedCornerShape(DeckBrand.RadiusM))
+            .background(DeckColors.Surface)
+            .border(0.7.dp, DeckColors.Line, RoundedCornerShape(DeckBrand.RadiusM))
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // 本机快传昵称（归属游戏快传）
         Row(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
-                .dpadNavItem(nav, "toggle_share", shape = RoundedCornerShape(10.dp)) {
-                    onToggleQuickShare(!state.shareRunning)
-                },
+                .background(DeckColors.DialogBg)
+                .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DeckIcon(
-                        icon = DeckIcons.Send,
-                        tint = if (state.shareRunning) DeckColors.Ruby else DeckColors.TextPrimary,
-                        size = 17.dp,
-                    )
-                    Text(
-                        stringResource(R.string.lan_share_title),
-                        style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (state.shareRunning) DeckColors.Ruby else DeckColors.TextPrimary,
-                    )
-                }
                 Text(
-                    if (state.shareRunning) {
-                        stringResource(
-                            R.string.lan_share_online_fmt,
-                            state.shareIp.orEmpty(),
-                            state.sharePort,
-                            state.peers.size,
-                        )
-                    } else {
-                        stringResource(R.string.lan_share_desc)
-                    },
-                    style = DeckType.settingsLabel,
+                    stringResource(R.string.lan_device_name),
+                    style = DeckType.metaLabel,
                     color = DeckColors.TextSecondary,
                 )
+                Text(
+                    state.deviceName.ifBlank { "..." },
+                    style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
+                    color = DeckColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Spacer(Modifier.width(10.dp))
-            DeckSwitch(checked = state.shareRunning)
+            SmallPillButton(
+                label = stringResource(R.string.lan_device_random),
+                nav = nav,
+                navId = "rand_name",
+                onClick = onRandomizeDeviceName,
+            )
+            Spacer(Modifier.width(6.dp))
+            SmallPillButton(
+                label = stringResource(R.string.lan_device_rename),
+                accent = true,
+                nav = nav,
+                navId = "rename",
+                onClick = onOpenRenameDialog,
+            )
         }
 
         if (state.shareRunning) {
@@ -198,6 +200,31 @@ internal fun LanShareServiceCard(
                     nav = nav,
                     navId = "scan_peers",
                     onClick = onScanPeers,
+                )
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    stringResource(R.string.lan_share_desc),
+                    style = DeckType.settingsLabel,
+                    color = DeckColors.TextSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    stringResource(R.string.lan_service_enable_btn),
+                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color.White,
+                    modifier = Modifier
+                        .clip(DeckShapes.tabPill)
+                        .brandBackground(DeckShapes.tabPill)
+                        .dpadNavItem(nav, "enable_share", shape = DeckShapes.tabPill) {
+                            onToggleQuickShare(true)
+                        }
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                 )
             }
         }

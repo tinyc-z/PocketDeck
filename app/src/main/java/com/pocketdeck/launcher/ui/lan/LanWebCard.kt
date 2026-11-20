@@ -120,6 +120,10 @@ internal fun LanWebServiceCard(
     state: LanServerState,
     nav: DpadNavController,
     sdPath: String,
+    nicExpanded: Boolean,
+    onToggleNicExpanded: () -> Unit,
+    onRefreshInterfaces: () -> Unit,
+    onSelectInterface: (String) -> Unit,
     swapAbxy: Boolean,
     keyBindings: Map<KeyAction, Int>,
     onToggleWebServer: (Boolean) -> Unit,
@@ -132,41 +136,37 @@ internal fun LanWebServiceCard(
     Column(
         Modifier
             .fillMaxWidth()
-            .cardSurface(RoundedCornerShape(DeckBrand.RadiusM), elevation = 2.dp)
-            .border(0.8.dp, DeckColors.Line, RoundedCornerShape(DeckBrand.RadiusM))
-            .padding(14.dp),
+            .clip(RoundedCornerShape(DeckBrand.RadiusM))
+            .background(DeckColors.Surface)
+            .border(0.7.dp, DeckColors.Line, RoundedCornerShape(DeckBrand.RadiusM))
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .dpadNavItem(nav, "toggle_web", shape = RoundedCornerShape(10.dp)) {
-                    onToggleWebServer(!state.webRunning)
-                },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DeckIcon(
-                        icon = DeckIcons.Globe,
-                        tint = if (state.webRunning) DeckColors.Ruby else DeckColors.TextPrimary,
-                        size = 17.dp,
-                    )
-                    Text(
-                        stringResource(R.string.lan_web_title),
-                        style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (state.webRunning) DeckColors.Ruby else DeckColors.TextPrimary,
-                    )
-                }
+        if (!state.webRunning) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Text(
                     stringResource(R.string.lan_web_desc),
                     style = DeckType.settingsLabel,
                     color = DeckColors.TextSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    stringResource(R.string.lan_service_enable_btn),
+                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color.White,
+                    modifier = Modifier
+                        .clip(DeckShapes.tabPill)
+                        .brandBackground(DeckShapes.tabPill)
+                        .dpadNavItem(nav, "enable_web", shape = DeckShapes.tabPill) {
+                            onToggleWebServer(true)
+                        }
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                 )
             }
-            Spacer(Modifier.width(10.dp))
-            DeckSwitch(checked = state.webRunning)
         }
 
         if (state.webRunning) {
@@ -180,11 +180,28 @@ internal fun LanWebServiceCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.lan_web_url_label),
-                        style = DeckType.settingsLabel,
-                        color = DeckColors.TextSecondary,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.lan_web_url_label),
+                            style = DeckType.settingsLabel,
+                            color = DeckColors.TextSecondary,
+                        )
+                        val nicName = state.selectedInterface?.interfaceName ?: "NIC"
+                        Text(
+                            text = "$nicName ${if (nicExpanded) "▴" else "▾"}",
+                            style = DeckType.metaLabel.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold),
+                            color = if (nicExpanded) DeckColors.Ruby else DeckColors.TextPrimary,
+                            modifier = Modifier
+                                .clip(DeckShapes.tabPill)
+                                .background(if (nicExpanded) DeckColors.AccentSoft else DeckColors.Surface)
+                                .border(0.6.dp, if (nicExpanded) DeckColors.Ruby else DeckColors.Line, DeckShapes.tabPill)
+                                .dpadNavItem(nav, "toggle_nic", shape = DeckShapes.tabPill, onClick = onToggleNicExpanded)
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                        )
+                    }
                     Text(
                         state.webUrl.orEmpty(),
                         style = DeckType.settingsValue.copy(
@@ -247,6 +264,66 @@ internal fun LanWebServiceCard(
                                     close()
                                 }
                                 drawPath(arrow, color = iconTint)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (nicExpanded) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(DeckColors.DialogBg)
+                        .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            stringResource(R.string.lan_nic_title),
+                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
+                            color = DeckColors.TextSecondary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        SmallPillButton(
+                            label = "↻ ${stringResource(R.string.lan_nic_refresh)}",
+                            nav = nav,
+                            navId = "refresh_nic",
+                            onClick = onRefreshInterfaces,
+                        )
+                    }
+                    if (state.interfaces.isEmpty()) {
+                        Text(
+                            stringResource(R.string.lan_nic_empty),
+                            style = DeckType.metaLabel,
+                            color = Color(0xFFDC2626),
+                        )
+                    } else {
+                        state.interfaces.forEachIndexed { nicIdx, nic ->
+                            val selected = nic.interfaceName == state.selectedInterface?.interfaceName
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) DeckColors.AccentSoft else DeckColors.Surface)
+                                    .brandBorder(active = selected, shape = RoundedCornerShape(8.dp), activeWidth = 1.2.dp, inactiveWidth = 0.5.dp)
+                                    .dpadNavItem(nav, "nic_$nicIdx", shape = RoundedCornerShape(8.dp)) {
+                                        onSelectInterface(nic.interfaceName)
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    nic.labelWithIp,
+                                    style = DeckType.settingsLabel.copy(
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    ),
+                                    color = if (selected) DeckColors.Ruby else DeckColors.TextPrimary,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (selected) DeckIcon(DeckIcons.Check, size = 15.dp, tint = DeckColors.Ruby)
                             }
                         }
                     }

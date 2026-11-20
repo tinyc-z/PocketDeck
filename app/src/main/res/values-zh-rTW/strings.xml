@@ -789,4 +789,10 @@
     <string name="update_download_install">下載並安裝</string>
     <string name="update_downloading_fmt">正在下載 %1$d%%</string>
     <string name="update_download_failed">下載失敗：%1$s</string>
+    <!-- LAN Dialog v3 Redesign -->
+    <string name="lan_web_connected_short">%1$d 台接入</string>
+    <string name="lan_share_peers_short">%1$d 台附近</string>
+    <string name="lan_status_off">未開啟</string>
+    <string name="lan_service_enable_btn">開啟</string>
+    <string name="lan_badge_incoming">待接收</string>
 </resources>

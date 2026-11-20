@@ -790,4 +790,10 @@
     <string name="update_download_install">Download &amp; Install</string>
     <string name="update_downloading_fmt">Downloading %1$d%%</string>
     <string name="update_download_failed">Download failed: %1$s</string>
+    <!-- LAN Dialog v3 Redesign -->
+    <string name="lan_web_connected_short">%1$d connected</string>
+    <string name="lan_share_peers_short">%1$d nearby</string>
+    <string name="lan_status_off">Off</string>
+    <string name="lan_service_enable_btn">Enable</string>
+    <string name="lan_badge_incoming">Incoming</string>
 </resources>
