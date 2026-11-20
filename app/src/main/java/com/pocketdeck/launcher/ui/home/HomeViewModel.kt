@@ -115,6 +115,7 @@ data class HomeUiState(
     val systemTabs: Map<String, SystemTabConfig> = emptyMap(),
     val uncategorizedPlatforms: List<UncategorizedPlatformInfo> = emptyList(),
     val uncategorizedCount: Int = 0,
+    val playStats: Map<String, com.pocketdeck.launcher.data.PlayStats> = emptyMap(),
 ) {
     fun platformFor(game: Game): Platform =
         platformsById[game.platformId] ?: PlatformCatalog.forFolder(game.platformId).let { p ->
@@ -177,6 +178,8 @@ class HomeViewModel(
     private val _focusPerTab = HashMap<String, Int>()
     private var initialTabPicked = false
     private var focusResolveJob: Job? = null
+    private var activeSessionGameId: String? = null
+    private var activeSessionStartElapsedMs: Long = 0L
 
     /**
      * 活跃标签页排序列表 LRU 缓存（仅常驻最近访问的 5 个标签页），
@@ -230,6 +233,10 @@ class HomeViewModel(
                     }
                 }
                 val u = data.user
+                val curLib = data.lib
+                if (curLib != null && curLib !== lastLib && curLib.localMetadata.isNotEmpty()) {
+                    metadataRepo.seedLocalMetadata(curLib.localMetadata)
+                }
                 if (u != null && u !== lastUser) {
                     covers.configure(u.coverSources, u.scraperCredentials)
                     metadataRepo.configure(u.metadataSources, u.scraperCredentials)
@@ -428,6 +435,7 @@ class HomeViewModel(
             keyBindings = user.keyBindings,
             keySoundEnabled = user.keySoundEnabled,
             reduceMotion = user.reduceMotion,
+            playStats = user.playStats,
         )
         _state.value = newState
         preloadAssets(filteredGames, focusIdx, newState::platformFor)
@@ -539,12 +547,15 @@ class HomeViewModel(
             TabType.Other -> user.systemTabs["other"]?.sortOrder ?: CategorySortOrder.TitleAsc
         }
         val needsMeta = sortOrder == CategorySortOrder.ReleaseNewest || sortOrder == CategorySortOrder.ReleaseOldest
+        val needsPlayStats = tab.type == TabType.Now ||
+            sortOrder == CategorySortOrder.LastPlayedDesc ||
+            sortOrder == CategorySortOrder.PlayTimeDesc
         val listSig = when (tab.type) {
             TabType.Now -> user.recents.hashCode()
             TabType.Favs -> user.favorites.hashCode()
             TabType.Custom -> user.categories.firstOrNull { it.id == tab.id }.hashCode()
             TabType.Other -> user.categories.hashCode()
-        } * 31 + (if (needsMeta) metaMap.size else 0)
+        } * 31 + (if (needsMeta) metaMap.size else 0) + (if (needsPlayStats) user.playStats.hashCode() else 0)
         val cacheKey = TabGamesCacheKey(
             tabId = tab.id,
             tabType = tab.type,
@@ -557,24 +568,25 @@ class HomeViewModel(
         val computed = when (tab.type) {
             TabType.Now -> {
                 val raw = user.recents.mapNotNull { lib.byId[it] }
-                if (sortOrder != null) sortCategoryGames(raw, sortOrder, metaMap) else raw
+                val effectiveOrder = sortOrder ?: CategorySortOrder.LastPlayedDesc
+                sortCategoryGames(raw, effectiveOrder, metaMap, user.playStats)
             }
             TabType.Favs -> {
                 val raw = user.favorites.mapNotNull { lib.byId[it] }
-                sortCategoryGames(raw, sortOrder ?: CategorySortOrder.TitleAsc, metaMap)
+                sortCategoryGames(raw, sortOrder ?: CategorySortOrder.TitleAsc, metaMap, user.playStats)
             }
             TabType.Custom -> {
                 val cat = user.categories.firstOrNull { it.id == tab.id } ?: return emptyList()
                 val raw = (cat.sources.flatMap { lib.games[it].orEmpty() } + cat.games.mapNotNull { lib.byId[it] })
                     .distinctBy { it.id }
-                sortCategoryGames(raw, cat.sortOrder, metaMap)
+                sortCategoryGames(raw, cat.sortOrder, metaMap, user.playStats)
             }
             TabType.Other -> {
                 val categorizedPlatforms = user.categories.flatMap { it.sources }.toSet()
                 val categorizedGames = user.categories.flatMap { it.games }.toSet()
                 val raw = lib.byId.values
                     .filter { it.platformId !in categorizedPlatforms && it.id !in categorizedGames }
-                sortCategoryGames(raw, sortOrder ?: CategorySortOrder.TitleAsc, metaMap)
+                sortCategoryGames(raw, sortOrder ?: CategorySortOrder.TitleAsc, metaMap, user.playStats)
             }
         }
         tabGamesLru[cacheKey] = computed
@@ -585,6 +597,7 @@ class HomeViewModel(
         games: List<Game>,
         order: CategorySortOrder,
         metaMap: Map<String, GameMetadata>,
+        playStats: Map<String, com.pocketdeck.launcher.data.PlayStats> = emptyMap(),
     ): List<Game> = when (order) {
         CategorySortOrder.TitleAsc -> games.sortedWith { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title) }
         CategorySortOrder.TitleDesc -> games.sortedWith { a, b -> String.CASE_INSENSITIVE_ORDER.compare(b.title, a.title) }
@@ -641,6 +654,19 @@ class HomeViewModel(
             when {
                 emptyA != emptyB -> if (emptyA) 1 else -1
                 a.fileSize != b.fileSize -> a.fileSize.compareTo(b.fileSize)
+                else -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+            }
+        }
+        CategorySortOrder.LastPlayedDesc -> games.sortedWith { a, b ->
+            val ta = playStats[a.id]?.lastPlayedAt ?: 0L
+            val tb = playStats[b.id]?.lastPlayedAt ?: 0L
+            if (ta != tb) tb.compareTo(ta) else 0
+        }
+        CategorySortOrder.PlayTimeDesc -> games.sortedWith { a, b ->
+            val da = playStats[a.id]?.totalPlayMs ?: 0L
+            val db = playStats[b.id]?.totalPlayMs ?: 0L
+            when {
+                da != db -> db.compareTo(da)
                 else -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
             }
         }
@@ -797,7 +823,33 @@ class HomeViewModel(
     }
 
     fun addRecent(id: String) {
+        activeSessionGameId = id
+        activeSessionStartElapsedMs = android.os.SystemClock.elapsedRealtime()
         viewModelScope.launch { repo.addRecent(id) }
+    }
+
+    /** 回到 PocketDeck 时结算本次游玩时长（过滤 < 5 秒误触与 > 8 小时超长挂机）。 */
+    fun onAppResumed() {
+        val gid = activeSessionGameId ?: return
+        val start = activeSessionStartElapsedMs
+        activeSessionGameId = null
+        activeSessionStartElapsedMs = 0L
+        if (start <= 0L) return
+        val elapsed = android.os.SystemClock.elapsedRealtime() - start
+        if (elapsed in 5_000L..(8L * 3600L * 1000L)) {
+            viewModelScope.launch { repo.addPlayDuration(gid, elapsed) }
+        }
+    }
+
+    /** 为多盘游戏生成 `.m3u` 换盘索引文件并触发重新扫描。 */
+    suspend fun generateM3uForGame(game: Game): Result<File> {
+        val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.pocketdeck.launcher.data.RomScanner.generateM3uForGame(game)
+        }
+        if (res.isSuccess) {
+            refresh()
+        }
+        return res
     }
 
     fun openViewMenu() {

@@ -316,6 +316,7 @@ class GameRepository(
                     val scannedLib = RomScanner.scanAllProgressive(
                         roots = roots,
                         priorityPlatformIds = priorityPlats,
+                        previousLibrary = scanned.value,
                         onProgress = if (!hadWarmCache) { partial ->
                             if (refreshGen.get() == gen) {
                                 scanned.value = partial
@@ -448,7 +449,9 @@ class GameRepository(
     }
 
     suspend fun toggleFavorite(id: String) = userStore.toggleFavorite(id)
-    suspend fun addRecent(id: String) = userStore.addRecent(id)
+    suspend fun addRecent(id: String) = userStore.recordGameLaunch(id)
+
+    suspend fun addPlayDuration(id: String, deltaMs: Long) = userStore.addPlayDuration(id, deltaMs)
     suspend fun saveGameEdits(id: String, name: String?, cover: String?) = userStore.saveGameEdits(id, name, cover)
     suspend fun hide(id: String) = userStore.hide(id)
     suspend fun unhide(id: String) = userStore.unhide(id)

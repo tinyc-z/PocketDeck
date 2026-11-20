@@ -27,8 +27,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import java.io.File
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,24 +82,55 @@ fun GameMenu(
     onEdit: () -> Unit,
     onProperties: () -> Unit,
     onLaunch: () -> Unit,
+    onLaunchDisc: ((String) -> Unit)? = null,
+    onGenerateM3u: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
-    var selectedIdx by remember(game.id) { mutableIntStateOf(0) }
+    var pickingDisc by remember(game.id) { mutableStateOf(false) }
+    var selectedIdx by remember(game.id, pickingDisc) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
     val maxPanelHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
 
-    val actions = listOf(
-        MenuActionItem(HomeIcons.Play, stringResource(R.string.menu_play), isPrimary = true, onClick = onLaunch),
-        MenuActionItem(
+    val chooseDiscLabel = stringResource(R.string.menu_choose_disc, game.discFiles.size)
+    val generateM3uLabel = stringResource(R.string.menu_generate_m3u)
+    val discLabelFmt = stringResource(R.string.disc_label_fmt)
+    val backLabel = stringResource(android.R.string.cancel)
+
+    val actions = if (pickingDisc && game.discFiles.size > 1) {
+        game.discFiles.mapIndexed { idx, path ->
+            MenuActionItem(
+                icon = HomeIcons.Play,
+                label = "$discLabelFmt ${idx + 1} · ${File(path).name}",
+                isPrimary = idx == 0,
+                onClick = { onLaunchDisc?.invoke(path) },
+            )
+        } + MenuActionItem(
             icon = null,
-            label = if (isFavorite) stringResource(R.string.menu_unfavourite) else stringResource(R.string.menu_favourite),
-            isFavoriteToggle = true,
-            onClick = onFavorite,
-        ),
-        MenuActionItem(HomeIcons.Pencil, stringResource(R.string.menu_edit), onClick = onEdit),
-        MenuActionItem(HomeIcons.Info, stringResource(R.string.menu_properties), onClick = onProperties),
-    )
+            label = backLabel,
+            onClick = { pickingDisc = false },
+        )
+    } else {
+        buildList {
+            add(MenuActionItem(HomeIcons.Play, stringResource(R.string.menu_play), isPrimary = true, onClick = onLaunch))
+            if (game.discFiles.size > 1 && onLaunchDisc != null) {
+                add(MenuActionItem(HomeIcons.Play, chooseDiscLabel, onClick = { pickingDisc = true }))
+            }
+            if (game.discFiles.size > 1 && !game.fileName.endsWith(".m3u", ignoreCase = true) && onGenerateM3u != null) {
+                add(MenuActionItem(HomeIcons.Pencil, generateM3uLabel, onClick = onGenerateM3u))
+            }
+            add(
+                MenuActionItem(
+                    icon = null,
+                    label = if (isFavorite) stringResource(R.string.menu_unfavourite) else stringResource(R.string.menu_favourite),
+                    isFavoriteToggle = true,
+                    onClick = onFavorite,
+                ),
+            )
+            add(MenuActionItem(HomeIcons.Pencil, stringResource(R.string.menu_edit), onClick = onEdit))
+            add(MenuActionItem(HomeIcons.Info, stringResource(R.string.menu_properties), onClick = onProperties))
+        }
+    }
 
     LaunchedEffect(game.id) {
         focusRequester.requestFocus()

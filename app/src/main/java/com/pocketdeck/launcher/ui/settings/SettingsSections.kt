@@ -1177,6 +1177,8 @@ internal fun sortOrderLabel(order: CategorySortOrder): String = when (order) {
     CategorySortOrder.ModifiedNewest -> stringResource(R.string.sort_modified_newest)
     CategorySortOrder.SizeDesc -> stringResource(R.string.sort_size_desc)
     CategorySortOrder.SizeAsc -> stringResource(R.string.sort_size_asc)
+    CategorySortOrder.LastPlayedDesc -> stringResource(R.string.sort_last_played_desc)
+    CategorySortOrder.PlayTimeDesc -> stringResource(R.string.sort_play_time_desc)
 }
 
 @Composable

@@ -158,6 +158,7 @@ fun HomeScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                vm.onAppResumed()
                 val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
                     Environment.isExternalStorageManager()
                 if (granted && !hasStorageAccess) {

@@ -739,4 +739,13 @@
     <string name="settings_reduce_motion">減少動態效果</string>
     <string name="settings_reduce_motion_desc">暫停背景動畫並簡化介面過渡、發光與陰影效果，更流暢省電</string>
     <string name="share_failed">分享失敗</string>
+    <!-- Wave 2: Multi-disc, Local Media & Play Stats -->
+    <string name="match_mode_local_file">本機媒體（gamelist.xml）</string>
+    <string name="sort_last_played_desc">最近遊玩</string>
+    <string name="sort_play_time_desc">遊玩最久</string>
+    <string name="menu_choose_disc">選擇啟動光碟（%1$d 片）</string>
+    <string name="menu_generate_m3u">產生 .m3u 換片檔案</string>
+    <string name="m3u_generated_ok">已產生 %1$s</string>
+    <string name="m3u_generated_fail">產生 .m3u 失敗：%1$s</string>
+    <string name="disc_label_fmt">光碟</string>
 </resources>

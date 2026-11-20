@@ -133,6 +133,7 @@ fun GamePropertiesDialog(
     } else {
         metaInfo.matchModes.joinToString(", ") { mode ->
             when (mode) {
+                MetaMatchMode.LocalFile -> context.getString(R.string.match_mode_local_file)
                 MetaMatchMode.Crc32Hash -> context.getString(R.string.match_mode_crc32)
                 MetaMatchMode.SerialId -> context.getString(R.string.match_mode_serial_id)
                 MetaMatchMode.ExactFilename -> context.getString(R.string.match_mode_exact_name)

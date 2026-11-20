@@ -68,4 +68,30 @@ class TitleNormalizerTest {
         assertTrue(variants.any { it.equals("Final Fantasy 7", ignoreCase = true) })
         assertTrue(variants.any { it.equals("Final Fantasy VII", ignoreCase = true) })
     }
+
+    @Test
+    fun stripsHackAndChsTagsAndExpandsCjkAliases() {
+        assertEquals(
+            "时空之轮",
+            TitleNormalizer.stripRomTags("时空之轮 [CHS] Hack v1.3"),
+        )
+        val aliases = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("时空之轮 [CHS]")
+        assertTrue("Expected Chrono Trigger in $aliases", aliases.contains("Chrono Trigger"))
+        val ff7 = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("最终幻想7 汉化版")
+        assertTrue("Expected Final Fantasy VII in $ff7", ff7.contains("Final Fantasy VII"))
+    }
+
+    @Test
+    fun playStatsCodecRoundTrips() {
+        val input = mapOf(
+            "/roms/gba/metroid.gba" to com.pocketdeck.launcher.data.PlayStats(
+                playCount = 5,
+                totalPlayMs = 3_600_000L,
+                lastPlayedAt = 1_700_000_000_000L,
+            ),
+        )
+        val encoded = com.pocketdeck.launcher.data.UserStore.PlayStatsCodec.encodePlayStats(input)
+        val decoded = com.pocketdeck.launcher.data.UserStore.PlayStatsCodec.decodePlayStats(encoded)
+        assertEquals(input, decoded)
+    }
 }

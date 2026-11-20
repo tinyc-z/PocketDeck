@@ -75,6 +75,34 @@ internal fun HomeOverlays(
                 vm.hideMenu()
                 launchGame(game)
             },
+            onLaunchDisc = if (game.discFiles.size > 1) {
+                { discPath ->
+                    vm.hideMenu()
+                    val discFile = File(discPath)
+                    val discGame = game.copy(id = discPath, fileName = discFile.name, baseName = discFile.nameWithoutExtension)
+                    val platform = state.platformFor(game)
+                    val preferredEmulator = state.effectiveLauncherFor(game)
+                    val result = GameLauncher.launch(context, discGame, platform, preferredEmulator)
+                    when (result) {
+                        is GameLauncher.Result.Ok -> vm.addRecent(game.id)
+                        is GameLauncher.Result.Error ->
+                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else null,
+            onGenerateM3u = if (game.discFiles.size > 1 && !game.fileName.endsWith(".m3u", ignoreCase = true)) {
+                {
+                    vm.hideMenu()
+                    scope.launch {
+                        val res = vm.generateM3uForGame(game)
+                        val msg = res.fold(
+                            onSuccess = { f -> context.getString(R.string.m3u_generated_ok, f.name) },
+                            onFailure = { e -> context.getString(R.string.m3u_generated_fail, e.message.orEmpty()) },
+                        )
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else null,
         )
     }
 

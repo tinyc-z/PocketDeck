@@ -740,4 +740,13 @@
     <string name="settings_reduce_motion">Reduce motion</string>
     <string name="settings_reduce_motion_desc">Pause background motion and trim UI transitions, glow, and shadows for smoother performance</string>
     <string name="share_failed">Share failed</string>
+    <!-- Wave 2: Multi-disc, Local Media & Play Stats -->
+    <string name="match_mode_local_file">Local media (gamelist.xml)</string>
+    <string name="sort_last_played_desc">Recently played</string>
+    <string name="sort_play_time_desc">Most played</string>
+    <string name="menu_choose_disc">Choose disc (%1$d)</string>
+    <string name="menu_generate_m3u">Generate .m3u playlist</string>
+    <string name="m3u_generated_ok">Generated %1$s</string>
+    <string name="m3u_generated_fail">Failed to generate .m3u: %1$s</string>
+    <string name="disc_label_fmt">Disc</string>
 </resources>

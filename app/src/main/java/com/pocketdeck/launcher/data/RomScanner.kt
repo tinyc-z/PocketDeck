@@ -1,17 +1,20 @@
 package com.pocketdeck.launcher.data
 
 import com.pocketdeck.launcher.data.model.Game
+import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Library
 import com.pocketdeck.launcher.data.model.Platform
 import java.io.File
+import javax.xml.parsers.DocumentBuilderFactory
 
-/** 扫描 ROM 根目录：每个非空子文件夹是一个平台。只做一层目录遍历，几百个游戏几十毫秒。 */
+/** 扫描 ROM 根目录：支持多盘自动折叠、`.m3u` 解析、ES-DE/Daijisho/Pegasus 本地媒体与 `gamelist.xml` 导入及目录级增量复用。 */
 object RomScanner {
 
     private val IGNORED_PLATFORM_DIRS = setOf(
         "images", "covers", "boxart", "media", "bios", "saves", "states", "cheats",
         "screenshots", "thumbnails", "themes", "fonts", "shaders", "overlays",
         "system", "config", "tmp", "temp", "cache", "downloads", "download",
+        "downloaded_images", "downloaded_media", "gamelists",
     )
     private val IGNORED_EXT = setOf(
         // 图片
@@ -43,12 +46,29 @@ object RomScanner {
         "ips", "bps", "ups", "xdelta", "ppf", "sub", "sbi", "rtc",
     )
     private val IMAGE_EXT = setOf("png", "jpg", "jpeg", "webp")
-    private val COVER_DIRS = listOf("images", "covers", "boxart", "media/covers", "media/box2dfront", "media/images")
+    private val COVER_DIRS = listOf(
+        "media/covers", "media/box2dfront", "media/images",
+        "downloaded_images", "images", "covers", "boxart",
+    )
     private val DISC_INDEX_EXT = setOf("cue", "gdi", "m3u", "ccd")
     private val DISC_TRACK_EXT = setOf("bin", "img", "iso")
     private val DISC_PLATFORMS = setOf(
         "psx", "ps2", "psp", "saturn", "dreamcast", "segacd", "pcenginecd", "neogeocd",
         "gamecube", "wii", "wiiu", "3do", "jaguarcd", "amigacd32", "pcfx", "cdi", "fmtowns",
+    )
+
+    private val DISC_TAG_REGEX = Regex(
+        """(?i)[\s._-]*(?:\(\s*(?:dis[ck]|cd)\s*([0-9]+|[a-d])\s*(?:of\s*\d+)?\s*\)|\[\s*(?:dis[ck]|cd)\s*([0-9]+|[a-d])\s*\]|(?:dis[ck]|cd)\s*([0-9]+)(?=$|[\s._\-\(\[])|(?:光盘|碟|盘)\s*([0-9]+))""",
+    )
+
+    private data class LocalGamelistEntry(
+        val coverPath: String? = null,
+        val metadata: GameMetadata? = null,
+    )
+
+    private data class PlatformScanResult(
+        val games: List<Game>,
+        val localMetadata: Map<String, GameMetadata>,
     )
 
     fun isPotentialRomFile(file: File, platformId: String? = null): Boolean {
@@ -60,6 +80,41 @@ object RomScanner {
             return isValidDiscM3u(file)
         }
         return true
+    }
+
+    /** 为多盘游戏在同目录生成 `.m3u` 换盘索引文件（供 RetroArch / DuckStation 等模拟器无缝换盘）。 */
+    fun generateM3uForGame(game: Game): Result<File> = runCatching {
+        val discs = game.discFiles.ifEmpty { listOf(game.id) }
+        require(discs.size > 1) { "Not a multi-disc game" }
+        val firstFile = File(discs.first())
+        val parent = firstFile.parentFile ?: error("Missing parent directory")
+        val base = extractDiscInfo(firstFile.nameWithoutExtension)?.first?.takeIf { it.isNotBlank() }
+            ?: game.title.replace(Regex("""[\\/:*?"<>|]"""), "_").trim().ifEmpty { firstFile.nameWithoutExtension }
+        val m3uFile = File(parent, "$base.m3u")
+        val lines = discs.map { path ->
+            val f = File(path)
+            if (f.parentFile?.path == parent.path) f.name else f.path
+        }
+        m3uFile.writeText(lines.joinToString("\n") + "\n")
+        m3uFile
+    }
+
+    /** 从文件名（不含扩展名）提取 `(baseWithoutDiscTag, discOrder)`；非多盘返回 null。 */
+    internal fun extractDiscInfo(baseName: String): Pair<String, Int>? {
+        val m = DISC_TAG_REGEX.find(baseName) ?: return null
+        val rawNum = m.groupValues.drop(1).firstOrNull { it.isNotEmpty() } ?: return null
+        val order = rawNum.toIntOrNull() ?: when (rawNum.lowercase()) {
+            "a" -> 1
+            "b" -> 2
+            "c" -> 3
+            "d" -> 4
+            else -> return null
+        }
+        val stripped = (baseName.substring(0, m.range.first) + baseName.substring(m.range.last + 1))
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', '-', '_', '.')
+        if (stripped.isEmpty()) return null
+        return stripped to order
     }
 
     private fun isValidDiscM3u(file: File): Boolean {
@@ -93,33 +148,57 @@ object RomScanner {
     )
 
     /** 扫描多个根目录并合并：同一平台出现在多个目录时游戏合并到一个标签。 */
-    fun scanAll(roots: List<File>): Library = scanAllProgressive(roots, emptySet(), null)
+    fun scanAll(roots: List<File>, previousLibrary: Library? = null): Library =
+        scanAllProgressive(roots, emptySet(), previousLibrary, null)
 
     /**
-     * 渐进式扫描多个根目录：
-     * 1. 优先扫描 [priorityPlatformIds]（首个可见分类对应的平台目录），扫完后立即通过 [onProgress] 推送首屏结果；
-     * 2. 其余平台目录在后台分批扫描并增量合并推送，大幅缩短海量游戏首次冷启动白屏时间。
+     * 渐进式 + 目录级增量扫描多个根目录：
+     * 1. 未变化的平台目录（`lastModified` 与文件数一致）直接复用 [previousLibrary] 缓存，极大加速大库刷新；
+     * 2. 优先扫描 [priorityPlatformIds]（首个可见分类对应的平台目录），扫完后立即通过 [onProgress] 推送首屏结果；
+     * 3. 其余平台目录在后台分批扫描并增量合并推送。
      */
     fun scanAllProgressive(
         roots: List<File>,
         priorityPlatformIds: Set<String> = emptySet(),
+        previousLibrary: Library? = null,
         onProgress: ((Library) -> Unit)? = null,
     ): Library {
         val rootsKey = roots.joinToString(";") { it.path }
         val merged = HashMap<String, LinkedHashMap<String, Game>>()
         val platforms = LinkedHashMap<String, Platform>()
         val counts = LinkedHashMap<String, Int>()
+        val localMeta = HashMap<String, GameMetadata>()
+        val dirSnapshots = HashMap<String, Pair<Long, Int>>()
         roots.forEach { counts[it.path] = 0 }
 
-        fun addScanned(rootPath: String, plat: Platform, list: List<Game>) {
-            if (list.isEmpty()) return
+        fun addScanned(rootPath: String, plat: Platform, res: PlatformScanResult) {
+            if (res.games.isEmpty()) return
             val bucket = merged.getOrPut(plat.id) { LinkedHashMap() }
             var added = 0
-            for (g in list) {
+            for (g in res.games) {
                 if (bucket.putIfAbsent(g.id, g) == null) added++
             }
+            localMeta.putAll(res.localMetadata)
             platforms.putIfAbsent(plat.id, plat)
             counts[rootPath] = (counts[rootPath] ?: 0) + added
+        }
+
+        fun scanOrReuse(dir: File, plat: Platform): PlatformScanResult {
+            val snap = computeDirSnapshot(dir)
+            dirSnapshots[dir.path] = snap
+            if (previousLibrary != null && previousLibrary.dirSnapshots[dir.path] == snap) {
+                val prefix = dir.path + File.separator
+                val cachedGames = previousLibrary.games[plat.id].orEmpty()
+                    .filter { it.id.startsWith(prefix) && it.id.indexOf(File.separatorChar, prefix.length) < 0 }
+                if (cachedGames.isNotEmpty() || snap.second == 0) {
+                    val cachedMeta = HashMap<String, GameMetadata>()
+                    for (g in cachedGames) {
+                        previousLibrary.localMetadata[g.id]?.let { cachedMeta[g.id] = it }
+                    }
+                    return PlatformScanResult(cachedGames, cachedMeta)
+                }
+            }
+            return scanPlatform(dir, plat.id)
         }
 
         fun snapshot(): Library {
@@ -128,10 +207,16 @@ object RomScanner {
                 games[pid] = m.values.sortedWith { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title) }
             }
             val sortedPlats = platforms.values.sortedWith(compareBy({ PlatformCatalog.sortKey(it.id) }, { it.id }))
-            return Library(rootsKey, sortedPlats, games, LinkedHashMap(counts))
+            return Library(
+                root = rootsKey,
+                platforms = sortedPlats,
+                games = games,
+                rootCounts = LinkedHashMap(counts),
+                localMetadata = HashMap(localMeta),
+                dirSnapshots = HashMap(dirSnapshots),
+            )
         }
 
-        // 先轻量枚举各根目录下的平台子文件夹，按优先级分桶
         val priorityTasks = ArrayList<Triple<File, File, Platform>>()
         val normalTasks = ArrayList<Triple<File, File, Platform>>()
         val rootMiscRoots = ArrayList<File>()
@@ -156,7 +241,7 @@ object RomScanner {
         // 阶段 1：优先扫完首个标签页对应的平台目录，立刻上屏
         if (priorityTasks.isNotEmpty()) {
             for ((root, dir, plat) in priorityTasks) {
-                addScanned(root.path, plat, scanPlatform(dir, plat.id))
+                addScanned(root.path, plat, scanOrReuse(dir, plat))
             }
             if (onProgress != null && merged.isNotEmpty()) {
                 onProgress(snapshot())
@@ -166,7 +251,7 @@ object RomScanner {
         // 阶段 2：其余平台目录按顺序分批扫描，每 4 个平台推送一次进度
         var batchCount = 0
         for ((root, dir, plat) in normalTasks) {
-            addScanned(root.path, plat, scanPlatform(dir, plat.id))
+            addScanned(root.path, plat, scanOrReuse(dir, plat))
             batchCount++
             if (onProgress != null && batchCount % 4 == 0 && merged.isNotEmpty()) {
                 onProgress(snapshot())
@@ -175,57 +260,28 @@ object RomScanner {
 
         // 阶段 3：扫描直接散落在根目录下的 ROM 文件
         for (root in rootMiscRoots) {
-            val rootGames = scanPlatform(root, "misc")
-            for (g in rootGames) {
+            val rootRes = scanPlatform(root, "misc")
+            for (g in rootRes.games) {
                 val ext = g.fileName.substringAfterLast('.', "").lowercase()
                 val inferredId = inferPlatformByExt(ext) ?: "misc"
                 val plat = PlatformCatalog.forFolder(inferredId)
                 val patched = if (g.platformId == plat.id) g else g.copy(platformId = plat.id)
-                addScanned(root.path, plat, listOf(patched))
+                val metaMap = rootRes.localMetadata[g.id]?.let { mapOf(patched.id to it) }.orEmpty()
+                addScanned(root.path, plat, PlatformScanResult(listOf(patched), metaMap))
             }
         }
 
         return snapshot()
     }
 
-    fun scan(root: File): Library {
-        val dirs = root.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }.orEmpty()
-        val gamesByPlat = HashMap<String, LinkedHashMap<String, Game>>()
-        val platformsById = LinkedHashMap<String, Platform>()
-        fun addGames(plat: Platform, list: List<Game>) {
-            if (list.isEmpty()) return
-            val bucket = gamesByPlat.getOrPut(plat.id) { LinkedHashMap() }
-            for (g in list) bucket.putIfAbsent(g.id, g)
-            platformsById.putIfAbsent(plat.id, plat)
-        }
-        for (dir in dirs) {
-            if (dir.name.lowercase() in IGNORED_PLATFORM_DIRS) continue
-            val platform = PlatformCatalog.forFolder(dir.name)
-            addGames(platform, scanPlatform(dir, platform.id))
-        }
-        // 根目录本身就是一个平台文件夹（如直接添加 /ROMs/gba）
-        if (PlatformCatalog.isKnown(root.name)) {
-            val platform = PlatformCatalog.forFolder(root.name)
-            addGames(platform, scanPlatform(root, platform.id))
-        } else {
-            // 根目录（如 ~/PocketGames/roms）下直接放置的 ROM 文件也纳入扫描，按扩展名推断平台
-            val rootGames = scanPlatform(root, "misc")
-            for (g in rootGames) {
-                val ext = g.fileName.substringAfterLast('.', "").lowercase()
-                val inferredId = inferPlatformByExt(ext) ?: "misc"
-                val plat = PlatformCatalog.forFolder(inferredId)
-                val patched = if (g.platformId == plat.id) g else g.copy(platformId = plat.id)
-                gamesByPlat.getOrPut(plat.id) { LinkedHashMap() }.putIfAbsent(patched.id, patched)
-                platformsById.putIfAbsent(plat.id, plat)
-            }
-        }
-        if (platformsById.isEmpty()) return Library.Empty.copy(root = root.path)
-        val games = HashMap<String, List<Game>>(gamesByPlat.size * 2)
-        for ((pid, map) in gamesByPlat) {
-            games[pid] = map.values.sortedWith { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title) }
-        }
-        val platforms = platformsById.values.sortedWith(compareBy({ PlatformCatalog.sortKey(it.id) }, { it.id }))
-        return Library(root.path, platforms, games)
+    fun scan(root: File): Library = scanAll(listOf(root))
+
+    private fun computeDirSnapshot(dir: File): Pair<Long, Int> {
+        val entries = dir.list()
+        val count = entries?.size ?: 0
+        val gamelistMod = File(dir, "gamelist.xml").takeIf { it.isFile }?.lastModified() ?: 0L
+        val combinedMod = dir.lastModified() xor (gamelistMod shl 1)
+        return combinedMod to count
     }
 
     private fun inferPlatformByExt(ext: String): String? = when (ext) {
@@ -252,17 +308,80 @@ object RomScanner {
         else -> null
     }
 
-    private fun scanPlatform(dir: File, platformId: String): List<Game> {
-        val files = dir.listFiles { f -> f.isFile && !f.name.startsWith(".") } ?: return emptyList()
+    private fun scanPlatform(dir: File, platformId: String): PlatformScanResult {
+        val files = dir.listFiles { f -> f.isFile && !f.name.startsWith(".") } ?: return PlatformScanResult(emptyList(), emptyMap())
         val covers = HashMap<String, String>()
-        fun collectCovers(d: File) = d.listFiles()?.forEach { f ->
-            if (f.isFile && f.extension.lowercase() in IMAGE_EXT) covers.putIfAbsent(f.nameWithoutExtension.lowercase(), f.path)
+        fun collectCovers(d: File) {
+            if (!d.isDirectory) return
+            d.listFiles()?.forEach { f ->
+                if (f.isFile && f.extension.lowercase() in IMAGE_EXT) {
+                    val key = f.nameWithoutExtension.lowercase()
+                    covers.putIfAbsent(key, f.path)
+                    // 兼容 ES-DE / Daijisho `-image` / `-thumb` / `-boxart` 后缀命名
+                    for (suffix in listOf("-image", "-thumb", "-boxart", "-cover")) {
+                        if (key.endsWith(suffix)) {
+                            covers.putIfAbsent(key.removeSuffix(suffix), f.path)
+                        }
+                    }
+                }
+            }
         }
+        // 本目录内常见媒体目录（ES-DE / Daijisho / Pegasus / RetroArch）
         COVER_DIRS.forEach { collectCovers(File(dir, it)) }
+        // 上级/同级 ES-DE / Daijisho 媒体目录
+        dir.parentFile?.let { parent ->
+            val folderName = dir.name
+            listOf(
+                File(parent, "media/$folderName/covers"),
+                File(parent, "media/$folderName/box2dfront"),
+                File(parent, "downloaded_media/$folderName/covers"),
+                File(parent, "downloaded_media/$folderName/box2dfront"),
+                File(parent, "images/$folderName"),
+                File(parent, "boxart/$folderName"),
+                File(parent, "covers/$folderName"),
+            ).forEach { collectCovers(it) }
+        }
         collectCovers(dir)
 
+        // 解析 ES-DE / EmulationStation `gamelist.xml`
+        val gamelistEntries = parseGamelistXml(dir)
+
         var roms = files.filter { isPotentialRomFile(it, platformId) }
-        // 光盘游戏：有 cue/gdi/m3u 时，仅隐藏被索引文件引用或同名前缀的轨道文件，避免误杀其他独立 iso/bin
+
+        // 1) `.m3u` 多盘索引：记录每个 `.m3u` 引用的光盘文件并隐藏所有被引用的子盘文件（无论扩展名）
+        val m3uFiles = roms.filter { it.extension.lowercase() == "m3u" }
+        val m3uDiscMap = HashMap<String, List<String>>()
+        if (m3uFiles.isNotEmpty()) {
+            val m3uReferencedNames = HashSet<String>()
+            for (m3u in m3uFiles) {
+                val refs = ArrayList<String>()
+                runCatching {
+                    m3u.useLines { seq ->
+                        seq.take(128).forEach { rawLine ->
+                            val line = rawLine.trim().removePrefix("\uFEFF")
+                            if (line.isEmpty() || line.startsWith("#")) return@forEach
+                            val target = File(dir, line)
+                            if (target.isFile) {
+                                refs += target.path
+                                m3uReferencedNames += target.name.lowercase()
+                            } else {
+                                m3uReferencedNames += line.replace('\\', '/').substringAfterLast('/').lowercase()
+                            }
+                        }
+                    }
+                }
+                if (refs.size > 1) {
+                    m3uDiscMap[m3u.path] = refs
+                }
+            }
+            if (m3uReferencedNames.isNotEmpty()) {
+                roms = roms.filter { f ->
+                    f.extension.lowercase() == "m3u" || f.name.lowercase() !in m3uReferencedNames
+                }
+            }
+        }
+
+        // 2) 光盘轨道文件：有 cue/gdi/m3u/ccd 时，隐藏被引用的 bin/img/iso 轨道文件
         val indexFiles = roms.filter { it.extension.lowercase() in DISC_INDEX_EXT }
         if (indexFiles.isNotEmpty()) {
             val referencedNames = HashSet<String>()
@@ -296,19 +415,140 @@ object RomScanner {
                 !sameBase
             }
         }
-        return roms.map { f ->
-            val base = f.nameWithoutExtension
-            Game(
-                id = f.path,
+
+        // 3) 多盘自动折叠：同基名 + 不同盘号（Disc 1/2, CD1/2, 光盘1/2 等）自动折叠为单条 Game
+        val multiDiscGroups = LinkedHashMap<String, MutableList<Pair<Int, File>>>()
+        val singles = ArrayList<File>()
+        for (f in roms) {
+            if (f.extension.lowercase() == "m3u") {
+                singles += f
+                continue
+            }
+            val discInfo = extractDiscInfo(f.nameWithoutExtension)
+            if (discInfo != null) {
+                val key = "${discInfo.first.lowercase()}|${f.extension.lowercase()}"
+                multiDiscGroups.getOrPut(key) { ArrayList() }.add(discInfo.second to f)
+            } else {
+                singles += f
+            }
+        }
+
+        val outGames = ArrayList<Game>(roms.size)
+        val outLocalMeta = HashMap<String, GameMetadata>()
+
+        fun buildGame(primary: File, displayBase: String, discs: List<String>) {
+            val glEntry = gamelistEntries[primary.name.lowercase()]
+                ?: gamelistEntries[displayBase.lowercase()]
+            val cover = glEntry?.coverPath
+                ?: covers[displayBase.lowercase()]
+                ?: covers[primary.nameWithoutExtension.lowercase()]
+            val totalSize = if (discs.size > 1) {
+                discs.sumOf { File(it).length() }.takeIf { it > 0L } ?: primary.length()
+            } else {
+                primary.length()
+            }
+            val game = Game(
+                id = primary.path,
                 platformId = platformId,
-                baseName = base,
-                fileName = f.name,
-                title = cleanTitle(base),
-                localCover = covers[base.lowercase()],
-                fileSize = f.length(),
-                lastModifiedMs = f.lastModified(),
+                baseName = displayBase,
+                fileName = primary.name,
+                title = cleanTitle(displayBase),
+                localCover = cover,
+                fileSize = totalSize,
+                lastModifiedMs = primary.lastModified(),
+                discFiles = discs,
             )
-        }.sortedBy { it.title.lowercase() }
+            outGames += game
+            glEntry?.metadata?.takeIf { !it.isEmpty }?.let { outLocalMeta[game.id] = it }
+        }
+
+        for (f in singles) {
+            val discs = m3uDiscMap[f.path].orEmpty()
+            buildGame(f, f.nameWithoutExtension, discs)
+        }
+        for ((_, group) in multiDiscGroups) {
+            if (group.size >= 2 && group.map { it.first }.toSet().size >= 2) {
+                val sorted = group.sortedBy { it.first }
+                val primary = sorted.first().second
+                val cleanBase = extractDiscInfo(primary.nameWithoutExtension)?.first ?: primary.nameWithoutExtension
+                buildGame(primary, cleanBase, sorted.map { it.second.path })
+            } else {
+                for ((_, f) in group) {
+                    buildGame(f, f.nameWithoutExtension, emptyList())
+                }
+            }
+        }
+
+        return PlatformScanResult(
+            games = outGames.sortedBy { it.title.lowercase() },
+            localMetadata = outLocalMeta,
+        )
+    }
+
+    /** 解析 ES-DE / EmulationStation 的 `gamelist.xml`，返回 `fileNameLower -> LocalGamelistEntry`。 */
+    private fun parseGamelistXml(dir: File): Map<String, LocalGamelistEntry> {
+        val candidates = listOfNotNull(
+            File(dir, "gamelist.xml"),
+            dir.parentFile?.let { File(it, "gamelists/${dir.name}/gamelist.xml") },
+        )
+        val xmlFile = candidates.firstOrNull { it.isFile && it.length() in 1L..16L * 1024 * 1024 }
+            ?: return emptyMap()
+
+        val result = HashMap<String, LocalGamelistEntry>()
+        runCatching {
+            val factory = DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = false
+                runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+            }
+            val doc = factory.newDocumentBuilder().parse(xmlFile)
+            val nodes = doc.getElementsByTagName("game")
+            for (i in 0 until nodes.length) {
+                val elem = nodes.item(i) as? org.w3c.dom.Element ?: continue
+                fun childText(tag: String): String? =
+                    elem.getElementsByTagName(tag).item(0)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+
+                val rawPath = childText("path") ?: continue
+                val fileName = rawPath.replace('\\', '/').substringAfterLast('/').trim()
+                if (fileName.isEmpty()) continue
+
+                val imgRel = childText("image") ?: childText("thumbnail")
+                val resolvedCover = imgRel?.let { rel ->
+                    val cleaned = rel.removePrefix("./").replace('\\', '/')
+                    val f = if (File(cleaned).isAbsolute) File(cleaned) else File(dir, cleaned)
+                    f.takeIf { it.isFile }?.path
+                }
+
+                val releaseRaw = childText("releasedate")
+                val releaseDate = formatGamelistDate(releaseRaw)
+                val meta = GameMetadata(
+                    releaseDate = releaseDate,
+                    genre = childText("genre"),
+                    developer = childText("developer"),
+                    publisher = childText("publisher"),
+                    description = childText("desc"),
+                )
+                val entry = LocalGamelistEntry(
+                    coverPath = resolvedCover,
+                    metadata = meta.takeIf { !it.isEmpty },
+                )
+                result[fileName.lowercase()] = entry
+                val noExt = fileName.substringBeforeLast('.', "").lowercase()
+                if (noExt.isNotEmpty()) {
+                    result.putIfAbsent(noExt, entry)
+                }
+            }
+        }
+        return result
+    }
+
+    private fun formatGamelistDate(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val digits = raw.takeWhile { it.isDigit() }
+        return when {
+            digits.length >= 8 -> "${digits.substring(0, 4)}-${digits.substring(4, 6)}-${digits.substring(6, 8)}"
+            digits.length >= 4 -> digits.substring(0, 4)
+            else -> raw
+        }
     }
 
     /** "Legend of Zelda, The - Oracle of Ages (USA, Australia)" → "The Legend of Zelda - Oracle of Ages" */

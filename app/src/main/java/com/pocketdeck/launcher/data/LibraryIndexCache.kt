@@ -2,6 +2,7 @@ package com.pocketdeck.launcher.data
 
 import android.content.Context
 import com.pocketdeck.launcher.data.model.Game
+import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Library
 import com.pocketdeck.launcher.data.model.Platform
 import java.io.BufferedInputStream
@@ -75,6 +76,12 @@ class LibraryIndexCache(context: Context) {
                         val customCover = inp.readNullableUtf()
                         val fileSize = inp.readLong()
                         val lastModifiedMs = inp.readLong()
+                        val discCount = inp.readInt().coerceAtLeast(0)
+                        val discFiles = if (discCount > 0) {
+                            List(discCount) { inp.readUTF() }
+                        } else {
+                            emptyList()
+                        }
                         list += Game(
                             id = id,
                             platformId = platformId,
@@ -85,9 +92,31 @@ class LibraryIndexCache(context: Context) {
                             customCover = customCover,
                             fileSize = fileSize,
                             lastModifiedMs = lastModifiedMs,
+                            discFiles = discFiles,
                         )
                     }
                     games[pid] = list
+                }
+
+                val metaCount = inp.readInt().coerceAtLeast(0)
+                val localMetadata = HashMap<String, GameMetadata>(metaCount * 2)
+                repeat(metaCount) {
+                    val gid = inp.readUTF()
+                    val releaseDate = inp.readNullableUtf()
+                    val genre = inp.readNullableUtf()
+                    val developer = inp.readNullableUtf()
+                    val publisher = inp.readNullableUtf()
+                    val description = inp.readNullableUtf()
+                    localMetadata[gid] = GameMetadata(releaseDate, genre, developer, publisher, description)
+                }
+
+                val snapCount = inp.readInt().coerceAtLeast(0)
+                val dirSnapshots = HashMap<String, Pair<Long, Int>>(snapCount * 2)
+                repeat(snapCount) {
+                    val dirPath = inp.readUTF()
+                    val mod = inp.readLong()
+                    val count = inp.readInt()
+                    dirSnapshots[dirPath] = mod to count
                 }
 
                 Library(
@@ -95,6 +124,8 @@ class LibraryIndexCache(context: Context) {
                     platforms = platforms,
                     games = games,
                     rootCounts = rootCounts,
+                    localMetadata = localMetadata,
+                    dirSnapshots = dirSnapshots,
                 )
             }
         }.getOrNull()
@@ -138,7 +169,28 @@ class LibraryIndexCache(context: Context) {
                         out.writeNullableUtf(g.customCover)
                         out.writeLong(g.fileSize)
                         out.writeLong(g.lastModifiedMs)
+                        out.writeInt(g.discFiles.size)
+                        for (d in g.discFiles) {
+                            out.writeUTF(d)
+                        }
                     }
+                }
+
+                out.writeInt(library.localMetadata.size)
+                for ((gid, m) in library.localMetadata) {
+                    out.writeUTF(gid)
+                    out.writeNullableUtf(m.releaseDate)
+                    out.writeNullableUtf(m.genre)
+                    out.writeNullableUtf(m.developer)
+                    out.writeNullableUtf(m.publisher)
+                    out.writeNullableUtf(m.description)
+                }
+
+                out.writeInt(library.dirSnapshots.size)
+                for ((dirPath, snap) in library.dirSnapshots) {
+                    out.writeUTF(dirPath)
+                    out.writeLong(snap.first)
+                    out.writeInt(snap.second)
                 }
             }
             if (!tmpFile.renameTo(cacheFile)) {
@@ -164,6 +216,6 @@ class LibraryIndexCache(context: Context) {
 
     companion object {
         private const val MAGIC = 0x50444958 // "PDIX"
-        private const val VERSION = 1
+        private const val VERSION = 2
     }
 }

@@ -22,7 +22,7 @@ object TitleNormalizer {
     private val BRACKET_TAGS = Regex("""\s*(?:\([^)]*\)|\[[^\]]*\]|\{[^}]*\}|（[^）]*）|【[^】]*】)""")
     private val LEADING_INDEX = Regex("""^(?:No\.?\s*\d{1,5}\s*(?:[-._、)\]]\s*|\s+)|\d{1,5}\s*[-._、)\]]\s*)""", RegexOption.IGNORE_CASE)
     private val CJK_PACK_TAGS = Regex(
-        """(?i)(?:\s*[-_·]?\s*(?:完全汉化版?|完美汉化版?|中文汉化版?|汉化修正版?|简体中文版?|繁体中文版?|官方中文版?|中文版|汉化版|简中版?|繁中版?|无敌版|修改版|金手指版|修正版|加强版|最终版|典藏版|整合版|v\d+(?:\.\d+)+|rev\s*[a-z0-9]+))+$""",
+        """(?i)(?:\s*[-_·]?\s*(?:完全汉化版?|完美汉化版?|中文汉化版?|汉化修正版?|简体中文版?|繁体中文版?|官方中文版?|中文版|汉化版|简中版?|繁中版?|简体|繁体|汉化|中文|无敌版|修改版|改版|破解版|测试版|金手指版|修正版|修正|加强版|最终版|典藏版|整合版|chs|cht|hack|v\d+(?:\.\d+)+|rev\s*[a-z0-9]+))+$""",
     )
     private val ARTICLE_SUFFIX = Regex("""^(.+?),\s*(The|A|An)(?=$|\s|[:\-—])(.*)$""", RegexOption.IGNORE_CASE)
     private val WHITESPACE = Regex("""\s+""")

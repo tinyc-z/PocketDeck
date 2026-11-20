@@ -2,7 +2,10 @@ package com.pocketdeck.launcher.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
+import android.util.LruCache
 import androidx.core.graphics.drawable.toBitmap
 import coil3.SingletonImageLoader
 import com.pocketdeck.launcher.data.model.Game
@@ -71,6 +74,9 @@ class CoverSource(
     private val db = client.database
     private val indexDir = File(appCtx.cacheDir, "boxart_index").apply { mkdirs() }
     private val webCacheDir = File(appCtx.cacheDir, "web_covers").apply { mkdirs() }
+    private val thumbDir = File(appCtx.cacheDir, "cover_thumbs_webp").apply { mkdirs() }
+    private val thumbPathLru = LruCache<String, File>(512)
+    private val thumbGenerating = ConcurrentHashMap<String, Boolean>()
 
     private val resolvedUrls = ConcurrentHashMap<String, String>()
     private val resolvedOrigins = ConcurrentHashMap<String, Pair<String, CoverMatchMode>>()
@@ -293,6 +299,7 @@ class CoverSource(
         failedUntilMs.clear()
         candidateOrigins.clear()
         systemIndexes.clear()
+        thumbPathLru.evictAll()
         clearPendingCoverInfo()
         _coverInfo.value = emptyMap()
         runCatching { SingletonImageLoader.get(appCtx).memoryCache?.clear() }
@@ -301,6 +308,7 @@ class CoverSource(
         scope.launch(Dispatchers.IO) {
             db.clearCovers()
             runCatching { webCacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+            runCatching { thumbDir.listFiles()?.forEach { it.deleteRecursively() } }
             runCatching { indexDir.listFiles()?.forEach { it.deleteRecursively() } }
             runCatching { SingletonImageLoader.get(appCtx).diskCache?.clear() }
             runCatching { File(appCtx.cacheDir, "covers").listFiles()?.forEach { it.deleteRecursively() } }
@@ -349,6 +357,8 @@ class CoverSource(
 
     /** 为指定游戏异步触发 API / 索引型封面节点查询（GameTDB / Hasheous / ArcadeItalia / SteamGridDB / ScreenScraper / TGDB / IGDB）。 */
     fun ensureGameScraped(game: Game, platform: Platform?, officialName: String? = null) {
+        // 本地优先：已有自定义封面或本地 ES-DE/Daijisho/同名封面时零网络直出
+        if (!game.customCover.isNullOrBlank() || !game.localCover.isNullOrBlank()) return
         if (!NetworkStatus.isOnline(appCtx)) return
         val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
         if (enabledApiNodes.isEmpty()) return
@@ -427,13 +437,13 @@ class CoverSource(
      */
     fun fastMemoryCandidates(game: Game): List<Any> {
         val custom = game.customCover
-        val cached = cachedUrl(game.id)
         val local = game.localCover
+        val cached = cachedUrl(game.id)
         if (custom == null && cached == null && local == null) return emptyList()
         val out = ArrayList<Any>(3)
-        if (custom != null) out += File(custom)
+        if (custom != null) out += preferredThumbOrOriginal(File(custom))
+        if (local != null && local != custom) out += preferredThumbOrOriginal(File(local))
         if (cached != null) out += cached
-        if (local != null && local != custom) out += File(local)
         return out
     }
 
@@ -442,10 +452,15 @@ class CoverSource(
         platform: Platform?,
         officialName: String? = null,
     ): List<Any> {
-        // O(1) 快路径：已有自定义封面或已解析命中的缓存 URL 时直接返回
+        // O(1) 快路径：1. 用户自定义封面 → 2. 本地媒体封面（零网络优先命中） → 3. 已解析命中的在线缓存
         game.customCover?.let { custom ->
-            val f = File(custom)
+            val f = preferredThumbOrOriginal(File(custom))
             candidateOrigins["${game.id}::$f"] = "custom" to CoverMatchMode.CustomFile
+            return listOf(f)
+        }
+        game.localCover?.let { local ->
+            val f = preferredThumbOrOriginal(File(local))
+            candidateOrigins["${game.id}::$f"] = "local" to CoverMatchMode.LocalFile
             return listOf(f)
         }
         val cached = cachedUrl(game.id)
@@ -1136,7 +1151,90 @@ class CoverSource(
         return BoxartIndex(byExact, sortedGrouped, byToken)
     }
 
+    /**
+     * 固定宽度 320px WebP 缩略图缓存 + 内存 LRU：
+     * 命中则 O(1) 返回磁盘 WebP 缩略图；未命中则先返回原图并在 IO 线程异步生成 WebP 缩略图，避免阻塞主线程。
+     */
+    private fun preferredThumbOrOriginal(original: File): File {
+        val key = original.path
+        thumbPathLru.get(key)?.let { cached ->
+            if (cached.isFile) return cached
+        }
+        val hash = sha1Hex(key)
+        val dest = File(thumbDir, "$hash.webp")
+        if (dest.isFile && dest.length() > 0L) {
+            thumbPathLru.put(key, dest)
+            return dest
+        }
+        if (thumbGenerating.putIfAbsent(key, true) == null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    generateWebpThumb(original, dest)
+                    if (dest.isFile && dest.length() > 0L) {
+                        thumbPathLru.put(key, dest)
+                    }
+                } finally {
+                    thumbGenerating.remove(key)
+                }
+            }
+        }
+        return original
+    }
+
+    private fun generateWebpThumb(original: File, dest: File) {
+        if (!original.isFile || original.length() <= 0L) return
+        runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(original.path, bounds)
+            val srcW = bounds.outWidth
+            val srcH = bounds.outHeight
+            if (srcW <= 0 || srcH <= 0) return
+            var sample = 1
+            while (srcW / (sample * 2) >= THUMB_MAX_WIDTH_PX) {
+                sample *= 2
+            }
+            val decodeOpts = BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val decoded = BitmapFactory.decodeFile(original.path, decodeOpts) ?: return
+            val target = if (decoded.width > THUMB_MAX_WIDTH_PX) {
+                val targetH = ((decoded.height.toLong() * THUMB_MAX_WIDTH_PX) / decoded.width).toInt().coerceAtLeast(1)
+                Bitmap.createScaledBitmap(decoded, THUMB_MAX_WIDTH_PX, targetH, true).also {
+                    if (it !== decoded) decoded.recycle()
+                }
+            } else {
+                decoded
+            }
+            val tmp = File(dest.parentFile, "${dest.name}.tmp")
+            try {
+                tmp.outputStream().buffered().use { os ->
+                    val fmt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        Bitmap.CompressFormat.WEBP_LOSSY
+                    } else {
+                        @Suppress("DEPRECATION")
+                        Bitmap.CompressFormat.WEBP
+                    }
+                    target.compress(fmt, 82, os)
+                }
+                if (!tmp.renameTo(dest)) {
+                    tmp.copyTo(dest, overwrite = true)
+                    tmp.delete()
+                }
+            } finally {
+                target.recycle()
+                runCatching { if (tmp.exists()) tmp.delete() }
+            }
+        }
+    }
+
+    private fun sha1Hex(input: String): String =
+        MessageDigest.getInstance("SHA-1")
+            .digest(input.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+
     private companion object {
+        const val THUMB_MAX_WIDTH_PX = 320
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
 
         val API_COVER_NODES = setOf(

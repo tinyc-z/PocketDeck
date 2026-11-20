@@ -396,6 +396,8 @@ fun SettingsScreen(
         CategorySortOrder.ModifiedNewest to stringResource(R.string.sort_modified_newest),
         CategorySortOrder.SizeDesc to stringResource(R.string.sort_size_desc),
         CategorySortOrder.SizeAsc to stringResource(R.string.sort_size_asc),
+        CategorySortOrder.LastPlayedDesc to stringResource(R.string.sort_last_played_desc),
+        CategorySortOrder.PlayTimeDesc to stringResource(R.string.sort_play_time_desc),
     )
     val reservedKeyError = stringResource(R.string.keybind_reserved)
 

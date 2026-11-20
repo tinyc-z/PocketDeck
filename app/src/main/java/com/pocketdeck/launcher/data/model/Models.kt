@@ -33,6 +33,8 @@ data class Game(
     val fileSize: Long = 0L,
     /** 文件最后修改时间戳（毫秒）。 */
     val lastModifiedMs: Long = 0L,
+    /** 多盘游戏的所有光盘文件绝对路径（按盘号升序；单盘游戏为空）。 */
+    val discFiles: List<String> = emptyList(),
 )
 
 data class GameMetadata(
@@ -40,9 +42,10 @@ data class GameMetadata(
     val genre: String? = null,
     val developer: String? = null,
     val publisher: String? = null,
+    val description: String? = null,
 ) {
     val isEmpty: Boolean
-        get() = releaseDate == null && genre == null && developer == null && publisher == null
+        get() = releaseDate == null && genre == null && developer == null && publisher == null && description == null
 }
 
 data class Library(
@@ -51,6 +54,10 @@ data class Library(
     val games: Map<String, List<Game>>,
     /** 每个扫描根目录找到的游戏数。 */
     val rootCounts: Map<String, Int> = emptyMap(),
+    /** 从本地 ES-DE / Pegasus `gamelist.xml` 解析得到的元数据（零网络优先命中）。 */
+    val localMetadata: Map<String, GameMetadata> = emptyMap(),
+    /** 平台目录增量扫描快照：`dirPath -> (lastModified, entryCount)`。 */
+    val dirSnapshots: Map<String, Pair<Long, Int>> = emptyMap(),
 ) {
     val byId: Map<String, Game> by lazy { games.values.flatten().associateBy { it.id } }
     private val platformById by lazy { platforms.associateBy { it.id } }

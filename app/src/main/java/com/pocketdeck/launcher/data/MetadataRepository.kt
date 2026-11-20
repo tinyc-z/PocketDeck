@@ -24,6 +24,7 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 enum class MetaMatchMode {
+    LocalFile,
     Crc32Hash,
     SerialId,
     ExactFilename,
@@ -60,6 +61,7 @@ class MetadataRepository(
     private val systemTables = ConcurrentHashMap<String, SystemTable>()
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
     private val gameCache = ConcurrentHashMap<String, GameMetadata>()
+    private val localSeedMap = ConcurrentHashMap<String, GameMetadata>()
     private val focusApiResolved = ConcurrentHashMap<String, Boolean>()
     private val inFlightFocus = ConcurrentHashMap.newKeySet<String>()
 
@@ -102,6 +104,29 @@ class MetadataRepository(
 
     suspend fun computeCrc32(path: String): String? = withContext(Dispatchers.IO) {
         client.computeRomCrc32(File(path))
+    }
+
+    /** 注入从本地 ES-DE / Pegasus `gamelist.xml` 解析的元数据（零网络优先命中）。 */
+    fun seedLocalMetadata(localMeta: Map<String, GameMetadata>) {
+        if (localMeta.isEmpty()) return
+        val metaUpdates = HashMap<String, GameMetadata>()
+        val infoUpdates = HashMap<String, MetadataResolutionInfo>()
+        for ((gid, meta) in localMeta) {
+            if (meta.isEmpty) continue
+            localSeedMap[gid] = meta
+            if (!gameCache.containsKey(gid)) {
+                gameCache[gid] = meta
+                metaUpdates[gid] = meta
+                infoUpdates[gid] = MetadataResolutionInfo(
+                    providers = listOf("local"),
+                    matchModes = listOf(MetaMatchMode.LocalFile),
+                )
+            }
+        }
+        if (metaUpdates.isNotEmpty()) {
+            _metadata.value = _metadata.value + metaUpdates
+            _resolutionInfo.value = _resolutionInfo.value + infoUpdates
+        }
     }
 
     private class MutableEntry(
@@ -362,6 +387,7 @@ class MetadataRepository(
         var developer: String? = null
         var publisher: String? = null
         var identity: RomIdentityExtractor.Identity? = null
+        var description: String? = localSeedMap[g.id]?.description
         val usedProviders = LinkedHashSet<String>()
         val usedModes = LinkedHashSet<MetaMatchMode>()
 
@@ -389,9 +415,18 @@ class MetadataRepository(
             if (publisher == null && !meta.publisher.isNullOrBlank()) {
                 publisher = meta.publisher; contributed = true
             }
+            if (description == null && !meta.description.isNullOrBlank()) {
+                description = meta.description; contributed = true
+            }
             if (contributed) {
                 usedProviders += providerId
                 usedModes += mode
+            }
+        }
+
+        localSeedMap[g.id]?.let { local ->
+            if (!local.isEmpty) {
+                merge("local", MetaMatchMode.LocalFile, null, local)
             }
         }
 
@@ -435,7 +470,7 @@ class MetadataRepository(
                 else -> {
                     val desc = ScraperCatalog.metaDescriptor(provider.id)
                     if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
-                    val hit = if (queryApi) {
+                    var hit = if (queryApi) {
                         client.queryProvider(
                             providerId = provider.id,
                             game = g,
@@ -446,6 +481,23 @@ class MetadataRepository(
                         )
                     } else {
                         client.cachedHit(provider.id, g.id)
+                    }
+                    // I3: 中文/汉化 ROM 首次未命中时，自动以 CjkAliases 标准化英文名二次重试
+                    if (queryApi && (hit == null || hit.isEmpty) &&
+                        (CjkAliases.containsCjk(g.title) || CjkAliases.containsCjk(g.baseName))
+                    ) {
+                        val enAlias = CjkAliases.expandEnglishAliases(g.title).firstOrNull()
+                            ?: CjkAliases.expandEnglishAliases(g.baseName).firstOrNull()
+                        if (!enAlias.isNullOrBlank() && !enAlias.equals(officialName, ignoreCase = true)) {
+                            hit = client.queryProvider(
+                                providerId = provider.id,
+                                game = g,
+                                platform = platform,
+                                cred = cred,
+                                forceRefresh = true,
+                                officialNameHint = enAlias,
+                            )
+                        }
                     }
                     if (hit != null && !hit.isEmpty) {
                         val apiMode = when (provider.id) {
@@ -472,6 +524,7 @@ class MetadataRepository(
             genre = genre,
             developer = developer,
             publisher = publisher,
+            description = description,
         )
         val info = if (usedProviders.isNotEmpty() || identity?.crc32 != null || identity?.serial != null) {
             MetadataResolutionInfo(

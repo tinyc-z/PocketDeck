@@ -25,7 +25,16 @@ enum class CategorySortOrder {
     ModifiedNewest, // 文件修改时间 新 -> 旧
     SizeDesc,       // 游戏大小 大 -> 小
     SizeAsc,        // 游戏大小 小 -> 大
+    LastPlayedDesc, // 最近游玩 新 -> 旧
+    PlayTimeDesc,   // 游玩最久 多 -> 少
 }
+
+/** 单游戏游玩统计（启动次数、累计游玩时长、最近游玩时间戳）。 */
+data class PlayStats(
+    val playCount: Int = 0,
+    val totalPlayMs: Long = 0L,
+    val lastPlayedAt: Long = 0L,
+)
 
 /**
  * 自定义分类（标签）。
@@ -220,6 +229,8 @@ data class UserData(
     val deviceName: String = "",
     /** 游戏快传是否兼容 LocalSend v2 协议（默认开启）。 */
     val localSendCompat: Boolean = true,
+    /** 单游戏游玩统计（gameId -> PlayStats）。 */
+    val playStats: Map<String, PlayStats> = emptyMap(),
 )
 
 private val Context.dataStore by preferencesDataStore(name = "user")
@@ -282,6 +293,7 @@ class UserStore(private val context: Context) {
         val deviceId = stringPreferencesKey("device_id")
         val deviceName = stringPreferencesKey("device_name")
         val localSendCompat = booleanPreferencesKey("local_send_compat")
+        val playStats = stringPreferencesKey("play_stats")
     }
 
     private companion object {
@@ -509,6 +521,7 @@ class UserStore(private val context: Context) {
             deviceId = this[K.deviceId].orEmpty(),
             deviceName = this[K.deviceName].orEmpty(),
             localSendCompat = this[K.localSendCompat] ?: true,
+            playStats = PlayStatsCodec.decodePlayStats(this[K.playStats]),
         )
     }
 
@@ -517,9 +530,29 @@ class UserStore(private val context: Context) {
         p[K.favorites] = if (id in cur) cur - id else cur + id
     }
 
-    suspend fun addRecent(id: String) = context.dataStore.edit { p ->
+    suspend fun addRecent(id: String) = recordGameLaunch(id)
+
+    suspend fun recordGameLaunch(id: String, nowMs: Long = System.currentTimeMillis()) = context.dataStore.edit { p ->
         val cur = p[K.recents]?.split('\n')?.filter { it.isNotEmpty() }.orEmpty()
         p[K.recents] = (listOf(id) + (cur - id)).take(MAX_RECENTS).joinToString("\n")
+        val stats = PlayStatsCodec.decodePlayStats(p[K.playStats]).toMutableMap()
+        val prev = stats[id] ?: PlayStats()
+        stats[id] = prev.copy(
+            playCount = prev.playCount + 1,
+            lastPlayedAt = nowMs,
+        )
+        p[K.playStats] = PlayStatsCodec.encodePlayStats(stats)
+    }
+
+    suspend fun addPlayDuration(id: String, deltaMs: Long) = context.dataStore.edit { p ->
+        if (deltaMs <= 0L) return@edit
+        val stats = PlayStatsCodec.decodePlayStats(p[K.playStats]).toMutableMap()
+        val prev = stats[id] ?: PlayStats()
+        stats[id] = prev.copy(
+            totalPlayMs = prev.totalPlayMs + deltaMs,
+            lastPlayedAt = maxOf(prev.lastPlayedAt, System.currentTimeMillis()),
+        )
+        p[K.playStats] = PlayStatsCodec.encodePlayStats(stats)
     }
 
     suspend fun saveGameEdits(id: String, name: String?, cover: String?) = context.dataStore.edit { p ->
@@ -683,5 +716,38 @@ class UserStore(private val context: Context) {
         if (new.deviceId.isNotBlank()) p[K.deviceId] = new.deviceId
         if (new.deviceName.isNotBlank()) p[K.deviceName] = new.deviceName
         p[K.localSendCompat] = new.localSendCompat
+        p[K.playStats] = PlayStatsCodec.encodePlayStats(new.playStats)
+    }
+
+    object PlayStatsCodec {
+        fun decodePlayStats(s: String?): Map<String, PlayStats> = runCatching {
+            if (s.isNullOrBlank()) return emptyMap()
+            val obj = JSONObject(s)
+            val out = LinkedHashMap<String, PlayStats>(obj.length() * 2)
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val id = keys.next()
+                val item = obj.optJSONObject(id) ?: continue
+                out[id] = PlayStats(
+                    playCount = item.optInt("c", 0).coerceAtLeast(0),
+                    totalPlayMs = item.optLong("t", 0L).coerceAtLeast(0L),
+                    lastPlayedAt = item.optLong("l", 0L).coerceAtLeast(0L),
+                )
+            }
+            out
+        }.getOrDefault(emptyMap())
+
+        fun encodePlayStats(map: Map<String, PlayStats>): String = JSONObject().apply {
+            for ((id, st) in map) {
+                put(
+                    id,
+                    JSONObject().apply {
+                        put("c", st.playCount)
+                        put("t", st.totalPlayMs)
+                        put("l", st.lastPlayedAt)
+                    },
+                )
+            }
+        }.toString()
     }
 }
