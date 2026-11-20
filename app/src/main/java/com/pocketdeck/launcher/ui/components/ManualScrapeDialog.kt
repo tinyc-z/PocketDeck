@@ -70,6 +70,7 @@ import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.brandBorder
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
@@ -141,7 +142,11 @@ fun ManualScrapeDialog(
     game: Game,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
-    onSearch: suspend (String, (String) -> Unit) -> List<ManualScrapeCandidate>,
+    onSearch: suspend (
+        keyword: String,
+        onActiveSourcesChanged: (List<String>) -> Unit,
+        onPartialResults: (List<ManualScrapeCandidate>) -> Unit,
+    ) -> List<ManualScrapeCandidate>,
     onApply: (ManualScrapeCandidate) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -151,10 +156,11 @@ fun ManualScrapeDialog(
     val keyboardController = LocalSoftwareKeyboardController.current
     var keyword by remember(game.id) { mutableStateOf(game.title) }
     var searching by remember { mutableStateOf(false) }
-    var searchingSourceId by remember { mutableStateOf<String?>(null) }
+    var activeSourceIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var searchedOnce by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<ManualScrapeCandidate>>(emptyList()) }
     var selectedIdx by remember { mutableIntStateOf(0) }
+    var searchJob by remember { mutableStateOf<Job?>(null) }
     val listState = rememberLazyListState()
     val resolvedUrls = remember(results) { mutableMapOf<Int, String>() }
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.88f).dp
@@ -180,17 +186,35 @@ fun ManualScrapeDialog(
     fun runSearch() {
         val q = keyword.trim()
         dismissKeyboard()
-        if (q.isEmpty() || searching) return
-        scope.launch {
+        if (q.isEmpty()) return
+        searchJob?.cancel()
+        searchJob = scope.launch {
             searching = true
-            searchingSourceId = null
-            results = runCatching {
-                onSearch(q) { sourceId -> searchingSourceId = sourceId }
-            }.getOrDefault(emptyList())
+            activeSourceIds = emptyList()
+            results = emptyList()
             selectedIdx = 0
-            searchedOnce = true
-            searchingSourceId = null
-            searching = false
+            try {
+                val finalList = runCatching {
+                    onSearch(
+                        q,
+                        { sources -> activeSourceIds = sources },
+                        { partial ->
+                            results = partial
+                            if (selectedIdx >= partial.size) {
+                                selectedIdx = (partial.size - 1).coerceAtLeast(0)
+                            }
+                        },
+                    )
+                }.getOrDefault(results)
+                results = finalList
+                if (selectedIdx >= finalList.size) {
+                    selectedIdx = (finalList.size - 1).coerceAtLeast(0)
+                }
+            } finally {
+                searchedOnce = true
+                activeSourceIds = emptyList()
+                searching = false
+            }
         }
     }
 
@@ -287,14 +311,16 @@ fun ManualScrapeDialog(
 
             Spacer(Modifier.height(12.dp))
 
+            val activeSourceLabels = activeSourceIds.map { pid ->
+                (ScraperCatalog.coverDescriptor(pid) ?: ScraperCatalog.metaDescriptor(pid))
+                    ?.nameRes
+                    ?.let { stringResource(it) }
+                    ?: pid
+            }
+            val activeSourceSummary = activeSourceLabels.joinToString(" · ")
+
             when {
-                searching -> {
-                    val sourceLabel = searchingSourceId?.let { pid ->
-                        (ScraperCatalog.coverDescriptor(pid) ?: ScraperCatalog.metaDescriptor(pid))
-                            ?.nameRes
-                            ?.let { stringResource(it) }
-                            ?: pid
-                    }
+                searching && results.isEmpty() -> {
                     Box(
                         Modifier
                             .fillMaxWidth()
@@ -306,9 +332,9 @@ fun ManualScrapeDialog(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             CircularProgressIndicator(color = DeckColors.Ruby, strokeWidth = 2.4.dp)
-                            if (!sourceLabel.isNullOrBlank()) {
+                            if (activeSourceSummary.isNotBlank()) {
                                 Text(
-                                    text = stringResource(R.string.manual_scrape_searching_source, sourceLabel),
+                                    text = stringResource(R.string.manual_scrape_searching_source, activeSourceSummary),
                                     style = DeckType.metaLabel,
                                     color = DeckColors.TextSecondary,
                                     maxLines = 1,
@@ -333,6 +359,28 @@ fun ManualScrapeDialog(
                     }
                 }
                 else -> {
+                    if (searching && activeSourceSummary.isNotBlank()) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                color = DeckColors.Ruby,
+                                strokeWidth = 1.8.dp,
+                                modifier = Modifier.size(13.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.manual_scrape_searching_source, activeSourceSummary),
+                                style = DeckType.metaLabel,
+                                color = DeckColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     LazyColumn(
                         state = listState,
                         modifier = Modifier

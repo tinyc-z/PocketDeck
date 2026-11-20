@@ -627,13 +627,14 @@ class MetadataRepository(
         }
     }
 
-    /** 手动关键词搜索刮削：综合 Libretro Boxart 索引与已启用的在线刮削节点返回候选列表。 */
+    /** 手动关键词搜索刮削：Libretro 索引秒出 + 其余在线节点并发查询，谁先回来就立刻增量回调更新列表。 */
     suspend fun manualSearch(
         keyword: String,
         game: Game,
         platform: Platform?,
         covers: CoverSource,
-        onSourceStart: (String) -> Unit = {},
+        onActiveSourcesChanged: (List<String>) -> Unit = {},
+        onPartialResults: (List<ManualScrapeCandidate>) -> Unit = {},
     ): List<ManualScrapeCandidate> = withContext(Dispatchers.IO) {
         val cleanKeyword = keyword.trim()
         if (cleanKeyword.isEmpty()) return@withContext emptyList()
@@ -642,34 +643,45 @@ class MetadataRepository(
             baseName = cleanKeyword,
             title = cleanKeyword,
         )
+        val lock = Any()
         val out = ArrayList<ManualScrapeCandidate>()
         val seen = HashSet<String>()
 
-        fun addCandidate(c: ManualScrapeCandidate) {
-            val key = "${c.title.lowercase()}|${c.coverUrl.orEmpty()}"
-            if (seen.add(key)) out += c
+        fun addCandidatesLocked(items: List<ManualScrapeCandidate>): Boolean {
+            var added = false
+            for (c in items) {
+                val key = "${c.title.lowercase()}|${c.coverUrl.orEmpty()}"
+                if (seen.add(key)) {
+                    out += c
+                    added = true
+                }
+            }
+            return added
         }
 
-        // 1) Libretro Boxarts 索引候选（秒级出图）
-        onSourceStart(ScraperCatalog.CoverIds.LIBRETRO_BOXARTS)
+        fun snapshot(): List<ManualScrapeCandidate> = synchronized(lock) { out.take(15).toList() }
+
+        // 1) Libretro Boxarts 索引候选（本地内存毫秒级返回，有结果立即推送给界面）
+        onActiveSourcesChanged(listOf(ScraperCatalog.CoverIds.LIBRETRO_BOXARTS))
         val boxarts = runCatching { covers.searchIndexCandidates(cleanKeyword, platform) }.getOrDefault(emptyList())
         val system = platform?.libretroSystem
         val table = system?.let { systemTables[it] }
-        for (match in boxarts) {
-            val meta = table?.find(match.title, match.title, null, null)?.row?.meta
-                ?: GameMetadata()
-            addCandidate(
-                ManualScrapeCandidate(
-                    title = match.title,
-                    providerId = ScraperCatalog.CoverIds.LIBRETRO_BOXARTS,
-                    coverUrl = match.url,
-                    metadata = meta,
-                    fallbackCoverUrls = match.fallbackUrls,
-                ),
+        val libretroItems = boxarts.map { match ->
+            val meta = table?.find(match.title, match.title, null, null)?.row?.meta ?: GameMetadata()
+            ManualScrapeCandidate(
+                title = match.title,
+                providerId = ScraperCatalog.CoverIds.LIBRETRO_BOXARTS,
+                coverUrl = match.url,
+                metadata = meta,
+                fallbackCoverUrls = match.fallbackUrls,
             )
         }
+        val gotLibretro = synchronized(lock) { addCandidatesLocked(libretroItems) }
+        if (gotLibretro) {
+            onPartialResults(snapshot())
+        }
 
-        // 2) 在线 API 节点候选
+        // 2) 在线 API 节点全并发查询，哪个源先返回就立刻增量刷新列表
         val cred = credentials
         val apiProviders = listOf(
             ScraperCatalog.MetaIds.GAMETDB,
@@ -678,34 +690,59 @@ class MetadataRepository(
             ScraperCatalog.MetaIds.IGDB,
             ScraperCatalog.MetaIds.WIKIDATA,
             ScraperCatalog.CoverIds.STEAMGRIDDB,
-        )
-        for (pid in apiProviders) {
-            if (pid == ScraperCatalog.MetaIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) continue
+        ).filter { pid ->
+            if (pid == ScraperCatalog.MetaIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) {
+                return@filter false
+            }
             val desc = ScraperCatalog.metaDescriptor(pid) ?: ScraperCatalog.coverDescriptor(pid)
-            if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
-            onSourceStart(pid)
-            val hit = runCatching {
-                client.queryProvider(
-                    providerId = pid,
-                    game = synthetic,
-                    platform = platform,
-                    cred = cred,
-                    forceRefresh = true,
-                    officialNameHint = cleanKeyword,
-                )
-            }.getOrNull() ?: continue
-            if (!hit.isEmpty || hit.coverUrls.isNotEmpty()) {
-                val title = hit.officialName?.takeIf { it.isNotBlank() } ?: cleanKeyword
-                if (hit.coverUrls.isNotEmpty()) {
-                    for (url in hit.coverUrls.take(3)) {
-                        addCandidate(ManualScrapeCandidate(title, pid, url, hit.meta))
+            ScraperCatalog.hasCredentials(desc?.credentialKind, cred)
+        }
+
+        if (apiProviders.isNotEmpty()) {
+            val active = LinkedHashSet<String>(apiProviders)
+            onActiveSourcesChanged(synchronized(lock) { active.toList() })
+            coroutineScope {
+                for (pid in apiProviders) {
+                    launch(Dispatchers.IO) {
+                        try {
+                            val hit = runCatching {
+                                client.queryProvider(
+                                    providerId = pid,
+                                    game = synthetic,
+                                    platform = platform,
+                                    cred = cred,
+                                    forceRefresh = true,
+                                    officialNameHint = cleanKeyword,
+                                )
+                            }.getOrNull()
+                            if (hit != null && (!hit.isEmpty || hit.coverUrls.isNotEmpty())) {
+                                val title = hit.officialName?.takeIf { it.isNotBlank() } ?: cleanKeyword
+                                val batch = if (hit.coverUrls.isNotEmpty()) {
+                                    hit.coverUrls.take(3).map { url ->
+                                        ManualScrapeCandidate(title, pid, url, hit.meta)
+                                    }
+                                } else {
+                                    listOf(ManualScrapeCandidate(title, pid, null, hit.meta))
+                                }
+                                val changed = synchronized(lock) { addCandidatesLocked(batch) }
+                                if (changed) {
+                                    onPartialResults(snapshot())
+                                }
+                            }
+                        } finally {
+                            val remaining = synchronized(lock) {
+                                active.remove(pid)
+                                active.toList()
+                            }
+                            onActiveSourcesChanged(remaining)
+                        }
                     }
-                } else {
-                    addCandidate(ManualScrapeCandidate(title, pid, null, hit.meta))
                 }
             }
+        } else {
+            onActiveSourcesChanged(emptyList())
         }
-        out.take(15)
+        snapshot()
     }
 
     /** 一键应用手动搜索刮削结果（封面 + 元数据 + 官方名）。 */
