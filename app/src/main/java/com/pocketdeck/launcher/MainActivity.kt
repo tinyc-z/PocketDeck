@@ -1,9 +1,12 @@
 package com.pocketdeck.launcher
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -12,15 +15,28 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import com.pocketdeck.launcher.data.AppLocale
 import com.pocketdeck.launcher.ui.home.HomeScreen
 
 class MainActivity : ComponentActivity() {
 
     private val homeResetTick = mutableIntStateOf(0)
+
+    @Suppress("DEPRECATION")
+    private val homeKeyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != Intent.ACTION_CLOSE_SYSTEM_DIALOGS) return
+            val reason = intent.getStringExtra("reason")
+            if (reason == "homekey" && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                homeResetTick.intValue += 1
+            }
+        }
+    }
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
@@ -54,15 +70,36 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize(),
             )
         }
+
+        @Suppress("DEPRECATION")
+        ContextCompat.registerReceiver(
+            this,
+            homeKeyReceiver,
+            IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS),
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+    }
+
+    override fun onDestroy() {
+        runCatching { unregisterReceiver(homeKeyReceiver) }
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+        if (intent.action == Intent.ACTION_MAIN || intent.hasCategory(Intent.CATEGORY_HOME)) {
             homeResetTick.intValue += 1
         }
         hideSystemBars()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_HOME && event.action == KeyEvent.ACTION_UP) {
+            homeResetTick.intValue += 1
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onResume() {
