@@ -124,6 +124,11 @@ class CoverSource(
         // 后台一次性加载 SQLite 封面缓存并平滑迁移旧版 cover_index_v3 SharedPreferences
         scope.launch(Dispatchers.IO) {
             migrateLegacyPrefsIfNeeded()
+            val metaPrefs = appCtx.getSharedPreferences("cover_matcher_meta", Context.MODE_PRIVATE)
+            if (metaPrefs.getInt("matcher_ver", 0) < MATCHER_VERSION) {
+                db.clearAllCoverFailures()
+                metaPrefs.edit().putInt("matcher_ver", MATCHER_VERSION).apply()
+            }
             val rows = db.loadAllCovers()
             val now = System.currentTimeMillis()
             var loadedUrls = 0
@@ -526,19 +531,26 @@ class CoverSource(
         for (node in enabled) {
             when (node.id) {
                 ScraperCatalog.CoverIds.LIBRETRO_BOXARTS -> if (online && system != null) {
-                    val mirror = activeLibretroMirror
+                    val primary = activeLibretroMirror
+                    val fallback1 = (primary + 1) % 3
+                    val fallback2 = (primary + 2) % 3
                     indexMatches.forEach { (fileName, mode) ->
-                        addUrl(buildLibretroBoxartUrl(system, fileName, mirror), node.id, mode)
+                        addUrl(buildLibretroBoxartUrl(system, fileName, primary), node.id, mode)
+                    }
+                    // 主镜像宕机或 404 时，为最匹配候选自动追加其余两个镜像兜底（命中后会切换全局活跃镜像）
+                    indexMatches.take(2).forEach { (fileName, mode) ->
+                        addUrl(buildLibretroBoxartUrl(system, fileName, fallback1), node.id, mode)
+                        addUrl(buildLibretroBoxartUrl(system, fileName, fallback2), node.id, mode)
                     }
                     directNames.take(6).forEach { n ->
-                        addUrl(buildLibretroBoxartUrl(system, "$n.png", mirror), node.id, CoverMatchMode.DirectProbe)
+                        addUrl(buildLibretroBoxartUrl(system, "$n.png", primary), node.id, CoverMatchMode.DirectProbe)
                     }
                 }
                 ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (online && system != null) {
-                    val encSys = Uri.encode(system)
+                    val mirror = activeLibretroMirror
                     indexMatches.take(2).forEach { (fileName, mode) ->
-                        addUrl("https://thumbnails.libretro.com/$encSys/Named_Titles/${Uri.encode(fileName)}", node.id, mode)
-                        addUrl("https://thumbnails.libretro.com/$encSys/Named_Snaps/${Uri.encode(fileName)}", node.id, mode)
+                        addUrl(buildLibretroThumbUrl(system, "Named_Titles", fileName, mirror), node.id, mode)
+                        addUrl(buildLibretroThumbUrl(system, "Named_Snaps", fileName, mirror), node.id, mode)
                     }
                 }
                 ScraperCatalog.CoverIds.GAMETDB -> {
@@ -628,10 +640,10 @@ class CoverSource(
                     }
                 }
                 ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (system != null) {
-                    val encSys = Uri.encode(system)
+                    val mirror = activeLibretroMirror
                     indexMatches.take(2).forEach {
-                        push("https://thumbnails.libretro.com/$encSys/Named_Titles/${Uri.encode(it)}", node.id)
-                        push("https://thumbnails.libretro.com/$encSys/Named_Snaps/${Uri.encode(it)}", node.id)
+                        push(buildLibretroThumbUrl(system, "Named_Titles", it, mirror), node.id)
+                        push(buildLibretroThumbUrl(system, "Named_Snaps", it, mirror), node.id)
                     }
                 }
                 else -> {
@@ -717,6 +729,18 @@ class CoverSource(
             scheduleCoverInfoPut(key, CoverResolutionInfo(origin.first, origin.second, modelStr))
         }
         val httpUrl = (model as? String)?.takeIf { it.startsWith("http") }
+        // 若 Libretro 备用镜像成功出图，自动将全局活跃镜像切至该可用镜像，减少后续卡片 404 等待
+        if (httpUrl != null) {
+            val hitMirror = when {
+                "cdn.jsdelivr.net/gh/libretro-thumbnails/" in httpUrl -> 1
+                "raw.githubusercontent.com/libretro-thumbnails/" in httpUrl -> 2
+                "thumbnails.libretro.com/" in httpUrl -> 0
+                else -> -1
+            }
+            if (hitMirror >= 0 && hitMirror != activeLibretroMirror) {
+                activeLibretroMirror = hitMirror
+            }
+        }
         val urlChanged = if (httpUrl != null) resolvedUrls.put(key, httpUrl) != httpUrl else false
         if ((wasFailed || urlChanged) && httpUrl != null) {
             scope.launch(Dispatchers.IO) {
@@ -1037,10 +1061,13 @@ class CoverSource(
     private fun cachedUrl(key: String): String? =
         resolvedUrls[key]?.takeIf { it.isNotEmpty() }
 
-    private fun buildLibretroBoxartUrl(system: String, fileName: String, mirror: Int): String = when (mirror) {
-        1 -> "https://cdn.jsdelivr.net/gh/libretro-thumbnails/${Uri.encode(system.replace(' ', '_'))}@master/Named_Boxarts/${Uri.encode(fileName)}"
-        2 -> "https://raw.githubusercontent.com/libretro-thumbnails/${Uri.encode(system.replace(' ', '_'))}/master/Named_Boxarts/${Uri.encode(fileName)}"
-        else -> "https://thumbnails.libretro.com/${Uri.encode(system)}/Named_Boxarts/${Uri.encode(fileName)}"
+    private fun buildLibretroBoxartUrl(system: String, fileName: String, mirror: Int): String =
+        buildLibretroThumbUrl(system, "Named_Boxarts", fileName, mirror)
+
+    private fun buildLibretroThumbUrl(system: String, kind: String, fileName: String, mirror: Int): String = when (mirror) {
+        1 -> "https://cdn.jsdelivr.net/gh/libretro-thumbnails/${Uri.encode(system.replace(' ', '_'))}@master/$kind/${Uri.encode(fileName)}"
+        2 -> "https://raw.githubusercontent.com/libretro-thumbnails/${Uri.encode(system.replace(' ', '_'))}/master/$kind/${Uri.encode(fileName)}"
+        else -> "https://thumbnails.libretro.com/${Uri.encode(system)}/$kind/${Uri.encode(fileName)}"
     }
 
     private fun buildDirectNames(game: Game, officialName: String?): List<String> {
@@ -1061,25 +1088,29 @@ class CoverSource(
     }
 
     private fun fetchOnlineBoxartList(system: String, cacheFile: File): List<String> {
-        // 主源 thumbnails.libretro.com HTML 目录页；若网络/5xx 故障，自动故障转移到 GitHub API 树目录
+        // 三级镜像容灾：1. thumbnails.libretro.com HTML → 2. jsDelivr flat API → 3. GitHub Trees API
         val primaryUrl = "https://thumbnails.libretro.com/${Uri.encode(system)}/Named_Boxarts/"
         val primaryNames = fetchLibretroHtmlListing(system, primaryUrl)
-        if (primaryNames != null) {
-            if (primaryNames.isNotEmpty()) {
-                activeLibretroMirror = 0
-                writeIndexCache(cacheFile, primaryNames)
-            }
+        if (!primaryNames.isNullOrEmpty()) {
+            activeLibretroMirror = 0
+            writeIndexCache(cacheFile, primaryNames)
             return primaryNames
         }
-        // 网络/5xx 失败时故障转移到 jsDelivr 文件列表 API，并把后续图片镜像切到 jsDelivr
         val repo = Uri.encode(system.replace(' ', '_'))
-        val fallbackUrl = "https://data.jsdelivr.com/v1/package/gh/libretro-thumbnails/$repo@master/flat"
-        val fallbackNames = fetchJsDelivrBoxartList(system, fallbackUrl)
-        if (fallbackNames.isNotEmpty()) {
+        val jsDelivrUrl = "https://data.jsdelivr.com/v1/package/gh/libretro-thumbnails/$repo@master/flat"
+        val jsDelivrNames = fetchJsDelivrBoxartList(system, jsDelivrUrl)
+        if (jsDelivrNames.isNotEmpty()) {
             activeLibretroMirror = 1
-            writeIndexCache(cacheFile, fallbackNames)
+            writeIndexCache(cacheFile, jsDelivrNames)
+            return jsDelivrNames
         }
-        return fallbackNames
+        val githubUrl = "https://api.github.com/repos/libretro-thumbnails/$repo/git/trees/master?recursive=1"
+        val githubNames = fetchGitHubBoxartList(system, githubUrl)
+        if (githubNames.isNotEmpty()) {
+            activeLibretroMirror = 2
+            writeIndexCache(cacheFile, githubNames)
+        }
+        return githubNames
     }
 
     private fun fetchLibretroHtmlListing(system: String, url: String): List<String>? {
@@ -1089,10 +1120,6 @@ class CoverSource(
             val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
             client.http.newCall(req).execute().use { resp ->
                 code = resp.code
-                if (code == 404) {
-                    ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "404 no repo")
-                    return emptyList()
-                }
                 if (!resp.isSuccessful) {
                     ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "HTTP $code")
                     return null
@@ -1146,6 +1173,40 @@ class CoverSource(
             }
         } catch (t: Throwable) {
             ScrapeLogStore.log("COVER", "jsdelivr_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
+            emptyList()
+        }
+    }
+
+    private fun fetchGitHubBoxartList(system: String, url: String): List<String> {
+        val t0 = System.currentTimeMillis()
+        var code: Int? = null
+        return try {
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/vnd.github+json")
+                .build()
+            client.http.newCall(req).execute().use { resp ->
+                code = resp.code
+                if (!resp.isSuccessful) {
+                    ScrapeLogStore.log("COVER", "github_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "HTTP $code")
+                    return emptyList()
+                }
+                val text = resp.body?.string().orEmpty()
+                val tree = org.json.JSONObject(text).optJSONArray("tree") ?: return emptyList()
+                val names = LinkedHashSet<String>(4096)
+                val prefix = "Named_Boxarts/"
+                for (i in 0 until tree.length()) {
+                    val path = tree.optJSONObject(i)?.optString("path") ?: continue
+                    if (path.startsWith(prefix) && path.endsWith(".png", ignoreCase = true)) {
+                        names += path.removePrefix(prefix)
+                    }
+                }
+                ScrapeLogStore.log("COVER", "github_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${names.size} entries (github failover)")
+                names.toList()
+            }
+        } catch (t: Throwable) {
+            ScrapeLogStore.log("COVER", "github_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
             emptyList()
         }
     }
@@ -1263,6 +1324,7 @@ class CoverSource(
             .joinToString("") { "%02x".format(it) }
 
     private companion object {
+        const val MATCHER_VERSION = 2
         const val THUMB_MAX_WIDTH_PX = 320
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
 

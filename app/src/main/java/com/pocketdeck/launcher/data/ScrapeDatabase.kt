@@ -180,6 +180,10 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    fun clearAllCoverFailures() {
+        runCatching { writableDatabase.delete("cover_cache", "url IS NULL", null) }
+    }
+
     fun clearCovers() {
         runCatching { writableDatabase.delete("cover_cache", null, null) }
     }

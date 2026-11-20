@@ -102,4 +102,19 @@ class TitleNormalizerTest {
         assertTrue(!com.pocketdeck.launcher.data.UpdateChecker.isNewerVersion("0.5.1", "0.5.1"))
         assertTrue(!com.pocketdeck.launcher.data.UpdateChecker.isNewerVersion("0.5.0", "0.5.1"))
     }
+
+    @Test
+    fun matchesTrailingVersionAndEditionSuffixes() {
+        val goldSim = TitleNormalizer.similarity(
+            "Pokemon Gold (Taiwan) (En) (Unl)",
+            "Pokemon - Gold Version (USA, Europe) (SGB Enhanced) (GB Compatible)",
+        )
+        assertTrue("Expected high similarity for Pokemon Gold vs Gold Version, got $goldSim", goldSim >= 0.90)
+
+        val silverSim = TitleNormalizer.similarity(
+            "Pokemon Gold (Taiwan) (En) (Unl)",
+            "Pokemon - Silver Version (USA, Europe)",
+        )
+        assertTrue("Expected low similarity for Pokemon Gold vs Silver Version, got $silverSim", silverSim < 0.70)
+    }
 }

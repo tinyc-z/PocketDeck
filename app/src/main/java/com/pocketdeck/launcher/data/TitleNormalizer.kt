@@ -26,6 +26,7 @@ object TitleNormalizer {
     )
     private val ARTICLE_SUFFIX = Regex("""^(.+?),\s*(The|A|An)(?=$|\s|[:\-—])(.*)$""", RegexOption.IGNORE_CASE)
     private val WHITESPACE = Regex("""\s+""")
+    private val TRAILING_EDITION_WORDS = Regex("""\s+(?:version|edition)$""")
     // 保留 ASCII 字母数字、CJK 统一汉字、日文平假名/片假名、韩文音节
     private val NON_WORD_SPACED = Regex("""[^a-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]+""")
     private val NON_WORD_COMPACT = Regex("""[^a-z0-9\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]""")
@@ -195,6 +196,11 @@ object TitleNormalizer {
         val compA = NON_WORD_COMPACT.replace(normA, "")
         val compB = NON_WORD_COMPACT.replace(normB, "")
         if (compA == compB) return 0.98
+
+        // 常见无歧义尾部版本词兼容（如 "Pokemon Gold" ↔ "Pokemon - Gold Version"）
+        val baseA = TRAILING_EDITION_WORDS.replace(normA, "")
+        val baseB = TRAILING_EDITION_WORDS.replace(normB, "")
+        if (baseA.isNotEmpty() && baseA == baseB) return 0.96
 
         val tokA = tokenize(normA).toSet()
         val tokB = tokenize(normB).toSet()
