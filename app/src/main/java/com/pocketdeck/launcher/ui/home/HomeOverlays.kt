@@ -256,7 +256,7 @@ internal fun HomeOverlays(
             game = game,
             swapAbxy = state.swapAbxy,
             keyBindings = state.keyBindings,
-            onSearch = { kw -> vm.manualSearchScrape(kw, game) },
+            onSearch = { kw, onSource -> vm.manualSearchScrape(kw, game, onSource) },
             onApply = { cand ->
                 vm.applyManualScrape(game, cand)
                 Toast.makeText(context, context.getString(R.string.manual_scrape_applied), Toast.LENGTH_SHORT).show()

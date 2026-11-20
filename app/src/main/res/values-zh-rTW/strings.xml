@@ -757,6 +757,7 @@
     <string name="manual_scrape_apply_btn">套用</string>
     <string name="manual_scrape_empty">找不到相符的遊戲封面或資訊</string>
     <string name="manual_scrape_applied">已套用封面與中繼資料</string>
+    <string name="manual_scrape_searching_source">正在搜尋 %1$s…</string>
     <string name="settings_ra_cores_saf_title">授權 RetroArch 核心目錄（SAF）</string>
     <string name="settings_ra_cores_saf_desc">授權一次 RetroArch 核心目錄以精準掃描已安裝的 .so 核心</string>
     <string name="settings_ra_cores_count_fmt">%1$d 個核心</string>

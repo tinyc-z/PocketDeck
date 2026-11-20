@@ -632,6 +632,7 @@ class MetadataRepository(
         game: Game,
         platform: Platform?,
         covers: CoverSource,
+        onSourceStart: (String) -> Unit = {},
     ): List<ManualScrapeCandidate> = withContext(Dispatchers.IO) {
         val cleanKeyword = keyword.trim()
         if (cleanKeyword.isEmpty()) return@withContext emptyList()
@@ -649,6 +650,7 @@ class MetadataRepository(
         }
 
         // 1) Libretro Boxarts 索引候选（秒级出图）
+        onSourceStart(ScraperCatalog.CoverIds.LIBRETRO_BOXARTS)
         val boxarts = runCatching { covers.searchIndexCandidates(cleanKeyword, platform) }.getOrDefault(emptyList())
         val system = platform?.libretroSystem
         val table = system?.let { systemTables[it] }
@@ -679,6 +681,7 @@ class MetadataRepository(
             if (pid == ScraperCatalog.MetaIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) continue
             val desc = ScraperCatalog.metaDescriptor(pid) ?: ScraperCatalog.coverDescriptor(pid)
             if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
+            onSourceStart(pid)
             val hit = runCatching {
                 client.queryProvider(
                     providerId = pid,

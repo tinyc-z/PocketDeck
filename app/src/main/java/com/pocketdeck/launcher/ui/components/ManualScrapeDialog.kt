@@ -48,6 +48,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -57,6 +59,7 @@ import coil3.compose.AsyncImage
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.ManualScrapeCandidate
 import com.pocketdeck.launcher.data.ScrapeProgress
+import com.pocketdeck.launcher.data.ScraperCatalog
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
@@ -136,27 +139,41 @@ fun ManualScrapeDialog(
     game: Game,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
-    onSearch: suspend (String) -> List<ManualScrapeCandidate>,
+    onSearch: suspend (String, (String) -> Unit) -> List<ManualScrapeCandidate>,
     onApply: (ManualScrapeCandidate) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var keyword by remember(game.id) { mutableStateOf(game.title) }
     var searching by remember { mutableStateOf(false) }
+    var searchingSourceId by remember { mutableStateOf<String?>(null) }
     var searchedOnce by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<ManualScrapeCandidate>>(emptyList()) }
     var selectedIdx by remember { mutableIntStateOf(0) }
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.88f).dp
 
+    fun dismissKeyboard() {
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
+        runCatching { focusRequester.requestFocus() }
+    }
+
     fun runSearch() {
         val q = keyword.trim()
+        dismissKeyboard()
         if (q.isEmpty() || searching) return
         scope.launch {
             searching = true
-            results = runCatching { onSearch(q) }.getOrDefault(emptyList())
+            searchingSourceId = null
+            results = runCatching {
+                onSearch(q) { sourceId -> searchingSourceId = sourceId }
+            }.getOrDefault(emptyList())
             selectedIdx = 0
             searchedOnce = true
+            searchingSourceId = null
             searching = false
         }
     }
@@ -256,13 +273,33 @@ fun ManualScrapeDialog(
 
             when {
                 searching -> {
+                    val sourceLabel = searchingSourceId?.let { pid ->
+                        (ScraperCatalog.coverDescriptor(pid) ?: ScraperCatalog.metaDescriptor(pid))
+                            ?.nameRes
+                            ?.let { stringResource(it) }
+                            ?: pid
+                    }
                     Box(
                         Modifier
                             .fillMaxWidth()
                             .height(160.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator(color = DeckColors.Ruby, strokeWidth = 2.4.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            CircularProgressIndicator(color = DeckColors.Ruby, strokeWidth = 2.4.dp)
+                            if (!sourceLabel.isNullOrBlank()) {
+                                Text(
+                                    text = stringResource(R.string.manual_scrape_searching_source, sourceLabel),
+                                    style = DeckType.metaLabel,
+                                    color = DeckColors.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
                 results.isEmpty() && searchedOnce -> {

@@ -883,8 +883,12 @@ class HomeViewModel(
         _state.value = _state.value.copy(manualScrapeGame = null)
     }
 
-    suspend fun manualSearchScrape(keyword: String, game: Game): List<com.pocketdeck.launcher.data.ManualScrapeCandidate> =
-        metadataRepo.manualSearch(keyword, game, _state.value.platformFor(game), covers)
+    suspend fun manualSearchScrape(
+        keyword: String,
+        game: Game,
+        onSourceStart: (String) -> Unit = {},
+    ): List<com.pocketdeck.launcher.data.ManualScrapeCandidate> =
+        metadataRepo.manualSearch(keyword, game, _state.value.platformFor(game), covers, onSourceStart)
 
     fun applyManualScrape(game: Game, candidate: com.pocketdeck.launcher.data.ManualScrapeCandidate) {
         metadataRepo.applyManualScrape(game.id, candidate, covers)
