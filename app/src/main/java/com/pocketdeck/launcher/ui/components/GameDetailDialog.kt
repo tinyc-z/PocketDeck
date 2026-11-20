@@ -100,7 +100,7 @@ fun GameDetailDialog(
             onClick = onToggleFavorite,
         ),
         DetailAction(stringResource(R.string.menu_edit), onClick = onEdit),
-        DetailAction(stringResource(R.string.menu_manual_scrape), onClick = onManualScrape),
+        DetailAction(stringResource(R.string.detail_action_rescrape), onClick = onManualScrape),
         DetailAction(stringResource(R.string.menu_properties), onClick = onProperties),
     )
 

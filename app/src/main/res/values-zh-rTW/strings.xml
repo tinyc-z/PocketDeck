@@ -768,6 +768,7 @@
     <string name="key_action_next_letter">下一個字母（R2）</string>
     <string name="key_action_quick_hud">快捷 HUD</string>
     <string name="menu_detail">遊戲詳情</string>
+    <string name="detail_action_rescrape">重刮</string>
     <string name="detail_play_count">遊玩次數</string>
     <string name="detail_play_time">累計時長</string>
     <string name="detail_last_played">上次遊玩</string>

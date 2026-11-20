@@ -769,6 +769,7 @@
     <string name="key_action_next_letter">Next letter (R2)</string>
     <string name="key_action_quick_hud">Quick HUD</string>
     <string name="menu_detail">Details</string>
+    <string name="detail_action_rescrape">Scrape</string>
     <string name="detail_play_count">Plays</string>
     <string name="detail_play_time">Play time</string>
     <string name="detail_last_played">Last played</string>
