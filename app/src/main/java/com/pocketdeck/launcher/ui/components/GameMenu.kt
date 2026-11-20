@@ -115,6 +115,14 @@ fun GameMenu(
     } else {
         buildList {
             add(MenuActionItem(HomeIcons.Play, stringResource(R.string.menu_play), isPrimary = true, onClick = onLaunch))
+            add(
+                MenuActionItem(
+                    icon = null,
+                    label = if (isFavorite) stringResource(R.string.menu_unfavourite) else stringResource(R.string.menu_favourite),
+                    isFavoriteToggle = true,
+                    onClick = onFavorite,
+                ),
+            )
             if (onDetail != null) {
                 add(MenuActionItem(HomeIcons.Info, stringResource(R.string.menu_detail), onClick = onDetail))
             }
@@ -124,19 +132,6 @@ fun GameMenu(
             if (game.discFiles.size > 1 && !game.fileName.endsWith(".m3u", ignoreCase = true) && onGenerateM3u != null) {
                 add(MenuActionItem(HomeIcons.Pencil, generateM3uLabel, onClick = onGenerateM3u))
             }
-            add(
-                MenuActionItem(
-                    icon = null,
-                    label = if (isFavorite) stringResource(R.string.menu_unfavourite) else stringResource(R.string.menu_favourite),
-                    isFavoriteToggle = true,
-                    onClick = onFavorite,
-                ),
-            )
-            add(MenuActionItem(HomeIcons.Pencil, stringResource(R.string.menu_edit), onClick = onEdit))
-            if (onManualScrape != null) {
-                add(MenuActionItem(HomeIcons.Search, stringResource(R.string.menu_manual_scrape), onClick = onManualScrape))
-            }
-            add(MenuActionItem(HomeIcons.Info, stringResource(R.string.menu_properties), onClick = onProperties))
         }
     }
 
