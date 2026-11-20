@@ -118,6 +118,7 @@ fun EditGameScreen(
     onHide: () -> Unit,
     onDeleteFile: (() -> Unit)? = null,
     onLocateFile: (() -> Unit)? = null,
+    onManualScrape: (() -> Unit)? = null,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     modifier: Modifier = Modifier,
@@ -347,6 +348,21 @@ fun EditGameScreen(
                             ) {
                                 Text(
                                     stringResource(R.string.edit_scrape_boxart),
+                                    style = DeckType.bottomBar,
+                                    color = DeckColors.Ruby,
+                                )
+                            }
+                        }
+
+                        if (onManualScrape != null) {
+                            OutlinedButton(
+                                onClick = onManualScrape,
+                                shape = CircleShape,
+                                border = BorderStroke(1.dp, DeckColors.Ruby.copy(alpha = 0.5f)),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    stringResource(R.string.menu_manual_scrape),
                                     style = DeckType.bottomBar,
                                     color = DeckColors.Ruby,
                                 )

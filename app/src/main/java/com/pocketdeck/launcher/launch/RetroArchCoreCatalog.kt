@@ -3,6 +3,9 @@ package com.pocketdeck.launcher.launch
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
+import android.provider.DocumentsContract
+import java.io.File
 
 /** RetroArch 核心的简短说明类型（界面按类型映射为本地化文案）。 */
 enum class CoreNote { Balanced, Accurate, Fast, Legacy, Hardware, ArcadeModern, ArcadeLegacy }
@@ -91,6 +94,79 @@ object RetroArchCoreCatalog {
     }
 
     fun displayName(id: String): String = info(id).displayName
+
+    private const val PREFS_NAME = "pocketdeck_retroarch_saf"
+    private const val KEY_CORES_TREE_URI = "cores_tree_uri"
+
+    fun saveSafCoresUri(context: Context, uri: Uri) {
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CORES_TREE_URI, uri.toString())
+            .apply()
+    }
+
+    fun getSafCoresUri(context: Context): Uri? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_CORES_TREE_URI, null)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+
+    /**
+     * 通过已持久化的 SAF 目录权限与常见外部存储路径精准扫描已安装的 RetroArch `.so` 核心。
+     */
+    fun scanSafAndExternalCores(context: Context): Set<String> {
+        val cores = LinkedHashSet<String>()
+
+        // 1) SAF 持久化授权目录扫描
+        getSafCoresUri(context)?.let { treeUri ->
+            runCatching {
+                val docId = DocumentsContract.getTreeDocumentId(treeUri)
+                val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
+                context.contentResolver.query(
+                    childrenUri,
+                    arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                    null,
+                    null,
+                    null,
+                )?.use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(0) ?: continue
+                        extractCoreIdFromSo(name)?.let { cores += it }
+                    }
+                }
+            }
+        }
+
+        // 2) 自动探测常见外部 RetroArch 核心目录
+        val sd = runCatching { Environment.getExternalStorageDirectory() }.getOrNull()
+        val probeDirs = buildList {
+            if (sd != null) {
+                add(File(sd, "RetroArch/cores"))
+                add(File(sd, "RetroArch/downloads"))
+                add(File(sd, "Android/data/com.retroarch/files/cores"))
+                add(File(sd, "Android/data/com.retroarch.aarch64/files/cores"))
+                add(File(sd, "Android/data/com.retroarch.ra32/files/cores"))
+            }
+        }
+        for (dir in probeDirs) {
+            if (!dir.isDirectory) continue
+            dir.listFiles()?.forEach { f ->
+                if (f.isFile) extractCoreIdFromSo(f.name)?.let { cores += it }
+            }
+        }
+        return cores
+    }
+
+    internal fun extractCoreIdFromSo(fileName: String): String? {
+        if (!fileName.endsWith("_libretro_android.so", ignoreCase = true)) return null
+        return fileName.dropLast("_libretro_android.so".length).takeIf { it.isNotBlank() }
+    }
 }
 
 /**

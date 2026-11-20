@@ -41,6 +41,21 @@ data class MetadataResolutionInfo(
     val serial: String? = null,
 )
 
+data class ScrapeProgress(
+    val running: Boolean = false,
+    val done: Int = 0,
+    val total: Int = 0,
+    val currentTitle: String = "",
+    val failedCount: Int = 0,
+)
+
+data class ManualScrapeCandidate(
+    val title: String,
+    val providerId: String,
+    val coverUrl: String? = null,
+    val metadata: GameMetadata = GameMetadata(),
+)
+
 /**
  * 多服务商游戏元数据仓库（Release date / Genre / Developer / Publisher / Official Name）。
  *
@@ -82,6 +97,9 @@ class MetadataRepository(
 
     private val _resolutionInfo = MutableStateFlow<Map<String, MetadataResolutionInfo>>(emptyMap())
     val resolutionInfo: StateFlow<Map<String, MetadataResolutionInfo>> = _resolutionInfo.asStateFlow()
+
+    private val _scrapeProgress = MutableStateFlow(ScrapeProgress())
+    val scrapeProgress: StateFlow<ScrapeProgress> = _scrapeProgress.asStateFlow()
 
     // 批量合并增量更新，避免高频 resolveFocusGame 引发 O(N²) Map 拷贝
     private val batchLock = Any()
@@ -552,23 +570,159 @@ class MetadataRepository(
         val nameUpdates = HashMap<String, String>()
         val infoUpdates = HashMap<String, MetadataResolutionInfo>()
 
-        for (g in games) {
-            if (!queryApi && gameCache.containsKey(g.id)) continue
-            val res = resolveSingleGame(g, platform, enabled, cred, queryApi = queryApi)
-            gameCache[g.id] = res.meta
-            if (!res.meta.isEmpty) {
-                updates[g.id] = res.meta
+        val pending = if (queryApi) games else games.filter { !gameCache.containsKey(it.id) }
+        val trackProgress = pending.size > 1
+        var doneCount = 0
+        var failCount = 0
+        if (trackProgress) {
+            _scrapeProgress.value = ScrapeProgress(
+                running = true,
+                done = 0,
+                total = pending.size,
+                currentTitle = pending.firstOrNull()?.title.orEmpty(),
+                failedCount = 0,
+            )
+        }
+
+        try {
+            for (g in pending) {
+                if (trackProgress) {
+                    _scrapeProgress.value = ScrapeProgress(
+                        running = true,
+                        done = doneCount,
+                        total = pending.size,
+                        currentTitle = g.title,
+                        failedCount = failCount,
+                    )
+                }
+                val res = resolveSingleGame(g, platform, enabled, cred, queryApi = queryApi)
+                gameCache[g.id] = res.meta
+                if (!res.meta.isEmpty) {
+                    updates[g.id] = res.meta
+                } else {
+                    failCount++
+                }
+                val off = res.officialName
+                if (!off.isNullOrBlank()) {
+                    nameUpdates[g.id] = off
+                }
+                res.info?.let { infoUpdates[g.id] = it }
+                doneCount++
             }
-            val off = res.officialName
-            if (!off.isNullOrBlank()) {
-                nameUpdates[g.id] = off
+        } finally {
+            if (trackProgress) {
+                _scrapeProgress.value = ScrapeProgress(
+                    running = false,
+                    done = doneCount,
+                    total = pending.size,
+                    currentTitle = "",
+                    failedCount = failCount,
+                )
             }
-            res.info?.let { infoUpdates[g.id] = it }
         }
 
         if (updates.isNotEmpty() || nameUpdates.isNotEmpty() || infoUpdates.isNotEmpty()) {
             enqueueBatchUpdate(updates, nameUpdates, infoUpdates, immediate = games.size > 4)
         }
+    }
+
+    /** 手动关键词搜索刮削：综合 Libretro Boxart 索引与已启用的在线刮削节点返回候选列表。 */
+    suspend fun manualSearch(
+        keyword: String,
+        game: Game,
+        platform: Platform?,
+        covers: CoverSource,
+    ): List<ManualScrapeCandidate> = withContext(Dispatchers.IO) {
+        val cleanKeyword = keyword.trim()
+        if (cleanKeyword.isEmpty()) return@withContext emptyList()
+        val synthetic = game.copy(
+            id = "${game.id}#manual#${cleanKeyword.lowercase()}",
+            baseName = cleanKeyword,
+            title = cleanKeyword,
+        )
+        val out = ArrayList<ManualScrapeCandidate>()
+        val seen = HashSet<String>()
+
+        fun addCandidate(c: ManualScrapeCandidate) {
+            val key = "${c.title.lowercase()}|${c.coverUrl.orEmpty()}"
+            if (seen.add(key)) out += c
+        }
+
+        // 1) Libretro Boxarts 索引候选（秒级出图）
+        val boxarts = runCatching { covers.searchIndexCandidates(cleanKeyword, platform) }.getOrDefault(emptyList())
+        val system = platform?.libretroSystem
+        val table = system?.let { systemTables[it] }
+        for ((title, url) in boxarts) {
+            val meta = table?.find(title, title, null, null)?.row?.meta
+                ?: GameMetadata()
+            addCandidate(
+                ManualScrapeCandidate(
+                    title = title,
+                    providerId = ScraperCatalog.CoverIds.LIBRETRO_BOXARTS,
+                    coverUrl = url,
+                    metadata = meta,
+                ),
+            )
+        }
+
+        // 2) 在线 API 节点候选
+        val cred = credentials
+        val apiProviders = listOf(
+            ScraperCatalog.MetaIds.GAMETDB,
+            ScraperCatalog.MetaIds.THEGAMESDB,
+            ScraperCatalog.MetaIds.SCREENSCRAPER,
+            ScraperCatalog.MetaIds.IGDB,
+            ScraperCatalog.MetaIds.WIKIDATA,
+            ScraperCatalog.CoverIds.STEAMGRIDDB,
+        )
+        for (pid in apiProviders) {
+            if (pid == ScraperCatalog.MetaIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) continue
+            val desc = ScraperCatalog.metaDescriptor(pid) ?: ScraperCatalog.coverDescriptor(pid)
+            if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
+            val hit = runCatching {
+                client.queryProvider(
+                    providerId = pid,
+                    game = synthetic,
+                    platform = platform,
+                    cred = cred,
+                    forceRefresh = true,
+                    officialNameHint = cleanKeyword,
+                )
+            }.getOrNull() ?: continue
+            if (!hit.isEmpty || hit.coverUrls.isNotEmpty()) {
+                val title = hit.officialName?.takeIf { it.isNotBlank() } ?: cleanKeyword
+                if (hit.coverUrls.isNotEmpty()) {
+                    for (url in hit.coverUrls.take(3)) {
+                        addCandidate(ManualScrapeCandidate(title, pid, url, hit.meta))
+                    }
+                } else {
+                    addCandidate(ManualScrapeCandidate(title, pid, null, hit.meta))
+                }
+            }
+        }
+        out.take(15)
+    }
+
+    /** 一键应用手动搜索刮削结果（封面 + 元数据 + 官方名）。 */
+    fun applyManualScrape(
+        gameId: String,
+        candidate: ManualScrapeCandidate,
+        covers: CoverSource,
+    ) {
+        if (!candidate.metadata.isEmpty) {
+            gameCache[gameId] = candidate.metadata
+            _metadata.value = _metadata.value + (gameId to candidate.metadata)
+        }
+        if (candidate.title.isNotBlank()) {
+            _officialNames.value = _officialNames.value + (gameId to candidate.title)
+        }
+        _resolutionInfo.value = _resolutionInfo.value + (
+            gameId to MetadataResolutionInfo(
+                providers = listOf(candidate.providerId),
+                matchModes = listOf(MetaMatchMode.ApiNameSearch),
+            )
+        )
+        covers.applyManualCover(gameId, candidate.coverUrl, candidate.providerId)
     }
 
     private fun clearPendingBatch() {

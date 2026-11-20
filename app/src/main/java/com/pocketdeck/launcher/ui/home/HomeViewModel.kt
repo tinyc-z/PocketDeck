@@ -59,6 +59,7 @@ data class HomeUiState(
     val menuGame: Game? = null,
     val propertiesGame: Game? = null,
     val editingGame: Game? = null,
+    val manualScrapeGame: Game? = null,
     val showApps: Boolean = false,
     val showLibraryManager: Boolean = false,
     val libraryManagerHiddenOnly: Boolean = false,
@@ -174,6 +175,7 @@ class HomeViewModel(
     val fileTasks = repo.fileTasks
     val metaResolutionMap: StateFlow<Map<String, MetadataResolutionInfo>> = metadataRepo.resolutionInfo
     val coverResolutionMap: StateFlow<Map<String, CoverResolutionInfo>> = covers.coverInfo
+    val scrapeProgress: StateFlow<com.pocketdeck.launcher.data.ScrapeProgress> = metadataRepo.scrapeProgress
 
     private val _focusPerTab = HashMap<String, Int>()
     private var initialTabPicked = false
@@ -805,6 +807,22 @@ class HomeViewModel(
 
     fun closeEdit() {
         _state.value = _state.value.copy(editingGame = null)
+    }
+
+    fun openManualScrape(game: Game) {
+        _state.value = _state.value.copy(menuGame = null, manualScrapeGame = game)
+    }
+
+    fun closeManualScrape() {
+        _state.value = _state.value.copy(manualScrapeGame = null)
+    }
+
+    suspend fun manualSearchScrape(keyword: String, game: Game): List<com.pocketdeck.launcher.data.ManualScrapeCandidate> =
+        metadataRepo.manualSearch(keyword, game, _state.value.platformFor(game), covers)
+
+    fun applyManualScrape(game: Game, candidate: com.pocketdeck.launcher.data.ManualScrapeCandidate) {
+        metadataRepo.applyManualScrape(game.id, candidate, covers)
+        _state.value = _state.value.copy(manualScrapeGame = null)
     }
 
     fun saveGameEdits(id: String, name: String?, coverPath: String?) {

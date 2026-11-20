@@ -749,4 +749,19 @@
     <string name="m3u_generated_ok">Generated %1$s</string>
     <string name="m3u_generated_fail">Failed to generate .m3u: %1$s</string>
     <string name="disc_label_fmt">Disc</string>
+    <!-- Wave 3: Scrape Progress, Manual Search & RetroArch SAF Cores -->
+    <string name="scrape_progress_fmt">Scraping %1$d / %2$d</string>
+    <string name="scrape_progress_failed_fmt">%1$d missed</string>
+    <string name="menu_manual_scrape">Manual search &amp; scrape</string>
+    <string name="manual_scrape_title">Manual Search &amp; Scrape</string>
+    <string name="manual_scrape_search_btn">Search</string>
+    <string name="manual_scrape_apply_btn">Apply</string>
+    <string name="manual_scrape_empty">No matching games found</string>
+    <string name="manual_scrape_applied">Metadata &amp; cover applied</string>
+    <string name="settings_ra_cores_saf_title">RetroArch cores folder (SAF)</string>
+    <string name="settings_ra_cores_saf_desc">Grant access to RetroArch cores directory to list installed .so cores</string>
+    <string name="settings_ra_cores_count_fmt">%1$d cores</string>
+    <string name="settings_ra_cores_authorized">Authorized</string>
+    <string name="settings_ra_cores_pick">Authorize</string>
+    <string name="settings_ra_cores_scanned_toast">Found %1$d RetroArch cores</string>
 </resources>

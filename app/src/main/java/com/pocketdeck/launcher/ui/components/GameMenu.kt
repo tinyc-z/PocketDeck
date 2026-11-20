@@ -84,6 +84,7 @@ fun GameMenu(
     onLaunch: () -> Unit,
     onLaunchDisc: ((String) -> Unit)? = null,
     onGenerateM3u: (() -> Unit)? = null,
+    onManualScrape: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -128,6 +129,9 @@ fun GameMenu(
                 ),
             )
             add(MenuActionItem(HomeIcons.Pencil, stringResource(R.string.menu_edit), onClick = onEdit))
+            if (onManualScrape != null) {
+                add(MenuActionItem(HomeIcons.Search, stringResource(R.string.menu_manual_scrape), onClick = onManualScrape))
+            }
             add(MenuActionItem(HomeIcons.Info, stringResource(R.string.menu_properties), onClick = onProperties))
         }
     }

@@ -168,6 +168,7 @@ fun GameLibraryScreen(
     fullLibrary: Library?,
     filesRevision: Long = 0L,
     fileTasks: List<FileTask> = emptyList(),
+    scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
     hiddenIds: Set<String>,
     favorites: Set<String>,
     categories: List<Category>,
@@ -1340,6 +1341,13 @@ fun GameLibraryScreen(
             )
 
             HorizontalDivider(color = DeckColors.Line, thickness = 1.dp)
+
+            if (scrapeProgress.running && scrapeProgress.total > 0) {
+                com.pocketdeck.launcher.ui.components.ScrapeProgressBanner(
+                    progress = scrapeProgress,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                )
+            }
 
             if (mode == LibraryMode.Games) {
                 LibraryGamesTab(

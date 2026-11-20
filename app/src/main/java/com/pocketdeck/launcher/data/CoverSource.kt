@@ -336,6 +336,35 @@ class CoverSource(
         }
     }
 
+    /** 手动搜索刮削：按关键词检索当前平台的 Libretro Boxart 索引，返回 `(title, coverUrl)` 列表。 */
+    suspend fun searchIndexCandidates(keyword: String, platform: Platform?): List<Pair<String, String>> {
+        val system = platform?.libretroSystem ?: return emptyList()
+        if (!systemIndexes.containsKey(system)) {
+            loadSystemIndex(system)
+        }
+        val index = systemIndexes[system] ?: return emptyList()
+        val queries = TitleNormalizer.buildQueryVariants(keyword, keyword, null)
+        val matches = index.findMatchesWithMode(queries)
+        val mirror = activeLibretroMirror
+        return matches.take(8).map { (fileName, _) ->
+            val cleanName = if (fileName.endsWith(".png", true)) fileName.dropLast(4) else fileName
+            cleanName to buildLibretroBoxartUrl(system, fileName, mirror)
+        }
+    }
+
+    /** 应用手动搜索刮削选中的封面 URL 并持久化至 SQLite 缓存。 */
+    fun applyManualCover(gameId: String, coverUrl: String?, providerId: String) {
+        if (coverUrl.isNullOrBlank()) return
+        resolvedUrls[gameId] = coverUrl
+        resolvedOrigins[gameId] = providerId to CoverMatchMode.ApiSearch
+        failedUntilMs.remove(gameId)
+        scope.launch(Dispatchers.IO) {
+            db.putCoverSuccess(gameId, coverUrl, providerId, CoverMatchMode.ApiSearch.name)
+        }
+        _coverInfo.value = _coverInfo.value + (gameId to CoverResolutionInfo(providerId, CoverMatchMode.ApiSearch, coverUrl))
+        _indexVersion.value += 1
+    }
+
     /** 预加载指定平台的在线封面目录索引（首次联网拉取，之后读本地缓存）。 */
     fun ensureIndexLoaded(platform: Platform?) {
         val system = platform?.libretroSystem ?: return

@@ -133,6 +133,7 @@ data class SettingsState(
     val uncategorizedCount: Int = 0,
     val lanShareRunning: Boolean = false,
     val lanWebRunning: Boolean = false,
+    val scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
 )
 
 class ManageCallbacks(
@@ -228,7 +229,7 @@ private fun itemCountForSection(
     }
     SettingsSection.Library -> state.romDirs.size + 4
     SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 3
-    SettingsSection.Emulators -> 1 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
+    SettingsSection.Emulators -> 2 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
     SettingsSection.Controls -> 1 + KeyAction.entries.size + 1
     // Language(0), 12h(1), UI sounds(2), LAN & Share(3), StatusBar x8(4..11), About x4(12..15)
     SettingsSection.System -> 16
@@ -339,6 +340,36 @@ fun SettingsScreen(
             }
             if (savedPath != null) onSetCustomBackground(savedPath)
             else Toast.makeText(context, context.getString(R.string.edit_image_failed), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    var raCoreRefreshTick by remember { mutableIntStateOf(0) }
+    var raCoreCount by remember { mutableIntStateOf(0) }
+    var raSafAuthorized by remember { mutableStateOf(false) }
+    LaunchedEffect(raCoreRefreshTick) {
+        val (cnt, authed) = withContext(Dispatchers.IO) {
+            val scanned = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.scanSafAndExternalCores(context)
+            val uri = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.getSafCoresUri(context)
+            scanned.size to (uri != null)
+        }
+        raCoreCount = cnt
+        raSafAuthorized = authed
+    }
+    val raSafPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        com.pocketdeck.launcher.launch.RetroArchCoreCatalog.saveSafCoresUri(context, uri)
+        raCoreRefreshTick++
+        scope.launch {
+            val cnt = withContext(Dispatchers.IO) {
+                com.pocketdeck.launcher.launch.RetroArchCoreCatalog.scanSafAndExternalCores(context).size
+            }
+            raCoreCount = cnt
+            raSafAuthorized = true
+            Toast.makeText(
+                context,
+                context.getString(R.string.settings_ra_cores_scanned_toast, cnt),
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 
@@ -657,7 +688,11 @@ fun SettingsScreen(
                     showAllLauncherPlatforms = !showAllLauncherPlatforms
                     return
                 }
-                launcherPlatformsFor(state, showAllLauncherPlatforms).getOrNull(idx - 1)?.let {
+                if (idx == 1) {
+                    raSafPickerLauncher.launch(null)
+                    return
+                }
+                launcherPlatformsFor(state, showAllLauncherPlatforms).getOrNull(idx - 2)?.let {
                     launcherPickerPlatform = it
                 }
             }
@@ -1040,12 +1075,16 @@ fun SettingsScreen(
                                             },
                                             onClearCoverCache = ::clearScrapeCacheWithFeedback,
                                             onViewLogs = { showScrapeLogs = true },
+                                            scrapeProgress = state.scrapeProgress,
                                             highlightIndex = hl,
                                         )
                                         SettingsSection.Emulators -> EmulatorsSettingsSection(
                                             platforms = cachedLauncherPlatforms,
                                             showAllPlatforms = showAllLauncherPlatforms,
                                             onToggleShowAllPlatforms = { showAllLauncherPlatforms = !showAllLauncherPlatforms; nav.contentItemIndex = 0 },
+                                            onAuthorizeRetroArchCores = { raSafPickerLauncher.launch(null) },
+                                            retroArchCoreCount = raCoreCount,
+                                            retroArchSafAuthorized = raSafAuthorized,
                                             selected = state.platformLaunchers,
                                             aspectOverrides = state.platformAspects,
                                             onPickLauncher = { launcherPickerPlatform = it },

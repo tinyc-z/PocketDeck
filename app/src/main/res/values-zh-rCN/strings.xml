@@ -748,4 +748,19 @@
     <string name="m3u_generated_ok">已生成 %1$s</string>
     <string name="m3u_generated_fail">生成 .m3u 失败：%1$s</string>
     <string name="disc_label_fmt">光盘</string>
+    <!-- Wave 3: Scrape Progress, Manual Search & RetroArch SAF Cores -->
+    <string name="scrape_progress_fmt">正在刮削 %1$d / %2$d</string>
+    <string name="scrape_progress_failed_fmt">未命中 %1$d</string>
+    <string name="menu_manual_scrape">手动搜索刮削</string>
+    <string name="manual_scrape_title">手动搜索刮削</string>
+    <string name="manual_scrape_search_btn">搜索</string>
+    <string name="manual_scrape_apply_btn">应用</string>
+    <string name="manual_scrape_empty">未找到匹配的游戏封面或信息</string>
+    <string name="manual_scrape_applied">已应用封面与元数据</string>
+    <string name="settings_ra_cores_saf_title">授权 RetroArch 核心目录（SAF）</string>
+    <string name="settings_ra_cores_saf_desc">授权一次 RetroArch 核心目录以精准扫描已安装的 .so 核心</string>
+    <string name="settings_ra_cores_count_fmt">%1$d 个核心</string>
+    <string name="settings_ra_cores_authorized">已授权</string>
+    <string name="settings_ra_cores_pick">去授权</string>
+    <string name="settings_ra_cores_scanned_toast">已扫描到 %1$d 个 RetroArch 核心</string>
 </resources>

@@ -196,6 +196,7 @@ fun HomeScreen(
     val hasChildFocusOverlay = state.menuGame != null ||
         state.propertiesGame != null ||
         state.editingGame != null ||
+        state.manualScrapeGame != null ||
         state.showLibraryManager ||
         state.showApps ||
         state.showSettings ||
@@ -211,6 +212,7 @@ fun HomeScreen(
             showQuickShareScreen -> showQuickShareScreen = false
             showLanControlFromStatusBar -> showLanControlFromStatusBar = false
             state.showLibraryManager -> vm.closeLibraryManager()
+            state.manualScrapeGame != null -> vm.closeManualScrape()
             state.propertiesGame != null -> vm.closeProperties()
             state.editingGame != null -> vm.closeEdit()
             state.menuGame != null -> vm.hideMenu()

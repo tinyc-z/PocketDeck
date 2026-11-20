@@ -533,8 +533,15 @@ internal fun CoversSettingsSection(
     onRefreshMetadata: () -> Unit,
     onClearCoverCache: () -> Unit,
     onViewLogs: () -> Unit,
+    scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
     highlightIndex: Int,
 ) {
+    if (scrapeProgress.running && scrapeProgress.total > 0) {
+        com.pocketdeck.launcher.ui.components.ScrapeProgressBanner(
+            progress = scrapeProgress,
+            modifier = Modifier.padding(bottom = 10.dp),
+        )
+    }
     GroupHeader(stringResource(R.string.scraping_cover_title))
     GroupCard {
         DragReorderColumn(
@@ -668,6 +675,9 @@ internal fun EmulatorsSettingsSection(
     platforms: List<Platform>,
     showAllPlatforms: Boolean,
     onToggleShowAllPlatforms: () -> Unit,
+    onAuthorizeRetroArchCores: () -> Unit = {},
+    retroArchCoreCount: Int = 0,
+    retroArchSafAuthorized: Boolean = false,
     selected: Map<String, String>,
     aspectOverrides: Map<String, Float>,
     onPickLauncher: (Platform) -> Unit,
@@ -684,6 +694,27 @@ internal fun EmulatorsSettingsSection(
             highlighted = highlightIndex == 0,
             onClick = onToggleShowAllPlatforms,
             trailing = { DeckSwitch(showAllPlatforms) },
+        )
+        RowDivider()
+        SettingRow(
+            label = stringResource(R.string.settings_ra_cores_saf_title),
+            description = stringResource(R.string.settings_ra_cores_saf_desc),
+            highlighted = highlightIndex == 1,
+            onClick = onAuthorizeRetroArchCores,
+            trailing = {
+                ValuePill(
+                    text = if (retroArchCoreCount > 0) {
+                        stringResource(R.string.settings_ra_cores_count_fmt, retroArchCoreCount)
+                    } else if (retroArchSafAuthorized) {
+                        stringResource(R.string.settings_ra_cores_authorized)
+                    } else {
+                        stringResource(R.string.settings_ra_cores_pick)
+                    },
+                    accent = retroArchCoreCount > 0 || retroArchSafAuthorized,
+                )
+                Spacer(Modifier.width(4.dp))
+                DeckIcon(DeckIcons.ChevronRight, tint = DeckColors.TextLabel, size = 15.dp)
+            },
         )
         if (platforms.isEmpty()) {
             RowDivider()
@@ -721,7 +752,7 @@ internal fun EmulatorsSettingsSection(
                 SettingRow(
                     label = "${plat.shortName} · ${plat.fullName}",
                     description = currentName,
-                    highlighted = highlightIndex == idx + 1,
+                    highlighted = highlightIndex == idx + 2,
                     onClick = { onPickLauncher(plat) },
                     trailing = {
                         ValuePill(aspectTag, accent = isCustom)

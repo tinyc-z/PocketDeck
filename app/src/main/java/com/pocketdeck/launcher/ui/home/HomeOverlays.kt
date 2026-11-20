@@ -50,6 +50,7 @@ internal fun HomeOverlays(
     onCapturingKeyBindChange: (Boolean) -> Unit,
     launchGame: (Game) -> Unit,
 ) {
+    val scrapeProgress by vm.scrapeProgress.collectAsState()
     // 视图切换弹出菜单
     if (state.showViewMenu) {
         ViewModeMenu(
@@ -103,6 +104,22 @@ internal fun HomeOverlays(
                     }
                 }
             } else null,
+            onManualScrape = { vm.openManualScrape(game) },
+        )
+    }
+
+    // 手动搜索刮削弹窗
+    state.manualScrapeGame?.let { game ->
+        com.pocketdeck.launcher.ui.components.ManualScrapeDialog(
+            game = game,
+            swapAbxy = state.swapAbxy,
+            keyBindings = state.keyBindings,
+            onSearch = { kw -> vm.manualSearchScrape(kw, game) },
+            onApply = { cand ->
+                vm.applyManualScrape(game, cand)
+                Toast.makeText(context, context.getString(R.string.manual_scrape_applied), Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { vm.closeManualScrape() },
         )
     }
 
@@ -179,6 +196,7 @@ internal fun HomeOverlays(
                     )
                 }
             },
+            onManualScrape = { vm.openManualScrape(game) },
         )
     }
 
@@ -256,6 +274,7 @@ internal fun HomeOverlays(
                 uncategorizedCount = state.uncategorizedCount,
                 lanShareRunning = lanState.shareRunning,
                 lanWebRunning = lanState.webRunning,
+                scrapeProgress = scrapeProgress,
             ),
             onDismiss = {
                 onCapturingKeyBindChange(false)
@@ -341,6 +360,7 @@ internal fun HomeOverlays(
             fullLibrary = fullLibrary,
             filesRevision = filesRevision,
             fileTasks = fileTasks,
+            scrapeProgress = scrapeProgress,
             hiddenIds = state.hiddenIds,
             favorites = state.favorites,
             categories = state.categories,

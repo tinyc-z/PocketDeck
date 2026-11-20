@@ -115,6 +115,7 @@ internal fun handleHomePreviewKeyEvent(
 
     // 弹窗/全屏子页面自己处理按键
     if (state.menuGame != null || state.propertiesGame != null || state.editingGame != null ||
+        state.manualScrapeGame != null ||
         state.showLibraryManager || state.showApps || state.showSettings ||
         showLanControlFromStatusBar || showQuickShareScreen
     ) {

@@ -113,7 +113,7 @@ object GameLauncher {
 
     fun installedRetroArchCores(context: Context, platform: Platform?): List<String> {
         val raPkg = RETROARCH_PACKAGES.firstOrNull { isInstalled(context, it) } ?: return emptyList()
-        val configured = detectConfiguredCores(raPkg)
+        val configured = detectConfiguredCores(raPkg) + RetroArchCoreCatalog.scanSafAndExternalCores(context)
         val candidates = buildList {
             platform?.core?.let { add(it) }
             platform?.id?.let { CORE_CANDIDATES[it]?.forEach { c -> if (c !in this) add(c) } }
