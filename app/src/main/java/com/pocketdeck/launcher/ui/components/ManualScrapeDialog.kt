@@ -324,14 +324,18 @@ fun ManualScrapeDialog(
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(160.dp),
+                            .height(120.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            CircularProgressIndicator(color = DeckColors.Ruby, strokeWidth = 2.4.dp)
+                            CircularProgressIndicator(
+                                color = DeckColors.Ruby,
+                                strokeWidth = 1.8.dp,
+                                modifier = Modifier.size(14.dp),
+                            )
                             if (activeSourceSummary.isNotBlank()) {
                                 Text(
                                     text = stringResource(R.string.manual_scrape_searching_source, activeSourceSummary),
@@ -359,28 +363,6 @@ fun ManualScrapeDialog(
                     }
                 }
                 else -> {
-                    if (searching && activeSourceSummary.isNotBlank()) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CircularProgressIndicator(
-                                color = DeckColors.Ruby,
-                                strokeWidth = 1.8.dp,
-                                modifier = Modifier.size(13.dp),
-                            )
-                            Text(
-                                text = stringResource(R.string.manual_scrape_searching_source, activeSourceSummary),
-                                style = DeckType.metaLabel,
-                                color = DeckColors.TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -478,6 +460,29 @@ fun ManualScrapeDialog(
                                         .padding(horizontal = 10.dp, vertical = 5.dp),
                                 )
                             }
+                        }
+                    }
+                    if (searching && activeSourceSummary.isNotBlank()) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(
+                                color = DeckColors.Ruby,
+                                strokeWidth = 1.6.dp,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                text = stringResource(R.string.manual_scrape_searching_source, activeSourceSummary),
+                                style = DeckType.metaLabel,
+                                color = DeckColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }
