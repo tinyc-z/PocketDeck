@@ -1026,6 +1026,7 @@ class WebManagerServer(
             put("platformId", g.platformId)
             put("platformName", plat.shortName)
             put("platformFullName", plat.fullName)
+            put("libretroSystem", plat.libretroSystem.orEmpty())
             put("coverAspect", plat.coverAspect.toDouble())
             put("isRom", isRom)
             put("hidden", g.id in hidden)
@@ -1703,6 +1704,7 @@ class WebManagerServer(
                 put("id", p.id)
                 put("shortName", p.shortName)
                 put("fullName", p.fullName)
+                put("libretroSystem", p.libretroSystem.orEmpty())
                 put("gameCount", count)
                 put("inLibrary", count > 0)
             }

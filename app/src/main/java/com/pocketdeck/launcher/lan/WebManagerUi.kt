@@ -2417,37 +2417,260 @@ async function refreshGameMetaFromHandheld(id) {
   }
 }
 
-async function scrapeCoverCandidates(id) {
-  const area = el('candArea');
-  if (area) area.innerHTML = '<div class="sub" style="margin-top:12px;">' + esc(tr('msg_searching_covers')) + '</div>';
-  const r = await api('/api/games/scrape-covers', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})
+// ==================== 浏览器端本地封面搜索与直传（不依赖掌机联网） ====================
+const _webLibretroIdx = {};
+const _webCjkAliases = [
+  ['超级马里奥合集','Super Mario All-Stars'],['马里奥合集','Super Mario All-Stars'],['超级马里奥全明星','Super Mario All-Stars'],
+  ['超级马里奥世界2','Super Mario World 2 - Yoshi\'s Island'],['超级马里奥世界','Super Mario World'],
+  ['超级马里奥兄弟3','Super Mario Bros. 3'],['超级马里奥兄弟2','Super Mario Bros. 2'],['超级马里奥兄弟','Super Mario Bros.'],
+  ['超级马里奥RPG','Super Mario RPG'],['超级马里奥64','Super Mario 64'],['超级马里奥乐园2','Super Mario Land 2'],['超级马里奥乐园','Super Mario Land'],
+  ['马里奥赛车','Mario Kart'],['纸片马里奥','Paper Mario'],['耀西岛','Yoshi\'s Island'],['马里奥医生','Dr. Mario'],['超级马里奥','Super Mario'],
+  ['口袋妖怪 红宝石','Pokemon - Ruby Version'],['口袋妖怪 蓝宝石','Pokemon - Sapphire Version'],['口袋妖怪 绿宝石','Pokemon - Emerald Version'],
+  ['口袋妖怪 火红','Pokemon - FireRed Version'],['口袋妖怪 叶绿','Pokemon - LeafGreen Version'],
+  ['口袋妖怪 金','Pokemon - Gold Version'],['口袋妖怪 银','Pokemon - Silver Version'],['口袋妖怪 水晶','Pokemon - Crystal Version'],
+  ['口袋妖怪 黄','Pokemon - Yellow Version'],['口袋妖怪 红','Pokemon - Red Version'],['口袋妖怪 蓝','Pokemon - Blue Version'],
+  ['宝可梦','Pokemon'],['口袋妖怪','Pokemon'],
+  ['塞尔达传说 缩小帽','The Legend of Zelda - The Minish Cap'],['塞尔达传说 织梦岛','The Legend of Zelda - Link\'s Awakening'],
+  ['塞尔达传说 众神的三角力量','The Legend of Zelda - A Link to the Past'],['塞尔达传说 时之笛','The Legend of Zelda - Ocarina of Time'],['塞尔达传说','Legend of Zelda'],
+  ['恶魔城 晓月圆舞曲','Castlevania - Aria of Sorrow'],['恶魔城 白夜协奏曲','Castlevania - Harmony of Dissonance'],
+  ['恶魔城 月下夜想曲','Castlevania - Symphony of the Night'],['恶魔城','Castlevania'],
+  ['火焰纹章 封印之剑','Fire Emblem - Fuuin no Tsurugi'],['火焰纹章 烈火之剑','Fire Emblem'],['火焰纹章 圣魔之光石','Fire Emblem - The Sacred Stones'],['火焰纹章','Fire Emblem'],
+  ['银河战士 零点任务','Metroid - Zero Mission'],['银河战士 融合','Metroid Fusion'],['超级银河战士','Super Metroid'],['银河战士','Metroid'],
+  ['星之卡比 镜之大迷宫','Kirby & the Amazing Mirror'],['星之卡比 超级豪华版','Kirby Super Star'],['星之卡比','Kirby'],
+  ['魂斗罗','Contra'],['超级魂斗罗','Super C'],['坦克大战','Battle City'],['冒险岛','Adventure Island'],
+  ['松鼠大战','Chip \'n Dale Rescue Rangers'],['赤影战士','Shadow of the Ninja'],['双截龙','Double Dragon'],['热血物语','River City Ransom'],
+  ['洛克人X','Mega Man X'],['洛克人','Mega Man'],['最终幻想','Final Fantasy'],['勇者斗恶龙','Dragon Quest'],
+  ['时空之轮','Chrono Trigger'],['黄金太阳','Golden Sun'],['逆转裁判','Phoenix Wright'],['牧场物语','Harvest Moon'],
+  ['大金刚国度','Donkey Kong Country'],['大金刚','Donkey Kong'],['索尼克','Sonic'],['街头霸王','Street Fighter'],
+  ['拳皇','King of Fighters'],['合金弹头','Metal Slug'],['游戏王','Yu-Gi-Oh'],['超级机器人大战','Super Robot Taisen'],
+  ['俄罗斯方块','Tetris'],['吃豆人','Pac-Man'],['炸弹人','Bomberman'],['三国志','Romance of the Three Kingdoms']
+];
+
+function _webStripTags(s) {
+  return String(s || '').replace(/_/g, ' ').replace(/\s*[\(\[][^\)\]]*[\)\]]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function _webCompact(s) {
+  return _webStripTags(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '');
+}
+function _webRegionScore(name) {
+  let sc = name.includes('(USA)') ? 10 : name.includes('(World)') ? 15 : name.includes('(USA, Europe)') ? 20 : name.includes('(Europe)') ? 30 : name.includes('(Japan)') ? 40 : 50;
+  if (/\[(b|h|tr|p)/i.test(name)) sc += 100;
+  return sc;
+}
+function _webExpandQueries(kw) {
+  const clean = _webStripTags(kw);
+  const compact = clean.replace(/\s+/g, '');
+  const out = [];
+  const push = v => { if (v && !out.includes(v)) out.push(v); };
+  push(clean);
+  if (/[\u4e00-\u9fff]/.test(compact)) {
+    for (const [zh, en] of _webCjkAliases) {
+      const zc = zh.replace(/\s+/g, '');
+      if (compact.includes(zc)) push(en);
+    }
+  }
+  return out;
+}
+function _webSuggestKeywords(kw, system) {
+  const q = String(kw || '').trim();
+  if (q.length < 2) return [];
+  const out = [];
+  const seen = new Set();
+  const add = v => { const k = v.toLowerCase(); if (!seen.has(k) && k !== q.toLowerCase()) { seen.add(k); out.push(v); } };
+  if (/[\u4e00-\u9fff]/.test(q)) {
+    const qc = q.replace(/\s+/g, '');
+    const seenEn = new Set();
+    for (const [zh, en] of _webCjkAliases) {
+      const zc = zh.replace(/\s+/g, '');
+      if (zc !== qc && (zc.startsWith(qc) || zc.includes(qc)) && !seenEn.has(en)) {
+        seenEn.add(en); add(zh);
+        if (out.length >= 8) break;
+      }
+    }
+  } else {
+    const qc = _webCompact(q);
+    const idx = _webLibretroIdx[system];
+    if (idx && idx.byCompact) {
+      const pre = [], sub = [];
+      for (const [ck, files] of idx.byCompact.entries()) {
+        if (ck === qc || !files.length) continue;
+        const clean = _webStripTags(files[0].replace(/\.png$/i, ''));
+        if (!clean) continue;
+        if (ck.startsWith(qc)) pre.push(clean);
+        else if (ck.includes(qc)) sub.push(clean);
+      }
+      pre.sort((a,b) => a.length - b.length);
+      sub.sort((a,b) => a.length - b.length);
+      for (const t of [...pre, ...sub]) { add(t); if (out.length >= 8) break; }
+    }
+  }
+  return out;
+}
+async function _ensureWebLibretroIndex(system, statusEl) {
+  if (!system) return null;
+  if (_webLibretroIdx[system]) return _webLibretroIdx[system];
+  const repo = encodeURIComponent(system.replace(/ /g, '_'));
+  let names = [];
+  if (statusEl) statusEl.textContent = '正在从 jsDelivr 拉取 ' + system + ' 封面目录…';
+  try {
+    const r = await fetch('https://data.jsdelivr.com/v1/package/gh/libretro-thumbnails/' + repo + '@master/flat');
+    if (r.ok) {
+      const d = await r.json();
+      names = (d.files || []).map(f => f.name || '').filter(p => p.startsWith('/Named_Boxarts/') && /\.png$/i.test(p)).map(p => p.slice('/Named_Boxarts/'.length));
+    }
+  } catch (e) {}
+  if (!names.length) {
+    if (statusEl) statusEl.textContent = '正在从 GitHub 拉取 ' + system + ' 封面目录…';
+    try {
+      const r = await fetch('https://api.github.com/repos/libretro-thumbnails/' + repo + '/git/trees/master?recursive=1');
+      if (r.ok) {
+        const d = await r.json();
+        names = (d.tree || []).map(t => t.path || '').filter(p => p.startsWith('Named_Boxarts/') && /\.png$/i.test(p)).map(p => p.slice('Named_Boxarts/'.length));
+      }
+    } catch (e) {}
+  }
+  if (!names.length) return null;
+  const byCompact = new Map();
+  for (const fn of names) {
+    const ck = _webCompact(fn.replace(/\.png$/i, ''));
+    if (!ck) continue;
+    let arr = byCompact.get(ck);
+    if (!arr) { arr = []; byCompact.set(ck, arr); }
+    arr.push(fn);
+  }
+  for (const arr of byCompact.values()) arr.sort((a, b) => _webRegionScore(a) - _webRegionScore(b));
+  const idx = { repo, byCompact };
+  _webLibretroIdx[system] = idx;
+  return idx;
+}
+function _searchWebLibretro(idx, kw, limit) {
+  const queries = _webExpandQueries(kw);
+  const qCompacts = queries.map(q => _webCompact(q)).filter(c => c.length >= 2);
+  const qTokenSets = queries.map(q => _webStripTags(q).toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 2 || /^\d+$/.test(t))).filter(a => a.length);
+  if (!qCompacts.length && !qTokenSets.length) return [];
+  const scored = [];
+  for (const [ck, files] of idx.byCompact.entries()) {
+    const fn = files[0];
+    const base = fn.replace(/\.png$/i, '');
+    const ckNoVer = ck.replace(/(version|edition)$/, '');
+    let score = 0;
+    for (const qc of qCompacts) {
+      const qcNoVer = qc.replace(/(version|edition)$/, '');
+      if (ck === qc) score = Math.max(score, 100);
+      else if (ckNoVer && ckNoVer === qcNoVer) score = Math.max(score, 96);
+      else if (ck.startsWith(qc)) score = Math.max(score, 85 - Math.min(20, (ck.length - qc.length) * 0.5));
+      else if (qc.length >= 3 && ck.includes(qc)) score = Math.max(score, 72 - Math.min(20, (ck.length - qc.length) * 0.4));
+    }
+    if (!score && qTokenSets.length) {
+      const toks = _webStripTags(base).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      for (const qToks of qTokenSets) {
+        if (qToks.every(qt => toks.some(t => t === qt || (qt.length >= 3 && t.includes(qt))))) {
+          score = Math.max(score, 65 - Math.abs(toks.length - qToks.length) * 2);
+        }
+      }
+    }
+    if (score > 0) scored.push({ fn, title: base, score, rScore: _webRegionScore(fn) });
+  }
+  scored.sort((a, b) => (b.score - a.score) || (a.rScore - b.rScore));
+  return scored.slice(0, limit || 16).map(x => {
+    const enc = encodeURIComponent(x.fn);
+    return {
+      title: x.title,
+      primaryUrl: 'https://cdn.jsdelivr.net/gh/libretro-thumbnails/' + idx.repo + '@master/Named_Boxarts/' + enc,
+      fallbackUrl: 'https://raw.githubusercontent.com/libretro-thumbnails/' + idx.repo + '/master/Named_Boxarts/' + enc,
+    };
   });
-  const d = await r.json();
-  if (!d.ok && d.error === 'offline') {
-    if (area) area.innerHTML = '<div class="sub" style="margin-top:12px;color:var(--warn);">' + esc(tr('msg_offline_covers')) + '</div>';
-    return;
-  }
-  const cands = d.candidates || [];
-  if (!cands.length) {
-    if (area) area.innerHTML = '<div class="sub" style="margin-top:12px;">' + esc(tr('msg_no_cands')) + '</div>';
-    return;
-  }
-  if (area) {
-    area.innerHTML = '<div style="font-weight:700;font-size:13px;margin-top:14px;">' + esc(tr('msg_pick_cand')) + '</div>' +
-      '<div class="cand-grid">' + cands.map(c =>
-        '<div class="cand-item" onclick="applyCandidateCover(\'' + escJs(id) + '\',\'' + escJs(c.token) + '\')">' +
-          '<img loading="lazy" src="/api/cover-candidate?token=' + encodeURIComponent(c.token) + '"/>' +
-          '<span>' + esc(c.nodeId) + '</span>' +
-        '</div>'
-      ).join('') + '</div>';
-  }
 }
 
-async function applyCandidateCover(id, token) {
-  toast(tr('msg_applying_cover'));
-  const r = await api('/api/games/set-cover', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, token})
+function scrapeCoverCandidates(id) {
+  const g = state.games.find(x => x.id === id) || state.gameCache[id];
+  if (!g) return;
+  const area = el('candArea');
+  if (!area) return;
+  const sys = g.libretroSystem || (state.platforms.find(p => p.id === g.platformId) || {}).libretroSystem || '';
+  if (!sys) {
+    area.innerHTML = '<div class="sub" style="margin-top:12px;">' + esc(tr('msg_no_cands')) + '</div>';
+    return;
+  }
+  const initKw = g.officialName || g.title || '';
+  area.innerHTML =
+    '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">' +
+      '<div style="display:flex;gap:8px;align-items:center;">' +
+        '<input id="webCoverKw" class="input" style="flex:1;" value="' + esc(initKw) + '" placeholder="输入英文或中文游戏名搜索封面…" ' +
+          'oninput="renderWebCoverSuggest(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')" ' +
+          'onkeydown="if(event.key===\'Enter\')runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')"/>' +
+        '<button class="btn sm primary" onclick="runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' +
+      '</div>' +
+      '<div id="webCoverSugs" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>' +
+      '<div id="webCoverStatus" class="sub" style="margin-top:8px;"></div>' +
+      '<div id="webCoverGrid" class="cand-grid" style="margin-top:8px;"></div>' +
+    '</div>';
+  runWebCoverSearch(id, sys);
+}
+
+function renderWebCoverSuggest(id, sys) {
+  const inp = el('webCoverKw');
+  const box = el('webCoverSugs');
+  if (!inp || !box) return;
+  const sugs = _webSuggestKeywords(inp.value, sys);
+  box.innerHTML = sugs.map(s =>
+    '<button class="btn sm" style="padding:3px 9px;font-size:11.5px;" onclick="pickWebCoverSuggest(\'' + escJs(id) + '\',\'' + escJs(sys) + '\',\'' + escJs(s) + '\')">' + esc(s) + '</button>'
+  ).join('');
+}
+
+function pickWebCoverSuggest(id, sys, sug) {
+  const inp = el('webCoverKw');
+  if (inp) inp.value = sug;
+  const box = el('webCoverSugs');
+  if (box) box.innerHTML = '';
+  runWebCoverSearch(id, sys);
+}
+
+async function runWebCoverSearch(id, sys) {
+  const inp = el('webCoverKw');
+  const statusEl = el('webCoverStatus');
+  const grid = el('webCoverGrid');
+  if (!inp || !grid) return;
+  const kw = inp.value.trim();
+  if (!kw) return;
+  grid.innerHTML = '';
+  const idx = await _ensureWebLibretroIndex(sys, statusEl);
+  if (!idx) {
+    if (statusEl) statusEl.textContent = '无法连接封面目录源（jsDelivr / GitHub），请检查电脑网络。';
+    return;
+  }
+  const items = _searchWebLibretro(idx, kw, 16);
+  if (!items.length) {
+    if (statusEl) statusEl.textContent = tr('msg_no_cands');
+    renderWebCoverSuggest(id, sys);
+    return;
+  }
+  if (statusEl) statusEl.textContent = tr('msg_pick_cand') + '（浏览器直连加载，点击后直接传给掌机）';
+  grid.innerHTML = items.map((c, i) =>
+    '<div class="cand-item" onclick="applyWebDirectCover(\'' + escJs(id) + '\',\'' + escJs(c.primaryUrl) + '\',\'' + escJs(c.fallbackUrl) + '\',this)">' +
+      '<img loading="lazy" src="' + esc(c.primaryUrl) + '" data-fb="' + esc(c.fallbackUrl) + '" onerror="if(!this.dataset.tried){this.dataset.tried=\'1\';this.src=this.dataset.fb;}"/>' +
+      '<span title="' + esc(c.title) + '">' + esc(c.title) + '</span>' +
+    '</div>'
+  ).join('');
+}
+
+async function applyWebDirectCover(id, primaryUrl, fallbackUrl, cardEl) {
+  toast('浏览器正在下载封面并发送给掌机…');
+  if (cardEl) cardEl.style.opacity = '0.55';
+  let blob = null;
+  for (const url of [primaryUrl, fallbackUrl]) {
+    try {
+      const resp = await fetch(url, { mode: 'cors' });
+      if (resp.ok) { blob = await resp.blob(); break; }
+    } catch (e) {}
+  }
+  if (!blob || blob.size < 32) {
+    if (cardEl) cardEl.style.opacity = '1';
+    toast(tr('msg_cover_fail'));
+    return;
+  }
+  const r = await api('/api/games/upload-cover?id=' + encodeURIComponent(id), {
+    method: 'POST', body: blob
   });
   if (r.ok) {
     const d = await r.json().catch(() => ({}));
@@ -2456,6 +2679,7 @@ async function applyCandidateCover(id, token) {
     if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
     openGameDetail(id);
   } else {
+    if (cardEl) cardEl.style.opacity = '1';
     toast(tr('msg_cover_fail'));
   }
 }
