@@ -528,8 +528,9 @@
     <string name="sort_size_asc">File size (Smallest)</string>
 
     <!-- LAN Web Manager & Quick Share -->
-    <string name="lan_service_btn">LAN Server</string>
+    <string name="lan_service_btn">LAN &amp; Share</string>
     <string name="lan_service_title">LAN &amp; Share</string>
+    <string name="settings_lan_share_desc">Web manager &amp; Quick Game Share on local Wi-Fi.</string>
     <string name="lan_device_name">Device Name</string>
     <string name="lan_device_rename">Rename</string>
     <string name="lan_device_random">Random</string>

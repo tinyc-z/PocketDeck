@@ -131,6 +131,8 @@ data class SettingsState(
     val systemTabs: Map<String, SystemTabConfig> = emptyMap(),
     val uncategorizedPlatforms: List<UncategorizedPlatformInfo> = emptyList(),
     val uncategorizedCount: Int = 0,
+    val lanShareRunning: Boolean = false,
+    val lanWebRunning: Boolean = false,
 )
 
 class ManageCallbacks(
@@ -167,6 +169,7 @@ class ManageCallbacks(
     val deleteCustomLauncherPreset: (String) -> Unit = {},
     val sampleGameFor: (String) -> com.pocketdeck.launcher.data.model.Game? = { null },
     val openLibraryHidden: () -> Unit = {},
+    val openLanService: () -> Unit = {},
 )
 
 data class LauncherRow(
@@ -227,8 +230,8 @@ private fun itemCountForSection(
     SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 3
     SettingsSection.Emulators -> 1 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
     SettingsSection.Controls -> 1 + KeyAction.entries.size + 1
-    // Language(0), 12h(1), UI sounds(2), StatusBar x8(3..10), Source code(11)
-    SettingsSection.System -> 12
+    // Language(0), 12h(1), UI sounds(2), LAN & Share(3), StatusBar x8(4..11), About x4(12..15)
+    SettingsSection.System -> 16
 }
 
 private fun launcherPlatformsFor(
@@ -674,15 +677,17 @@ fun SettingsScreen(
                 0 -> toggleLangPicker()
                 1 -> onToggleClock12h()
                 2 -> onToggleKeySound()
-                3 -> onToggleShowClock()
-                4 -> onToggleShowBattery()
-                5 -> onToggleShowWifi()
-                6 -> onToggleShowBluetooth()
-                7 -> onToggleShowMobileSignal()
-                8 -> onToggleShowHeadset()
-                9 -> onToggleShowAirplane()
-                10 -> onToggleShowDnd()
-                11 -> openProjectUrl(context)
+                3 -> manage.openLanService()
+                4 -> onToggleShowClock()
+                5 -> onToggleShowBattery()
+                6 -> onToggleShowWifi()
+                7 -> onToggleShowBluetooth()
+                8 -> onToggleShowMobileSignal()
+                9 -> onToggleShowHeadset()
+                10 -> onToggleShowAirplane()
+                11 -> onToggleShowDnd()
+                12, 13, 14 -> Unit
+                15 -> openProjectUrl(context)
             }
         }
     }
@@ -1059,6 +1064,7 @@ fun SettingsScreen(
                                             onLanguageChange = { code -> langPicker = null; if (code != state.language) onLanguageChange(code) },
                                             onToggleClock12h = onToggleClock12h,
                                             onToggleKeySound = onToggleKeySound,
+                                            onOpenLanService = manage.openLanService,
                                             onToggleShowClock = onToggleShowClock,
                                             onToggleShowBattery = onToggleShowBattery,
                                             onToggleShowWifi = onToggleShowWifi,

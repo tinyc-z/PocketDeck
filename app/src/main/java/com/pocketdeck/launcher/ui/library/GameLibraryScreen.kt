@@ -88,6 +88,7 @@ import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.ui.components.InlineExpandableSearchPill
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.data.Category
 import com.pocketdeck.launcher.data.CoverResolutionInfo
@@ -902,8 +903,8 @@ fun GameLibraryScreen(
         val file = File(game.id)
         val plat = platformFor(game)
         val items = buildList {
-            add(ActionItem("▶  $playLabel") { onLaunchGame(game) })
-            add(ActionItem("ⓘ  $propsLabel") { propertiesGame = game })
+            add(ActionItem(playLabel) { onLaunchGame(game) })
+            add(ActionItem(propsLabel) { propertiesGame = game })
             if (isRom && file.isFile) {
                 add(ActionItem("$shareSendLabel") {
                     shareMethodTarget = ShareFileTarget(listOf(file), game.title, plat.id, plat.shortName)
@@ -915,7 +916,7 @@ fun GameLibraryScreen(
                     if (isHidden) onUnhideGame(game.id) else onHideGame(game.id)
                 },
             )
-            add(ActionItem("✎  $editLabel") { editingGame = game })
+            add(ActionItem(editLabel) { editingGame = game })
             if (isRom && file.isFile) {
                 add(
                     ActionItem("$renameFileLabel") {
@@ -969,7 +970,7 @@ fun GameLibraryScreen(
                     })
                 }
                 if (currentDir != null) {
-                    add(ActionItem("☑  $addMultiSelectLabel") {
+                    add(ActionItem(addMultiSelectLabel) {
                         multiSelectMode = true
                         selectedPaths = selectedPaths + folder.path
                     })
@@ -991,8 +992,8 @@ fun GameLibraryScreen(
 
         val items = buildList {
             if (matchedGame != null) {
-                add(ActionItem("▶  $playLabel") { onLaunchGame(matchedGame) })
-                add(ActionItem("ⓘ  $propsLabel") { propertiesGame = matchedGame })
+                add(ActionItem(playLabel) { onLaunchGame(matchedGame) })
+                add(ActionItem(propsLabel) { propertiesGame = matchedGame })
             }
             if (isArchive) {
                 add(ActionItem("$archiveInspectLabel") { archivePreviewFile = file })
@@ -1046,7 +1047,7 @@ fun GameLibraryScreen(
                 })
             }
             if (currentDir != null) {
-                add(ActionItem("☑  $addMultiSelectLabel") {
+                add(ActionItem(addMultiSelectLabel) {
                     multiSelectMode = true
                     selectedPaths = selectedPaths + file.path
                 })
@@ -1121,8 +1122,8 @@ fun GameLibraryScreen(
                 })
             }
             add(ActionItem("${batchDeleteFmt.format(picked.size)}") { batchDeleteFiles = picked })
-            add(ActionItem("☑  $selectAllLabel") { selectedPaths = fileEntries.map { it.path }.toSet() })
-            add(ActionItem("✕  $exitMultiLabel") {
+            add(ActionItem(selectAllLabel) { selectedPaths = fileEntries.map { it.path }.toSet() })
+            add(ActionItem(exitMultiLabel) {
                 multiSelectMode = false
                 selectedPaths = emptySet()
             })
@@ -1158,7 +1159,10 @@ fun GameLibraryScreen(
                 add(FilesToolbarAction(label = stringResource(R.string.lib_new_folder), onClick = ::openNewFolderDialog))
                 if (fileEntries.isNotEmpty()) {
                     add(
-                        FilesToolbarAction(label = "☑ ${stringResource(R.string.lib_multi_select)}") {
+                        FilesToolbarAction(
+                            label = stringResource(R.string.lib_multi_select),
+                            icon = PanelIcons.CheckSquare,
+                        ) {
                             multiSelectMode = true
                             selectedPaths = emptySet()
                             filesToolbarIdx = 0
@@ -1802,15 +1806,15 @@ fun GameLibraryScreen(
                                     )
                                     Spacer(Modifier.width(6.dp))
                                 }
-                                Text(
-                                    "···",
-                                    style = DeckType.settingsValue,
-                                    color = DeckColors.TextSecondary,
+                                Box(
                                     modifier = Modifier
                                         .clip(DeckShapes.tabPill)
                                         .background(DeckColors.Background)
-                                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                                )
+                                        .padding(horizontal = 9.dp, vertical = 5.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    DeckIcon(PanelIcons.MoreHorizontal, tint = DeckColors.TextSecondary, size = 15.dp)
+                                }
                             }
                         }
                     }
@@ -1916,17 +1920,25 @@ fun GameLibraryScreen(
                                     },
                                 )
                             } else {
-                                Text(
-                                    action.label,
-                                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                                    color = DeckColors.Ruby,
+                                Row(
                                     modifier = Modifier
                                         .clip(DeckShapes.tabPill)
                                         .background(DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f))
                                         .brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
                                         .soundClickable(onClick = action.onClick)
                                         .padding(horizontal = 12.dp, vertical = 6.dp),
-                                )
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    if (action.icon != null) {
+                                        DeckIcon(action.icon, tint = DeckColors.Ruby, size = 13.dp)
+                                    }
+                                    Text(
+                                        action.label,
+                                        style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                                        color = DeckColors.Ruby,
+                                    )
+                                }
                             }
                         }
                     }
@@ -1973,7 +1985,7 @@ fun GameLibraryScreen(
                                         .padding(horizontal = 14.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text("↩", style = DeckType.settingsValue, color = DeckColors.Ruby)
+                                    DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.Ruby, size = 16.dp)
                                     Spacer(Modifier.width(12.dp))
                                     Text(
                                         stringResource(R.string.lib_files_up),
@@ -1999,15 +2011,16 @@ fun GameLibraryScreen(
                             val isText = !isDir && !isArchive && !isImage && !isAudio && !isFont && ArchiveManager.isKnownTextFile(file)
                             val inSearchMode = fileSearchQuery.isNotBlank()
                             val label = storageLoc?.label ?: if (dirNow == null && !inSearchMode) file.path.replace(sdPath, "~") else file.name
-                            val icon = when {
-                                storageLoc != null && !storageLoc.isRomRoot -> "SD"
-                                isDir -> "DIR"
-                                isArchive -> "ZIP"
-                                isImage -> "IMG"
-                                isAudio -> "AUD"
-                                isFont -> "TTF"
-                                isText -> "TXT"
-                                else -> "ROM"
+                            val iconSpec = when {
+                                storageLoc != null && !storageLoc.isRomRoot -> DeckIcons.HardDrive to DeckColors.Ruby
+                                isDir -> DeckIcons.Folder to DeckColors.Ruby
+                                isArchive -> DeckIcons.Archive to DeckColors.TextSecondary
+                                isImage -> DeckIcons.Image to DeckColors.TextSecondary
+                                isAudio -> DeckIcons.Music to DeckColors.TextSecondary
+                                isFont -> DeckIcons.FileText to DeckColors.TextSecondary
+                                isText -> DeckIcons.FileText to DeckColors.TextSecondary
+                                matchedGame != null -> DeckIcons.Gamepad to DeckColors.Ruby
+                                else -> DeckIcons.FileText to DeckColors.TextSecondary
                             }
 
                             Row(
@@ -2037,14 +2050,14 @@ fun GameLibraryScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 if (multiSelectMode && dirNow != null) {
-                                    Text(
-                                        if (checked) "☑" else "☐",
-                                        style = DeckType.menuButton,
-                                        color = if (checked) DeckColors.Ruby else DeckColors.TextSecondary,
+                                    DeckIcon(
+                                        if (checked) PanelIcons.CheckSquare else PanelIcons.Square,
+                                        tint = if (checked) DeckColors.Ruby else DeckColors.TextSecondary,
+                                        size = 17.dp,
                                     )
                                     Spacer(Modifier.width(10.dp))
                                 }
-                                Text(icon, fontSize = 16.sp)
+                                DeckIcon(iconSpec.first, tint = iconSpec.second, size = 18.dp)
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Row(
@@ -2100,10 +2113,7 @@ fun GameLibraryScreen(
                                 }
                                 if (isDir && !multiSelectMode) {
                                     if (dirNow != null) {
-                                        Text(
-                                            "···",
-                                            style = DeckType.settingsValue,
-                                            color = DeckColors.TextSecondary,
+                                        Box(
                                             modifier = Modifier
                                                 .clip(DeckShapes.tabPill)
                                                 .background(DeckColors.Background)
@@ -2111,11 +2121,14 @@ fun GameLibraryScreen(
                                                     selectedIdx = rowIdx
                                                     openFolderMenu(file)
                                                 }
-                                                .padding(horizontal = 10.dp, vertical = 3.dp),
-                                        )
+                                                .padding(horizontal = 9.dp, vertical = 5.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            DeckIcon(PanelIcons.MoreHorizontal, tint = DeckColors.TextSecondary, size = 15.dp)
+                                        }
                                         Spacer(Modifier.width(8.dp))
                                     }
-                                    Text("›", style = DeckType.settingsSection, color = DeckColors.TextSecondary)
+                                    DeckIcon(DeckIcons.ChevronRight, tint = DeckColors.TextSecondary, size = 15.dp)
                                 }
                             }
                         }
@@ -2576,6 +2589,7 @@ private fun ModePill(
 
 private data class FilesToolbarAction(
     val label: String = "",
+    val icon: ImageVector? = null,
     val isSearch: Boolean = false,
     val onClick: () -> Unit,
 )
@@ -2768,8 +2782,10 @@ private fun MoveFolderDialog(
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            DeckIcon(DeckIcons.Check, tint = DeckColors.Ruby, size = 15.dp)
+                            Spacer(Modifier.width(8.dp))
                             Text(
-                                "✓  ${stringResource(if (isCopy) R.string.lib_copy_here else R.string.lib_move_here)}",
+                                stringResource(if (isCopy) R.string.lib_copy_here else R.string.lib_move_here),
                                 style = DeckType.settingsValue,
                                 color = DeckColors.Ruby,
                             )
@@ -2787,7 +2803,9 @@ private fun MoveFolderDialog(
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("↩  ${stringResource(R.string.lib_files_up)}", style = DeckType.settingsValue, color = DeckColors.TextPrimary)
+                            DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.TextSecondary, size = 15.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.lib_files_up), style = DeckType.settingsValue, color = DeckColors.TextPrimary)
                         }
                     }
                 }

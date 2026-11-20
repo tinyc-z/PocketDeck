@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.ui.components.InlineExpandableSearchPill
 import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.input.GamepadKeys
@@ -612,7 +613,9 @@ private fun ExportLogDirDialog(
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("↩  ..", style = DeckType.settingsValue, color = DeckColors.Ruby)
+                            DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.Ruby, size = 15.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("..", style = DeckType.settingsValue, color = DeckColors.Ruby)
                         }
                     }
                 }

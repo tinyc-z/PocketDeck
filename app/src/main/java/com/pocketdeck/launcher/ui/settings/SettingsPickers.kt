@@ -80,6 +80,7 @@ import kotlin.math.abs
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.ui.components.DeckSwitch
 import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.brandBorder
@@ -236,10 +237,10 @@ fun CategoryPlatformsDialog(
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            if (checked) "☑" else "☐",
-                            style = DeckType.menuButton,
-                            color = if (checked || hl) DeckColors.Ruby else DeckColors.TextSecondary,
+                        DeckIcon(
+                            if (checked) PanelIcons.CheckSquare else PanelIcons.Square,
+                            tint = if (checked || hl) DeckColors.Ruby else DeckColors.TextSecondary,
+                            size = 17.dp,
                         )
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {

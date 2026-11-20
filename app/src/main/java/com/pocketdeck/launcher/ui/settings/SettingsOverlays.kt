@@ -315,16 +315,16 @@ fun DirBrowser(
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "←",
-                    style = DeckType.menuButton,
-                    color = DeckColors.TextPrimary,
+                Box(
                     modifier = Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Surface)
                         .clickable { if (!state.up()) onDismiss() }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    DeckIcon(DeckIcons.ChevronLeft, tint = DeckColors.TextPrimary, size = 18.dp)
+                }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -1231,7 +1231,7 @@ fun FontPickerDialog(
                         }
                         if (selected) {
                             Spacer(Modifier.width(10.dp))
-                            Text("✓", style = DeckType.settingsValue, color = DeckColors.Ruby)
+                            DeckIcon(DeckIcons.Check, tint = DeckColors.Ruby, size = 16.dp)
                         }
                     }
                 }

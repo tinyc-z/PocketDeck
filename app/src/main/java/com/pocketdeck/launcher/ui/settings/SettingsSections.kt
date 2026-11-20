@@ -805,6 +805,7 @@ internal fun SystemSettingsSection(
     onLanguageChange: (String) -> Unit,
     onToggleClock12h: () -> Unit,
     onToggleKeySound: () -> Unit,
+    onOpenLanService: () -> Unit,
     onToggleShowClock: () -> Unit,
     onToggleShowBattery: () -> Unit,
     onToggleShowWifi: () -> Unit,
@@ -872,6 +873,38 @@ internal fun SystemSettingsSection(
         )
     }
 
+    // 网络与局域网传输
+    Spacer(Modifier.height(14.dp))
+    val lanStatusText = when {
+        state.lanShareRunning && state.lanWebRunning -> stringResource(R.string.lan_status_both)
+        state.lanWebRunning -> stringResource(R.string.lan_status_web)
+        state.lanShareRunning -> stringResource(R.string.lan_status_share)
+        else -> ""
+    }
+    GroupHeader(stringResource(R.string.lan_nic_title))
+    GroupCard {
+        SettingRow(
+            label = stringResource(R.string.lan_service_title),
+            description = stringResource(R.string.settings_lan_share_desc),
+            highlighted = highlightIndex == 3,
+            onClick = onOpenLanService,
+            leading = {
+                DeckIcon(
+                    DeckIcons.Radio,
+                    size = 16.dp,
+                    tint = if (lanStatusText.isNotEmpty()) DeckColors.Ruby else DeckColors.TextSecondary,
+                )
+            },
+            trailing = {
+                ValueChevron(
+                    value = lanStatusText,
+                    chevron = true,
+                    valueColor = if (lanStatusText.isNotEmpty()) DeckColors.Ruby else DeckColors.TextSecondary,
+                )
+            },
+        )
+    }
+
     // 状态栏图标（2 列紧凑网格）
     Spacer(Modifier.height(14.dp))
     val barItems = listOf(
@@ -890,7 +923,7 @@ internal fun SystemSettingsSection(
             barItems.chunked(2).forEachIndexed { rowIdx, pair ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     pair.forEachIndexed { colIdx, (label, checked, toggle) ->
-                        val itemIdx = 3 + rowIdx * 2 + colIdx
+                        val itemIdx = 4 + rowIdx * 2 + colIdx
                         CompactCheckChip(
                             label = label,
                             checked = checked,
@@ -955,28 +988,28 @@ internal fun SystemSettingsSection(
     GroupCard {
         SettingRow(
             label = stringResource(R.string.settings_version),
-            highlighted = false,
+            highlighted = highlightIndex == 12,
             onClick = {},
             trailing = { ValueChevron("v$versionName", chevron = false) },
         )
         RowDivider()
         SettingRow(
             label = stringResource(R.string.settings_build),
-            highlighted = false,
+            highlighted = highlightIndex == 13,
             onClick = {},
             trailing = { ValueChevron("#${BuildConfig.BUILD_NUMBER} · ${BuildConfig.BUILD_TIME}", chevron = false) },
         )
         RowDivider()
         SettingRow(
             label = stringResource(R.string.settings_android_compat),
-            highlighted = false,
+            highlighted = highlightIndex == 14,
             onClick = {},
             trailing = { ValueChevron("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", chevron = false) },
         )
         RowDivider()
         SettingRow(
             label = stringResource(R.string.settings_project),
-            highlighted = highlightIndex == 11,
+            highlighted = highlightIndex == 15,
             onClick = onOpenProjectUrl,
             trailing = { ValueChevron(repoDisplay, chevron = true, valueColor = DeckColors.Ruby) },
         )

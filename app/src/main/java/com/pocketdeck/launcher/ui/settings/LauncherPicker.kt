@@ -75,6 +75,7 @@ import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.launch.RetroArchCoreCatalog
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.ui.components.DeckSwitch
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
@@ -433,17 +434,17 @@ private fun ColumnScope.MainPage(
                     onClick = { onSelect(preset.launcherId) },
                     trailing = if (onDeletePreset != null) {
                         {
-                            Text(
-                                "✕",
-                                style = DeckType.settingsLabel,
-                                color = DeckColors.TextSecondary,
+                            Box(
                                 modifier = Modifier
                                     .clip(DeckShapes.settingsDropdown)
                                     .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) {
                                         onDeletePreset(preset.id)
                                     }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
+                                    .padding(6.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                DeckIcon(DeckIcons.Close, tint = DeckColors.TextSecondary, size = 14.dp)
+                            }
                         }
                     } else null,
                 )
@@ -836,7 +837,11 @@ private fun ColumnScope.CustomAppPage(
                 color = DeckColors.TextSecondary,
                 modifier = Modifier.weight(1f),
             )
-            Text(if (advancedOpen) "▾" else "▸", style = DeckType.settingsLabel, color = DeckColors.TextSecondary)
+            DeckIcon(
+                if (advancedOpen) PanelIcons.ChevronDown else DeckIcons.ChevronRight,
+                tint = DeckColors.TextSecondary,
+                size = 15.dp,
+            )
         }
         if (advancedOpen) {
             modes.forEach { (m, titleRes, descRes) ->

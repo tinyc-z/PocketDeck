@@ -987,6 +987,8 @@ fun HomeScreen(
                     systemTabs = state.systemTabs,
                     uncategorizedPlatforms = state.uncategorizedPlatforms,
                     uncategorizedCount = state.uncategorizedCount,
+                    lanShareRunning = lanState.shareRunning,
+                    lanWebRunning = lanState.webRunning,
                 ),
                 onDismiss = {
                     capturingKeyBind = false
@@ -1054,8 +1056,9 @@ fun HomeScreen(
                     deleteCustomLauncherPreset = vm::deleteCustomLauncherPreset,
                     sampleGameFor = { pid -> fullLibrary?.games?.get(pid)?.firstOrNull() },
                     openLibraryHidden = { vm.openLibraryManager(hiddenOnly = true) },
+                    openLanService = { showLanControlFromStatusBar = true },
                 ),
-                isCovered = state.showLibraryManager,
+                isCovered = state.showLibraryManager || showLanControlFromStatusBar || showQuickShareScreen,
                 onLanguageChange = { code ->
                     AppLocale.set(context, code)
                     (context as? Activity)?.recreate()

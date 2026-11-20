@@ -527,8 +527,9 @@
     <string name="sort_size_asc">游戏大小：小 → 大</string>
 
     <!-- LAN Web Manager & Quick Share -->
-    <string name="lan_service_btn">局域网服务</string>
+    <string name="lan_service_btn">局域网与快传</string>
     <string name="lan_service_title">局域网与快传</string>
+    <string name="settings_lan_share_desc">网页管理与局域网游戏快传</string>
     <string name="lan_device_name">本机设备昵称</string>
     <string name="lan_device_rename">改名</string>
     <string name="lan_device_random">随机昵称</string>
