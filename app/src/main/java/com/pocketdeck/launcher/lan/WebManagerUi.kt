@@ -3541,6 +3541,127 @@ function escJs(s) {
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
 }
+// ── I7: Batch Operations & Drag-and-Drop Platform ROM Upload ──
+(function initBatchAndPlatformDrop() {
+  const tabGames = el('tab-games');
+  const gamesContainer = el('gamesContainer');
+  if (!tabGames || !gamesContainer) return;
+
+  let batchMode = false;
+  const selectedIds = new Set();
+
+  const bar = document.createElement('div');
+  bar.id = 'batchOpsBar';
+  bar.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 12px 0;padding:10px 14px;border-radius:14px;background:var(--surface,#fff);border:1px solid var(--line,rgba(0,0,0,0.08));';
+  bar.innerHTML =
+    '<button id="btnBatchToggle" class="btn-outline" style="padding:6px 12px;font-size:12px;">☑ Batch Select</button>' +
+    '<span id="batchControls" style="display:none;flex-wrap:wrap;align-items:center;gap:6px;flex:1;">' +
+      '<span id="batchCountLbl" style="font-size:12px;font-weight:600;color:var(--accent,#E9327A);">0 selected</span>' +
+      '<button id="btnBatchAll" class="btn-outline" style="padding:5px 10px;font-size:12px;">Select All</button>' +
+      '<button id="btnBatchHide" class="btn-outline" style="padding:5px 10px;font-size:12px;">Hide</button>' +
+      '<button id="btnBatchUnhide" class="btn-outline" style="padding:5px 10px;font-size:12px;">Unhide</button>' +
+      '<button id="btnBatchRescrape" class="btn-outline" style="padding:5px 10px;font-size:12px;">Rescrape</button>' +
+      '<select id="batchCatSel" style="padding:5px 8px;font-size:12px;border-radius:8px;border:1px solid var(--line,#ddd);background:var(--bg,#fff);color:var(--text,#222);"></select>' +
+      '<button id="btnBatchCat" class="btn-outline" style="padding:5px 10px;font-size:12px;">+ Category</button>' +
+    '</span>' +
+    '<div id="platDropZone" style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:10px;border:1px dashed var(--accent,#E9327A);font-size:12px;cursor:pointer;">' +
+      '<span>Drop ROMs →</span>' +
+      '<select id="platUploadSel" style="padding:3px 6px;font-size:12px;border-radius:6px;border:1px solid var(--line,#ddd);background:var(--bg,#fff);color:var(--text,#222);">' +
+        '<option value="gba">gba</option><option value="snes">snes</option><option value="nes">nes</option><option value="nds">nds</option><option value="psp">psp</option><option value="psx">psx</option><option value="ps2">ps2</option><option value="n64">n64</option><option value="gb">gb</option><option value="gbc">gbc</option><option value="megadrive">megadrive</option><option value="arcade">arcade</option><option value="switch">switch</option><option value="3ds">3ds</option><option value="gamecube">gamecube</option>' +
+      '</select>' +
+      '<input id="platUploadInput" type="file" multiple style="display:none"/>' +
+    '</div>';
+  tabGames.insertBefore(bar, gamesContainer);
+
+  function syncBatchUi() {
+    el('batchControls').style.display = batchMode ? 'flex' : 'none';
+    el('btnBatchToggle').textContent = batchMode ? '✕ Exit Batch' : '☑ Batch Select';
+    el('batchCountLbl').textContent = selectedIds.size + ' selected';
+    const sel = el('batchCatSel');
+    if (sel && typeof categories !== 'undefined' && Array.isArray(categories)) {
+      const prev = sel.value;
+      sel.innerHTML = categories.map(c => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
+      if (prev) sel.value = prev;
+    }
+    gamesContainer.querySelectorAll('[data-gid]').forEach(node => {
+      const gid = node.getAttribute('data-gid');
+      const on = batchMode && selectedIds.has(gid);
+      node.style.outline = on ? '2.5px solid var(--accent,#E9327A)' : '';
+      node.style.outlineOffset = on ? '2px' : '';
+    });
+  }
+
+  el('btnBatchToggle').onclick = () => {
+    batchMode = !batchMode;
+    if (!batchMode) selectedIds.clear();
+    syncBatchUi();
+  };
+  el('btnBatchAll').onclick = () => {
+    gamesContainer.querySelectorAll('[data-gid]').forEach(n => selectedIds.add(n.getAttribute('data-gid')));
+    syncBatchUi();
+  };
+
+  async function runBatch(action, extra) {
+    if (!selectedIds.size) return;
+    const payload = Object.assign({ action, ids: [...selectedIds] }, extra || {});
+    const r = await api('/api/games/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (r && r.ok) {
+      toast('Updated ' + (r.count || selectedIds.size) + ' games');
+      selectedIds.clear();
+      batchMode = false;
+      syncBatchUi();
+      if (typeof loadGames === 'function') loadGames(true);
+    }
+  }
+  el('btnBatchHide').onclick = () => runBatch('hide');
+  el('btnBatchUnhide').onclick = () => runBatch('unhide');
+  el('btnBatchRescrape').onclick = () => runBatch('rescrape');
+  el('btnBatchCat').onclick = () => {
+    const cid = el('batchCatSel').value;
+    if (cid) runBatch('setCategories', { categoryIds: [cid] });
+  };
+
+  gamesContainer.addEventListener('click', (e) => {
+    if (!batchMode) return;
+    const card = e.target.closest('[data-gid]');
+    if (!card) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const gid = card.getAttribute('data-gid');
+    if (selectedIds.has(gid)) selectedIds.delete(gid); else selectedIds.add(gid);
+    syncBatchUi();
+  }, true);
+
+  async function uploadToPlatform(fileList) {
+    const plat = el('platUploadSel').value || 'misc';
+    const files = [...fileList];
+    if (!files.length) return;
+    let okCount = 0;
+    for (const f of files) {
+      const url = '/api/upload?platform=' + encodeURIComponent(plat) + '&name=' + encodeURIComponent(f.name);
+      const resp = await fetch(url, { method: 'POST', body: f });
+      if (resp.ok) okCount++;
+    }
+    toast('Uploaded ' + okCount + '/' + files.length + ' ROM(s) to ' + plat);
+    if (typeof loadGames === 'function') loadGames(true);
+  }
+
+  const pdz = el('platDropZone');
+  const pin = el('platUploadInput');
+  pdz.onclick = (e) => { if (e.target.tagName !== 'SELECT') pin.click(); };
+  pin.onchange = () => { uploadToPlatform(pin.files); pin.value = ''; };
+  [pdz, gamesContainer].forEach(target => {
+    target.addEventListener('dragover', (e) => { e.preventDefault(); pdz.style.background = 'rgba(233,50,122,0.12)'; });
+    target.addEventListener('dragleave', () => { pdz.style.background = ''; });
+    target.addEventListener('drop', (e) => {
+      if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+      e.preventDefault();
+      pdz.style.background = '';
+      uploadToPlatform(e.dataTransfer.files);
+    });
+  });
+})();
+
 loadInit();
 pollFileTasks();
 </script>

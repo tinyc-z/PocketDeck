@@ -183,3 +183,39 @@ object CategoryValidator {
     private fun sanitizeDisplayName(raw: String, maxLen: Int): String =
         raw.replace(CONTROL_CHARS, "").trim().take(maxLen)
 }
+
+/** Web 端批量游戏操作与平台上传校验器。 */
+object WebBatchValidator {
+    private val SAFE_PLATFORM = Regex("""^[a-zA-Z0-9_-]{1,40}$""")
+    private val ALLOWED_ACTIONS = setOf("hide", "unhide", "setCategories", "rescrape")
+
+    data class BatchRequest(
+        val action: String,
+        val ids: List<String>,
+        val categoryIds: List<String>,
+    )
+
+    fun isSafePlatformId(id: String): Boolean = SAFE_PLATFORM.matches(id)
+
+    fun parse(rawJson: String): BatchRequest? = runCatching {
+        val obj = JSONObject(rawJson)
+        val action = obj.optString("action", "").trim()
+        if (action !in ALLOWED_ACTIONS) return null
+        val idsArr = obj.optJSONArray("ids") ?: return null
+        val ids = ArrayList<String>(idsArr.length())
+        for (i in 0 until idsArr.length()) {
+            val s = (idsArr.opt(i) as? String)?.trim().orEmpty()
+            if (s.isNotEmpty() && s.length <= 1024 && "/../" !in s) ids += s
+        }
+        if (ids.isEmpty()) return null
+        val catsArr = obj.optJSONArray("categoryIds")
+        val catIds = ArrayList<String>()
+        if (catsArr != null) {
+            for (i in 0 until catsArr.length()) {
+                val c = (catsArr.opt(i) as? String)?.trim().orEmpty()
+                if (c.isNotEmpty()) catIds += c
+            }
+        }
+        BatchRequest(action, ids.distinct(), catIds.distinct())
+    }.getOrNull()
+}

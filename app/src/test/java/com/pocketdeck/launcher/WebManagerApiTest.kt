@@ -63,4 +63,24 @@ class WebManagerApiTest {
         assertTrue(r2 is CategoryValidator.Result.Error)
         assertEquals("invalid_game_id", (r2 as CategoryValidator.Result.Error).code)
     }
+
+    @Test
+    fun webBatchValidatorParsesValidAndRejectsInvalidPayloads() {
+        val okJson = """
+            {
+              "action": "setCategories",
+              "ids": ["/roms/gba/a.gba", "/roms/gba/b.gba", "/roms/gba/a.gba"],
+              "categoryIds": ["cat:rpg"]
+            }
+        """.trimIndent()
+        val parsed = com.pocketdeck.launcher.lan.WebBatchValidator.parse(okJson)
+        assertEquals("setCategories", parsed?.action)
+        assertEquals(listOf("/roms/gba/a.gba", "/roms/gba/b.gba"), parsed?.ids)
+        assertEquals(listOf("cat:rpg"), parsed?.categoryIds)
+
+        assertEquals(null, com.pocketdeck.launcher.lan.WebBatchValidator.parse("""{"action":"deleteAll","ids":["a"]}"""))
+        assertEquals(null, com.pocketdeck.launcher.lan.WebBatchValidator.parse("""{"action":"hide","ids":[]}"""))
+        assertTrue(com.pocketdeck.launcher.lan.WebBatchValidator.isSafePlatformId("gba"))
+        assertTrue(!com.pocketdeck.launcher.lan.WebBatchValidator.isSafePlatformId("../etc"))
+    }
 }

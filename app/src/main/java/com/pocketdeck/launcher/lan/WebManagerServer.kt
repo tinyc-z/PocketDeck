@@ -1,5 +1,7 @@
 package com.pocketdeck.launcher.lan
 
+import kotlinx.coroutines.launch
+
 import android.content.Context
 import android.os.Build
 import android.os.Environment
@@ -690,6 +692,7 @@ class WebManagerServer(
             req.method == "POST" && req.path == "/api/games/hide" -> handleGameHide(req, res)
             req.method == "POST" && req.path == "/api/games/favorite" -> handleGameFavorite(req, res)
             req.method == "POST" && req.path == "/api/games/categories" -> handleGameCategories(req, res)
+            req.method == "POST" && req.path == "/api/games/batch" -> handleGamesBatch(req, res)
             req.method == "POST" && req.path == "/api/games/refresh-meta" -> handleGameRefreshMeta(req, res)
             req.method == "POST" && req.path == "/api/games/scrape-covers" -> handleGameScrapeCovers(req, res)
             req.method == "POST" && req.path == "/api/games/set-cover" -> handleGameSetCover(req, res)
@@ -706,6 +709,7 @@ class WebManagerServer(
             req.method == "POST" && req.path == "/api/files/extract" -> handleExtract(req, res)
             req.method == "POST" && req.path == "/api/files/compress" -> handleCompress(req, res)
             req.method == "POST" && req.path == "/api/files/upload" -> handleUpload(req, res)
+            req.method == "POST" && req.path == "/api/upload" -> handlePlatformUpload(req, res)
             req.method == "POST" && req.path == "/api/files/mkdir" -> handleMkdir(req, res)
             req.method == "POST" && req.path == "/api/files/rename" -> handleFileRename(req, res)
             req.method == "POST" && req.path == "/api/files/move" -> handleFileMove(req, res)
@@ -1233,6 +1237,156 @@ class WebManagerServer(
         val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
         if (fresh != null) root.put("game", gameToJson(fresh))
         res.sendJson(200, root.toString())
+    }
+
+    /** I7: 批量游戏操作（hide / unhide / setCategories / rescrape）。 */
+    private suspend fun handleGamesBatch(req: HttpRequest, res: HttpResponseWriter) {
+        val parsed = WebBatchValidator.parse(req.readBodyUtf8())
+        if (parsed == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_batch_payload"}""")
+            return
+        }
+        val lib = repo.fullLibrary.value
+        val validIds = parsed.ids.filter { lib?.byId?.containsKey(it) == true }
+        if (validIds.isEmpty()) {
+            res.sendJson(404, """{"ok":false,"error":"no_valid_games"}""")
+            return
+        }
+        when (parsed.action) {
+            "hide" -> repo.updatePrefs { u -> u.copy(hidden = u.hidden + validIds) }
+            "unhide" -> repo.updatePrefs { u -> u.copy(hidden = u.hidden - validIds.toSet()) }
+            "setCategories" -> {
+                val wanted = parsed.categoryIds.toSet()
+                val idSet = validIds.toSet()
+                repo.updatePrefs { u ->
+                    u.copy(
+                        categories = u.categories.map { c ->
+                            if (c.id in wanted) c.copy(games = c.games + idSet) else c
+                        },
+                    )
+                }
+            }
+            "rescrape" -> {
+                if (!NetworkStatus.isOnline(context)) {
+                    res.sendJson(200, """{"ok":false,"error":"offline"}""")
+                    return
+                }
+                val targets = validIds.take(50).mapNotNull { lib?.byId?.get(it) }
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    for (g in targets) {
+                        val plat = lib?.platform(g.platformId) ?: PlatformCatalog.forFolder(g.platformId)
+                        metadataRepo.refreshGame(g, plat)
+                        val off = metadataRepo.officialNames.value[g.id]
+                        covers.fetchWebCoverNow(g, plat, off)
+                    }
+                }
+            }
+            else -> {
+                res.sendJson(400, """{"ok":false,"error":"unsupported_action"}""")
+                return
+            }
+        }
+        res.sendJson(
+            200,
+            JSONObject()
+                .put("ok", true)
+                .put("count", validIds.size)
+                .put("stats", buildGamesStatsJson())
+                .toString(),
+        )
+    }
+
+    /** I7: 按平台自动归类上传 ROM（POST /api/upload?platform=<id>&name=<filename>）并触发增量扫描。 */
+    private suspend fun handlePlatformUpload(req: HttpRequest, res: HttpResponseWriter) {
+        val platformId = req.query["platform"].orEmpty().trim().lowercase()
+        val rawName = req.query["name"].orEmpty().trim()
+        if (!WebBatchValidator.isSafePlatformId(platformId)) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_platform"}""")
+            return
+        }
+        val cleanName = sanitizeFileName(rawName)
+        if (cleanName == null) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_file_name"}""")
+            return
+        }
+        val roots = repo.configuredRoots()
+        val primaryRoot = roots.firstOrNull { it.isDirectory } ?: roots.firstOrNull()
+        if (primaryRoot == null) {
+            res.sendJson(400, """{"ok":false,"error":"no_rom_root"}""")
+            return
+        }
+        val existingPlatDir = roots.asSequence()
+            .map { File(it, platformId) }
+            .firstOrNull { it.isDirectory }
+        val targetDir = existingPlatDir ?: File(primaryRoot, platformId).apply { mkdirs() }
+        if (!targetDir.isDirectory) {
+            res.sendJson(500, """{"ok":false,"error":"mkdir_failed"}""")
+            return
+        }
+        if (req.contentLength < 0L && !req.isChunked) {
+            res.sendJson(400, """{"ok":false,"error":"empty_body"}""")
+            return
+        }
+        val finalTarget = uniqueFile(targetDir, cleanName)
+        val partFile = File(targetDir, ".upload_${System.currentTimeMillis()}_${finalTarget.name}.part")
+        val uploadTask = repo.beginFileTask(
+            kind = FileTaskKind.Upload,
+            source = FileTaskSource.Web,
+            title = finalTarget.name,
+            detail = platformId,
+            clientIp = req.remoteIp,
+            totalBytes = req.contentLength.coerceAtLeast(0L),
+            cancellable = true,
+            onCancel = req.cancelConnection,
+        )
+        val tracker = startTransfer(
+            req = req,
+            direction = WebTransferDirection.Upload,
+            fileName = finalTarget.name,
+            filePath = finalTarget.absolutePath,
+            totalBytes = req.contentLength.coerceAtLeast(0L),
+        )
+        var writtenBytes = 0L
+        var ok = false
+        try {
+            ok = runCatching {
+                partFile.outputStream().use { out ->
+                    val written = req.copyBodyTo(out) { copied ->
+                        writtenBytes = copied
+                        if (tracker.onProgress(copied, tracker.totalBytes)) {
+                            repo.updateFileTask(uploadTask.id, bytesDone = copied, totalBytes = tracker.totalBytes)
+                            publishClients()
+                        }
+                    }
+                    writtenBytes = written
+                    check(req.isChunked || written == req.contentLength) { "Incomplete upload: $written/${req.contentLength}" }
+                }
+                if (!partFile.renameTo(finalTarget)) {
+                    partFile.copyTo(finalTarget, overwrite = true)
+                    partFile.delete()
+                }
+                true
+            }.getOrDefault(false)
+        } finally {
+            if (!ok) runCatching { partFile.delete() }
+            finishTransfer(tracker, writtenBytes, ok, recordHistory = true)
+            repo.endFileTask(uploadTask.id)
+        }
+        if (!ok) {
+            res.sendJson(500, """{"ok":false,"error":"upload_failed"}""")
+            return
+        }
+        repo.refresh()
+        res.sendJson(
+            200,
+            JSONObject()
+                .put("ok", true)
+                .put("platform", platformId)
+                .put("name", finalTarget.name)
+                .put("path", finalTarget.absolutePath)
+                .put("size", writtenBytes)
+                .toString(),
+        )
     }
 
     private suspend fun handleGameRefreshMeta(req: HttpRequest, res: HttpResponseWriter) {
