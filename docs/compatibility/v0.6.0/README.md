@@ -91,6 +91,10 @@
   - 底部精简为 **`Play / [Discs] / Favorite / Edit / Properties`**。
   - 横屏（`>= 480dp`）采用左封面 + 右信息 + 单行操作栏；窄屏（`< 480dp`，如 `4:3 VGA` 与 `1:1` 方屏）自动切为上下分块 + 底部主按钮独占行，在 `427×320 dp` 极限小屏下无任何裁切。
 
-| 16:9 横屏详情页 | 4:3 VGA 详情页（`427×320 dp`） | 1:1 方屏详情页（`411×411 dp`） |
-| :---: | :---: | :---: |
-| ![16:9 Detail](screenshots/16_9_fhd/04_gamemenu.png) | ![4:3 VGA Detail](screenshots/4_3_vga_240dpi/04_gamemenu.png) | ![1:1 Detail](screenshots/1_1_square/04_gamemenu.png) |
+| 16:9 横屏详情页 | 4:3 HD 详情页（`960×720`） | 4:3 VGA 详情页（`640×480`） | 1:1 方屏详情页（`720×720`） |
+| :---: | :---: | :---: | :---: |
+| ![16:9 Detail](screenshots/16_9_fhd/04_gamemenu.png) | ![960x720 Detail](screenshots/4_3_retro/04_gamemenu.png) | ![4:3 VGA Detail](screenshots/4_3_vga_240dpi/04_gamemenu.png) | ![1:1 Detail](screenshots/1_1_square/04_gamemenu.png) |
+
+| 960×720 游戏中心 | 960×720 文件管理器 |
+| :---: | :---: |
+| ![960x720 Game Library](screenshots/4_3_retro/05_library_games.png) | ![960x720 Files](screenshots/4_3_retro/06_library_files.png) |
