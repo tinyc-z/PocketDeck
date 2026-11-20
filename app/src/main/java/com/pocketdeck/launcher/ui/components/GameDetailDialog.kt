@@ -74,6 +74,7 @@ private data class DetailAction(
     val primary: Boolean = false,
     val active: Boolean = false,
     val isFavoriteToggle: Boolean = false,
+    val shortcutBadge: String? = null,
     val onClick: () -> Unit,
 )
 
@@ -126,8 +127,18 @@ fun GameDetailDialog(
 
     val hasMultiDisc = game.discFiles.size > 1 && onLaunchDisc != null
     val discLabelFmt = stringResource(R.string.disc_label_fmt)
+    val playBadge = GamepadKeys.badgeLabel(keyBindings, KeyAction.Play, swapAbxy)
+    val favBadge = GamepadKeys.badgeLabel(keyBindings, KeyAction.Menu, swapAbxy)
+    val editBadge = GamepadKeys.badgeLabel(keyBindings, KeyAction.Settings, swapAbxy)
     val actions = buildList {
-        add(DetailAction(stringResource(R.string.menu_play), primary = true, onClick = onLaunch))
+        add(
+            DetailAction(
+                label = stringResource(R.string.menu_play),
+                primary = true,
+                shortcutBadge = playBadge,
+                onClick = onLaunch,
+            ),
+        )
         if (hasMultiDisc) {
             add(
                 DetailAction(
@@ -142,10 +153,17 @@ fun GameDetailDialog(
                 label = if (isFavorite) stringResource(R.string.menu_unfavourite) else stringResource(R.string.menu_favourite),
                 active = isFavorite,
                 isFavoriteToggle = true,
+                shortcutBadge = favBadge,
                 onClick = onToggleFavorite,
             ),
         )
-        add(DetailAction(stringResource(R.string.menu_edit), onClick = onEdit))
+        add(
+            DetailAction(
+                label = stringResource(R.string.menu_edit),
+                shortcutBadge = editBadge,
+                onClick = onEdit,
+            ),
+        )
     }
     if (actionIdx >= actions.size) actionIdx = 0
 
@@ -221,6 +239,14 @@ fun GameDetailDialog(
                             DetailFocusZone.CoverEdit -> Unit
                             DetailFocusZone.Actions -> actionIdx = (actionIdx - 1 + actions.size) % actions.size
                         }
+                        true
+                    }
+                    GamepadKeys.isMenu(event.key, swapAbxy, keyBindings) -> {
+                        onToggleFavorite()
+                        true
+                    }
+                    GamepadKeys.isSettings(event.key, swapAbxy, keyBindings) -> {
+                        onEdit()
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
@@ -582,6 +608,31 @@ fun GameDetailDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
+                        if (!act.shortcutBadge.isNullOrBlank()) {
+                            val badgeBg = if (act.primary && hl) {
+                                Color.White.copy(alpha = 0.24f)
+                            } else {
+                                fgColor.copy(alpha = 0.14f)
+                            }
+                            Box(
+                                Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(badgeBg),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = act.shortcutBadge,
+                                    style = DeckType.metaLabel.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 9.5.sp,
+                                        lineHeight = 10.sp,
+                                    ),
+                                    color = fgColor,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                         if (act.isFavoriteToggle) {
                             FavoriteHeartIcon(
                                 filled = act.active,
