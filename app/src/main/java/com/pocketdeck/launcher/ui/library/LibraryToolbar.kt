@@ -160,11 +160,12 @@ internal fun LibraryHeaderBar(
     onSelectMode: (LibraryMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val compactHeader = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 500
     Row(
         Modifier
             .fillMaxWidth()
             .height(56.dp)
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = if (compactHeader) 12.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val backHl = focusZone == LibraryZone.Header && headerIdx == 0
@@ -183,21 +184,27 @@ internal fun LibraryHeaderBar(
                 size = 18.dp,
             )
         }
-        Spacer(Modifier.width(10.dp))
-        GameLibraryAppIcon(size = 28.dp)
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(if (compactHeader) 8.dp else 10.dp))
+        if (!compactHeader) {
+            GameLibraryAppIcon(size = 28.dp)
+            Spacer(Modifier.width(10.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 stringResource(R.string.game_library_title),
                 fontFamily = DeckFontFamily,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp,
+                fontSize = if (compactHeader) 15.sp else 18.sp,
                 color = DeckColors.TextPrimary,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             Text(
                 stringResource(R.string.game_library_stats, allGamesCount, hiddenCount),
                 style = DeckType.metaLabel,
                 color = DeckColors.TextSecondary,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
 
