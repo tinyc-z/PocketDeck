@@ -774,6 +774,8 @@
     <string name="detail_last_played">上次游玩</string>
     <string name="detail_never_played">从未游玩</string>
     <string name="detail_multi_disc_fmt">%1$d 张光盘</string>
+    <string name="detail_action_discs">选盘 (%1$d)</string>
+    <string name="detail_action_back_info">返回详情</string>
     <string name="settings_group_experimental">实验性功能</string>
     <string name="settings_quick_hud_title">掌机快捷 HUD</string>
     <string name="settings_quick_hud_desc">开启后可通过快捷键唤出浮层，快速调节亮度、音量及局域网服务</string>

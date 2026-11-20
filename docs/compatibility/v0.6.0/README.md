@@ -81,3 +81,16 @@
 | 16:9 主流横屏文件管理器 | 8.8 寸平板文件管理器 |
 | :---: | :---: |
 | ![16:9 Files](screenshots/16_9_fhd/06_library_files.png) | ![Tablet Files](screenshots/tablet_8_8_y700/06_library_files.png) |
+
+---
+
+### 6. 桌面游戏详情页替代右键菜单（`X` 键 / 长按直达）
+
+- 桌面按 `X` / 长按现已直接打开升级后的 `GameDetailDialog`：
+  - 新增 **所属分类胶囊** 与 **当前模拟器徽章**，保留游玩统计与简介，并支持多盘游戏内联选盘。
+  - 底部精简为 **`Play / [Discs] / Favorite / Edit / Properties`**。
+  - 横屏（`>= 480dp`）采用左封面 + 右信息 + 单行操作栏；窄屏（`< 480dp`，如 `4:3 VGA` 与 `1:1` 方屏）自动切为上下分块 + 底部主按钮独占行，在 `427×320 dp` 极限小屏下无任何裁切。
+
+| 16:9 横屏详情页 | 4:3 VGA 详情页（`427×320 dp`） | 1:1 方屏详情页（`411×411 dp`） |
+| :---: | :---: | :---: |
+| ![16:9 Detail](screenshots/16_9_fhd/04_gamemenu.png) | ![4:3 VGA Detail](screenshots/4_3_vga_240dpi/04_gamemenu.png) | ![1:1 Detail](screenshots/1_1_square/04_gamemenu.png) |

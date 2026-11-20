@@ -419,6 +419,7 @@ class HomeViewModel(
             metadataMap = metaMap,
             officialNames = officialNames,
             menuGame = current.menuGame?.let { lib.byId[it.id] ?: it },
+            detailGame = current.detailGame?.let { lib.byId[it.id] ?: it },
             propertiesGame = current.propertiesGame?.let { lib.byId[it.id] ?: it },
             editingGame = current.editingGame?.let { lib.byId[it.id] ?: it },
             showClock = user.showClock,
@@ -803,8 +804,8 @@ class HomeViewModel(
         return true
     }
 
-    fun showMenu(game: Game) { _state.value = _state.value.copy(menuGame = game) }
-    fun hideMenu() { _state.value = _state.value.copy(menuGame = null) }
+    fun showMenu(game: Game) { _state.value = _state.value.copy(menuGame = null, detailGame = game) }
+    fun hideMenu() { _state.value = _state.value.copy(menuGame = null, detailGame = null) }
 
     fun openProperties(game: Game) {
         _state.value = _state.value.copy(menuGame = null, propertiesGame = game)

@@ -775,6 +775,8 @@
     <string name="detail_last_played">Last played</string>
     <string name="detail_never_played">Never</string>
     <string name="detail_multi_disc_fmt">%1$d discs</string>
+    <string name="detail_action_discs">Discs (%1$d)</string>
+    <string name="detail_action_back_info">Details</string>
     <string name="settings_group_experimental">Experimental</string>
     <string name="settings_quick_hud_title">Handheld Quick HUD</string>
     <string name="settings_quick_hud_desc">Toggle brightness, volume, Quick Share and Web Manager overlay via hotkey</string>

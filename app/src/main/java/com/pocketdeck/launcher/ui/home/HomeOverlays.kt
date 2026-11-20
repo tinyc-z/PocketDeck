@@ -109,28 +109,45 @@ internal fun HomeOverlays(
         )
     }
 
-    // F2 游戏详情预览卡
+    // F2 游戏详情与操作中心（直接替代桌面右键菜单）
     state.detailGame?.let { game ->
+        val platform = state.platformFor(game)
+        val gameCats = state.categories.filter { game.id in it.games || game.platformId in it.sources }.map { it.name }
+        val launcherLabel = remember(platform.id, state.effectiveLauncherFor(game)) {
+            GameLauncher.describeLauncher(context, platform.id, state.effectiveLauncherFor(game))
+        }
         com.pocketdeck.launcher.ui.components.GameDetailDialog(
             game = game,
-            platform = state.platformFor(game),
+            platform = platform,
             covers = vm.covers,
             metadata = state.metadataMap[game.id],
             officialName = state.officialNames[game.id],
             playStats = state.playStats[game.id],
             isFavorite = game.id in state.favorites,
+            categoryNames = gameCats,
+            launcherLabel = launcherLabel,
             swapAbxy = state.swapAbxy,
             keyBindings = state.keyBindings,
             onLaunch = {
                 vm.closeDetail()
                 launchGame(game)
             },
+            onLaunchDisc = if (game.discFiles.size > 1) {
+                { discPath ->
+                    vm.closeDetail()
+                    val discFile = File(discPath)
+                    val discGame = game.copy(id = discPath, fileName = discFile.name, baseName = discFile.nameWithoutExtension)
+                    val preferredEmulator = state.effectiveLauncherFor(game)
+                    val result = GameLauncher.launch(context, discGame, platform, preferredEmulator)
+                    when (result) {
+                        is GameLauncher.Result.Ok -> vm.addRecent(game.id)
+                        is GameLauncher.Result.Error ->
+                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else null,
             onToggleFavorite = { vm.toggleFavorite(game.id) },
             onEdit = { vm.openEdit(game) },
-            onManualScrape = {
-                vm.closeDetail()
-                vm.openManualScrape(game)
-            },
             onProperties = {
                 vm.closeDetail()
                 vm.openProperties(game)

@@ -774,6 +774,8 @@
     <string name="detail_last_played">上次遊玩</string>
     <string name="detail_never_played">從未遊玩</string>
     <string name="detail_multi_disc_fmt">%1$d 片光碟</string>
+    <string name="detail_action_discs">選盤 (%1$d)</string>
+    <string name="detail_action_back_info">返回詳情</string>
     <string name="settings_group_experimental">實驗性功能</string>
     <string name="settings_quick_hud_title">掌機快捷 HUD</string>
     <string name="settings_quick_hud_desc">開啟後可透過快速鍵喚出浮層，快速調整亮度、音量及區域網路服務</string>
