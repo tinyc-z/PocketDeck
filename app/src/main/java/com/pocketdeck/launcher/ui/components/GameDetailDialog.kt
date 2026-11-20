@@ -77,6 +77,12 @@ private data class DetailAction(
     val onClick: () -> Unit,
 )
 
+private enum class DetailFocusZone {
+    Actions,
+    CoverEdit,
+    Properties,
+}
+
 /**
  * 桌面游戏详情与操作中心（Sunset Arcade）：
  * 封面 + 所属分类/模拟器徽章 + 发行商/年份/平台/文件大小 + 游玩统计 + 简介 / 多盘内联选盘 + 快捷操作栏。
@@ -106,7 +112,9 @@ fun GameDetailDialog(
 ) {
     val focusRequester = remember { FocusRequester() }
     var actionIdx by remember(game.id) { mutableIntStateOf(0) }
-    var propertiesFocused by remember(game.id) { mutableStateOf(false) }
+    var focusZone by remember(game.id) { mutableStateOf(DetailFocusZone.Actions) }
+    val propertiesFocused = focusZone == DetailFocusZone.Properties
+    val coverEditFocused = focusZone == DetailFocusZone.CoverEdit && onManualScrape != null
     var pickingDisc by remember(game.id) { mutableStateOf(false) }
     var discIdx by remember(game.id, pickingDisc) { mutableIntStateOf(0) }
     val cfg = LocalConfiguration.current
@@ -176,38 +184,50 @@ fun GameDetailDialog(
                         true
                     }
                     !pickingDisc && event.key == Key.DirectionDown -> {
-                        if (propertiesFocused) {
-                            propertiesFocused = false
+                        if (focusZone != DetailFocusZone.Actions) {
+                            focusZone = DetailFocusZone.Actions
                         } else {
                             scope.launch { scrollState.animateScrollTo((scrollState.value + 120).coerceAtMost(scrollState.maxValue)) }
                         }
                         true
                     }
                     !pickingDisc && event.key == Key.DirectionUp -> {
-                        if (scrollState.value > 0) {
+                        if (scrollState.value > 0 && focusZone == DetailFocusZone.Actions) {
                             scope.launch { scrollState.animateScrollTo((scrollState.value - 120).coerceAtLeast(0)) }
-                        } else {
-                            propertiesFocused = true
+                        } else if (focusZone == DetailFocusZone.Actions) {
+                            focusZone = if (actionIdx == 0 && onManualScrape != null) {
+                                DetailFocusZone.CoverEdit
+                            } else {
+                                DetailFocusZone.Properties
+                            }
                         }
                         true
                     }
                     event.key == Key.DirectionRight -> {
                         pickingDisc = false
-                        propertiesFocused = false
-                        actionIdx = (actionIdx + 1) % actions.size
+                        when (focusZone) {
+                            DetailFocusZone.CoverEdit -> focusZone = DetailFocusZone.Properties
+                            DetailFocusZone.Properties -> Unit
+                            DetailFocusZone.Actions -> actionIdx = (actionIdx + 1) % actions.size
+                        }
                         true
                     }
                     event.key == Key.DirectionLeft -> {
                         pickingDisc = false
-                        propertiesFocused = false
-                        actionIdx = (actionIdx - 1 + actions.size) % actions.size
+                        when (focusZone) {
+                            DetailFocusZone.Properties -> if (onManualScrape != null) {
+                                focusZone = DetailFocusZone.CoverEdit
+                            }
+                            DetailFocusZone.CoverEdit -> Unit
+                            DetailFocusZone.Actions -> actionIdx = (actionIdx - 1 + actions.size) % actions.size
+                        }
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        if (propertiesFocused) {
-                            onProperties()
-                        } else {
-                            actions.getOrNull(actionIdx)?.onClick?.invoke()
+                        when (focusZone) {
+                            DetailFocusZone.Properties -> onProperties()
+                            DetailFocusZone.CoverEdit -> onManualScrape?.invoke()
+                            DetailFocusZone.Actions -> actions.getOrNull(actionIdx)?.onClick?.invoke()
                         }
                         true
                     }
@@ -399,12 +419,12 @@ fun GameDetailDialog(
                         officialName = officialName,
                         width = coverW,
                         height = coverH,
-                        isFocused = false,
+                        isFocused = coverEditFocused,
                     )
                     if (onManualScrape != null) {
                         val visualSize = if (compact) 18.dp else 20.dp
                         val iconSize = if (compact) 9.dp else 10.dp
-                        // 外层 36dp 透明触摸热区，内部 18~20dp 半透暗玻璃精致小圆点
+                        // 外层 36dp 透明触摸热区，内部 18~20dp 半透暗玻璃精致小圆点（获焦时亮品牌渐变）
                         Box(
                             Modifier
                                 .align(Alignment.BottomEnd)
@@ -415,15 +435,22 @@ fun GameDetailDialog(
                         ) {
                             Box(
                                 Modifier
-                                    .size(visualSize)
+                                    .size(if (coverEditFocused) visualSize + 4.dp else visualSize)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF1A1220).copy(alpha = 0.56f))
-                                    .border(0.75.dp, Color.White.copy(alpha = 0.30f), CircleShape),
+                                    .then(
+                                        if (coverEditFocused) Modifier.brandBackground(CircleShape)
+                                        else Modifier.background(Color(0xFF1A1220).copy(alpha = 0.56f)),
+                                    )
+                                    .border(
+                                        width = if (coverEditFocused) 1.4.dp else 0.75.dp,
+                                        color = if (coverEditFocused) Color.White else Color.White.copy(alpha = 0.30f),
+                                        shape = CircleShape,
+                                    ),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 DeckIcon(
                                     icon = HomeIcons.Pencil,
-                                    size = iconSize,
+                                    size = if (coverEditFocused) iconSize + 2.dp else iconSize,
                                     tint = Color.White,
                                 )
                             }
@@ -520,7 +547,7 @@ fun GameDetailDialog(
 
             @Composable
             fun ActionPill(act: DetailAction, idx: Int, modifier: Modifier) {
-                val hl = !pickingDisc && !propertiesFocused && idx == actionIdx
+                val hl = !pickingDisc && focusZone == DetailFocusZone.Actions && idx == actionIdx
                 val bgMod = when {
                     act.primary && hl -> Modifier.brandBackground(DeckShapes.tabPill)
                     act.active && hl -> Modifier.background(DeckColors.Ruby.copy(alpha = 0.22f))
