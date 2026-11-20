@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,6 +46,7 @@ fun DialogPanelCard(
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
     closeFocused: Boolean = false,
     closeFocusRequester: FocusRequester? = null,
+    topEndExtra: (@Composable () -> Unit)? = null,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     content: @Composable ColumnScope.() -> Unit,
@@ -65,16 +67,24 @@ fun DialogPanelCard(
             horizontalAlignment = horizontalAlignment,
             content = content,
         )
-        DialogCloseButton(
-            onClick = onDismiss,
-            focused = closeFocused,
-            focusRequester = closeFocusRequester,
-            swapAbxy = swapAbxy,
-            keyBindings = keyBindings,
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = closeInset, end = closeInset),
-        )
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (topEndExtra != null) {
+                topEndExtra()
+            }
+            DialogCloseButton(
+                onClick = onDismiss,
+                focused = closeFocused,
+                focusRequester = closeFocusRequester,
+                swapAbxy = swapAbxy,
+                keyBindings = keyBindings,
+            )
+        }
     }
 }
 

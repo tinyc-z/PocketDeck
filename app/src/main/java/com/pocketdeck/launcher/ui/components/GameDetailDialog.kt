@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
@@ -55,6 +57,7 @@ import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.ui.components.icons.HomeIcons
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -102,6 +105,7 @@ fun GameDetailDialog(
 ) {
     val focusRequester = remember { FocusRequester() }
     var actionIdx by remember(game.id) { mutableIntStateOf(0) }
+    var propertiesFocused by remember(game.id) { mutableStateOf(false) }
     var pickingDisc by remember(game.id) { mutableStateOf(false) }
     var discIdx by remember(game.id, pickingDisc) { mutableIntStateOf(0) }
     val cfg = LocalConfiguration.current
@@ -133,7 +137,6 @@ fun GameDetailDialog(
             ),
         )
         add(DetailAction(stringResource(R.string.menu_edit), onClick = onEdit))
-        add(DetailAction(stringResource(R.string.menu_properties), onClick = onProperties))
     }
     if (actionIdx >= actions.size) actionIdx = 0
 
@@ -172,25 +175,39 @@ fun GameDetailDialog(
                         true
                     }
                     !pickingDisc && event.key == Key.DirectionDown -> {
-                        scope.launch { scrollState.animateScrollTo((scrollState.value + 120).coerceAtMost(scrollState.maxValue)) }
+                        if (propertiesFocused) {
+                            propertiesFocused = false
+                        } else {
+                            scope.launch { scrollState.animateScrollTo((scrollState.value + 120).coerceAtMost(scrollState.maxValue)) }
+                        }
                         true
                     }
                     !pickingDisc && event.key == Key.DirectionUp -> {
-                        scope.launch { scrollState.animateScrollTo((scrollState.value - 120).coerceAtLeast(0)) }
+                        if (scrollState.value > 0) {
+                            scope.launch { scrollState.animateScrollTo((scrollState.value - 120).coerceAtLeast(0)) }
+                        } else {
+                            propertiesFocused = true
+                        }
                         true
                     }
                     event.key == Key.DirectionRight -> {
                         pickingDisc = false
+                        propertiesFocused = false
                         actionIdx = (actionIdx + 1) % actions.size
                         true
                     }
                     event.key == Key.DirectionLeft -> {
                         pickingDisc = false
+                        propertiesFocused = false
                         actionIdx = (actionIdx - 1 + actions.size) % actions.size
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        actions.getOrNull(actionIdx)?.onClick?.invoke()
+                        if (propertiesFocused) {
+                            onProperties()
+                        } else {
+                            actions.getOrNull(actionIdx)?.onClick?.invoke()
+                        }
                         true
                     }
                     else -> false
@@ -220,6 +237,31 @@ fun GameDetailDialog(
                     else -> 18.dp
                 },
             ),
+            topEndExtra = {
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (propertiesFocused) Modifier.brandBackground(CircleShape)
+                            else Modifier.background(DeckColors.SurfaceAlt),
+                        )
+                        .brandBorder(
+                            active = propertiesFocused,
+                            shape = CircleShape,
+                            activeWidth = 1.4.dp,
+                            inactiveWidth = 0.6.dp,
+                        )
+                        .soundClickable(onClick = onProperties),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    DeckIcon(
+                        icon = HomeIcons.Info,
+                        size = 15.dp,
+                        tint = if (propertiesFocused) Color.White else DeckColors.TextSecondary,
+                    )
+                }
+            },
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
         ) {
@@ -353,7 +395,7 @@ fun GameDetailDialog(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .padding(end = 26.dp),
+                            .padding(end = 62.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -425,7 +467,7 @@ fun GameDetailDialog(
                             color = DeckColors.TextPrimary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(end = 28.dp),
+                            modifier = Modifier.padding(end = 64.dp),
                         )
                         if (metaChips.isNotEmpty()) {
                             Text(
@@ -446,7 +488,7 @@ fun GameDetailDialog(
 
             @Composable
             fun ActionPill(act: DetailAction, idx: Int, modifier: Modifier) {
-                val hl = !pickingDisc && idx == actionIdx
+                val hl = !pickingDisc && !propertiesFocused && idx == actionIdx
                 val bgMod = when {
                     act.primary && hl -> Modifier.brandBackground(DeckShapes.tabPill)
                     act.active && hl -> Modifier.background(DeckColors.Ruby.copy(alpha = 0.22f))
@@ -500,7 +542,7 @@ fun GameDetailDialog(
                 }
             }
 
-            if (isNarrow) {
+            if (isNarrow && actions.size > 3) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     ActionPill(actions[0], 0, Modifier.fillMaxWidth())
                     Row(
