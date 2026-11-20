@@ -274,6 +274,59 @@ class CoverSource(
             }
             return out.entries.map { it.key to it.value }
         }
+
+        /** 手动搜索专用：先走精确/模糊匹配，不足时补充「关键词包含匹配」（按紧凑键去重，避免同游戏多区域刷屏）。 */
+        fun findManualMatches(queries: List<String>, limit: Int = 12): List<String> {
+            val picked = LinkedHashMap<String, String>(limit)
+            for ((fn, _) in findMatchesWithMode(queries)) {
+                val base = if (fn.endsWith(".png", true)) fn.dropLast(4) else fn
+                val ck = TitleNormalizer.compactKey(base).ifEmpty { fn }
+                picked.putIfAbsent(ck, fn)
+                if (picked.size >= limit) return picked.values.toList()
+            }
+
+            val queryCompacts = queries
+                .map { TitleNormalizer.compactKey(it) }
+                .filter { it.length >= 3 }
+                .distinct()
+            val queryTokenSets = queries
+                .map { TitleNormalizer.tokenize(TitleNormalizer.normalizedTitle(it)) }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            if (queryCompacts.isEmpty() && queryTokenSets.isEmpty()) {
+                return picked.values.toList()
+            }
+
+            val containsScored = ArrayList<Triple<String, String, Double>>(24)
+            for ((ck, files) in byCompact) {
+                if (ck in picked || files.isEmpty()) continue
+                val bestFile = files.first()
+                val base = if (bestFile.endsWith(".png", true)) bestFile.dropLast(4) else bestFile
+                val compactHit = queryCompacts.any { ck.contains(it) }
+                val tokenHit = if (compactHit) {
+                    true
+                } else {
+                    val titleTokens = TitleNormalizer.tokenize(TitleNormalizer.normalizedTitle(base)).toSet()
+                    queryTokenSets.any { qToks -> qToks.all { qt -> titleTokens.any { it == qt || (qt.length >= 3 && it.contains(qt)) } } }
+                }
+                if (tokenHit) {
+                    val bestSim = queries.maxOfOrNull { q -> TitleNormalizer.similarity(q, base) } ?: 0.0
+                    containsScored += Triple(ck, bestFile, bestSim)
+                }
+            }
+
+            if (containsScored.isNotEmpty()) {
+                containsScored.sortWith(
+                    compareByDescending<Triple<String, String, Double>> { it.third }
+                        .thenBy { candidateScore(it.second) },
+                )
+                for ((ck, fn, _) in containsScored) {
+                    picked.putIfAbsent(ck, fn)
+                    if (picked.size >= limit) break
+                }
+            }
+            return picked.values.toList()
+        }
     }
 
     fun configure(nodes: List<SourceItemConfig>, cred: ScraperCredentials) {
@@ -349,9 +402,9 @@ class CoverSource(
         }
         val index = systemIndexes[system] ?: return emptyList()
         val queries = TitleNormalizer.buildQueryVariants(keyword, keyword, null)
-        val matches = index.findMatchesWithMode(queries)
+        val matches = index.findManualMatches(queries, limit = 12)
         val mirror = activeLibretroMirror
-        return matches.take(8).map { (fileName, _) ->
+        return matches.map { fileName ->
             val cleanName = if (fileName.endsWith(".png", true)) fileName.dropLast(4) else fileName
             cleanName to buildLibretroBoxartUrl(system, fileName, mirror)
         }

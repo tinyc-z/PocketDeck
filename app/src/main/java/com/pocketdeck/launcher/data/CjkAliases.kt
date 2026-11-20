@@ -84,6 +84,13 @@ object CjkAliases {
         "塞尔达传说 王国之泪" to "The Legend of Zelda: Tears of the Kingdom",
 
         // 超级马里奥 / 马力欧 Mario
+        "超级马里奥合集" to "Super Mario All-Stars",
+        "超级马力欧合集" to "Super Mario All-Stars",
+        "马里奥合集" to "Super Mario All-Stars",
+        "超级马里奥全明星" to "Super Mario All-Stars",
+        "超级马里奥收藏集" to "Super Mario All-Stars",
+        "超级马里奥RPG" to "Super Mario RPG - Legend of the Seven Stars",
+        "超级马里奥世界2" to "Super Mario World 2 - Yoshi's Island",
         "超级马里奥世界" to "Super Mario World",
         "超级马里奥兄弟3" to "Super Mario Bros. 3",
         "超级马里奥兄弟2" to "Super Mario Bros. 2",
@@ -100,6 +107,20 @@ object CjkAliases {
         "纸片马里奥" to "Paper Mario",
         "耀西岛" to "Super Mario World 2 - Yoshi's Island",
         "马里奥医生" to "Dr. Mario",
+
+        // 常见经典合集
+        "星之卡比超级豪华版" to "Kirby Super Star",
+        "星之卡比 超级豪华版" to "Kirby Super Star",
+        "星之卡比合集" to "Kirby's Dream Collection",
+        "洛克人合集" to "Mega Man Anniversary Collection",
+        "洛克人X合集" to "Mega Man X Collection",
+        "恶魔城合集" to "Castlevania Double Pack",
+        "魂斗罗合集" to "Contra",
+        "合金弹头合集" to "Metal Slug Anthology",
+        "索尼克合集" to "Sonic Mega Collection",
+        "街头霸王合集" to "Street Fighter Collection",
+        "拳皇合集" to "King of Fighters Collection",
+        "最终幻想合集" to "Final Fantasy Anthology",
 
         // 火焰纹章 Fire Emblem
         "火焰纹章 封印之剑" to "Fire Emblem - Fuuin no Tsurugi",
