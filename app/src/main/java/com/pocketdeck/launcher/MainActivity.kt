@@ -1,6 +1,7 @@
 package com.pocketdeck.launcher
 
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -9,6 +10,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -17,6 +19,8 @@ import com.pocketdeck.launcher.data.AppLocale
 import com.pocketdeck.launcher.ui.home.HomeScreen
 
 class MainActivity : ComponentActivity() {
+
+    private val homeResetTick = mutableIntStateOf(0)
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
@@ -45,8 +49,20 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContent {
-            HomeScreen(modifier = Modifier.fillMaxSize())
+            HomeScreen(
+                homeResetTick = homeResetTick.intValue,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            homeResetTick.intValue += 1
+        }
+        hideSystemBars()
     }
 
     override fun onResume() {

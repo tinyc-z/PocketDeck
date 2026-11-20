@@ -980,6 +980,35 @@ class HomeViewModel(
         )
     }
 
+    /** 按系统 Home 键时收起全部子页面、弹窗与搜索状态，直接回到 PocketDeck 主桌面。 */
+    fun returnToDesktop() {
+        val cur = _state.value
+        val wasSearching = cur.searching
+        val next = cur.copy(
+            showApps = false,
+            showSettings = false,
+            showLibraryManager = false,
+            libraryManagerInitialDir = null,
+            libraryManagerInitialFocusFile = null,
+            showViewMenu = false,
+            showQuickHud = false,
+            menuGame = null,
+            detailGame = null,
+            propertiesGame = null,
+            editingGame = null,
+            manualScrapeGame = null,
+            searching = false,
+            searchQuery = "",
+        )
+        if (wasSearching) {
+            if (!recomputeFromRepo(next)) {
+                _state.value = next
+            }
+        } else if (next != cur) {
+            _state.value = next
+        }
+    }
+
     fun setGameCategories(gameId: String, categoryIds: Set<String>) {
         viewModelScope.launch {
             repo.updatePrefs { u ->

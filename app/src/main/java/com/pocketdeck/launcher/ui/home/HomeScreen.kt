@@ -104,6 +104,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
+    homeResetTick: Int = 0,
     vm: HomeViewModel = homeViewModel(),
 ) {
     val state by vm.state.collectAsState()
@@ -247,6 +248,16 @@ fun HomeScreen(
         if (!overlayOpen) {
             focusRequester.requestFocus()
         }
+    }
+
+    // 在 PocketDeck 内任意子页面/弹窗按系统 Home 键时，一键收起回到主桌面
+    LaunchedEffect(homeResetTick) {
+        if (homeResetTick <= 0) return@LaunchedEffect
+        showQuickShareScreen = false
+        showLanControlFromStatusBar = false
+        dismissSearchKeyboard()
+        vm.returnToDesktop()
+        focusRequester.requestFocus()
     }
 
     // 快滚/导航动画状态用 StateFlow + 协程 Job 管理，绝不在 HomeScreen 顶层读取，避免每次方向键触发顶层全树重组
