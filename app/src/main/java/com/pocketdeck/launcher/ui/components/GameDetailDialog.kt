@@ -100,6 +100,7 @@ fun GameDetailDialog(
     onLaunchDisc: ((String) -> Unit)? = null,
     onToggleFavorite: () -> Unit,
     onEdit: () -> Unit,
+    onManualScrape: (() -> Unit)? = null,
     onProperties: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -384,6 +385,53 @@ fun GameDetailDialog(
                 }
             }
 
+            @Composable
+            fun CoverWithScrapeBadge(
+                coverW: androidx.compose.ui.unit.Dp,
+                coverH: androidx.compose.ui.unit.Dp,
+                compact: Boolean,
+            ) {
+                Box(Modifier.size(width = coverW, height = coverH)) {
+                    GameCoverCard(
+                        game = game,
+                        platform = platform,
+                        covers = covers,
+                        officialName = officialName,
+                        width = coverW,
+                        height = coverH,
+                        isFocused = false,
+                    )
+                    if (onManualScrape != null) {
+                        val visualSize = if (compact) 18.dp else 20.dp
+                        val iconSize = if (compact) 9.dp else 10.dp
+                        // 外层 36dp 透明触摸热区，内部 18~20dp 半透暗玻璃精致小圆点
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(36.dp)
+                                .soundClickable(onClick = onManualScrape)
+                                .padding(end = 6.dp, bottom = 6.dp),
+                            contentAlignment = Alignment.BottomEnd,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(visualSize)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF1A1220).copy(alpha = 0.56f))
+                                    .border(0.75.dp, Color.White.copy(alpha = 0.30f), CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                DeckIcon(
+                                    icon = HomeIcons.Pencil,
+                                    size = iconSize,
+                                    tint = Color.White,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             if (isNarrow) {
                 Column(
                     Modifier
@@ -401,15 +449,7 @@ fun GameDetailDialog(
                     ) {
                         val coverH = if (isShort) 72.dp else 88.dp
                         val coverW = (coverH * platform.coverAspect).coerceIn(54.dp, if (isShort) 80.dp else 96.dp)
-                        GameCoverCard(
-                            game = game,
-                            platform = platform,
-                            covers = covers,
-                            officialName = officialName,
-                            width = coverW,
-                            height = coverH,
-                            isFocused = false,
-                        )
+                        CoverWithScrapeBadge(coverW = coverW, coverH = coverH, compact = true)
                         Column(
                             Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -445,15 +485,7 @@ fun GameDetailDialog(
                 ) {
                     val coverH = 168.dp
                     val coverW = (coverH * platform.coverAspect).coerceIn(104.dp, 164.dp)
-                    GameCoverCard(
-                        game = game,
-                        platform = platform,
-                        covers = covers,
-                        officialName = officialName,
-                        width = coverW,
-                        height = coverH,
-                        isFocused = false,
-                    )
+                    CoverWithScrapeBadge(coverW = coverW, coverH = coverH, compact = false)
 
                     Column(
                         Modifier

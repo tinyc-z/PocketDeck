@@ -148,6 +148,7 @@ internal fun HomeOverlays(
             } else null,
             onToggleFavorite = { vm.toggleFavorite(game.id) },
             onEdit = { vm.openEdit(game) },
+            onManualScrape = { vm.openManualScrape(game) },
             onProperties = {
                 vm.closeDetail()
                 vm.openProperties(game)
