@@ -69,6 +69,8 @@ import java.util.Locale
 private data class DetailAction(
     val label: String,
     val primary: Boolean = false,
+    val active: Boolean = false,
+    val isFavoriteToggle: Boolean = false,
     val onClick: () -> Unit,
 )
 
@@ -124,7 +126,9 @@ fun GameDetailDialog(
         }
         add(
             DetailAction(
-                if (isFavorite) stringResource(R.string.menu_unfavourite) else stringResource(R.string.menu_favourite),
+                label = if (isFavorite) stringResource(R.string.menu_unfavourite) else stringResource(R.string.menu_favourite),
+                active = isFavorite,
+                isFavoriteToggle = true,
                 onClick = onToggleFavorite,
             ),
         )
@@ -445,20 +449,27 @@ fun GameDetailDialog(
                 val hl = !pickingDisc && idx == actionIdx
                 val bgMod = when {
                     act.primary && hl -> Modifier.brandBackground(DeckShapes.tabPill)
+                    act.active && hl -> Modifier.background(DeckColors.Ruby.copy(alpha = 0.22f))
                     hl -> Modifier.background(DeckColors.AccentSoft)
                     act.primary -> Modifier.background(DeckColors.Ruby.copy(alpha = 0.14f))
+                    act.active -> Modifier.background(DeckColors.AccentSoft)
                     else -> Modifier.background(DeckColors.Surface)
                 }
                 val fgColor = when {
                     act.primary && hl -> Color.White
-                    hl || act.primary -> DeckColors.Ruby
+                    hl || act.primary || act.active -> DeckColors.Ruby
                     else -> DeckColors.TextPrimary
+                }
+                val borderMod = if (act.active && !hl) {
+                    Modifier.border(1.dp, DeckColors.Ruby.copy(alpha = 0.55f), DeckShapes.tabPill)
+                } else {
+                    Modifier.brandBorder(active = hl, shape = DeckShapes.tabPill, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
                 }
                 Box(
                     modifier
                         .clip(DeckShapes.tabPill)
                         .then(bgMod)
-                        .brandBorder(active = hl, shape = DeckShapes.tabPill, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
+                        .then(borderMod)
                         .soundClickable {
                             actionIdx = idx
                             act.onClick()
@@ -466,13 +477,26 @@ fun GameDetailDialog(
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = act.label,
-                        style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                        color = fgColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        if (act.isFavoriteToggle) {
+                            FavoriteHeartIcon(
+                                filled = act.active,
+                                color = fgColor,
+                                size = 13.dp,
+                                strokeWidth = 1.6.dp,
+                            )
+                        }
+                        Text(
+                            text = act.label,
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                            color = fgColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
 
