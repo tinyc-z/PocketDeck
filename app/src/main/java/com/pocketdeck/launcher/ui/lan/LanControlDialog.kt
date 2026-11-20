@@ -100,8 +100,9 @@ fun LanServiceControlDialog(
     onKickWebClient: (String) -> Unit = {},
     onClearWebHistory: () -> Unit = {},
     onDeleteWebHistoryItem: (String) -> Unit = {},
+    onClearShareHistory: () -> Unit = {},
+    onDeleteShareHistoryItem: (String) -> Unit = {},
     onOpenFolder: ((File, File?) -> Unit)? = null,
-    onOpenQuickShareScreen: (() -> Unit)? = null,
     onAcceptIncoming: (String, File) -> Unit = { _, _ -> },
     onRejectIncoming: (String) -> Unit = {},
     onCancelTransfer: () -> Unit = {},
@@ -116,6 +117,7 @@ fun LanServiceControlDialog(
     val nav = remember { DpadNavController() }
     var editingName by remember { mutableStateOf(false) }
     var showWebHistory by remember { mutableStateOf(false) }
+    var showShareHistory by remember { mutableStateOf(false) }
     // 0 = Web 网页管理，1 = 游戏快传（若仅快传在运行或有来件则默认展示快传）
     var activeTab by remember {
         mutableIntStateOf(
@@ -124,8 +126,12 @@ fun LanServiceControlDialog(
     }
     var nicExpanded by remember { mutableStateOf(false) }
 
-    androidx.activity.compose.BackHandler(enabled = editingName || showWebHistory) {
-        if (editingName) editingName = false else showWebHistory = false
+    androidx.activity.compose.BackHandler(enabled = editingName || showWebHistory || showShareHistory) {
+        when {
+            editingName -> editingName = false
+            showWebHistory -> showWebHistory = false
+            else -> showShareHistory = false
+        }
     }
     var incomingDirIdx by remember(state.incomingRequest?.sessionId) { mutableIntStateOf(0) }
     val sdPath = remember { Environment.getExternalStorageDirectory().path }
@@ -138,8 +144,8 @@ fun LanServiceControlDialog(
     val scrollState = rememberScrollState()
 
     val view = LocalView.current
-    LaunchedEffect(editingName, showWebHistory, state.pinChallenge != null, state.incomingRequest?.sessionId) {
-        if (!editingName && !showWebHistory && state.pinChallenge == null) {
+    LaunchedEffect(editingName, showWebHistory, showShareHistory, state.pinChallenge != null, state.incomingRequest?.sessionId) {
+        if (!editingName && !showWebHistory && !showShareHistory && state.pinChallenge == null) {
             delay(30)
             runCatching { nav.rootFr.requestFocus() }
             nav.ensureDefault(
@@ -167,11 +173,11 @@ fun LanServiceControlDialog(
             .scrimTapDismiss(onDismiss)
             .focusRequester(nav.rootFr)
             .focusProperties {
-                canFocus = !editingName && !showWebHistory && state.pinChallenge == null
+                canFocus = !editingName && !showWebHistory && !showShareHistory && state.pinChallenge == null
             }
             .focusable()
             .onPreviewKeyEvent { event ->
-                if (editingName || showWebHistory || state.pinChallenge != null) return@onPreviewKeyEvent false
+                if (editingName || showWebHistory || showShareHistory || state.pinChallenge != null) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
@@ -497,7 +503,7 @@ fun LanServiceControlDialog(
                         onOpenRenameDialog = { editingName = true },
                         onScanPeers = onScanPeers,
                         onToggleLocalSendCompat = onToggleLocalSendCompat,
-                        onOpenQuickShareScreen = onOpenQuickShareScreen,
+                        onOpenShareHistory = { showShareHistory = true },
                     )
                 }
             }
@@ -513,6 +519,18 @@ fun LanServiceControlDialog(
             onDeleteItem = onDeleteWebHistoryItem,
             onOpenFolder = onOpenFolder,
             onDismiss = { showWebHistory = false },
+        )
+    }
+
+    if (showShareHistory) {
+        ShareTransferHistoryDialog(
+            history = state.shareHistory,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
+            onClearAll = onClearShareHistory,
+            onDeleteItem = onDeleteShareHistoryItem,
+            onOpenFolder = onOpenFolder,
+            onDismiss = { showShareHistory = false },
         )
     }
 

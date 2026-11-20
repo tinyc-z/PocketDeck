@@ -38,7 +38,6 @@ internal fun handleHomePreviewKeyEvent(
     rapidTabSwitchFlow: MutableStateFlow<Boolean>,
     hasChildFocusOverlay: Boolean,
     showLanControlFromStatusBar: Boolean,
-    showQuickShareScreen: Boolean,
     capturingKeyBind: Boolean,
     imeVisible: Boolean,
     searchFieldFocused: Boolean,
@@ -118,7 +117,7 @@ internal fun handleHomePreviewKeyEvent(
     if (state.menuGame != null || state.detailGame != null || state.propertiesGame != null || state.editingGame != null ||
         state.manualScrapeGame != null || state.showQuickHud ||
         state.showLibraryManager || state.showApps || state.showSettings ||
-        showLanControlFromStatusBar || showQuickShareScreen
+        showLanControlFromStatusBar
     ) {
         return false
     }

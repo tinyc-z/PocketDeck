@@ -115,7 +115,6 @@ fun HomeScreen(
     val lanManager = remember { (context.applicationContext as PocketDeckApp).container.lanManager }
     val lanState by lanManager.state.collectAsState()
     var showLanControlFromStatusBar by remember { mutableStateOf(false) }
-    var showQuickShareScreen by remember { mutableStateOf(false) }
     LaunchedEffect(state.keySoundEnabled) {
         KeySound.configure(state.keySoundEnabled)
     }
@@ -155,11 +154,10 @@ fun HomeScreen(
         state.showApps,
         state.showSettings,
         showLanControlFromStatusBar,
-        showQuickShareScreen,
     ) {
         if (state.menuGame == null && state.propertiesGame == null && state.editingGame == null &&
             !state.showLibraryManager && !state.showApps && !state.showSettings &&
-            !showLanControlFromStatusBar && !showQuickShareScreen
+            !showLanControlFromStatusBar
         ) {
             focusRequester.requestFocus()
         }
@@ -211,8 +209,7 @@ fun HomeScreen(
         state.showLibraryManager ||
         state.showApps ||
         state.showSettings ||
-        showLanControlFromStatusBar ||
-        showQuickShareScreen
+        showLanControlFromStatusBar
 
     val overlayOpen = hasChildFocusOverlay ||
         state.showViewMenu ||
@@ -220,7 +217,6 @@ fun HomeScreen(
 
     BackHandler(enabled = overlayOpen) {
         when {
-            showQuickShareScreen -> showQuickShareScreen = false
             showLanControlFromStatusBar -> showLanControlFromStatusBar = false
             state.showQuickHud -> vm.closeQuickHud()
             state.showLibraryManager -> vm.closeLibraryManager()
@@ -253,7 +249,6 @@ fun HomeScreen(
     // 在 PocketDeck 内任意子页面/弹窗按系统 Home 键时，一键收起回到主桌面
     LaunchedEffect(homeResetTick) {
         if (homeResetTick <= 0) return@LaunchedEffect
-        showQuickShareScreen = false
         showLanControlFromStatusBar = false
         dismissSearchKeyboard()
         vm.returnToDesktop()
@@ -344,7 +339,6 @@ fun HomeScreen(
                         rapidTabSwitchFlow = rapidTabSwitchFlow,
                         hasChildFocusOverlay = hasChildFocusOverlay,
                         showLanControlFromStatusBar = showLanControlFromStatusBar,
-                        showQuickShareScreen = showQuickShareScreen,
                         capturingKeyBind = capturingKeyBind,
                         imeVisible = imeVisible,
                         searchFieldFocused = searchFieldFocused,
@@ -636,8 +630,6 @@ fun HomeScreen(
                 scope = scope,
                 showLanControlFromStatusBar = showLanControlFromStatusBar,
                 onShowLanControlFromStatusBarChange = { showLanControlFromStatusBar = it },
-                showQuickShareScreen = showQuickShareScreen,
-                onShowQuickShareScreenChange = { showQuickShareScreen = it },
                 onCapturingKeyBindChange = { capturingKeyBind = it },
                 launchGame = launchGame,
             )

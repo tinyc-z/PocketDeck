@@ -412,7 +412,7 @@ fun AppsScreen(
                 }
                 item(key = "__quick_share__") {
                     AppTile(
-                        label = stringResource(R.string.quick_share_title),
+                        label = stringResource(R.string.lan_service_title),
                         focused = focusIndex == 1,
                         tapKey = "quick_share",
                         onTap = {

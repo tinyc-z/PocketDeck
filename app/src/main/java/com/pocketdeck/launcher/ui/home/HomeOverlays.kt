@@ -22,7 +22,6 @@ import com.pocketdeck.launcher.ui.components.GamePropertiesDialog
 import com.pocketdeck.launcher.ui.components.ViewModeMenu
 import com.pocketdeck.launcher.ui.edit.EditGameScreen
 import com.pocketdeck.launcher.ui.lan.LanServiceControlDialog
-import com.pocketdeck.launcher.ui.lan.QuickShareScreen
 import com.pocketdeck.launcher.ui.library.GameLibraryScreen
 import com.pocketdeck.launcher.ui.settings.LauncherRow
 import com.pocketdeck.launcher.ui.settings.ManageCallbacks
@@ -45,8 +44,6 @@ internal fun HomeOverlays(
     scope: CoroutineScope,
     showLanControlFromStatusBar: Boolean,
     onShowLanControlFromStatusBarChange: (Boolean) -> Unit,
-    showQuickShareScreen: Boolean,
-    onShowQuickShareScreenChange: (Boolean) -> Unit,
     onCapturingKeyBindChange: (Boolean) -> Unit,
     launchGame: (Game) -> Unit,
 ) {
@@ -277,8 +274,8 @@ internal fun HomeOverlays(
             autoGamePackages = state.autoAndroidPackages,
             onToggleInGameLibrary = { pkg, add -> vm.toggleAppInGameLibrary(pkg, add) },
             onOpenGameLibrary = { vm.openLibraryManager(hiddenOnly = false) },
-            onOpenQuickShare = { onShowQuickShareScreenChange(true) },
-            hasTopOverlay = state.showLibraryManager || showQuickShareScreen,
+            onOpenQuickShare = { onShowLanControlFromStatusBarChange(true) },
+            hasTopOverlay = state.showLibraryManager || showLanControlFromStatusBar,
             onDismiss = { vm.closeApps() },
         )
     }
@@ -413,7 +410,7 @@ internal fun HomeOverlays(
                 openLanService = { onShowLanControlFromStatusBarChange(true) },
                 toggleQuickHudEnabled = vm::toggleQuickHudEnabled,
             ),
-            isCovered = state.showLibraryManager || showLanControlFromStatusBar || showQuickShareScreen,
+            isCovered = state.showLibraryManager || showLanControlFromStatusBar,
             onLanguageChange = { code ->
                 AppLocale.set(context, code)
                 (context as? Activity)?.recreate()
@@ -469,13 +466,13 @@ internal fun HomeOverlays(
             onCompressZip = vm::compressToZip,
             onCancelFileTask = vm::cancelFileTask,
             onApplyFontId = vm::setFontId,
-            onOpenQuickShare = { onShowQuickShareScreenChange(true) },
+            onOpenQuickShare = { onShowLanControlFromStatusBarChange(true) },
             onRescan = vm::refresh,
             onDismiss = vm::closeLibraryManager,
         )
     }
 
-    // 点击状态栏共享标志弹出的局域网管理与接收界面（唯一可确认接收/取消传输/关闭服务的入口，其余页面不弹窗打扰）
+    // 局域网与快传管理弹窗（状态栏 / Apps 抽屉 / 游戏中心统一入口）
     if (showLanControlFromStatusBar) {
         LanServiceControlDialog(
             state = lanState,
@@ -497,16 +494,14 @@ internal fun HomeOverlays(
             onKickWebClient = lanManager::kickWebClient,
             onClearWebHistory = lanManager::clearWebTransferHistory,
             onDeleteWebHistoryItem = lanManager::deleteWebTransferHistoryItem,
+            onClearShareHistory = { lanManager.clearShareHistory(false) },
+            onDeleteShareHistoryItem = { id -> lanManager.deleteShareHistoryItem(id, false) },
             onOpenFolder = { dir, focusFile ->
                 onShowLanControlFromStatusBarChange(false)
                 vm.openLibraryManager(
                     initialDirPath = dir.absolutePath,
                     initialFocusFilePath = focusFile?.absolutePath,
                 )
-            },
-            onOpenQuickShareScreen = {
-                onShowLanControlFromStatusBarChange(false)
-                onShowQuickShareScreenChange(true)
             },
             onAcceptIncoming = { sid, dir -> lanManager.acceptIncoming(sid, dir) },
             onRejectIncoming = { sid -> lanManager.rejectIncoming(sid) },
@@ -518,42 +513,6 @@ internal fun HomeOverlays(
             onDismissTransferBanner = lanManager::dismissTransferBanner,
             onStopAll = lanManager::stopAll,
             onDismiss = { onShowLanControlFromStatusBarChange(false) },
-        )
-    }
-
-    // 独立游戏快传界面（含收发控制 + 接收历史记录管理）
-    if (showQuickShareScreen) {
-        QuickShareScreen(
-            state = lanState,
-            swapAbxy = state.swapAbxy,
-            keyBindings = state.keyBindings,
-            onRefreshInterfaces = { lanManager.refreshInterfaces() },
-            onSelectInterface = lanManager::selectInterface,
-            onRenameDevice = lanManager::setDeviceName,
-            onRandomizeDeviceName = lanManager::randomizeDeviceName,
-            onToggleQuickShare = { on ->
-                if (on) lanManager.startQuickShare() else lanManager.stopQuickShare()
-            },
-            onToggleLocalSendCompat = lanManager::setLocalSendCompat,
-            onScanPeers = lanManager::scanPeers,
-            onAcceptIncoming = { sid, dir -> lanManager.acceptIncoming(sid, dir) },
-            onRejectIncoming = { sid -> lanManager.rejectIncoming(sid) },
-            onCancelTransfer = lanManager::cancelTransfer,
-            onSubmitPin = lanManager::submitQuickSharePin,
-            onCancelPin = lanManager::cancelQuickSharePin,
-            onDismissTransferBanner = lanManager::dismissTransferBanner,
-            onDeleteHistory = lanManager::deleteShareHistoryItem,
-            onClearHistory = { lanManager.clearShareHistory(false) },
-            onApplyFontId = vm::setFontId,
-            onRescanLibrary = vm::refresh,
-            onOpenFolder = { dir, focusFile ->
-                onShowQuickShareScreenChange(false)
-                vm.openLibraryManager(
-                    initialDirPath = dir.absolutePath,
-                    initialFocusFilePath = focusFile?.absolutePath,
-                )
-            },
-            onDismiss = { onShowQuickShareScreenChange(false) },
         )
     }
 }

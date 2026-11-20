@@ -779,13 +779,11 @@ internal fun LibraryOverlayDialogs(
             onKickWebClient = lanManager::kickWebClient,
             onClearWebHistory = lanManager::clearWebTransferHistory,
             onDeleteWebHistoryItem = lanManager::deleteWebTransferHistoryItem,
+            onClearShareHistory = { lanManager.clearShareHistory(false) },
+            onDeleteShareHistoryItem = { id -> lanManager.deleteShareHistoryItem(id, false) },
             onOpenFolder = { dir, focusFile ->
                 onDismissLanDialog()
                 onLocateInFiles(dir, focusFile)
-            },
-            onOpenQuickShareScreen = {
-                onDismissLanDialog()
-                onOpenQuickShare()
             },
             onAcceptIncoming = { sid, dir -> lanManager.acceptIncoming(sid, dir) },
             onRejectIncoming = { sid -> lanManager.rejectIncoming(sid) },

@@ -704,6 +704,9 @@
     <string name="lan_web_history_btn">Web 傳輸記錄 (%d)</string>
     <string name="lan_web_history_title">Web 上傳與下載記錄 (%d)</string>
     <string name="lan_web_history_empty">暫無透過 Web 管理後台上傳或下載檔案的記錄。</string>
+    <string name="lan_share_history_btn">快傳收發記錄 (%d)</string>
+    <string name="lan_share_history_title">快傳收發記錄 (%d)</string>
+    <string name="lan_share_history_empty">暫無遊戲快傳收發記錄。</string>
     <string name="lan_web_dir_upload">上傳</string>
     <string name="lan_web_dir_download">下載</string>
     <string name="lan_web_tx_failed">中斷</string>

@@ -90,6 +90,7 @@ import com.pocketdeck.launcher.lan.LanPeer
 import com.pocketdeck.launcher.lan.LanServerState
 import com.pocketdeck.launcher.lan.LocalSendPinChallenge
 import com.pocketdeck.launcher.lan.ShareProtocol
+import com.pocketdeck.launcher.lan.ShareHistoryItem
 import com.pocketdeck.launcher.lan.ShareTransferState
 import com.pocketdeck.launcher.lan.TransferDirection
 import com.pocketdeck.launcher.lan.TransferPhase
@@ -124,7 +125,7 @@ internal fun LanShareServiceCard(
     onOpenRenameDialog: () -> Unit,
     onScanPeers: () -> Unit,
     onToggleLocalSendCompat: (Boolean) -> Unit,
-    onOpenQuickShareScreen: (() -> Unit)?,
+    onOpenShareHistory: () -> Unit,
 ) {
     Column(
         Modifier
@@ -236,17 +237,17 @@ internal fun LanShareServiceCard(
             DeckSwitch(checked = state.localSendCompat)
         }
 
-        if (onOpenQuickShareScreen != null) {
+        if (state.shareRunning || state.shareHistory.isNotEmpty()) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
                 SmallPillButton(
-                    label = stringResource(R.string.quick_share_open_standalone, state.shareHistory.size),
+                    label = "${stringResource(R.string.lan_share_history_btn, state.shareHistory.size)} →",
                     accent = true,
                     nav = nav,
-                    navId = "open_quickshare",
-                    onClick = onOpenQuickShareScreen,
+                    navId = "share_history",
+                    onClick = onOpenShareHistory,
                 )
             }
         }
@@ -963,6 +964,189 @@ internal fun LocalSendPinDialog(
                         }
                         .padding(horizontal = 16.dp, vertical = 6.dp),
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun ShareTransferHistoryDialog(
+    history: List<ShareHistoryItem>,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
+    onClearAll: () -> Unit,
+    onDeleteItem: (String) -> Unit,
+    onOpenFolder: ((File, File?) -> Unit)? = null,
+    onDismiss: () -> Unit,
+) {
+    val closeFr = remember { FocusRequester() }
+    val sdPath = remember { Environment.getExternalStorageDirectory().path }
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.90f).dp
+    val timeFmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
+
+    LaunchedEffect(Unit) {
+        runCatching { closeFr.requestFocus() }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(DeckColors.CardShadow)
+            .scrimTapDismiss(onDismiss)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings)) {
+                    onDismiss()
+                    true
+                } else {
+                    false
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 32.dp, vertical = 20.dp)
+                .widthIn(max = 560.dp)
+                .fillMaxWidth()
+                .heightIn(max = maxHeight),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+            closeFocusRequester = closeFr,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(end = 36.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    stringResource(R.string.lan_share_history_title, history.size),
+                    style = DeckType.menuTitle,
+                    color = DeckColors.TextPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                if (history.isNotEmpty()) {
+                    SmallPillButton(
+                        label = stringResource(R.string.quick_share_history_clear),
+                        danger = true,
+                        swapAbxy = swapAbxy,
+                        keyBindings = keyBindings,
+                        onClick = onClearAll,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(color = DeckColors.Line)
+            Spacer(Modifier.height(8.dp))
+
+            if (history.isEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 36.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(R.string.lan_share_history_empty),
+                        style = DeckType.settingsValue,
+                        color = DeckColors.TextSecondary,
+                    )
+                }
+            } else {
+                LazyColumn(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(history, key = { it.id }) { item ->
+                        val targetFile = remember(item.filePath) { File(item.filePath) }
+                        val openDir = remember(item.filePath) {
+                            if (targetFile.isDirectory) targetFile else targetFile.parentFile
+                        }?.takeIf { it.isDirectory }
+                        val countPart = if (item.fileCount > 1) " · ${item.fileCount} files" else ""
+                        val timePart = if (item.receivedAtMs > 0L) " · ${timeFmt.format(Date(item.receivedAtMs))}" else ""
+                        val senderPart = if (item.senderName.isNotBlank()) "${item.senderName} (${item.senderIp})" else item.senderIp
+
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(DeckColors.Surface)
+                                .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    if (item.platformName.isNotBlank()) {
+                                        Text(
+                                            item.platformName,
+                                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold),
+                                            color = DeckColors.Ruby,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(DeckColors.AccentSoft)
+                                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                    Text(
+                                        item.fileName,
+                                        style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
+                                        color = DeckColors.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                Text(
+                                    item.filePath.replace(sdPath, "~"),
+                                    style = DeckType.metaLabel.copy(fontFamily = FontFamily.Monospace),
+                                    color = DeckColors.TextSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "$senderPart · ${formatSize(item.totalBytes)}$countPart$timePart",
+                                    style = DeckType.metaLabel,
+                                    color = DeckColors.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                if (openDir != null && onOpenFolder != null) {
+                                    SmallPillButton(
+                                        label = stringResource(R.string.quick_share_history_jump_folder),
+                                        accent = true,
+                                        swapAbxy = swapAbxy,
+                                        keyBindings = keyBindings,
+                                        onClick = { onOpenFolder(openDir, targetFile.takeIf { it.exists() }) },
+                                    )
+                                }
+                                SmallPillButton(
+                                    label = stringResource(R.string.quick_share_history_delete),
+                                    danger = true,
+                                    swapAbxy = swapAbxy,
+                                    keyBindings = keyBindings,
+                                    onClick = { onDeleteItem(item.id) },
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

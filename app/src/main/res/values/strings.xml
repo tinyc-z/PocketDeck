@@ -705,6 +705,9 @@
     <string name="lan_web_history_btn">Web History (%d)</string>
     <string name="lan_web_history_title">Web Transfer History (%d)</string>
     <string name="lan_web_history_empty">No Web uploads or downloads yet.</string>
+    <string name="lan_share_history_btn">Share History (%d)</string>
+    <string name="lan_share_history_title">Quick Share History (%d)</string>
+    <string name="lan_share_history_empty">No Quick Share transfer records yet.</string>
     <string name="lan_web_dir_upload">Upload</string>
     <string name="lan_web_dir_download">Download</string>
     <string name="lan_web_tx_failed">Interrupted</string>
