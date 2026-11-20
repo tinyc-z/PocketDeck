@@ -762,6 +762,7 @@
     <string name="manual_scrape_empty">No matching games found</string>
     <string name="manual_scrape_applied">Metadata &amp; cover applied</string>
     <string name="manual_scrape_searching_source">Searching %1$s…</string>
+    <string name="manual_scrape_suggestions_hint">Try these keywords:</string>
     <string name="settings_ra_cores_saf_title">RetroArch cores folder (SAF)</string>
     <string name="settings_ra_cores_saf_desc">Grant access to RetroArch cores directory to list installed .so cores</string>
     <string name="settings_ra_cores_count_fmt">%1$d cores</string>

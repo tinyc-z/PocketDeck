@@ -117,4 +117,11 @@ class TitleNormalizerTest {
         )
         assertTrue("Expected low similarity for Pokemon Gold vs Silver Version, got $silverSim", silverSim < 0.70)
     }
+
+    @Test
+    fun suggestsKeywordsForPartialChineseInput() {
+        val suggestions = com.pocketdeck.launcher.data.CjkAliases.suggestKeywords("超级马里", limit = 8)
+        assertTrue("Expected 超级马里奥合集 in $suggestions", suggestions.contains("超级马里奥合集"))
+        assertTrue("Expected 超级马里奥世界 in $suggestions", suggestions.contains("超级马里奥世界"))
+    }
 }

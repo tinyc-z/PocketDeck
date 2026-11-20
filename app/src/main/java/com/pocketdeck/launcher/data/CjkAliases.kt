@@ -481,4 +481,74 @@ object CjkAliases {
         }
         return false
     }
+
+    /**
+     * 当手动搜索未命中时，根据本地中英别名表推荐最接近的完整关键词（支持前缀包含与多字重合），
+     * 例如输入「超级马里」→ 推荐「超级马里奥合集」「超级马里奥世界」「超级马里奥兄弟」等。
+     */
+    fun suggestKeywords(raw: String, limit: Int = 8): List<String> {
+        val q = TitleNormalizer.stripRomTags(raw).replace(Regex("""[-:：·—_\s]+"""), "").trim()
+        if (q.length < 2) return emptyList()
+
+        val out = LinkedHashSet<String>(limit)
+        val seenEn = HashSet<String>(limit * 2)
+        if (containsCjk(q)) {
+            val allPairs = ArrayList<Pair<String, String>>(EXACT_GAMES.size + SERIES_PREFIXES.size)
+            allPairs.addAll(EXACT_GAMES)
+            allPairs.addAll(SERIES_PREFIXES)
+            // 短词/核心正统作优先，且按英文目标去重，避免同一游戏多个中文别名占满推荐位
+            val byLen = allPairs.sortedBy { it.first.length }
+
+            fun tryAdd(zh: String, en: String): Boolean {
+                if (seenEn.add(en.lowercase())) {
+                    out += zh
+                }
+                return out.size >= limit
+            }
+
+            // 1) 优先：完整前缀匹配（如「超级马里」→「超级马里奥」「超级马里奥世界」「超级马里奥合集」…）
+            for ((zh, en) in byLen) {
+                val c = zh.replace(" ", "")
+                if (c != q && c.startsWith(q, ignoreCase = true) && tryAdd(zh, en)) {
+                    return out.toList()
+                }
+            }
+            // 2) 次优先：子串包含匹配（如「马里」→「超级马里奥…」）
+            for ((zh, en) in byLen) {
+                val c = zh.replace(" ", "")
+                if (c != q && c.contains(q, ignoreCase = true) && tryAdd(zh, en)) {
+                    return out.toList()
+                }
+            }
+            // 3) 兜底：至少 2 个汉字重合（如「马里合集」「宝可金」）
+            val qChars = q.filter { it.code in 0x4E00..0x9FFF }.toSet()
+            if (qChars.size >= 2) {
+                val scored = ArrayList<Triple<String, String, Int>>()
+                for ((zh, en) in byLen) {
+                    if (en.lowercase() in seenEn) continue
+                    val overlap = zh.count { it in qChars }
+                    if (overlap >= 2) {
+                        scored += Triple(zh, en, overlap)
+                    }
+                }
+                scored.sortWith(compareByDescending<Triple<String, String, Int>> { it.third }.thenBy { it.first.length })
+                for ((zh, en, _) in scored) {
+                    if (tryAdd(zh, en)) break
+                }
+            }
+        } else {
+            val qLower = q.lowercase()
+            val allEn = LinkedHashSet<String>()
+            for ((_, en) in EXACT_GAMES) allEn += en
+            for ((_, en) in SERIES_PREFIXES) allEn += en
+            for (en in allEn) {
+                val c = en.lowercase().replace(Regex("""[^a-z0-9]"""), "")
+                if (c != qLower && c.contains(qLower)) {
+                    out += en
+                    if (out.size >= limit) break
+                }
+            }
+        }
+        return out.toList()
+    }
 }

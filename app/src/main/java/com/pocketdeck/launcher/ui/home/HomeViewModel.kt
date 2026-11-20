@@ -883,6 +883,9 @@ class HomeViewModel(
         _state.value = _state.value.copy(manualScrapeGame = null)
     }
 
+    fun suggestManualScrapeKeywords(keyword: String, game: Game): List<String> =
+        covers.suggestManualKeywords(keyword, _state.value.platformFor(game), limit = 8)
+
     suspend fun manualSearchScrape(
         keyword: String,
         game: Game,

@@ -6,6 +6,8 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -60,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.data.CjkAliases
 import com.pocketdeck.launcher.data.ManualScrapeCandidate
 import com.pocketdeck.launcher.data.ScrapeProgress
 import com.pocketdeck.launcher.data.ScraperCatalog
@@ -138,6 +144,7 @@ fun ScrapeProgressBanner(
 /**
  * 手动搜索刮削弹窗：输入关键词 → 展示候选封面与元数据 → 一键应用。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ManualScrapeDialog(
     game: Game,
@@ -148,6 +155,7 @@ fun ManualScrapeDialog(
         onActiveSourcesChanged: (List<String>) -> Unit,
         onPartialResults: (List<ManualScrapeCandidate>) -> Unit,
     ) -> List<ManualScrapeCandidate>,
+    onSuggest: (String) -> List<String> = { CjkAliases.suggestKeywords(it, limit = 8) },
     onApply: (ManualScrapeCandidate) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -156,6 +164,8 @@ fun ManualScrapeDialog(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var keyword by remember(game.id) { mutableStateOf(game.title) }
+    var fieldFocused by remember { mutableStateOf(false) }
+    val suggestions = remember(keyword) { onSuggest(keyword) }
     var searching by remember { mutableStateOf(false) }
     var activeSourceIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var searchedOnce by remember { mutableStateOf(false) }
@@ -184,8 +194,9 @@ fun ManualScrapeDialog(
         runCatching { focusRequester.requestFocus() }
     }
 
-    fun runSearch() {
-        val q = keyword.trim()
+    fun runSearch(overrideKeyword: String? = null) {
+        val q = (overrideKeyword ?: keyword).trim()
+        if (overrideKeyword != null) keyword = overrideKeyword
         dismissKeyboard()
         if (q.isEmpty()) return
         searchJob?.cancel()
@@ -295,7 +306,9 @@ fun ManualScrapeDialog(
                         cursorBrush = SolidColor(DeckColors.Ruby),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { runSearch() }),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { fieldFocused = it.isFocused },
                     )
                 }
                 Text(
@@ -308,6 +321,32 @@ fun ManualScrapeDialog(
                         .soundClickable { runSearch() }
                         .padding(horizontal = 16.dp, vertical = 9.dp),
                 )
+            }
+
+            // 输入时实时显示紧凑单行补全建议，点一下立刻填入并搜索
+            if (fieldFocused && suggestions.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    items(suggestions) { sug ->
+                        Text(
+                            text = sug,
+                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium),
+                            color = DeckColors.Ruby,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clip(DeckShapes.tabPill)
+                                .background(DeckColors.AccentSoft)
+                                .border(0.7.dp, DeckColors.Ruby.copy(alpha = 0.35f), DeckShapes.tabPill)
+                                .soundClickable { runSearch(sug) }
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(12.dp))
@@ -350,17 +389,46 @@ fun ManualScrapeDialog(
                     }
                 }
                 results.isEmpty() && searchedOnce -> {
-                    Box(
+                    Column(
                         Modifier
                             .fillMaxWidth()
-                            .height(120.dp),
-                        contentAlignment = Alignment.Center,
+                            .padding(vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
                             text = stringResource(R.string.manual_scrape_empty),
                             style = DeckType.settingsLabel,
                             color = DeckColors.TextSecondary,
                         )
+                        if (suggestions.isNotEmpty()) {
+                            Text(
+                                text = stringResource(R.string.manual_scrape_suggestions_hint),
+                                style = DeckType.metaLabel,
+                                color = DeckColors.TextSecondary,
+                            )
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
+                                verticalArrangement = Arrangement.spacedBy(7.dp),
+                            ) {
+                                for (sug in suggestions) {
+                                    Text(
+                                        text = sug,
+                                        style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium),
+                                        color = DeckColors.Ruby,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .clip(DeckShapes.tabPill)
+                                            .background(DeckColors.AccentSoft)
+                                            .border(0.7.dp, DeckColors.Ruby.copy(alpha = 0.35f), DeckShapes.tabPill)
+                                            .soundClickable { runSearch(sug) }
+                                            .padding(horizontal = 11.dp, vertical = 5.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 else -> {

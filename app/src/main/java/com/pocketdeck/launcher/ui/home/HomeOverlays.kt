@@ -256,6 +256,7 @@ internal fun HomeOverlays(
             onSearch = { kw, onActiveSources, onPartial ->
                 vm.manualSearchScrape(kw, game, onActiveSources, onPartial)
             },
+            onSuggest = { kw -> vm.suggestManualScrapeKeywords(kw, game) },
             onApply = { cand ->
                 vm.applyManualScrape(game, cand)
                 Toast.makeText(context, context.getString(R.string.manual_scrape_applied), Toast.LENGTH_SHORT).show()

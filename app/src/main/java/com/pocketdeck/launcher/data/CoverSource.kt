@@ -333,6 +333,37 @@ class CoverSource(
             }
             return picked.values.toList()
         }
+
+        /** 纯内存快速补全建议：按输入前缀/子串从当前平台索引中提取去标签的干净英文游戏名。 */
+        fun suggestTitles(query: String, limit: Int = 8): List<String> {
+            val qCompact = TitleNormalizer.compactKey(query)
+            if (qCompact.length < 2) return emptyList()
+            val out = LinkedHashSet<String>(limit)
+            val prefixHits = ArrayList<String>()
+            val containsHits = ArrayList<String>()
+            for ((ck, files) in byCompact) {
+                if (files.isEmpty()) continue
+                if (ck == qCompact) continue
+                val isPrefix = ck.startsWith(qCompact)
+                if (!isPrefix && !ck.contains(qCompact)) continue
+                val bestFile = files.first()
+                val base = if (bestFile.endsWith(".png", true)) bestFile.dropLast(4) else bestFile
+                val clean = TitleNormalizer.stripRomTags(base)
+                if (clean.isBlank() || clean.equals(query.trim(), ignoreCase = true)) continue
+                if (isPrefix) prefixHits += clean else containsHits += clean
+            }
+            prefixHits.sortBy { it.length }
+            containsHits.sortBy { it.length }
+            for (t in prefixHits) {
+                out += t
+                if (out.size >= limit) return out.toList()
+            }
+            for (t in containsHits) {
+                out += t
+                if (out.size >= limit) break
+            }
+            return out.toList()
+        }
     }
 
     fun configure(nodes: List<SourceItemConfig>, cred: ScraperCredentials) {
@@ -398,6 +429,32 @@ class CoverSource(
             scope.launch(Dispatchers.IO) { db.clearCoverFailures(unlocked) }
             _indexVersion.value += 1
         }
+    }
+
+    /** 纯内存实时补全建议：结合本地中英别名表与当前平台已加载的 Libretro 索引（零网络、零阻塞）。 */
+    fun suggestManualKeywords(keyword: String, platform: Platform?, limit: Int = 8): List<String> {
+        val q = keyword.trim()
+        if (q.length < 2) return emptyList()
+        val out = LinkedHashSet<String>(limit)
+        if (CjkAliases.containsCjk(q)) {
+            for (s in CjkAliases.suggestKeywords(q, limit)) {
+                out += s
+                if (out.size >= limit) return out.toList()
+            }
+        } else {
+            val index = platform?.libretroSystem?.let { systemIndexes[it] }
+            if (index != null) {
+                for (s in index.suggestTitles(q, limit)) {
+                    out += s
+                    if (out.size >= limit) return out.toList()
+                }
+            }
+            for (s in CjkAliases.suggestKeywords(q, limit)) {
+                out += s
+                if (out.size >= limit) break
+            }
+        }
+        return out.toList()
     }
 
     /** 手动搜索刮削：按关键词检索当前平台的 Libretro Boxart 索引，返回含三镜像兜底的候选列表。 */
