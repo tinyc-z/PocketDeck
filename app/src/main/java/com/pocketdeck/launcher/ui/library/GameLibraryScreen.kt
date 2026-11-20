@@ -148,168 +148,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 enum class LibraryMode { Games, Files }
 enum class GamesFilter { All, Visible, Hidden, Uncategorized }
-private enum class LibraryZone { Header, Filter, FilesToolbar, List }
+internal enum class LibraryZone { Header, Filter, FilesToolbar, List }
 
-private data class ShareFileTarget(
-    val files: List<File>,
-    val gameTitle: String,
-    val platformId: String,
-    val platformName: String,
-) {
-    val primaryFile: File get() = files.first()
-    val totalSize: Long get() = files.sumOf { runCatching { it.length() }.getOrDefault(0L) }
-}
 
-private data class StorageLocation(
-    val dir: File,
-    val label: String,
-    val isRomRoot: Boolean,
-    val badge: String?,
-)
-
-private suspend fun searchFilesInScope(
-    roots: List<File>,
-    query: String,
-    recursive: Boolean,
-    maxDepth: Int = 16,
-    maxResults: Int = 500,
-): List<File> = withContext(Dispatchers.IO) {
-    val q = query.trim()
-    if (q.isEmpty() || roots.isEmpty()) return@withContext emptyList()
-    val results = ArrayList<File>()
-    val seenResultPaths = HashSet<String>()
-    val seenDirs = HashSet<String>()
-
-    fun recordIfMatch(file: File) {
-        if (results.size >= maxResults) return
-        if (file.name.contains(q, ignoreCase = true) && seenResultPaths.add(file.path)) {
-            results.add(file)
-        }
-    }
-
-    if (!recursive) {
-        for (root in roots) {
-            ensureActive()
-            if (!root.isDirectory || !root.canRead()) continue
-            val children = root.listFiles { f -> !f.name.startsWith(".") }.orEmpty()
-            for (child in children) {
-                recordIfMatch(child)
-                if (results.size >= maxResults) break
-            }
-        }
-    } else {
-        val queue = ArrayDeque<Pair<File, Int>>()
-        for (root in roots) {
-            if (!root.isDirectory || !root.canRead()) continue
-            val canon = runCatching { root.canonicalPath }.getOrElse { root.path }
-            if (seenDirs.add(canon)) {
-                queue.addLast(root to 0)
-            }
-        }
-        while (queue.isNotEmpty() && results.size < maxResults) {
-            ensureActive()
-            val (dir, depth) = queue.removeFirst()
-            val children = dir.listFiles { f -> !f.name.startsWith(".") }.orEmpty()
-            for (child in children) {
-                recordIfMatch(child)
-                if (results.size >= maxResults) break
-                if (child.isDirectory && depth < maxDepth && child.canRead()) {
-                    val canon = runCatching { child.canonicalPath }.getOrElse { child.path }
-                    if (seenDirs.add(canon)) {
-                        queue.addLast(child to (depth + 1))
-                    }
-                }
-            }
-        }
-    }
-
-    results.sortWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }, { it.path.lowercase() }))
-    results
-}
-
-private fun discoverStorageLocations(context: Context, romRoots: List<File>): List<StorageLocation> {
-    val result = ArrayList<StorageLocation>()
-    val seenCanon = HashSet<String>()
-    val sdDir = Environment.getExternalStorageDirectory()
-    val sdPath = sdDir.path
-
-    fun addIfValid(dir: File?, label: String, isRomRoot: Boolean, badge: String?) {
-        if (dir == null || !dir.isDirectory || !dir.canRead()) return
-        val canon = runCatching { dir.canonicalPath }.getOrDefault(dir.path)
-        if (!seenCanon.add(canon)) return
-        result += StorageLocation(dir = dir, label = label, isRomRoot = isRomRoot, badge = badge)
-    }
-
-    // 1) 已配置的 ROM 目录
-    romRoots.forEach { r ->
-        addIfValid(r, r.path.replace(sdPath, "~"), isRomRoot = true, badge = context.getString(R.string.lib_storage_rom_tag))
-    }
-
-    // 2) 快传收件箱 & 下载目录 (Download)
-    val inboxDir = QuickShareService.defaultInboxDir()
-    addIfValid(inboxDir, context.getString(R.string.lib_storage_inbox), isRomRoot = false, badge = "QuickShare")
-    val dlDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-    addIfValid(dlDir, context.getString(R.string.lib_storage_download), isRomRoot = false, badge = "Download")
-
-    // 3) 内部存储根目录
-    addIfValid(sdDir, context.getString(R.string.lib_storage_internal), isRomRoot = false, badge = null)
-
-    // 4) 外接 TF / SD 卡与 USB OTG U 盘
-    val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
-    if (sm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        sm.storageVolumes.forEach { vol ->
-            if (!vol.isPrimary && vol.state == Environment.MEDIA_MOUNTED) {
-                val volDir = vol.directory
-                val desc = runCatching { vol.getDescription(context) }.getOrNull().orEmpty()
-                    .ifBlank { volDir?.name ?: context.getString(R.string.lib_storage_external) }
-                addIfValid(volDir, desc, isRomRoot = false, badge = context.getString(R.string.lib_storage_external))
-            }
-        }
-    }
-    // 兼容部分机型 USB/TF 挂载扫描
-    runCatching {
-        context.getExternalFilesDirs(null).forEach { appDir ->
-            var cur = appDir
-            repeat(4) { cur = cur?.parentFile }
-            if (cur != null && cur.path != sdPath) {
-                addIfValid(cur, cur.name, isRomRoot = false, badge = context.getString(R.string.lib_storage_external))
-            }
-        }
-    }
-    runCatching {
-        File("/storage").listFiles()?.forEach { vol ->
-            val n = vol.name
-            if (vol.isDirectory && n != "emulated" && n != "self" && n != "enc_emulated") {
-                addIfValid(vol, n, isRomRoot = false, badge = context.getString(R.string.lib_storage_external))
-            }
-        }
-    }
-    return result
-}
-
-private data class FileRowMeta(
-    val isDir: Boolean,
-    val sizeText: String?,
-    val freeSpaceText: String?,
-)
-
-private sealed interface MoveTarget {
-    val label: String
-
-    data class Single(val file: File, val isCopy: Boolean = false) : MoveTarget {
-        override val label: String get() = file.name
-    }
-
-    data class Batch(val files: List<File>, val isCopy: Boolean = false) : MoveTarget {
-        override val label: String get() = "${files.size} items"
-    }
-
-    data class ExtractArchive(val archive: File) : MoveTarget {
-        override val label: String get() = archive.name
-    }
-}
-
-/** 「游戏库」品牌图标：手柄 + 扇形叠放的游戏封面，与 App 主图标、游戏快传共用同一底板与风格。 */
 @Composable
 fun GameLibraryAppIcon(
     size: Dp = 54.dp,
@@ -1481,1505 +1322,247 @@ fun GameLibraryScreen(
     ) {
         Column(Modifier.fillMaxSize()) {
             // 顶部标题栏
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val backHl = focusZone == LibraryZone.Header && headerIdx == 0
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(if (backHl) DeckColors.AccentSoft else DeckColors.Surface)
-                        .brandBorder(active = backHl, shape = CircleShape, activeWidth = 1.3.dp, inactiveWidth = 0.6.dp)
-                        .soundClickable(onClick = onDismiss),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    DeckIcon(
-                        icon = DeckIcons.ChevronLeft,
-                        tint = if (backHl) DeckColors.Ruby else DeckColors.TextPrimary,
-                        size = 18.dp,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                GameLibraryAppIcon(size = 28.dp)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.game_library_title),
-                        fontFamily = DeckFontFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 18.sp,
-                        color = DeckColors.TextPrimary,
-                    )
-                    Text(
-                        stringResource(R.string.game_library_stats, allGames.size, hiddenCount),
-                        style = DeckType.metaLabel,
-                        color = DeckColors.TextSecondary,
-                    )
-                }
-
-                // 局域网服务与任务进度入口（有任意任务时以半透明进度条填充，取最慢任务）
-                val taskProgress = lanState.slowestActiveTaskProgress
-                val hasActiveTasks = taskProgress != null
-                val lanActive = lanState.anyRunning || hasActiveTasks
-                val lanAccent = when {
-                    hasActiveTasks -> Color(0xFF0EA5E9)
-                    lanState.shareRunning -> Color(0xFF10B981)
-                    else -> Color(0xFFF59E0B)
-                }
-                val lanHl = focusZone == LibraryZone.Header && headerIdx == 1
-                val targetTaskProgress = (taskProgress ?: 0f).coerceIn(0f, 1f)
-                val reduceMotion = com.pocketdeck.launcher.ui.theme.LocalReduceMotion.current
-                val animTaskProgress = if (reduceMotion) {
-                    targetTaskProgress
-                } else {
-                    androidx.compose.animation.core.animateFloatAsState(
-                        targetValue = targetTaskProgress,
-                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 200),
-                        label = "lib_lan_task_progress",
-                    ).value
-                }
-                Row(
-                    Modifier
-                        .clip(DeckShapes.tabPill)
-                        .background(
-                            when {
-                                hasActiveTasks -> lanAccent.copy(alpha = 0.12f)
-                                lanActive -> lanAccent.copy(alpha = 0.16f)
-                                lanHl -> DeckColors.Ruby.copy(alpha = 0.12f)
-                                else -> DeckColors.Surface
-                            },
-                        )
-                        .drawBehind {
-                            if (hasActiveTasks && animTaskProgress > 0f) {
-                                drawRect(
-                                    color = lanAccent.copy(alpha = 0.28f),
-                                    size = androidx.compose.ui.geometry.Size(size.width * animTaskProgress, size.height),
-                                )
-                            }
-                        }
-                        .border(
-                            width = if (lanActive || lanHl) 0.9.dp else 0.6.dp,
-                            color = when {
-                                lanHl -> DeckColors.Ruby
-                                lanActive -> lanAccent
-                                else -> DeckColors.Line
-                            },
-                            shape = DeckShapes.tabPill,
-                        )
-                        .soundClickable { showLanDialog = true }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    if (lanActive) {
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(lanAccent))
-                    }
-                    Text(
-                        text = when {
-                            hasActiveTasks -> stringResource(R.string.lan_status_task_pct, (taskProgress.coerceIn(0f, 1f) * 100f).toInt())
-                            lanActive -> when {
-                                lanState.shareRunning && lanState.webRunning -> stringResource(R.string.lan_status_both)
-                                lanState.shareRunning -> stringResource(R.string.lan_status_share)
-                                lanState.webRunning -> stringResource(R.string.lan_status_web)
-                                else -> stringResource(R.string.lan_status_tasks)
-                            }
-                            else -> "${stringResource(R.string.lan_service_btn)}"
-                        },
-                        style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                        color = if (lanActive) lanAccent else if (lanHl) DeckColors.Ruby else DeckColors.TextPrimary,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-
-                // 模式切换：游戏管理 | 目录文件
-                Row(
-                    Modifier
-                        .clip(DeckShapes.tabPill)
-                        .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
-                        .padding(3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    ModePill(
-                        label = stringResource(R.string.lib_mode_games),
-                        selected = mode == LibraryMode.Games,
-                        focused = focusZone == LibraryZone.Header && headerIdx == 2,
-                        onClick = { mode = LibraryMode.Games; selectedIdx = 0; focusZone = LibraryZone.List },
-                    )
-                    ModePill(
-                        label = stringResource(R.string.lib_mode_files),
-                        selected = mode == LibraryMode.Files,
-                        focused = focusZone == LibraryZone.Header && headerIdx == 3,
-                        onClick = { mode = LibraryMode.Files; selectedIdx = 0; focusZone = LibraryZone.List },
-                    )
-                }
-            }
+            // 顶部标题栏
+            LibraryHeaderBar(
+                allGamesCount = allGames.size,
+                hiddenCount = hiddenCount,
+                lanState = lanState,
+                mode = mode,
+                focusZone = focusZone,
+                headerIdx = headerIdx,
+                onOpenLanDialog = { showLanDialog = true },
+                onSelectMode = { targetMode ->
+                    mode = targetMode
+                    selectedIdx = 0
+                    focusZone = LibraryZone.List
+                },
+                onDismiss = onDismiss,
+            )
 
             HorizontalDivider(color = DeckColors.Line, thickness = 1.dp)
 
             if (mode == LibraryMode.Games) {
-                // 内联可展开搜索胶囊 + 状态筛选 + 平台筛选
-                LazyRow(
-                    state = filterRowState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    item(key = "search") {
-                        val searchExpanded = gameSearchOpen || searchQuery.isNotBlank()
-                        InlineExpandableSearchPill(
-                            expanded = searchExpanded,
-                            query = searchQuery,
-                            onQueryChange = { searchQuery = it; selectedIdx = 0 },
-                            placeholder = stringResource(R.string.lib_search_hint),
-                            onOpen = {
-                                gameSearchOpen = true
-                                selectedIdx = 0
-                            },
-                            onClose = {
-                                searchQuery = ""
-                                gameSearchOpen = false
-                                selectedIdx = 0
-                                runCatching { focusRequester.requestFocus() }
-                            },
-                            focusRequester = searchFieldFr,
-                            expandedWidth = 180.dp,
-                            focused = focusZone == LibraryZone.Filter && filterChipIdx == 0,
-                            fieldFocused = searchFieldFocused,
-                            onFieldFocusChange = { searchFieldFocused = it },
-                            onSearchAction = {
-                                focusRequester.requestFocus()
-                                focusZone = LibraryZone.List
-                            },
-                        )
-                    }
-                        item {
-                            FilterChipPill(
-                                label = stringResource(R.string.lib_filter_all),
-                                selected = gamesFilter == GamesFilter.All,
-                                focused = focusZone == LibraryZone.Filter && filterChipIdx == 1,
-                                onClick = { gamesFilter = GamesFilter.All; selectedIdx = 0 },
-                            )
-                        }
-                        item {
-                            FilterChipPill(
-                                label = stringResource(R.string.lib_filter_visible),
-                                selected = gamesFilter == GamesFilter.Visible,
-                                focused = focusZone == LibraryZone.Filter && filterChipIdx == 2,
-                                onClick = { gamesFilter = GamesFilter.Visible; selectedIdx = 0 },
-                            )
-                        }
-                        item {
-                            FilterChipPill(
-                                label = stringResource(R.string.lib_filter_hidden, hiddenCount),
-                                selected = gamesFilter == GamesFilter.Hidden,
-                                focused = focusZone == LibraryZone.Filter && filterChipIdx == 3,
-                                onClick = { gamesFilter = GamesFilter.Hidden; selectedIdx = 0 },
-                            )
-                        }
-                        item {
-                            FilterChipPill(
-                                label = stringResource(R.string.lib_filter_uncategorized),
-                                selected = gamesFilter == GamesFilter.Uncategorized,
-                                focused = focusZone == LibraryZone.Filter && filterChipIdx == 4,
-                                onClick = { gamesFilter = GamesFilter.Uncategorized; selectedIdx = 0 },
-                            )
-                        }
-                        item {
-                            Box(Modifier.width(1.dp).height(18.dp).background(DeckColors.Line))
-                        }
-                        item {
-                            FilterChipPill(
-                                label = stringResource(R.string.lib_platform_all),
-                                selected = selectedPlatformId == null,
-                                focused = focusZone == LibraryZone.Filter && filterChipIdx == 5,
-                                onClick = { selectedPlatformId = null; selectedIdx = 0 },
-                            )
-                        }
-                        itemsIndexed(allPlatforms, key = { _, p -> p.id }) { pIdx, plat ->
-                            FilterChipPill(
-                                label = plat.shortName,
-                                selected = selectedPlatformId == plat.id,
-                                focused = focusZone == LibraryZone.Filter && filterChipIdx == 6 + pIdx,
-                                onClick = {
-                                    selectedPlatformId = if (selectedPlatformId == plat.id) null else plat.id
-                                    selectedIdx = 0
-                                },
-                            )
-                        }
-                    }
-
-                if (filteredGames.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            stringResource(R.string.lib_empty_games),
-                            style = DeckType.emptyMessage,
-                            color = DeckColors.TextSecondary,
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        itemsIndexed(filteredGames, key = { _, g -> g.id }) { idx, game ->
-                            val plat = platformFor(game)
-                            val isHidden = game.id in hiddenIds
-                            val isFav = game.id in favorites
-                            val isUncat = game.platformId !in categorizedPlatforms && game.id !in categorizedGames
-                            val hl = focusZone == LibraryZone.List && idx == selectedIdx
-
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
-                                    .brandBorder(active = hl, shape = RoundedCornerShape(12.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
-                                    .soundClickable {
-                                        focusZone = LibraryZone.List
-                                        selectedIdx = idx
-                                        openGameMenu(game)
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                val h = 44.dp
-                                val w = (h * plat.coverAspect).coerceIn(32.dp, 62.dp)
-                                GameCoverCard(
-                                    game = game,
-                                    platform = plat,
-                                    covers = covers,
-                                    officialName = officialNames[game.id],
-                                    width = w,
-                                    height = h,
-                                    isFocused = false,
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        Text(
-                                            text = game.title,
-                                            style = DeckType.settingsValue.copy(fontWeight = FontWeight.Medium),
-                                            color = if (isHidden) DeckColors.TextSecondary else DeckColors.TextPrimary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                        )
-                                        if (isFav) FavoriteHeartIcon(filled = true, color = DeckColors.Ruby, size = 14.dp)
-                                        if (isHidden) TagBadge(stringResource(R.string.lib_badge_hidden), accent = true)
-                                        if (isUncat) TagBadge(stringResource(R.string.lib_badge_uncategorized), accent = false)
-                                    }
-                                    Spacer(Modifier.height(2.dp))
-                                    val sizeTag = formatCompactSize(game.fileSize)
-                                    Text(
-                                        text = listOfNotNull(plat.shortName, sizeTag, game.fileName).joinToString(" · "),
-                                        style = DeckType.metaLabel,
-                                        color = DeckColors.TextSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                Spacer(Modifier.width(8.dp))
-                                if (isHidden) {
-                                    Text(
-                                        stringResource(R.string.lib_action_unhide),
-                                        style = DeckType.settingsLabel,
-                                        color = DeckColors.Ruby,
-                                        modifier = Modifier
-                                            .clip(DeckShapes.tabPill)
-                                            .background(DeckColors.Ruby.copy(alpha = 0.12f))
-                                            .soundClickable { onUnhideGame(game.id) }
-                                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(DeckShapes.tabPill)
-                                        .background(DeckColors.Background)
-                                        .padding(horizontal = 9.dp, vertical = 5.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    DeckIcon(PanelIcons.MoreHorizontal, tint = DeckColors.TextSecondary, size = 15.dp)
-                                }
-                            }
-                        }
-                    }
-                }
+                LibraryGamesTab(
+                    filterRowState = filterRowState,
+                    listState = listState,
+                    gameSearchOpen = gameSearchOpen,
+                    searchQuery = searchQuery,
+                    searchFieldFr = searchFieldFr,
+                    searchFieldFocused = searchFieldFocused,
+                    focusZone = focusZone,
+                    filterChipIdx = filterChipIdx,
+                    gamesFilter = gamesFilter,
+                    hiddenCount = hiddenCount,
+                    selectedPlatformId = selectedPlatformId,
+                    allPlatforms = allPlatforms,
+                    filteredGames = filteredGames,
+                    selectedIdx = selectedIdx,
+                    hiddenIds = hiddenIds,
+                    favorites = favorites,
+                    categorizedPlatforms = categorizedPlatforms,
+                    categorizedGames = categorizedGames,
+                    covers = covers,
+                    officialNames = officialNames,
+                    platformFor = platformFor,
+                    onSearchQueryChange = { searchQuery = it; selectedIdx = 0 },
+                    onOpenGameSearch = {
+                        gameSearchOpen = true
+                        selectedIdx = 0
+                    },
+                    onCloseGameSearch = {
+                        searchQuery = ""
+                        gameSearchOpen = false
+                        selectedIdx = 0
+                        runCatching { focusRequester.requestFocus() }
+                    },
+                    onSearchFieldFocusChange = { searchFieldFocused = it },
+                    onSearchAction = {
+                        focusRequester.requestFocus()
+                        focusZone = LibraryZone.List
+                    },
+                    onSelectFilter = { gamesFilter = it; selectedIdx = 0 },
+                    onSelectPlatform = { selectedPlatformId = it; selectedIdx = 0 },
+                    onClickGame = { idx, game ->
+                        focusZone = LibraryZone.List
+                        selectedIdx = idx
+                        openGameMenu(game)
+                    },
+                    onUnhideGame = onUnhideGame,
+                )
             } else {
-                // 目录文件管理视图
-                val sdPath = remember { Environment.getExternalStorageDirectory().path }
-                val dirNow = currentDir
-                val pathDisplay = if (multiSelectMode) {
-                    stringResource(R.string.lib_selected_count, selectedPaths.size)
-                } else {
-                    dirNow?.path?.replace(sdPath, "~") ?: stringResource(R.string.lib_storage_locations)
-                }
-
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        pathDisplay,
-                        style = DeckType.settingsLabel.copy(
-                            fontWeight = if (multiSelectMode) FontWeight.SemiBold else FontWeight.Normal,
-                        ),
-                        color = if (multiSelectMode) DeckColors.Ruby else DeckColors.TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Row(
-                        Modifier
-                            .widthIn(max = 438.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        filesToolbarActions.forEachIndexed { tIdx, action ->
-                            val tHl = focusZone == LibraryZone.FilesToolbar && filesToolbarIdx == tIdx
-                            if (action.isSearch) {
-                                val fileSearchExpanded = fileSearchOpen || fileSearchQuery.isNotBlank()
-                                InlineExpandableSearchPill(
-                                    expanded = fileSearchExpanded,
-                                    query = fileSearchQuery,
-                                    onQueryChange = { fileSearchQuery = it; selectedIdx = 0 },
-                                    placeholder = stringResource(
-                                        if (fileSearchRecursive) R.string.lib_files_search_recursive_hint
-                                        else R.string.lib_files_search_hint,
-                                    ),
-                                    onOpen = {
-                                        fileSearchOpen = true
-                                        selectedIdx = 0
-                                    },
-                                    onClose = {
-                                        fileSearchQuery = ""
-                                        fileSearchOpen = false
-                                        selectedIdx = 0
-                                        runCatching { focusRequester.requestFocus() }
-                                    },
-                                    focusRequester = fileSearchFieldFr,
-                                    expandedWidth = 186.dp,
-                                    focused = tHl,
-                                    fieldFocused = fileSearchFieldFocused,
-                                    onFieldFocusChange = { fileSearchFieldFocused = it },
-                                    onSearchAction = {
-                                        focusRequester.requestFocus()
-                                        focusZone = LibraryZone.List
-                                    },
-                                    collapsedBackground = DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f),
-                                    collapsedIconTint = DeckColors.Ruby,
-                                    collapsedBorderColor = Color.Transparent,
-                                    collapsedBorderWidth = 0.dp,
-                                    trailingContent = {
-                                        if (fileSearching) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(12.dp),
-                                                strokeWidth = 1.6.dp,
-                                                color = DeckColors.Ruby,
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                        }
-                                        Text(
-                                            text = stringResource(R.string.lib_files_search_multi_short),
-                                            style = DeckType.metaLabel.copy(
-                                                fontSize = 10.sp,
-                                                fontWeight = if (fileSearchRecursive) FontWeight.SemiBold else FontWeight.Medium,
-                                            ),
-                                            color = if (fileSearchRecursive) Color.White else DeckColors.TextSecondary,
-                                            modifier = Modifier
-                                                .clip(DeckShapes.tabPill)
-                                                .brandPillBackground(
-                                                    selected = fileSearchRecursive,
-                                                    shape = DeckShapes.tabPill,
-                                                    unselectedColor = DeckColors.Background,
-                                                )
-                                                .soundClickable {
-                                                    fileSearchRecursive = !fileSearchRecursive
-                                                    selectedIdx = 0
-                                                }
-                                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                                        )
-                                    },
-                                )
-                            } else {
-                                Row(
-                                    modifier = Modifier
-                                        .clip(DeckShapes.tabPill)
-                                        .background(DeckColors.Ruby.copy(alpha = if (tHl) 0.22f else 0.10f))
-                                        .brandBorder(active = tHl, shape = DeckShapes.tabPill, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
-                                        .soundClickable(onClick = action.onClick)
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                ) {
-                                    if (action.icon != null) {
-                                        DeckIcon(action.icon, tint = DeckColors.Ruby, size = 13.dp)
-                                    }
-                                    Text(
-                                        action.label,
-                                        style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                                        color = DeckColors.Ruby,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (fileTasks.isNotEmpty()) {
-                    FileTasksBanner(
-                        tasks = fileTasks,
-                        onCancel = onCancelFileTask,
-                    )
-                }
-
-                if (!hasUp && fileEntries.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            stringResource(
-                                when {
-                                    fileSearching -> R.string.scrape_loading
-                                    fileSearchQuery.isNotBlank() -> R.string.lib_files_search_empty
-                                    else -> R.string.lib_files_empty
-                                },
-                            ),
-                            style = DeckType.emptyMessage,
-                            color = DeckColors.TextSecondary,
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        if (hasUp) {
-                            item(key = "__up__") {
-                                val hl = focusZone == LibraryZone.List && selectedIdx == 0
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
-                                        .brandBorder(active = hl, shape = RoundedCornerShape(10.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
-                                        .soundClickable { stepUpDir() }
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.Ruby, size = 16.dp)
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(
-                                        stringResource(R.string.lib_files_up),
-                                        style = DeckType.settingsValue,
-                                        color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
-                                    )
-                                }
-                            }
-                        }
-
-                        itemsIndexed(fileEntries, key = { _, f -> f.path }) { fIdx, file ->
-                            val rowIdx = if (hasUp) fIdx + 1 else fIdx
-                            val hl = focusZone == LibraryZone.List && rowIdx == selectedIdx
-                            val checked = file.path in selectedPaths
-                            val rowMeta = fileMetaMap[file.path]
-                            val isDir = rowMeta?.isDir ?: false
-                            val matchedGame = if (!isDir) fullLibrary?.byId?.get(file.path) else null
-                            val storageLoc = if (dirNow == null) storageLocations.firstOrNull { it.dir.path == file.path } else null
-                            val isArchive = !isDir && ArchiveManager.isArchive(file)
-                            val isImage = !isDir && !isArchive && ArchiveManager.isImageFile(file)
-                            val isAudio = !isDir && !isArchive && !isImage && ArchiveManager.isAudioFile(file)
-                            val isFont = !isDir && !isArchive && !isImage && !isAudio && ArchiveManager.isFontFile(file)
-                            val isText = !isDir && !isArchive && !isImage && !isAudio && !isFont && ArchiveManager.isKnownTextFile(file)
-                            val inSearchMode = fileSearchQuery.isNotBlank()
-                            val label = storageLoc?.label ?: if (dirNow == null && !inSearchMode) file.path.replace(sdPath, "~") else file.name
-                            val iconSpec = when {
-                                storageLoc != null && !storageLoc.isRomRoot -> DeckIcons.HardDrive to DeckColors.Ruby
-                                isDir -> DeckIcons.Folder to DeckColors.Ruby
-                                isArchive -> DeckIcons.Archive to DeckColors.TextSecondary
-                                isImage -> DeckIcons.Image to DeckColors.TextSecondary
-                                isAudio -> DeckIcons.Music to DeckColors.TextSecondary
-                                isFont -> DeckIcons.FileText to DeckColors.TextSecondary
-                                isText -> DeckIcons.FileText to DeckColors.TextSecondary
-                                matchedGame != null -> DeckIcons.Gamepad to DeckColors.Ruby
-                                else -> DeckIcons.FileText to DeckColors.TextSecondary
-                            }
-
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        when {
-                                            hl -> DeckColors.AccentSoft
-                                            checked -> DeckColors.Ruby.copy(alpha = 0.06f)
-                                            else -> DeckColors.Surface
-                                        },
-                                    )
-                                    .brandBorder(active = hl || checked, shape = RoundedCornerShape(10.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
-                                    .soundClickable {
-                                        focusZone = LibraryZone.List
-                                        selectedIdx = rowIdx
-                                        if (multiSelectMode && dirNow != null) {
-                                            selectedPaths = if (checked) selectedPaths - file.path else selectedPaths + file.path
-                                        } else if (isDir) {
-                                            enterDir(file)
-                                        } else {
-                                            openFileMenu(file)
-                                        }
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 11.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                if (multiSelectMode && dirNow != null) {
-                                    DeckIcon(
-                                        if (checked) PanelIcons.CheckSquare else PanelIcons.Square,
-                                        tint = if (checked) DeckColors.Ruby else DeckColors.TextSecondary,
-                                        size = 17.dp,
-                                    )
-                                    Spacer(Modifier.width(10.dp))
-                                }
-                                DeckIcon(iconSpec.first, tint = iconSpec.second, size = 18.dp)
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        Text(
-                                            label,
-                                            style = DeckType.settingsValue,
-                                            color = if (hl || checked) DeckColors.Ruby else DeckColors.TextPrimary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                        )
-                                        if (storageLoc?.badge != null) {
-                                            TagBadge(storageLoc.badge, accent = storageLoc.isRomRoot)
-                                        }
-                                        if (matchedGame != null) {
-                                            TagBadge(stringResource(R.string.lib_files_rom_tag), accent = true)
-                                            if (matchedGame.id in hiddenIds) {
-                                                TagBadge(stringResource(R.string.lib_badge_hidden), accent = false)
-                                            }
-                                        }
-                                    }
-                                    val relParent = if (inSearchMode) {
-                                        val parent = file.parentFile
-                                        when {
-                                            parent == null -> null
-                                            dirNow == null -> parent.path.replace(sdPath, "~")
-                                            parent.path == dirNow.path -> null
-                                            parent.path.startsWith("${dirNow.path}${File.separator}") ->
-                                                parent.path.removePrefix("${dirNow.path}${File.separator}")
-                                            else -> parent.path.replace(sdPath, "~")
-                                        }
-                                    } else null
-
-                                    if (storageLoc != null && !inSearchMode) {
-                                        val freeStr = rowMeta?.freeSpaceText
-                                        val sub = listOfNotNull(
-                                            file.path.replace(sdPath, "~"),
-                                            freeStr?.let { stringResource(R.string.lib_storage_free_fmt, it) },
-                                        ).joinToString(" · ")
-                                        Text(sub, style = DeckType.metaLabel, color = DeckColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    } else if (!isDir) {
-                                        val sizeStr = rowMeta?.sizeText
-                                        val sub = listOfNotNull(relParent, sizeStr).joinToString(" · ")
-                                        if (sub.isNotEmpty()) {
-                                            Text(sub, style = DeckType.metaLabel, color = DeckColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
-                                    } else if (!relParent.isNullOrBlank()) {
-                                        Text(relParent, style = DeckType.metaLabel, color = DeckColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                                if (isDir && !multiSelectMode) {
-                                    if (dirNow != null) {
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(DeckShapes.tabPill)
-                                                .background(DeckColors.Background)
-                                                .soundClickable {
-                                                    selectedIdx = rowIdx
-                                                    openFolderMenu(file)
-                                                }
-                                                .padding(horizontal = 9.dp, vertical = 5.dp),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            DeckIcon(PanelIcons.MoreHorizontal, tint = DeckColors.TextSecondary, size = 15.dp)
-                                        }
-                                        Spacer(Modifier.width(8.dp))
-                                    }
-                                    DeckIcon(DeckIcons.ChevronRight, tint = DeckColors.TextSecondary, size = 15.dp)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 操作菜单
-        actionMenu?.let { m ->
-            ActionMenuDialog(
-                state = m,
-                onPick = { item -> actionMenu = null; item.action() },
-                onDismiss = { actionMenu = null },
-            )
-        }
-
-        // 游戏属性弹窗
-        propertiesGame?.let { game ->
-            val gameCats = categories.filter { game.id in it.games || game.platformId in it.sources }.map { it.name }
-            GamePropertiesDialog(
-                game = game,
-                platform = platformFor(game),
-                metadata = metadataMap[game.id],
-                officialName = officialNames[game.id],
-                metaInfo = metaResolutionMap[game.id],
-                coverInfo = coverResolutionMap[game.id] ?: covers.resolveCoverInfo(game),
-                isFavorite = game.id in favorites,
-                categoryNames = gameCats,
-                effectiveLauncherId = effectiveLauncherFor(game),
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                computeCrc32 = computeCrc32,
-                onRefreshMetadata = { onRefreshMetadata(game) },
-                onLocateFile = {
-                    val f = File(game.id)
-                    val dir = f.parentFile
-                    if (dir != null && dir.isDirectory) {
-                        propertiesGame = null
+                LibraryFilesTab(
+                    currentDir = currentDir,
+                    multiSelectMode = multiSelectMode,
+                    selectedPaths = selectedPaths,
+                    filesToolbarActions = filesToolbarActions,
+                    focusZone = focusZone,
+                    filesToolbarIdx = filesToolbarIdx,
+                    fileSearchOpen = fileSearchOpen,
+                    fileSearchQuery = fileSearchQuery,
+                    fileSearchRecursive = fileSearchRecursive,
+                    fileSearching = fileSearching,
+                    fileSearchFieldFr = fileSearchFieldFr,
+                    fileSearchFieldFocused = fileSearchFieldFocused,
+                    fileTasks = fileTasks,
+                    hasUp = hasUp,
+                    fileEntries = fileEntries,
+                    fileMetaMap = fileMetaMap,
+                    storageLocations = storageLocations,
+                    fullLibrary = fullLibrary,
+                    hiddenIds = hiddenIds,
+                    listState = listState,
+                    selectedIdx = selectedIdx,
+                    onFileSearchQueryChange = { fileSearchQuery = it; selectedIdx = 0 },
+                    onOpenFileSearch = {
+                        fileSearchOpen = true
+                        selectedIdx = 0
+                    },
+                    onCloseFileSearch = {
                         fileSearchQuery = ""
                         fileSearchOpen = false
-                        mode = LibraryMode.Files
-                        headerIdx = 3
+                        selectedIdx = 0
+                        runCatching { focusRequester.requestFocus() }
+                    },
+                    onFileSearchFieldFocusChange = { fileSearchFieldFocused = it },
+                    onFileSearchAction = {
+                        focusRequester.requestFocus()
                         focusZone = LibraryZone.List
-                        currentDir = dir
-                        pendingFocusPath = f.absolutePath
-                        dirRefreshTick++
-                    }
-                },
-                onDismiss = { propertiesGame = null },
-            )
-        }
-
-        // 编辑游戏页面
-        editingGame?.let { game ->
-            EditGameScreen(
-                game = game,
-                platform = platformFor(game),
-                covers = covers,
-                officialName = officialNames[game.id],
-                customLauncherId = gameLaunchers[game.id],
-                onSetGameLauncher = { id -> onSetGameLauncher(game.id, id) },
-                categories = categories,
-                onSetGameCategories = { ids -> onSetGameCategories(game.id, ids) },
-                onCreateCategory = onCreateCategoryForGame?.let { create -> { name -> create(name, game.id) } },
-                onDismiss = { editingGame = null },
-                onSave = { name, coverPath ->
-                    onSaveGameEdits(game.id, name, coverPath)
-                    editingGame = null
-                },
-                onHide = {
-                    onHideGame(game.id)
-                    editingGame = null
-                },
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onDeleteFile = {
-                    val f = File(game.id)
-                    scope.launch {
-                        val res = onDeleteFile(f)
-                        Toast.makeText(
-                            context,
-                            if (res.isSuccess) deleteDone else deleteFailFmt.format(res.exceptionOrNull()?.message.orEmpty()),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        editingGame = null
-                        dirRefreshTick++
-                    }
-                },
-                onLocateFile = {
-                    val f = File(game.id)
-                    val dir = f.parentFile
-                    if (dir != null && dir.isDirectory) {
-                        editingGame = null
-                        fileSearchQuery = ""
-                        fileSearchOpen = false
-                        mode = LibraryMode.Files
-                        headerIdx = 3
+                    },
+                    onToggleFileSearchRecursive = {
+                        fileSearchRecursive = !fileSearchRecursive
+                        selectedIdx = 0
+                    },
+                    onCancelFileTask = onCancelFileTask,
+                    onStepUpDir = { stepUpDir() },
+                    onClickEntry = { rowIdx, file, isDir, checked ->
                         focusZone = LibraryZone.List
-                        currentDir = dir
-                        pendingFocusPath = f.absolutePath
-                        dirRefreshTick++
-                    }
-                },
-            )
-        }
-
-        // 单游戏所属分类弹窗
-        categoryTargetGame?.let { game ->
-            GameCategoryPickerDialog(
-                game = game,
-                categories = categories,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onCreateCategory = onCreateCategoryForGame?.let { create -> { name -> create(name, game.id) } },
-                onConfirm = { pickedIds ->
-                    onSetGameCategories(game.id, pickedIds)
-                    categoryTargetGame = null
-                },
-                onDismiss = { categoryTargetGame = null },
-            )
-        }
-
-        // 重命名 / 新建文件夹 / 压缩包命名弹窗
-        nameSpec?.let { spec ->
-            val s = nameState ?: return@let
-            NameDialog(
-                spec = spec,
-                state = s,
-                onConfirm = { spec.onConfirm(s.value.text); nameSpec = null },
-                onDismiss = { nameSpec = null },
-            )
-        }
-
-        // 移动 / 复制到目标目录 / 解压到指定目录弹窗
-        moveTarget?.let { mt ->
-            val initialDir = when (mt) {
-                is MoveTarget.Single -> if (mt.isCopy) romRoots.firstOrNull() ?: mt.file.parentFile else mt.file.parentFile
-                is MoveTarget.Batch -> if (mt.isCopy) romRoots.firstOrNull() ?: mt.files.firstOrNull()?.parentFile else mt.files.firstOrNull()?.parentFile
-                is MoveTarget.ExtractArchive -> mt.archive.parentFile
-            }
-            val isCopyOp = when (mt) {
-                is MoveTarget.Single -> mt.isCopy
-                is MoveTarget.Batch -> mt.isCopy
-                is MoveTarget.ExtractArchive -> false
-            }
-            val pickerRoots = remember(storageLocations, romRoots) {
-                storageLocations.map { it.dir }.ifEmpty { romRoots }
-            }
-            MoveFolderDialog(
-                fileName = mt.label,
-                roots = pickerRoots,
-                storageLocations = storageLocations,
-                initialDir = initialDir,
-                isCopy = isCopyOp,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onPickDir = { targetDir ->
-                    moveTarget = null
-                    when (mt) {
-                        is MoveTarget.Single -> scope.launch {
-                            val res = if (mt.isCopy) onCopyFile(mt.file, targetDir) else onMoveFile(mt.file, targetDir)
-                            val okMsg = if (mt.isCopy) copyDone else moveDone
-                            val failFmt = if (mt.isCopy) copyFailFmt else moveFailFmt
-                            Toast.makeText(
-                                context,
-                                if (res.isSuccess) okMsg else failFmt.format(res.exceptionOrNull()?.message.orEmpty()),
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                            dirRefreshTick++
-                            onRescan()
+                        selectedIdx = rowIdx
+                        if (multiSelectMode && currentDir != null) {
+                            selectedPaths = if (checked) selectedPaths - file.path else selectedPaths + file.path
+                        } else if (isDir) {
+                            enterDir(file)
+                        } else {
+                            openFileMenu(file)
                         }
-                        is MoveTarget.Batch -> scope.launch {
-                            val res = if (mt.isCopy) onCopyEntries(mt.files, targetDir) else onMoveEntries(mt.files, targetDir)
-                            val okMsg = if (mt.isCopy) copyBatchDoneFmt.format(res.getOrDefault(mt.files.size)) else batchDoneFmt.format(res.getOrDefault(mt.files.size))
-                            val failFmt = if (mt.isCopy) copyFailFmt else moveFailFmt
-                            Toast.makeText(
-                                context,
-                                if (res.isSuccess) okMsg else failFmt.format(res.exceptionOrNull()?.message.orEmpty()),
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                            multiSelectMode = false
-                            selectedPaths = emptySet()
-                            dirRefreshTick++
-                            onRescan()
-                        }
-                        is MoveTarget.ExtractArchive -> runExtract(mt.archive, targetDir)
-                    }
-                },
-                onDismiss = { moveTarget = null },
-            )
-        }
-
-        // 删除单个文件二次警告确认框
-        deleteConfirm?.let { (file, matchedGame) ->
-            DeleteFileConfirmDialog(
-                fileName = file.name,
-                filePath = file.path,
-                onUseHide = if (matchedGame != null) {
-                    {
-                        deleteConfirm = null
-                        onHideGame(matchedGame.id)
-                    }
-                } else null,
-                onConfirmDelete = {
-                    deleteConfirm = null
-                    scope.launch {
-                        val res = onDeleteFile(file)
-                        Toast.makeText(
-                            context,
-                            if (res.isSuccess) deleteDone else deleteFailFmt.format(res.exceptionOrNull()?.message.orEmpty()),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        dirRefreshTick++
-                    }
-                },
-                onDismiss = { deleteConfirm = null },
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-            )
-        }
-
-        // 文件夹 / 批量删除二次警告确认框
-        batchDeleteFiles?.let { files ->
-            BatchDeleteConfirmDialog(
-                count = files.size,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onConfirm = {
-                    batchDeleteFiles = null
-                    scope.launch {
-                        val res = onDeleteEntries(files)
-                        Toast.makeText(
-                            context,
-                            if (res.isSuccess) batchDoneFmt.format(res.getOrDefault(files.size))
-                            else deleteFailFmt.format(res.exceptionOrNull()?.message.orEmpty()),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        multiSelectMode = false
-                        selectedPaths = emptySet()
-                        dirRefreshTick++
-                    }
-                },
-                onDismiss = { batchDeleteFiles = null },
-            )
-        }
-
-        // 压缩包内容预览与解压选择
-        archivePreviewFile?.let { arc ->
-            ArchivePreviewDialog(
-                file = arc,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onExtractHere = {
-                    archivePreviewFile = null
-                    arc.parentFile?.let { runExtract(arc, it) }
-                },
-                onExtractSubfolder = {
-                    archivePreviewFile = null
-                    arc.parentFile?.let { parent ->
-                        runExtract(arc, File(parent, ArchiveManager.suggestedFolderName(arc)))
-                    }
-                },
-                onExtractPickDir = {
-                    archivePreviewFile = null
-                    moveTarget = MoveTarget.ExtractArchive(arc)
-                },
-                onDismiss = { archivePreviewFile = null },
-            )
-        }
-
-        // 图片查看器
-        imageViewerFile?.let { img ->
-            ImageViewerDialog(
-                file = img,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onDismiss = { imageViewerFile = null },
-            )
-        }
-
-        // 文本 / 配置文件查看与编辑器
-        textEditorFile?.let { txt ->
-            TextFileViewerEditorDialog(
-                file = txt,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onSaved = { dirRefreshTick++ },
-                onDismiss = { textEditorFile = null },
-            )
-        }
-
-        audioPlayerFile?.let { audio ->
-            AudioPlayerDialog(
-                file = audio,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onDismiss = { audioPlayerFile = null },
-            )
-        }
-
-        fontViewerFile?.let { font ->
-            FontViewerDialog(
-                file = font,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onApplyFontId = onApplyFontId,
-                onDismiss = { fontViewerFile = null },
-            )
-        }
-
-        // 解压 / 压缩进度弹窗
-        opProgress?.let { (title, detail) ->
-            FileOpProgressDialog(
-                title = title,
-                detail = detail,
-                onCancel = {
-                    opCancelled.set(true)
-                    opJob?.cancel()
-                    opJob = null
-                    opProgress = null
-                },
-            )
-        }
-
-        // 局域网服务与快传控制 / 接收页面
-        if (showLanDialog) {
-            LanServiceControlDialog(
-                state = lanState,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onRefreshInterfaces = { lanManager.refreshInterfaces() },
-                onSelectInterface = lanManager::selectInterface,
-                onRenameDevice = lanManager::setDeviceName,
-                onRandomizeDeviceName = lanManager::randomizeDeviceName,
-                onToggleQuickShare = { on ->
-                    if (on) lanManager.startQuickShare() else lanManager.stopQuickShare()
-                },
-                onToggleLocalSendCompat = lanManager::setLocalSendCompat,
-                onScanPeers = lanManager::scanPeers,
-                onToggleWebServer = { on ->
-                    if (on) lanManager.startWebServer() else lanManager.stopWebServer()
-                },
-                onRefreshWebPassword = lanManager::refreshWebPassword,
-                onKickWebClient = lanManager::kickWebClient,
-                onClearWebHistory = lanManager::clearWebTransferHistory,
-                onDeleteWebHistoryItem = lanManager::deleteWebTransferHistoryItem,
-                onOpenFolder = { dir, focusFile ->
-                    showLanDialog = false
-                    fileSearchQuery = ""
-                    fileSearchOpen = false
-                    mode = LibraryMode.Files
-                    headerIdx = 3
-                    currentDir = dir
-                    pendingFocusPath = focusFile?.absolutePath
-                    dirRefreshTick++
-                },
-                onOpenQuickShareScreen = {
-                    showLanDialog = false
-                    onOpenQuickShare()
-                },
-                onAcceptIncoming = { sid, dir -> lanManager.acceptIncoming(sid, dir) },
-                onRejectIncoming = { sid -> lanManager.rejectIncoming(sid) },
-                onCancelTransfer = lanManager::cancelTransfer,
-                onCancelWebTransfer = lanManager::cancelWebTransfer,
-                onCancelFileTask = lanManager::cancelFileTask,
-                onSubmitPin = lanManager::submitQuickSharePin,
-                onCancelPin = lanManager::cancelQuickSharePin,
-                onDismissTransferBanner = lanManager::dismissTransferBanner,
-                onStopAll = lanManager::stopAll,
-                onDismiss = { showLanDialog = false },
-            )
-        }
-
-        // 发送方式选择（局域网快传 vs 安卓系统/快速分享）
-        shareMethodTarget?.let { target ->
-            val summary = if (target.files.size > 1) {
-                "${target.files.size} 个文件 · ${formatCompactSize(target.totalSize).orEmpty()}"
-            } else {
-                "${target.gameTitle} · ${target.primaryFile.name}"
-            }
-            ShareMethodDialog(
-                fileSummary = summary,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onPickLanShare = {
-                    shareMethodTarget = null
-                    shareTarget = target
-                },
-                onPickSystemShare = {
-                    shareMethodTarget = null
-                    multiSelectMode = false
-                    selectedPaths = emptySet()
-                    launchSystemShare(target.files)
-                },
-                onDismiss = { shareMethodTarget = null },
-            )
-        }
-
-        // 局域网发送目标设备选择
-        shareTarget?.let { target ->
-            SharePeerPickerDialog(
-                fileName = target.primaryFile.name,
-                fileSize = target.totalSize,
-                gameTitle = target.gameTitle,
-                fileCount = target.files.size,
-                state = lanState,
-                swapAbxy = swapAbxy,
-                keyBindings = keyBindings,
-                onEnableQuickShare = { lanManager.startQuickShare() },
-                onScanPeers = lanManager::scanPeers,
-                onPickPeer = { peer ->
-                    multiSelectMode = false
-                    selectedPaths = emptySet()
-                    lanManager.sendFiles(
-                        peer = peer,
-                        files = target.files,
-                        title = target.gameTitle,
-                        platformId = target.platformId,
-                        platformName = target.platformName,
-                    )
-                },
-                onCancelTransfer = lanManager::cancelTransfer,
-                onSubmitPin = lanManager::submitQuickSharePin,
-                onCancelPin = lanManager::cancelQuickSharePin,
-                onDismissTransferBanner = lanManager::dismissTransferBanner,
-                onDismiss = { shareTarget = null },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ModePill(
-    label: String,
-    selected: Boolean,
-    focused: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Text(
-        text = label,
-        style = DeckType.settingsLabel.copy(fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium),
-        color = if (selected) Color.White else if (focused) DeckColors.Ruby else DeckColors.TextSecondary,
-        modifier = Modifier
-            .clip(DeckShapes.tabPill)
-            .brandPillBackground(selected = selected, shape = DeckShapes.tabPill)
-            .then(
-                if (focused && selected) {
-                    Modifier.border(1.2.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill)
-                } else {
-                    Modifier.brandBorder(active = focused, shape = DeckShapes.tabPill, activeWidth = 1.2.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
-                },
-            )
-            .soundClickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-    )
-}
-
-private data class FilesToolbarAction(
-    val label: String = "",
-    val icon: ImageVector? = null,
-    val isSearch: Boolean = false,
-    val onClick: () -> Unit,
-)
-
-@Composable
-private fun FilterChipPill(
-    label: String,
-    selected: Boolean,
-    focused: Boolean = false,
-    accent: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val activeBg = if (accent) DeckColors.AccentSoft else DeckColors.PillSelected
-    val activeFg = if (accent) DeckColors.Ruby else DeckColors.PillText
-    Text(
-        text = label,
-        style = DeckType.settingsLabel.copy(fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Medium),
-        color = if (selected) Color.White else if (focused) activeFg else DeckColors.TextSecondary,
-        modifier = Modifier
-            .clip(DeckShapes.tabPill)
-            .brandPillBackground(
-                selected = selected,
-                shape = DeckShapes.tabPill,
-                unselectedColor = if (focused) activeBg else DeckColors.Surface,
-            )
-            .then(
-                if (selected) {
-                    if (focused) Modifier.border(1.4.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill) else Modifier
-                } else {
-                    Modifier.brandBorder(active = focused, shape = DeckShapes.tabPill, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
-                },
-            )
-            .soundClickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
-}
-
-@Composable
-private fun TagBadge(text: String, accent: Boolean) {
-    Text(
-        text = text,
-        style = DeckType.metaLabel,
-        color = if (accent) DeckColors.Ruby else DeckColors.TextSecondary,
-        modifier = Modifier
-            .clip(DeckShapes.tabPill)
-            .background(if (accent) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Background)
-            .padding(horizontal = 7.dp, vertical = 2.dp),
-    )
-}
-
-@Composable
-private fun MoveFolderDialog(
-    fileName: String,
-    roots: List<File>,
-    storageLocations: List<StorageLocation> = emptyList(),
-    initialDir: File?,
-    isCopy: Boolean = false,
-    swapAbxy: Boolean = false,
-    keyBindings: Map<KeyAction, Int> = emptyMap(),
-    onPickDir: (File) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var curDir by remember { mutableStateOf(initialDir ?: roots.firstOrNull()) }
-    var dirs by remember { mutableStateOf<List<File>>(emptyList()) }
-    var focusIdx by remember { mutableIntStateOf(0) }
-    var pendingSelectPath by remember { mutableStateOf<String?>(null) }
-    val focusRequester = remember { FocusRequester() }
-    val listState = rememberLazyListState()
-    val sdPath = remember { Environment.getExternalStorageDirectory().path }
-
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    LaunchedEffect(curDir) {
-        val d = curDir
-        dirs = if (d == null) {
-            roots
-        } else {
-            withContext(Dispatchers.IO) {
-                d.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }
-                    .orEmpty()
-                    .sortedBy { it.name.lowercase() }
+                    },
+                    onClickFolderMenu = { rowIdx, file ->
+                        selectedIdx = rowIdx
+                        openFolderMenu(file)
+                    },
+                )
             }
         }
-        val hdr = if (d != null) 2 else 0
-        val p = pendingSelectPath
-        if (p != null) {
-            val match = dirs.indexOfFirst { it.path == p }
-            focusIdx = if (match >= 0) hdr + match else 0
-            pendingSelectPath = null
-        } else {
-            focusIdx = 0
-        }
-    }
 
-    val headerItems = if (curDir != null) 2 else 0 // 0=move/copy here, 1=up
-    val totalFocus = (headerItems + dirs.size).coerceAtLeast(1)
-
-    fun stepUpPicker() {
-        val d = curDir ?: return
-        pendingSelectPath = d.path
-        curDir = if (roots.any { it.path == d.path }) null else d.parentFile
-    }
-
-    LaunchedEffect(focusIdx) {
-        if (focusIdx in 0 until (headerItems + dirs.size)) {
-            listState.animateScrollToItem((focusIdx - 2).coerceAtLeast(0))
-        }
-    }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
-            .focusRequester(focusRequester)
-            .focusable()
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when {
-                    GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
-                        true
-                    }
-                    event.key == Key.DirectionUp -> {
-                        focusIdx = (focusIdx - 1).coerceAtLeast(0)
-                        true
-                    }
-                    event.key == Key.DirectionDown -> {
-                        focusIdx = (focusIdx + 1).coerceAtMost(totalFocus - 1)
-                        true
-                    }
-                    GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        when {
-                            curDir != null && focusIdx == 0 -> curDir?.let(onPickDir)
-                            curDir != null && focusIdx == 1 -> stepUpPicker()
-                            focusIdx < headerItems + dirs.size -> {
-                                dirs.getOrNull(focusIdx - headerItems)?.let { curDir = it }
-                            }
-                        }
-                        true
-                    }
-                    else -> false
-                }
+        LibraryOverlayDialogs(
+            actionMenu = actionMenu,
+            onDismissActionMenu = { actionMenu = null },
+            propertiesGame = propertiesGame,
+            onDismissPropertiesGame = { propertiesGame = null },
+            editingGame = editingGame,
+            onDismissEditingGame = { editingGame = null },
+            categoryTargetGame = categoryTargetGame,
+            onDismissCategoryTargetGame = { categoryTargetGame = null },
+            nameSpec = nameSpec,
+            nameState = nameState,
+            onDismissNameDialog = { nameSpec = null },
+            moveTarget = moveTarget,
+            onDismissMoveTarget = { moveTarget = null },
+            deleteConfirm = deleteConfirm,
+            onDismissDeleteConfirm = { deleteConfirm = null },
+            batchDeleteFiles = batchDeleteFiles,
+            onDismissBatchDelete = { batchDeleteFiles = null },
+            archivePreviewFile = archivePreviewFile,
+            onDismissArchivePreview = { archivePreviewFile = null },
+            onPickExtractDir = { moveTarget = MoveTarget.ExtractArchive(it) },
+            imageViewerFile = imageViewerFile,
+            onDismissImageViewer = { imageViewerFile = null },
+            textEditorFile = textEditorFile,
+            onDismissTextEditor = { textEditorFile = null },
+            audioPlayerFile = audioPlayerFile,
+            onDismissAudioPlayer = { audioPlayerFile = null },
+            fontViewerFile = fontViewerFile,
+            onDismissFontViewer = { fontViewerFile = null },
+            opProgress = opProgress,
+            onCancelOpProgress = {
+                opCancelled.set(true)
+                opJob?.cancel()
+                opJob = null
+                opProgress = null
             },
-        contentAlignment = Alignment.Center,
-    ) {
-        DialogPanelCard(
-            onDismiss = onDismiss,
-            modifier = Modifier
-                .width(460.dp)
-                .heightIn(max = 540.dp),
+            showLanDialog = showLanDialog,
+            onDismissLanDialog = { showLanDialog = false },
+            shareMethodTarget = shareMethodTarget,
+            onDismissShareMethod = { shareMethodTarget = null },
+            onPickLanShareMethod = { target ->
+                shareMethodTarget = null
+                shareTarget = target
+            },
+            onPickSystemShareMethod = { target ->
+                shareMethodTarget = null
+                multiSelectMode = false
+                selectedPaths = emptySet()
+                launchSystemShare(target.files)
+            },
+            shareTarget = shareTarget,
+            onDismissShareTarget = { shareTarget = null },
+            onClearMultiSelect = {
+                multiSelectMode = false
+                selectedPaths = emptySet()
+            },
+            onBumpDirRefresh = { dirRefreshTick++ },
+            onLocateInFiles = { dir, focusFile ->
+                fileSearchQuery = ""
+                fileSearchOpen = false
+                mode = LibraryMode.Files
+                headerIdx = 3
+                focusZone = LibraryZone.List
+                currentDir = dir
+                pendingFocusPath = focusFile?.absolutePath
+                dirRefreshTick++
+            },
+            categories = categories,
+            metadataMap = metadataMap,
+            officialNames = officialNames,
+            metaResolutionMap = metaResolutionMap,
+            coverResolutionMap = coverResolutionMap,
+            favorites = favorites,
+            gameLaunchers = gameLaunchers,
+            covers = covers,
+            lanManager = lanManager,
+            lanState = lanState,
+            romRoots = romRoots,
+            storageLocations = storageLocations,
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
-        ) {
-            Column(Modifier.padding(end = 36.dp)) {
-                Text(
-                    stringResource(if (isCopy) R.string.lib_copy_title_fmt else R.string.lib_move_title, fileName),
-                    style = DeckType.menuTitle,
-                    color = DeckColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    curDir?.path?.replace(sdPath, "~") ?: stringResource(R.string.lib_storage_locations),
-                    style = DeckType.metaLabel,
-                    color = DeckColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (curDir != null) {
-                    item(key = "__move_here__") {
-                        val hl = focusIdx == 0
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(DeckShapes.settingsDropdown)
-                                .background(DeckColors.Ruby.copy(alpha = if (hl) 0.20f else 0.12f))
-                                .brandBorder(active = hl, shape = DeckShapes.settingsDropdown, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
-                                .soundClickable { curDir?.let(onPickDir) }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            DeckIcon(DeckIcons.Check, tint = DeckColors.Ruby, size = 15.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                stringResource(if (isCopy) R.string.lib_copy_here else R.string.lib_move_here),
-                                style = DeckType.settingsValue,
-                                color = DeckColors.Ruby,
-                            )
-                        }
-                    }
-                    item(key = "__up__") {
-                        val hl = focusIdx == 1
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(DeckShapes.settingsDropdown)
-                                .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
-                                .border(if (hl) 0.9.dp else 0.dp, if (hl) DeckColors.Ruby else Color.Transparent, DeckShapes.settingsDropdown)
-                                .soundClickable { stepUpPicker() }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.TextSecondary, size = 15.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.lib_files_up), style = DeckType.settingsValue, color = DeckColors.TextPrimary)
-                        }
-                    }
-                }
-                itemsIndexed(dirs, key = { _, d -> d.path }) { idx, dir ->
-                    val storageLoc = if (curDir == null) storageLocations.firstOrNull { it.dir.path == dir.path } else null
-                    val label = storageLoc?.label ?: if (curDir == null) dir.path.replace(sdPath, "~") else dir.name
-                    val hl = focusIdx == headerItems + idx
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(DeckShapes.settingsDropdown)
-                            .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
-                            .brandBorder(active = hl, shape = DeckShapes.settingsDropdown, activeWidth = 1.3.dp, inactiveWidth = 0.dp, inactiveColor = Color.Transparent)
-                            .soundClickable { curDir = dir }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            label,
-                            style = DeckType.settingsValue,
-                            color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text("›", style = DeckType.settingsSection, color = DeckColors.TextSecondary)
-                    }
-                }
-            }
-        }
+            platformFor = platformFor,
+            effectiveLauncherFor = effectiveLauncherFor,
+            computeCrc32 = computeCrc32,
+            onRefreshMetadata = onRefreshMetadata,
+            onHideGame = onHideGame,
+            onSaveGameEdits = onSaveGameEdits,
+            onSetGameLauncher = onSetGameLauncher,
+            onSetGameCategories = onSetGameCategories,
+            onCreateCategoryForGame = onCreateCategoryForGame,
+            onMoveFile = onMoveFile,
+            onMoveEntries = onMoveEntries,
+            onCopyFile = onCopyFile,
+            onCopyEntries = onCopyEntries,
+            onDeleteFile = onDeleteFile,
+            onDeleteEntries = onDeleteEntries,
+            onRunExtract = ::runExtract,
+            onApplyFontId = onApplyFontId,
+            onOpenQuickShare = onOpenQuickShare,
+            onRescan = onRescan,
+            scope = scope,
+            context = context,
+            deleteDone = deleteDone,
+            deleteFailFmt = deleteFailFmt,
+            moveDone = moveDone,
+            moveFailFmt = moveFailFmt,
+            copyDone = copyDone,
+            copyFailFmt = copyFailFmt,
+            copyBatchDoneFmt = copyBatchDoneFmt,
+            batchDoneFmt = batchDoneFmt,
+        )
     }
-}
-
-@Composable
-private fun FileTasksBanner(
-    tasks: List<FileTask>,
-    onCancel: (String) -> Unit,
-) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        tasks.forEach { task ->
-            val icon = when (task.kind) {
-                FileTaskKind.Compress -> "ZIP"
-                FileTaskKind.Extract -> "EXT"
-                FileTaskKind.Copy -> "CP"
-                FileTaskKind.Move -> "MV"
-                FileTaskKind.Delete -> "DEL"
-                FileTaskKind.Upload -> "UP"
-            }
-            val kindLabel = stringResource(
-                when (task.kind) {
-                    FileTaskKind.Compress -> R.string.lib_task_compress
-                    FileTaskKind.Extract -> R.string.lib_task_extract
-                    FileTaskKind.Copy -> R.string.lib_task_copy
-                    FileTaskKind.Move -> R.string.lib_task_move
-                    FileTaskKind.Delete -> R.string.lib_task_delete
-                    FileTaskKind.Upload -> R.string.lib_task_upload
-                },
-            )
-            val srcLabel = stringResource(
-                if (task.source == FileTaskSource.Web) R.string.lib_task_src_web else R.string.lib_task_src_local,
-            )
-            val hasTotal = task.totalBytes > 0L
-            val pct = if (hasTotal) ((task.bytesDone.toFloat() / task.totalBytes.toFloat()).coerceIn(0f, 1f)) else null
-            val progressText = when {
-                hasTotal -> {
-                    val doneStr = formatCompactSize(task.bytesDone) ?: "0 KB"
-                    val totalStr = formatCompactSize(task.totalBytes) ?: ""
-                    "${((pct ?: 0f) * 100).toInt()}% · $doneStr / $totalStr"
-                }
-                task.bytesDone > 0L -> stringResource(
-                    R.string.lib_task_processed_fmt,
-                    formatCompactSize(task.bytesDone) ?: "0 KB",
-                )
-                else -> ""
-            }
-            val subParts = listOfNotNull(
-                progressText.takeIf { it.isNotEmpty() },
-                task.detail.takeIf { it.isNotBlank() && it != task.title },
-            ).joinToString(" · ")
-
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(DeckColors.Surface)
-                    .border(0.75.dp, DeckColors.Ruby.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        color = DeckColors.Ruby,
-                        strokeWidth = 2.dp,
-                    )
-                    Column(Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                "$icon $kindLabel · ${task.title}",
-                                style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                                color = DeckColors.TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            TagBadge(srcLabel, accent = task.source == FileTaskSource.Web)
-                        }
-                        if (subParts.isNotEmpty()) {
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                subParts,
-                                style = DeckType.metaLabel,
-                                color = DeckColors.TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    if (task.cancellable) {
-                        Text(
-                            stringResource(if (task.cancelling) R.string.lib_task_cancelling else R.string.lib_task_cancel),
-                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (task.cancelling) DeckColors.TextSecondary else DeckColors.Ruby,
-                            modifier = Modifier
-                                .clip(DeckShapes.tabPill)
-                                .background(DeckColors.Ruby.copy(alpha = 0.12f))
-                                .soundClickable(enabled = !task.cancelling) { onCancel(task.id) }
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-                if (pct != null) {
-                    LinearProgressIndicator(
-                        progress = { pct },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
-                        color = DeckColors.Ruby,
-                        trackColor = DeckColors.Line,
-                        gapSize = 0.dp,
-                        drawStopIndicator = {},
-                    )
-                } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
-                        color = DeckColors.Ruby,
-                        trackColor = DeckColors.Line,
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun formatCompactSize(bytes: Long): String? {
-    if (bytes <= 0L) return null
-    val kb = bytes / 1024.0
-    if (kb < 1024) return "%.0f KB".format(kb)
-    val mb = kb / 1024.0
-    if (mb < 1024) return "%.1f MB".format(mb)
-    return "%.2f GB".format(mb / 1024.0)
 }

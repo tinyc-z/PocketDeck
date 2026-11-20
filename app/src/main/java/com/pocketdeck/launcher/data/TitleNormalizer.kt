@@ -20,7 +20,7 @@ object TitleNormalizer {
 
     private val DIACRITICS = Regex("""\p{Mn}+""")
     private val BRACKET_TAGS = Regex("""\s*(?:\([^)]*\)|\[[^\]]*\]|\{[^}]*\}|（[^）]*）|【[^】]*】)""")
-    private val LEADING_INDEX = Regex("""^(?:No\.?\s*)?\d{1,5}\s*[-._、)\]]\s*""")
+    private val LEADING_INDEX = Regex("""^(?:No\.?\s*\d{1,5}\s*(?:[-._、)\]]\s*|\s+)|\d{1,5}\s*[-._、)\]]\s*)""", RegexOption.IGNORE_CASE)
     private val CJK_PACK_TAGS = Regex(
         """(?i)(?:\s*[-_·]?\s*(?:完全汉化版?|完美汉化版?|中文汉化版?|汉化修正版?|简体中文版?|繁体中文版?|官方中文版?|中文版|汉化版|简中版?|繁中版?|无敌版|修改版|金手指版|修正版|加强版|最终版|典藏版|整合版|v\d+(?:\.\d+)+|rev\s*[a-z0-9]+))+$""",
     )
@@ -54,19 +54,29 @@ object TitleNormalizer {
         Regex("""\b2\b""") to "II",
     )
 
-    /** 去掉音标符号：`Pokémon` → `Pokemon`，`Ōkami` → `Okami`。 */
+    /** 去掉拉丁音标符号：`Pokémon` → `Pokemon`，`Ōkami` → `Okami`，同时完整保留日文假名浊音与韩文音节。 */
     fun foldDiacritics(input: String): String {
         if (input.isEmpty()) return input
-        var asciiOnly = true
+        var hasLatinExtended = false
         for (i in input.indices) {
-            if (input[i].code >= 128) {
-                asciiOnly = false
+            val c = input[i].code
+            if ((c in 0x00C0..0x024F) || (c in 0x1E00..0x1EFF) || (c in 0x0300..0x036F)) {
+                hasLatinExtended = true
                 break
             }
         }
-        if (asciiOnly) return input
-        val nfd = Normalizer.normalize(input, Normalizer.Form.NFD)
-        return DIACRITICS.replace(nfd, "")
+        if (!hasLatinExtended) return input
+        val sb = StringBuilder(input.length)
+        for (ch in input) {
+            val c = ch.code
+            if ((c in 0x00C0..0x024F) || (c in 0x1E00..0x1EFF)) {
+                val nfd = Normalizer.normalize(ch.toString(), Normalizer.Form.NFD)
+                sb.append(DIACRITICS.replace(nfd, ""))
+            } else if (c !in 0x0300..0x036F) {
+                sb.append(ch)
+            }
+        }
+        return sb.toString()
     }
 
     /**

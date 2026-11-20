@@ -125,6 +125,10 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     androidResources {
         localeFilters += listOf("en", "zh-rCN", "zh-rTW")
     }
@@ -165,4 +169,7 @@ dependencies {
     implementation(libs.commons.compress)
     implementation(libs.tukaani.xz)
     implementation(libs.junrar)
+
+    testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 }
