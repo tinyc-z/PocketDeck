@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -377,7 +378,9 @@ fun ManualScrapeDialog(
                                 (listOfNotNull(cand.coverUrl) + cand.fallbackCoverUrls).distinct()
                             }
                             var urlIdx by remember(cand) { mutableIntStateOf(0) }
+                            var retryTick by remember(cand) { mutableIntStateOf(0) }
                             val activeUrl = allUrls.getOrNull(urlIdx)
+                            val canRetry = allUrls.isNotEmpty() && activeUrl == null
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -396,31 +399,47 @@ fun ManualScrapeDialog(
                                     Modifier
                                         .size(width = 48.dp, height = 64.dp)
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(DeckColors.DialogBg),
+                                        .background(DeckColors.DialogBg)
+                                        .then(
+                                            if (canRetry) {
+                                                Modifier
+                                                    .border(0.8.dp, DeckColors.Ruby.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                                    .soundClickable {
+                                                        urlIdx = 0
+                                                        retryTick += 1
+                                                    }
+                                            } else {
+                                                Modifier
+                                            },
+                                        ),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     if (!activeUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = activeUrl,
-                                            contentDescription = cand.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                            onState = { st ->
-                                                when (st) {
-                                                    is AsyncImagePainter.State.Success -> {
-                                                        resolvedUrls[idx] = activeUrl
-                                                    }
-                                                    is AsyncImagePainter.State.Error -> {
-                                                        if (urlIdx + 1 < allUrls.size) {
-                                                            urlIdx += 1
-                                                        } else {
-                                                            urlIdx = -1
+                                        key(retryTick, activeUrl) {
+                                            AsyncImage(
+                                                model = activeUrl,
+                                                contentDescription = cand.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize(),
+                                                onState = { st ->
+                                                    when (st) {
+                                                        is AsyncImagePainter.State.Success -> {
+                                                            resolvedUrls[idx] = activeUrl
                                                         }
+                                                        is AsyncImagePainter.State.Error -> {
+                                                            if (urlIdx + 1 < allUrls.size) {
+                                                                urlIdx += 1
+                                                            } else {
+                                                                urlIdx = -1
+                                                            }
+                                                        }
+                                                        else -> Unit
                                                     }
-                                                    else -> Unit
-                                                }
-                                            },
-                                        )
+                                                },
+                                            )
+                                        }
+                                    } else if (canRetry) {
+                                        DeckIcon(DeckIcons.Refresh, tint = DeckColors.Ruby, size = 18.dp)
                                     } else {
                                         DeckIcon(DeckIcons.Image, tint = DeckColors.TextSecondary, size = 18.dp)
                                     }
