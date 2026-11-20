@@ -426,7 +426,7 @@
     <string name="launcher_ra_detect_hint">无法确认核心是否已下载，启动失败时请到 RetroArch「在线更新」里下载核心</string>
     <string name="launcher_variant_title">选择版本</string>
     <string name="launcher_variant_auto">自动（首个已安装）</string>
-    <string name="launcher_open_store">获取</string>
+    <string name="launcher_also_supported">还支持：%s。安装后会自动出现在上面的列表里</string>
     <string name="launcher_other_app_desc">列表里没有时再用</string>
     <string name="launcher_recognized">已识别为 %s，已自动配置</string>
     <string name="launcher_custom_detected">已自动识别启动方式：%s</string>

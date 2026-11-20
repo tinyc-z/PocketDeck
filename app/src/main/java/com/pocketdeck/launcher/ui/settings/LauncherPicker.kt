@@ -1,7 +1,5 @@
 package com.pocketdeck.launcher.ui.settings
 
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -339,7 +337,6 @@ private fun ColumnScope.MainPage(
     val customSpec = remember(currentLauncherId) { CustomLauncherCodec.decodeCustomApp(currentLauncherId) }
     val currentRaCore = CustomLauncherCodec.decodeRaCore(currentLauncherId)
     val currentEmuId = CustomLauncherCodec.emulatorIdOf(currentLauncherId)
-    var showNotInstalled by remember { mutableStateOf(false) }
 
     PickerHeader(title = title, subtitle = "${platform.fullName} (${platform.shortName})")
     Spacer(Modifier.height(10.dp))
@@ -468,56 +465,17 @@ private fun ColumnScope.MainPage(
         }
 
         if (notInstalled.isNotEmpty()) {
-            Spacer(Modifier.height(2.dp))
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(DeckShapes.settingsDropdown)
-                    .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) {
-                        showNotInstalled = !showNotInstalled
-                    }
-                    .padding(horizontal = 4.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "${stringResource(R.string.launcher_supported_not_installed)} (${notInstalled.size})",
-                    style = DeckType.metaLabel,
-                    color = DeckColors.TextSecondary,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(if (showNotInstalled) "▾" else "▸", style = DeckType.settingsLabel, color = DeckColors.TextSecondary)
-            }
-            if (showNotInstalled) {
-                notInstalled.forEach { emu ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(DeckShapes.menuButton)
-                            .background(DeckColors.Surface.copy(alpha = 0.55f))
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            emu.displayName,
-                            style = DeckType.settingsLabel,
-                            color = DeckColors.TextSecondary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            stringResource(R.string.launcher_open_store),
-                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
-                            color = DeckColors.Ruby,
-                            modifier = Modifier
-                                .clip(DeckShapes.settingsDropdown)
-                                .background(DeckColors.Ruby.copy(alpha = 0.10f))
-                                .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) {
-                                    openStore(context, emu.packages.first())
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
-                    }
-                }
-            }
+            Text(
+                stringResource(
+                    R.string.launcher_also_supported,
+                    notInstalled.joinToString(
+                        if (context.resources.configuration.locales[0].language == "zh") "、" else ", ",
+                    ) { it.displayName },
+                ),
+                style = DeckType.metaLabel,
+                color = DeckColors.TextLabel,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            )
         }
 
         if (!isAndroid) {
@@ -1209,10 +1167,4 @@ private fun AspectRatioCard(
             }
         }
     }
-}
-
-private fun openStore(context: android.content.Context, pkg: String) {
-    val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    runCatching { context.startActivity(market) }.onFailure { runCatching { context.startActivity(web) } }
 }

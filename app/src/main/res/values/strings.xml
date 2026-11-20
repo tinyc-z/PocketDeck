@@ -427,7 +427,7 @@
     <string name="launcher_ra_detect_hint">Core downloads can\'t be verified. If launch fails, download the core in RetroArch → Online Updater.</string>
     <string name="launcher_variant_title">Choose version</string>
     <string name="launcher_variant_auto">Auto (first installed)</string>
-    <string name="launcher_open_store">Get</string>
+    <string name="launcher_also_supported">Also supported: %s. Install one and it will show up in the list above.</string>
     <string name="launcher_other_app_desc">Use when your emulator isn\'t listed</string>
     <string name="launcher_recognized">Recognized as %s and configured automatically</string>
     <string name="launcher_custom_detected">Launch method detected: %s</string>
