@@ -92,7 +92,9 @@ fun GameMenu(
     var pickingDisc by remember(game.id) { mutableStateOf(false) }
     var selectedIdx by remember(game.id, pickingDisc) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
-    val maxPanelHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp
+    val compactHeight = screenHeightDp <= 360
+    val maxPanelHeight = (screenHeightDp * 0.86f).dp
 
     val chooseDiscLabel = stringResource(R.string.menu_choose_disc, game.discFiles.size)
     val generateM3uLabel = stringResource(R.string.menu_generate_m3u)
@@ -192,14 +194,14 @@ fun GameMenu(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(if (compactHeight) 8.dp else 14.dp))
 
             Column(
                 Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compactHeight) 5.dp else 8.dp),
             ) {
                 actions.forEachIndexed { idx, item ->
                     MenuButton(
@@ -210,12 +212,13 @@ fun GameMenu(
                         label = item.label,
                         focused = idx == selectedIdx,
                         highlight = idx == 1 && isFavorite,
+                        compact = compactHeight,
                         onClick = item.onClick,
                     )
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(if (compactHeight) 6.dp else 10.dp))
 
             Text(
                 stringResource(R.string.menu_cancel),
@@ -240,6 +243,7 @@ private fun MenuButton(
     label: String,
     focused: Boolean,
     highlight: Boolean = false,
+    compact: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -270,7 +274,7 @@ private fun MenuButton(
             .clip(shape)
             .then(bgModifier)
             .soundClickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = 14.dp, vertical = if (compact) 8.dp else 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start,
     ) {

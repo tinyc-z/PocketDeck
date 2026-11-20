@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -409,6 +411,7 @@ internal fun DeckSwitch(checked: Boolean, modifier: Modifier = Modifier) {
  * 8 个渐变主题色圆点。[cursor] 非空时表示正在用手柄挑选（左右移动），
  * 光标圆点显示品牌焦点环；当前选中的主题显示墨色外环。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AccentDots(
     selected: ThemeAccent,
@@ -417,7 +420,12 @@ internal fun AccentDots(
 ) {
     val ink = DeckColors.TextPrimary
     val gap = DeckColors.Surface
-    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+    val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 460
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        maxItemsInEachRow = if (compact) 4 else ThemeAccent.entries.size,
+    ) {
         ThemeAccent.entries.forEachIndexed { idx, acc ->
             val isSel = acc == selected
             val isCursor = cursor == idx

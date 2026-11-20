@@ -106,7 +106,11 @@ import com.pocketdeck.launcher.ui.theme.DeckType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private const val APPS_COLUMNS = 5
+private fun appsColumnsForWidth(screenWidthDp: Int): Int = when {
+    screenWidthDp < 460 -> 4
+    screenWidthDp >= 900 -> 6
+    else -> 5
+}
 
 data class InstalledApp(
     val packageName: String,
@@ -330,11 +334,13 @@ fun AppsScreen(
                         true
                     }
                     event.key == Key.DirectionUp -> {
-                        focusIndex = (focusIndex - APPS_COLUMNS).coerceAtLeast(0)
+                        val cols = appsColumnsForWidth(context.resources.configuration.screenWidthDp)
+                        focusIndex = (focusIndex - cols).coerceAtLeast(0)
                         true
                     }
                     event.key == Key.DirectionDown -> {
-                        focusIndex = (focusIndex + APPS_COLUMNS).coerceAtMost(totalItems - 1)
+                        val cols = appsColumnsForWidth(context.resources.configuration.screenWidthDp)
+                        focusIndex = (focusIndex + cols).coerceAtMost(totalItems - 1)
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
@@ -379,8 +385,9 @@ fun AppsScreen(
                 },
             )
 
+            val columns = appsColumnsForWidth(androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp)
             LazyVerticalGrid(
-                columns = GridCells.Fixed(APPS_COLUMNS),
+                columns = GridCells.Fixed(columns),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 32.dp),

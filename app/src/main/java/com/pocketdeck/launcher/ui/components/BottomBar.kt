@@ -5,6 +5,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,54 +58,64 @@ fun BottomBar(
     val appsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Apps, swapAbxy)
     val settingsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Settings, swapAbxy)
 
-    Row(
+    BoxWithConstraints(
         modifier
             .fillMaxWidth()
             .height(46.dp)
             .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        contentAlignment = Alignment.CenterStart,
     ) {
-        // (B) Apps
-        BarButton(badge = appsBtn, label = stringResource(R.string.apps), onClick = onApps)
+        // 窄屏（如 1:1 方屏、8:7、4:3 640x480、竖屏）下 View 与 Search 仅保留图标，确保右侧 A Play 完整显示
+        val showSecondaryLabels = maxWidth >= 460.dp
 
-        Spacer(Modifier.width(6.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // (B) Apps
+            BarButton(badge = appsBtn, label = stringResource(R.string.apps), onClick = onApps)
 
-        // (Y) Settings
-        BarButton(badge = settingsBtn, label = stringResource(R.string.settings), onClick = onSettings)
+            Spacer(Modifier.width(6.dp))
 
-        Spacer(Modifier.width(6.dp))
+            // (Y) Settings
+            BarButton(badge = settingsBtn, label = stringResource(R.string.settings), onClick = onSettings)
 
-        // 视图切换 —— 使用当前桌面模式的形象图标（不绑快捷键字母）
-        BarCustomIconLabeledButton(
-            label = stringResource(R.string.hint_view),
-            onClick = onViewSwitch,
-        ) { iconTint ->
-            Box(
-                Modifier
-                    .size(15.dp)
-                    .drawBehind { drawViewModeIcon(viewMode, iconTint) },
+            Spacer(Modifier.width(6.dp))
+
+            // 视图切换 —— 使用当前桌面模式的形象图标（不绑快捷键字母）
+            BarCustomIconLabeledButton(
+                label = stringResource(R.string.hint_view),
+                showLabel = showSecondaryLabels,
+                onClick = onViewSwitch,
+            ) { iconTint ->
+                Box(
+                    Modifier
+                        .size(15.dp)
+                        .drawBehind { drawViewModeIcon(viewMode, iconTint) },
+                )
+            }
+
+            Spacer(Modifier.width(6.dp))
+
+            // (🔍) Search —— 深色圆形徽标，搜索激活时高亮为品牌渐变关闭徽标
+            BarIconLabeledButton(
+                icon = if (searching) HomeIcons.Close else HomeIcons.Search,
+                label = stringResource(R.string.lib_search_hint),
+                showLabel = showSecondaryLabels,
+                primary = searching,
+                onClick = onSearch,
+            )
+
+            Spacer(Modifier.weight(1f))
+
+            // (A) Play —— 主操作使用品牌渐变徽标
+            BarButton(
+                badge = playBtn,
+                label = stringResource(R.string.play),
+                primary = true,
+                onClick = onPlay,
             )
         }
-
-        Spacer(Modifier.width(6.dp))
-
-        // (🔍) Search —— 深色圆形徽标，搜索激活时高亮为品牌渐变关闭徽标
-        BarIconLabeledButton(
-            icon = if (searching) HomeIcons.Close else HomeIcons.Search,
-            label = stringResource(R.string.lib_search_hint),
-            primary = searching,
-            onClick = onSearch,
-        )
-
-        Spacer(Modifier.weight(1f))
-
-        // (A) Play —— 主操作使用品牌渐变徽标
-        BarButton(
-            badge = playBtn,
-            label = stringResource(R.string.play),
-            primary = true,
-            onClick = onPlay,
-        )
     }
 }
 
@@ -147,12 +158,14 @@ private fun BarIconLabeledButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
+    showLabel: Boolean = true,
     primary: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     BarCustomIconLabeledButton(
         label = label,
         onClick = onClick,
+        showLabel = showLabel,
         primary = primary,
         modifier = modifier,
     ) { iconTint ->
@@ -164,6 +177,7 @@ private fun BarIconLabeledButton(
 private fun BarCustomIconLabeledButton(
     label: String,
     onClick: () -> Unit,
+    showLabel: Boolean = true,
     primary: Boolean = false,
     modifier: Modifier = Modifier,
     iconContent: @Composable (Color) -> Unit,
@@ -177,9 +191,9 @@ private fun BarCustomIconLabeledButton(
             .clip(CircleShape)
             .background(if (pressed) DeckColors.TextPrimary.copy(alpha = 0.10f) else Color.Transparent)
             .soundClickableNoIndication(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 5.dp),
+            .padding(horizontal = if (showLabel) 6.dp else 4.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (showLabel) 6.dp else 0.dp),
     ) {
         Box(
             Modifier
@@ -190,14 +204,16 @@ private fun BarCustomIconLabeledButton(
         ) {
             iconContent(iconTint)
         }
-        Text(
-            label,
-            style = DeckType.bottomBar.copy(
-                fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
-                fontSize = 14.sp,
-            ),
-            color = DeckColors.TextPrimary,
-            maxLines = 1,
-        )
+        if (showLabel) {
+            Text(
+                label,
+                style = DeckType.bottomBar.copy(
+                    fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
+                    fontSize = 14.sp,
+                ),
+                color = DeckColors.TextPrimary,
+                maxLines = 1,
+            )
+        }
     }
 }

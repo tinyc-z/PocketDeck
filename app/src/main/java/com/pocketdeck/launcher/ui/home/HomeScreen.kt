@@ -789,6 +789,10 @@ private fun HomeContentSlot(
 ) {
     val focusIndex by focusIndexFlow.collectAsState()
     val isFastScrolling by fastScrollingFlow.collectAsState()
+    val screenCfg = androidx.compose.ui.platform.LocalConfiguration.current
+    val maxGalleryByWidth = ((screenCfg.screenWidthDp - 76f) / 1.35f).coerceAtLeast(182f)
+    val galleryFocusH = (screenCfg.screenHeightDp * 0.42f).coerceAtMost(maxGalleryByWidth).coerceIn(182f, 320f).dp
+    val gallerySmallH = (104f * (galleryFocusH.value / 182f)).dp
     when (viewMode) {
         ViewMode.Gallery -> GalleryView(
             games = games,
@@ -803,6 +807,8 @@ private fun HomeContentSlot(
             onLongPress = onLongPress,
             fastScrolling = isFastScrolling,
             idlePaused = idlePaused,
+            focusCardHeight = galleryFocusH,
+            smallCardHeight = gallerySmallH,
             showMetadata = showMetadata,
             metaDisplay = metaDisplay,
             align = galleryAlign,
