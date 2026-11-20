@@ -146,6 +146,7 @@ class WebManagerServer(
         private const val MAX_CANDIDATE_TOKENS = 200
         private const val MAX_WEB_HISTORY_ITEMS = 100
         private const val STALL_ZERO_MS = 1_500L
+        private const val HTTP_TX_WINDOW_MS = 2_000L
         private const val PROGRESS_SAMPLE_MS = 200L
         private const val RANGE_MERGE_WINDOW_MS = 4_000L
     }
@@ -248,6 +249,12 @@ class WebManagerServer(
 
     private val _transferHistory = MutableStateFlow<List<WebTransferHistoryItem>>(loadTransferHistory())
     val transferHistory: StateFlow<List<WebTransferHistoryItem>> = _transferHistory.asStateFlow()
+
+    // 常规 HTTP 响应（封面图 / 页面 / API）按客户端 IP 统计 2 秒滑动窗口上行速率
+    private val httpTxLock = Any()
+    private val httpTxSamples = HashMap<String, ArrayDeque<Pair<Long, Long>>>()
+    private var httpTxDecayJob: kotlinx.coroutines.Job? = null
+    private var lastHttpTxPublishMs = 0L
 
     @Volatile
     var dynamicPassword: String = generatePassword()
@@ -402,7 +409,8 @@ class WebManagerServer(
                 ?: txs.minOfOrNull { it.startedAtMs }
                 ?: now
             val lastActive = recs.maxOfOrNull { it.lastActiveMs } ?: now
-            val upBps = txs.filter { it.direction == WebTransferDirection.Upload }.sumOf { it.speedBytesPerSec }
+            val upBps = txs.filter { it.direction == WebTransferDirection.Upload }.sumOf { it.speedBytesPerSec } +
+                httpTxBps(ip, now)
             val downBps = txs.filter { it.direction == WebTransferDirection.Download }.sumOf { it.speedBytesPerSec }
             WebClientInfo(
                 ip = ip,
@@ -419,6 +427,56 @@ class WebManagerServer(
                 .thenByDescending { it.lastActiveMs },
         )
         _connectedClients.value = grouped
+    }
+
+    private fun recordHttpTx(ip: String, bytes: Long) {
+        if (ip.isBlank() || bytes <= 0L) return
+        val now = System.currentTimeMillis()
+        val shouldPublish: Boolean
+        synchronized(httpTxLock) {
+            val q = httpTxSamples.getOrPut(ip) { ArrayDeque() }
+            q.addLast(now to bytes)
+            pruneHttpTxLocked(q, now)
+            shouldPublish = (now - lastHttpTxPublishMs) >= 180L
+            if (shouldPublish) lastHttpTxPublishMs = now
+            if (httpTxDecayJob?.isActive != true) {
+                httpTxDecayJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+                    while (true) {
+                        kotlinx.coroutines.delay(500L)
+                        val t = System.currentTimeMillis()
+                        val empty = synchronized(httpTxLock) {
+                            val it = httpTxSamples.entries.iterator()
+                            while (it.hasNext()) {
+                                val entry = it.next()
+                                pruneHttpTxLocked(entry.value, t)
+                                if (entry.value.isEmpty()) it.remove()
+                            }
+                            httpTxSamples.isEmpty()
+                        }
+                        publishClients()
+                        if (empty) break
+                    }
+                }
+            }
+        }
+        if (shouldPublish) publishClients()
+    }
+
+    private fun httpTxBps(ip: String, now: Long): Long = synchronized(httpTxLock) {
+        val q = httpTxSamples[ip] ?: return@synchronized 0L
+        pruneHttpTxLocked(q, now)
+        if (q.isEmpty()) return@synchronized 0L
+        var sum = 0L
+        for ((_, b) in q) sum += b
+        val spanMs = (now - q.first().first).coerceIn(500L, HTTP_TX_WINDOW_MS)
+        (sum * 1000L) / spanMs
+    }
+
+    private fun pruneHttpTxLocked(q: ArrayDeque<Pair<Long, Long>>, now: Long) {
+        val cutoff = now - HTTP_TX_WINDOW_MS
+        while (q.isNotEmpty() && q.first().first < cutoff) {
+            q.removeFirst()
+        }
     }
 
     /** 浏览器暂停或网速归零超过 1.5s 时，将卡住的瞬时速率归零。 */
@@ -630,6 +688,7 @@ class WebManagerServer(
     }
 
     private suspend fun handleRequest(req: HttpRequest, res: HttpResponseWriter) {
+        res.onBytesSent = { sent -> recordHttpTx(req.remoteIp, sent) }
         if (req.method == "POST" && !isAllowedPostOrigin(req)) {
             res.sendJson(403, """{"ok":false,"error":"cross_origin_forbidden"}""")
             return

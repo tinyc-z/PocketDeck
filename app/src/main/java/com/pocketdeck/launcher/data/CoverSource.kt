@@ -749,13 +749,19 @@ class CoverSource(
         val index = system?.let { systemIndexes[it] }
         val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, officialName)
         val indexMatches = index?.findMatches(queries).orEmpty()
+            .ifEmpty { index?.findManualMatches(queries, limit = 6).orEmpty() }
         val directNames = if (index == null) buildDirectNames(game, officialName) else emptyList()
+
+        // 若当前游戏已有命中的在线封面缓存，优先放入首位，确保「在线选图」不会反而返回空
+        cachedUrl(game.id)?.let { cached ->
+            push(cached, cachedOrigin(game.id, cached).first)
+        }
 
         for (node in enabled) {
             when (node.id) {
                 ScraperCatalog.CoverIds.LIBRETRO_BOXARTS -> if (system != null) {
                     val mirror = activeLibretroMirror
-                    indexMatches.take(4).forEach {
+                    indexMatches.take(6).forEach {
                         push(buildLibretroBoxartUrl(system, it, mirror), node.id)
                     }
                     if (indexMatches.isEmpty()) {
@@ -776,12 +782,43 @@ class CoverSource(
                 }
             }
         }
-        // 并行验证候选图片 URL 确实可访问，避免弹窗出现 404 空卡片
+        // 并行验证候选图片 URL 确实可访问；Libretro 主镜像失败时自动尝试其余两个镜像兜底
         out.map { item ->
             async(Dispatchers.IO) {
-                if (urlExists(item.url)) item else null
+                val workingUrl = resolveReachableUrl(item.url)
+                workingUrl?.let { item.copy(url = it) }
             }
-        }.awaitAll().filterNotNull()
+        }.awaitAll().filterNotNull().distinctBy { it.url }
+    }
+
+    private fun resolveReachableUrl(urlStr: String): String? {
+        if (urlExists(urlStr)) return urlStr
+        val altUrls = libretroAlternativeMirrors(urlStr)
+        for ((mirrorIdx, alt) in altUrls) {
+            if (urlExists(alt)) {
+                activeLibretroMirror = mirrorIdx
+                return alt
+            }
+        }
+        return null
+    }
+
+    /** 若 [urlStr] 是 Libretro 任一镜像图片链接，返回其余两个镜像的等价链接列表 `(mirrorIdx, url)`。 */
+    private fun libretroAlternativeMirrors(urlStr: String): List<Pair<Int, String>> {
+        val m0 = Regex("""^https://thumbnails\.libretro\.com/([^/]+)/(Named_[^/]+)/(.+)$""").matchEntire(urlStr)
+        val m1 = Regex("""^https://cdn\.jsdelivr\.net/gh/libretro-thumbnails/([^/@]+)@master/(Named_[^/]+)/(.+)$""").matchEntire(urlStr)
+        val m2 = Regex("""^https://raw\.githubusercontent\.com/libretro-thumbnails/([^/]+)/master/(Named_[^/]+)/(.+)$""").matchEntire(urlStr)
+        val (curMirror, rawSys, kind, encodedFile) = when {
+            m0 != null -> listOf("0", URLDecoder.decode(m0.groupValues[1], "UTF-8"), m0.groupValues[2], m0.groupValues[3])
+            m1 != null -> listOf("1", URLDecoder.decode(m1.groupValues[1], "UTF-8").replace('_', ' '), m1.groupValues[2], m1.groupValues[3])
+            m2 != null -> listOf("2", URLDecoder.decode(m2.groupValues[1], "UTF-8").replace('_', ' '), m2.groupValues[2], m2.groupValues[3])
+            else -> return emptyList()
+        }
+        val fileName = runCatching { URLDecoder.decode(encodedFile.replace("+", "%2B"), "UTF-8") }.getOrDefault(encodedFile)
+        val cur = curMirror.toInt()
+        return listOf((cur + 1) % 3, (cur + 2) % 3).map { idx ->
+            idx to buildLibretroThumbUrl(rawSys, kind, fileName, idx)
+        }
     }
 
     private fun urlExists(urlStr: String): Boolean {

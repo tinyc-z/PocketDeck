@@ -49,9 +49,9 @@ data class LanServerState(
     val anyRunning: Boolean get() = webRunning || shareRunning
     val webTransferring: Boolean get() = webActiveTransfers.isNotEmpty()
     val webUploadSpeedBps: Long
-        get() = webActiveTransfers.filter { it.direction == WebTransferDirection.Upload }.sumOf { it.speedBytesPerSec }
+        get() = webClients.sumOf { it.uploadSpeedBps }
     val webDownloadSpeedBps: Long
-        get() = webActiveTransfers.filter { it.direction == WebTransferDirection.Download }.sumOf { it.speedBytesPerSec }
+        get() = webClients.sumOf { it.downloadSpeedBps }
     val selectedInterface: LanInterface?
         get() = interfaces.firstOrNull { it.interfaceName == selectedInterfaceName } ?: interfaces.firstOrNull()
 

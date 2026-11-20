@@ -348,6 +348,7 @@ class HttpRequest(
 
 class HttpResponseWriter(private val out: OutputStream) {
     var defaultHeaders: Map<String, String> = emptyMap()
+    var onBytesSent: ((Long) -> Unit)? = null
 
     fun sendText(
         status: Int,
@@ -375,6 +376,9 @@ class HttpResponseWriter(private val out: OutputStream) {
         writeHeader(status, bytes.size.toLong(), contentType, extraHeaders)
         out.write(bytes)
         out.flush()
+        if (bytes.isNotEmpty()) {
+            onBytesSent?.invoke(bytes.size.toLong())
+        }
     }
 
     fun sendFile(

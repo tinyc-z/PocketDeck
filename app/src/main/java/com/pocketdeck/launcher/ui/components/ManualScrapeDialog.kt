@@ -1,5 +1,6 @@
 package com.pocketdeck.launcher.ui.components
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -36,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -171,9 +173,10 @@ fun ManualScrapeDialog(
     var searchedOnce by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<ManualScrapeCandidate>>(emptyList()) }
     var selectedIdx by remember { mutableIntStateOf(0) }
+    var previewPair by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
     val listState = rememberLazyListState()
-    val resolvedUrls = remember(results) { mutableMapOf<Int, String>() }
+    val resolvedUrls = remember(results) { mutableStateMapOf<Int, String>() }
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.88f).dp
 
     fun applyAt(idx: Int) {
@@ -246,9 +249,20 @@ fun ManualScrapeDialog(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (previewPair != null) {
+                            previewPair = null
+                        } else {
+                            onDismiss()
+                        }
                         true
                     }
+                    previewPair != null && GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
+                        val idx = previewPair?.first ?: selectedIdx
+                        previewPair = null
+                        applyAt(idx)
+                        true
+                    }
+                    previewPair != null -> true
                     event.key == Key.DirectionDown && results.isNotEmpty() -> {
                         selectedIdx = (selectedIdx + 1).coerceAtMost(results.lastIndex)
                         true
@@ -449,6 +463,9 @@ fun ManualScrapeDialog(
                             var retryTick by remember(cand) { mutableIntStateOf(0) }
                             val activeUrl = allUrls.getOrNull(urlIdx)
                             val canRetry = allUrls.isNotEmpty() && activeUrl == null
+                            val canPreview = !activeUrl.isNullOrBlank() && resolvedUrls[idx] != null
+                            val thumbW by animateDpAsState(targetValue = if (hl) 68.dp else 46.dp, label = "scrapeThumbW")
+                            val thumbH by animateDpAsState(targetValue = if (hl) 90.dp else 62.dp, label = "scrapeThumbH")
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -459,25 +476,28 @@ fun ManualScrapeDialog(
                                         selectedIdx = idx
                                         applyAt(idx)
                                     }
-                                    .padding(10.dp),
+                                    .padding(horizontal = if (hl) 12.dp else 10.dp, vertical = if (hl) 11.dp else 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 Box(
                                     Modifier
-                                        .size(width = 48.dp, height = 64.dp)
-                                        .clip(RoundedCornerShape(6.dp))
+                                        .size(width = thumbW, height = thumbH)
+                                        .clip(RoundedCornerShape(7.dp))
                                         .background(DeckColors.DialogBg)
                                         .then(
-                                            if (canRetry) {
-                                                Modifier
-                                                    .border(0.8.dp, DeckColors.Ruby.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                            when {
+                                                canRetry -> Modifier
+                                                    .border(0.8.dp, DeckColors.Ruby.copy(alpha = 0.45f), RoundedCornerShape(7.dp))
                                                     .soundClickable {
                                                         urlIdx = 0
                                                         retryTick += 1
                                                     }
-                                            } else {
-                                                Modifier
+                                                canPreview -> Modifier.soundClickable {
+                                                    selectedIdx = idx
+                                                    previewPair = idx to (resolvedUrls[idx] ?: activeUrl!!)
+                                                }
+                                                else -> Modifier
                                             },
                                         ),
                                     contentAlignment = Alignment.Center,
@@ -571,6 +591,84 @@ fun ManualScrapeDialog(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // 点击缩略图弹出高清大图预览浮层
+        previewPair?.let { (pIdx, pUrl) ->
+            val pCand = results.getOrNull(pIdx)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.78f))
+                    .scrimTapDismiss { previewPair = null },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    Modifier
+                        .padding(horizontal = 24.dp, vertical = 18.dp)
+                        .widthIn(max = 420.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(DeckColors.DialogBg)
+                        .border(0.8.dp, DeckColors.Line, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 160.dp, max = (LocalConfiguration.current.screenHeightDp * 0.60f).dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DeckColors.Surface),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AsyncImage(
+                            model = pUrl,
+                            contentDescription = pCand?.title.orEmpty(),
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    if (!pCand?.title.isNullOrBlank()) {
+                        Text(
+                            text = pCand!!.title,
+                            style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
+                            color = DeckColors.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.menu_cancel),
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
+                            color = DeckColors.TextSecondary,
+                            modifier = Modifier
+                                .clip(DeckShapes.tabPill)
+                                .background(DeckColors.Surface)
+                                .border(0.7.dp, DeckColors.Line, DeckShapes.tabPill)
+                                .soundClickable { previewPair = null }
+                                .padding(horizontal = 16.dp, vertical = 7.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.manual_scrape_apply_btn),
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color.White,
+                            modifier = Modifier
+                                .clip(DeckShapes.tabPill)
+                                .brandBackground(DeckShapes.tabPill)
+                                .soundClickable {
+                                    previewPair = null
+                                    applyAt(pIdx)
+                                }
+                                .padding(horizontal = 18.dp, vertical = 7.dp),
+                        )
                     }
                 }
             }

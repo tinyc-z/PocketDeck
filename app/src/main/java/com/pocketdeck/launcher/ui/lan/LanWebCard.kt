@@ -418,7 +418,7 @@ internal fun LanWebServiceCard(
                                         )
                                     }
                                 }
-                                if (client.activeTransfers.isNotEmpty()) {
+                                if (client.activeTransfers.isNotEmpty() || client.uploadSpeedBps > 0L || client.downloadSpeedBps > 0L) {
                                     Column(
                                         horizontalAlignment = Alignment.End,
                                         modifier = Modifier.padding(end = 6.dp),
