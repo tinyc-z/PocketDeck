@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -65,8 +66,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
+import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImageModelEqualityDelegate
 import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalAsyncImageModelEqualityDelegate
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.pocketdeck.launcher.data.CoverSource
@@ -191,6 +195,7 @@ fun GameCoverCard(
  *
  * 使用 pointerInput 响应点击和长按，避免抢占主页手柄按键焦点。
  */
+@OptIn(ExperimentalCoilApi::class)
 @Composable
 fun CoverCard(
     candidates: List<Any>,
@@ -396,36 +401,43 @@ fun CoverCard(
                         .networkCachePolicy(if (loadUnlocked && isOnline) CachePolicy.ENABLED else CachePolicy.DISABLED)
                         .build()
                 }
-                AsyncImage(
-                    model = request,
-                    contentDescription = title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    onState = { state ->
-                        when (state) {
-                            is AsyncImagePainter.State.Success -> {
-                                loadedSuccess = true
-                                if (loadUnlocked && knownIndex != candidateIdx) {
-                                    onCandidateResolved?.invoke(candidateIdx)
+                // Coil 3 默认 DefaultModelEqualityDelegate 会忽略 diskCachePolicy / networkCachePolicy，
+                // 导致快滚期（仅查内存缓存失败）停稳解锁或断网重连后 AsyncImage 误判为同一请求而永不重试；
+                // 使用 AllProperties 确保缓存策略放开时立即重新加载磁盘/网络封面。
+                CompositionLocalProvider(
+                    LocalAsyncImageModelEqualityDelegate provides AsyncImageModelEqualityDelegate.AllProperties,
+                ) {
+                    AsyncImage(
+                        model = request,
+                        contentDescription = title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        onState = { state ->
+                            when (state) {
+                                is AsyncImagePainter.State.Success -> {
+                                    loadedSuccess = true
+                                    if (loadUnlocked && knownIndex != candidateIdx) {
+                                        onCandidateResolved?.invoke(candidateIdx)
+                                    }
                                 }
-                            }
-                            is AsyncImagePainter.State.Error -> {
-                                loadedSuccess = false
-                                if (loadUnlocked) {
-                                    if (candidateIdx + 1 < candidates.size) {
-                                        candidateIdx += 1
-                                    } else {
-                                        candidateIdx = -1
-                                        if (knownIndex != -1) {
-                                            onCandidateResolved?.invoke(-1)
+                                is AsyncImagePainter.State.Error -> {
+                                    loadedSuccess = false
+                                    if (loadUnlocked) {
+                                        if (candidateIdx + 1 < candidates.size) {
+                                            candidateIdx += 1
+                                        } else {
+                                            candidateIdx = -1
+                                            if (knownIndex != -1) {
+                                                onCandidateResolved?.invoke(-1)
+                                            }
                                         }
                                     }
                                 }
+                                else -> Unit
                             }
-                            else -> Unit
-                        }
-                    },
-                )
+                        },
+                    )
+                }
             }
 
             // 左上角平台缩写角标（有封面图与无封面图统一显示，圆形气泡与极小卡片不显示）
