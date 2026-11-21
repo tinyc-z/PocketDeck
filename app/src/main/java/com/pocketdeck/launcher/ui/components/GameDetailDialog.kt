@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -118,10 +119,6 @@ fun GameDetailDialog(
     val coverEditFocused = focusZone == DetailFocusZone.CoverEdit && onManualScrape != null
     var pickingDisc by remember(game.id) { mutableStateOf(false) }
     var discIdx by remember(game.id, pickingDisc) { mutableIntStateOf(0) }
-    val cfg = LocalConfiguration.current
-    val isNarrow = cfg.screenWidthDp < 480
-    val isShort = cfg.screenHeightDp <= 340
-    val maxHeight = (cfg.screenHeightDp * if (isShort) 0.92f else 0.88f).dp
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
 
@@ -171,7 +168,7 @@ fun GameDetailDialog(
         runCatching { focusRequester.requestFocus() }
     }
 
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
@@ -262,6 +259,9 @@ fun GameDetailDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
+        val isNarrow = maxWidth < 460.dp
+        val isShort = maxHeight < 340.dp
+        val dialogMaxHeight = maxHeight * if (isShort) 0.92f else 0.88f
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
@@ -275,7 +275,7 @@ fun GameDetailDialog(
                 )
                 .widthIn(max = 600.dp)
                 .fillMaxWidth()
-                .heightIn(max = maxHeight),
+                .heightIn(max = dialogMaxHeight),
             contentPadding = PaddingValues(
                 horizontal = if (isNarrow) 14.dp else 20.dp,
                 vertical = when {
@@ -448,9 +448,9 @@ fun GameDetailDialog(
                         isFocused = coverEditFocused,
                     )
                     if (onManualScrape != null) {
-                        val visualSize = if (compact) 18.dp else 20.dp
-                        val iconSize = if (compact) 9.dp else 10.dp
-                        // 外层 36dp 透明触摸热区，内部 18~20dp 半透暗玻璃精致小圆点（获焦时亮品牌渐变）
+                        val visualSize = if (compact) 22.dp else 26.dp
+                        val iconSize = if (compact) 11.dp else 13.dp
+                        // 外层 36dp 透明触摸热区，内部清晰白底红铅笔圆钮（获焦时亮品牌渐变）
                         Box(
                             Modifier
                                 .align(Alignment.BottomEnd)
@@ -461,23 +461,23 @@ fun GameDetailDialog(
                         ) {
                             Box(
                                 Modifier
-                                    .size(if (coverEditFocused) visualSize + 4.dp else visualSize)
+                                    .size(if (coverEditFocused) visualSize + 3.dp else visualSize)
                                     .clip(CircleShape)
                                     .then(
                                         if (coverEditFocused) Modifier.brandBackground(CircleShape)
-                                        else Modifier.background(Color(0xFF1A1220).copy(alpha = 0.56f)),
+                                        else Modifier.background(DeckColors.DialogBg.copy(alpha = 0.94f)),
                                     )
                                     .border(
-                                        width = if (coverEditFocused) 1.4.dp else 0.75.dp,
-                                        color = if (coverEditFocused) Color.White else Color.White.copy(alpha = 0.30f),
+                                        width = if (coverEditFocused) 1.5.dp else 0.8.dp,
+                                        color = if (coverEditFocused) Color.White else DeckColors.Line,
                                         shape = CircleShape,
                                     ),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 DeckIcon(
                                     icon = HomeIcons.Pencil,
-                                    size = if (coverEditFocused) iconSize + 2.dp else iconSize,
-                                    tint = Color.White,
+                                    size = if (coverEditFocused) iconSize + 1.dp else iconSize,
+                                    tint = if (coverEditFocused) Color.White else DeckColors.Ruby,
                                 )
                             }
                         }
