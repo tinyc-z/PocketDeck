@@ -131,6 +131,35 @@ object TitleNormalizer {
         return sb.toString()
     }
 
+    /** 零正则单遍剥离 `(...)`/`[...]`/`{...}`/`（...）`/`【...】` 括号标签，替代高频 `BRACKET_TAGS` 正则。 */
+    private fun stripBracketsFast(s: String): String {
+        val n = s.length
+        val sb = StringBuilder(n)
+        var i = 0
+        while (i < n) {
+            val ch = s[i]
+            val close = when (ch) {
+                '(' -> ')'
+                '[' -> ']'
+                '{' -> '}'
+                '（' -> '）'
+                '【' -> '】'
+                else -> '\u0000'
+            }
+            if (close != '\u0000') {
+                val end = s.indexOf(close, i + 1)
+                if (end >= 0) {
+                    if (sb.isNotEmpty() && sb[sb.length - 1] != ' ') sb.append(' ')
+                    i = end + 1
+                    continue
+                }
+            }
+            sb.append(ch)
+            i++
+        }
+        return sb.toString()
+    }
+
     /**
      * 剥离 ROM 括号标签、前导编号与常见汉化包后缀，并把 `, The` 冠词归位。
      * 用于展示名与 API 搜索词。
@@ -143,7 +172,7 @@ object TitleNormalizer {
             s = LEADING_INDEX.replace(s, "")
         }
         if (hasBracketChars(s)) {
-            s = BRACKET_TAGS.replace(s, " ")
+            s = stripBracketsFast(s)
         }
         if (mayHaveCjkOrPackSuffix(s)) {
             s = CJK_PACK_TAGS.replace(s, "")

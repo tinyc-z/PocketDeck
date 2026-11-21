@@ -228,8 +228,20 @@ class CoverSource(
     private class BoxartIndex(
         val byExact: Map<String, String>,
         val byCompact: Map<String, List<String>>,
-        val byToken: Map<String, List<String>>,
+        private val rawNames: List<String>,
     ) {
+        /** 倒排分词索引仅在精确/紧凑键未命中时才懒构建，避免切 Tab 首次加载万级平台时白白建 5 万条词元索引。 */
+        val byToken: Map<String, List<String>> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            val map = HashMap<String, MutableList<String>>(rawNames.size / 2 + 16)
+            for (fileName in rawNames) {
+                val noExt = if (fileName.endsWith(".png", ignoreCase = true)) fileName.dropLast(4) else fileName
+                val norm = TitleNormalizer.normalizedTitle(noExt)
+                for (tok in TitleNormalizer.tokenize(norm)) {
+                    map.getOrPut(tok) { ArrayList(4) }.add(fileName)
+                }
+            }
+            map
+        }
         fun findMatches(queries: List<String>): List<String> =
             findMatchesWithMode(queries).map { it.first }
 
@@ -1691,7 +1703,6 @@ class CoverSource(
     private fun buildIndex(names: List<String>): BoxartIndex {
         val byExact = HashMap<String, String>(names.size)
         val grouped = HashMap<String, MutableList<String>>(names.size)
-        val byToken = HashMap<String, MutableList<String>>(names.size)
         for (fileName in names) {
             val noExt = if (fileName.endsWith(".png", ignoreCase = true)) fileName.dropLast(4) else fileName
             byExact.putIfAbsent(TitleNormalizer.exactKey(noExt), fileName)
@@ -1700,14 +1711,12 @@ class CoverSource(
             if (compact.isNotEmpty()) {
                 grouped.getOrPut(compact) { ArrayList(2) }.add(fileName)
             }
-            for (tok in TitleNormalizer.tokenize(norm)) {
-                byToken.getOrPut(tok) { ArrayList(4) }.add(fileName)
-            }
         }
-        val sortedGrouped = grouped.mapValues { (_, list) ->
-            list.sortedBy { candidateScore(it) }
+        val sortedGrouped = HashMap<String, List<String>>(grouped.size)
+        for ((k, list) in grouped) {
+            sortedGrouped[k] = if (list.size <= 1) list else list.sortedBy { candidateScore(it) }
         }
-        return BoxartIndex(byExact, sortedGrouped, byToken)
+        return BoxartIndex(byExact, sortedGrouped, names)
     }
 
     /**
