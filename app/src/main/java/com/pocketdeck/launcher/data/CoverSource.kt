@@ -734,6 +734,7 @@ class CoverSource(
         game: Game,
         platform: Platform?,
         officialName: String? = null,
+        includeCachedFirst: Boolean = true,
     ): List<ScrapedCoverCandidate> = coroutineScope {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@coroutineScope emptyList()
         if (!NetworkStatus.isOnline(appCtx)) return@coroutineScope emptyList()
@@ -769,9 +770,11 @@ class CoverSource(
             .ifEmpty { index?.findManualMatches(queries, limit = 6).orEmpty() }
         val directNames = if (index == null) buildDirectNames(game, officialName) else emptyList()
 
-        // 若当前游戏已有命中的在线封面缓存，优先放入首位，确保「在线选图」不会反而返回空
-        cachedUrl(game.id)?.let { cached ->
-            push(cached, cachedOrigin(game.id, cached).first)
+        // 仅选图模式下把已有缓存放首位兜底；自动重新刮削时不优先复用旧缓存，确保按最新规则重选最佳封面
+        if (includeCachedFirst) {
+            cachedUrl(game.id)?.let { cached ->
+                push(cached, cachedOrigin(game.id, cached).first)
+            }
         }
 
         for (node in enabled) {
@@ -1149,7 +1152,7 @@ class CoverSource(
     ): Boolean = withContext(Dispatchers.IO) {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@withContext false
         if (!NetworkStatus.isOnline(appCtx)) return@withContext false
-        val picked = scrapeAllForPicker(game, platform, officialName)
+        val picked = scrapeAllForPicker(game, platform, officialName, includeCachedFirst = false)
         for (item in picked) {
             val downloaded = downloadImageBytes(item.url) ?: continue
             val cacheFile = webCacheFile(game.id)

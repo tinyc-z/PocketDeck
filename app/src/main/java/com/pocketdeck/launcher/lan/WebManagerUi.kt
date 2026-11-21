@@ -2767,10 +2767,20 @@ function _searchWebLibretro(idx, kw, limit) {
         }
       }
     }
-    if (score > 0) scored.push({ fn, title: base, score, rScore: _webRegionScore(fn) });
+    if (score > 0) {
+      const variants = score >= 90 ? files.slice(0, 4) : files.slice(0, 2);
+      variants.forEach((vfn, vi) => {
+        scored.push({
+          fn: vfn,
+          title: vfn.replace(/\.png$/i, ''),
+          score: score - vi * 0.5,
+          rScore: _webRegionScore(vfn),
+        });
+      });
+    }
   }
   scored.sort((a, b) => (b.score - a.score) || (a.rScore - b.rScore));
-  return scored.slice(0, limit || 16).map(x => {
+  return scored.slice(0, limit || 20).map(x => {
     const enc = encodeURIComponent(x.fn);
     return {
       title: x.title,
