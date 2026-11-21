@@ -93,12 +93,18 @@ object TitleNormalizer {
         for (i in s.indices) {
             if (s[i].code >= 0x80) return true
         }
-        val last = s.lastOrNull()?.lowercaseChar() ?: return false
-        return last.isDigit() ||
-            s.endsWith("chs", ignoreCase = true) ||
-            s.endsWith("cht", ignoreCase = true) ||
-            s.endsWith("hack", ignoreCase = true) ||
-            s.contains("rev", ignoreCase = true)
+        val len = s.length
+        if (len < 3) return false
+        val last = s[len - 1].lowercaseChar()
+        return when {
+            last == 's' -> s.endsWith("chs", ignoreCase = true)
+            last == 't' -> s.endsWith("cht", ignoreCase = true)
+            last == 'k' -> s.endsWith("hack", ignoreCase = true)
+            last.isDigit() -> s.contains(".0") || s.contains(".1") || s.contains(".2") ||
+                s.contains(".3") || s.contains(".4") || s.contains(".5") ||
+                s.contains("rev", ignoreCase = true)
+            else -> s.contains("rev", ignoreCase = true)
+        }
     }
 
     private fun isWordChar(c: Char): Boolean {
@@ -111,21 +117,22 @@ object TitleNormalizer {
             (code in 0xAC00..0xD7AF)
     }
 
-    /** 零正则单遍扫描：把非词字符折叠为单个空格并 trim，避免大批量建索引时产生海量 Regex/Matcher 垃圾对象。 */
-    private fun collapseNonWordSpaced(lowered: String): String {
-        val sb = StringBuilder(lowered.length)
+    /** 零正则单遍扫描：直接小写化并把非词字符折叠为单个空格（省去中间 `.lowercase()` 字符串分配）。 */
+    private fun collapseNonWordSpaced(input: String, skipSpaces: Boolean = false): String {
+        val sb = StringBuilder(input.length)
         var prevSpace = true
-        for (i in lowered.indices) {
-            val ch = lowered[i]
+        for (i in input.indices) {
+            val raw = input[i]
+            val ch = if (raw in 'A'..'Z') (raw.code + 32).toChar() else raw.lowercaseChar()
             if (isWordChar(ch)) {
                 sb.append(ch)
                 prevSpace = false
-            } else if (!prevSpace) {
+            } else if (!skipSpaces && !prevSpace) {
                 sb.append(' ')
                 prevSpace = true
             }
         }
-        if (sb.isNotEmpty() && sb[sb.length - 1] == ' ') {
+        if (!skipSpaces && sb.isNotEmpty() && sb[sb.length - 1] == ' ') {
             sb.setLength(sb.length - 1)
         }
         return sb.toString()
@@ -165,7 +172,7 @@ object TitleNormalizer {
      * 用于展示名与 API 搜索词。
      */
     fun stripRomTags(raw: String): String {
-        var s = raw.replace('_', ' ').trim()
+        var s = if (raw.indexOf('_') >= 0) raw.replace('_', ' ').trim() else raw.trim()
         if (s.isEmpty()) return s
         val first = s[0]
         if (first.isDigit() || first == 'N' || first == 'n') {
@@ -192,17 +199,22 @@ object TitleNormalizer {
     }
 
     /** 用于保留区域标签的精确匹配键（含括号内信息，仅统一空白与去音标）。 */
-    fun exactKey(raw: String): String {
-        val folded = foldDiacritics(raw).lowercase()
-        return collapseNonWordSpaced(folded)
-    }
+    fun exactKey(raw: String): String = collapseNonWordSpaced(foldDiacritics(raw), skipSpaces = false)
 
     /** 用于标题级匹配的规范化空格分词键（已剥离括号/编号/冠词/音标，罗马数字统一转阿拉伯数字）。 */
     fun normalizedTitle(raw: String): String {
         var clean = stripRomTags(raw)
         clean = foldDiacritics(clean)
         clean = romanToArabic(clean)
-        return collapseNonWordSpaced(clean.lowercase())
+        return collapseNonWordSpaced(clean, skipSpaces = false)
+    }
+
+    /** 直接生成紧凑无空格匹配键（单遍跳过空格，省去中间带空格字符串分配）。 */
+    fun compactKey(raw: String): String {
+        var clean = stripRomTags(raw)
+        clean = foldDiacritics(clean)
+        clean = romanToArabic(clean)
+        return collapseNonWordSpaced(clean, skipSpaces = true)
     }
 
     /** 从已计算好的 [normalizedTitle] 直接生成紧凑无空格键（零正则、避免重复计算）。 */
@@ -216,12 +228,11 @@ object TitleNormalizer {
         return sb.toString()
     }
 
-    /** 紧凑无空格匹配键（同样已做去音标、冠词归位与罗马数字统一）。 */
-    fun compactKey(raw: String): String = compactFromNorm(normalizedTitle(raw))
-
+    /** 零正则单遍罗马数字转阿拉伯数字（独立大写词边界 `II`..`X`），避免每条标题跑 9 次正则。 */
     fun romanToArabic(s: String): String {
+        val n = s.length
         var hasRoman = false
-        for (i in s.indices) {
+        for (i in 0 until n) {
             val c = s[i]
             if (c == 'I' || c == 'V' || c == 'X') {
                 hasRoman = true
@@ -229,12 +240,59 @@ object TitleNormalizer {
             }
         }
         if (!hasRoman) return s
-        var cur = s
-        for ((re, num) in ROMAN_TO_ARABIC) {
-            cur = re.replace(cur, num)
+        var sb: StringBuilder? = null
+        var lastCopied = 0
+        var i = 0
+        while (i < n) {
+            val c = s[i]
+            if (c == 'I' || c == 'V' || c == 'X') {
+                val prevOk = i == 0 || !isAsciiWordChar(s[i - 1])
+                if (prevOk) {
+                    var j = i
+                    while (j < n && (s[j] == 'I' || s[j] == 'V' || s[j] == 'X')) j++
+                    val nextOk = j == n || !isAsciiWordChar(s[j])
+                    if (nextOk) {
+                        val rep = when (j - i) {
+                            1 -> when (s[i]) {
+                                'V' -> "5"
+                                'X' -> "10"
+                                else -> null
+                            }
+                            2 -> when {
+                                s[i] == 'I' && s[i + 1] == 'I' -> "2"
+                                s[i] == 'I' && s[i + 1] == 'V' -> "4"
+                                s[i] == 'V' && s[i + 1] == 'I' -> "6"
+                                s[i] == 'I' && s[i + 1] == 'X' -> "9"
+                                else -> null
+                            }
+                            3 -> when {
+                                s[i] == 'I' && s[i + 1] == 'I' && s[i + 2] == 'I' -> "3"
+                                s[i] == 'V' && s[i + 1] == 'I' && s[i + 2] == 'I' -> "7"
+                                else -> null
+                            }
+                            4 -> if (s[i] == 'V' && s[i + 1] == 'I' && s[i + 2] == 'I' && s[i + 3] == 'I') "8" else null
+                            else -> null
+                        }
+                        if (rep != null) {
+                            val out = sb ?: StringBuilder(n).also { sb = it }
+                            out.append(s, lastCopied, i)
+                            out.append(rep)
+                            lastCopied = j
+                        }
+                    }
+                    i = j
+                    continue
+                }
+            }
+            i++
         }
-        return cur
+        val out = sb ?: return s
+        out.append(s, lastCopied, n)
+        return out.toString()
     }
+
+    private fun isAsciiWordChar(c: Char): Boolean =
+        (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9') || c == '_'
 
     fun arabicToRoman(s: String): String {
         var cur = s

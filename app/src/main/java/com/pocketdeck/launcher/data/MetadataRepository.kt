@@ -1141,14 +1141,24 @@ class MetadataRepository(
         return lock.withLock {
             systemTables[system]?.let { return@withLock it }
             withContext(Dispatchers.IO) {
+                val t0 = System.currentTimeMillis()
                 val cacheFile = File(cacheDir, "v3_${sanitizeFileName(system)}.tsv")
-                val bundled = buildSystemTableFromOffline(OfflineGameDb.loadPlatformTable(appCtx, system))
+                val offlineTable = OfflineGameDb.loadPlatformTable(appCtx, system)
+                val tRead = System.currentTimeMillis()
+                val bundled = buildSystemTableFromOffline(offlineTable)
+                val tBuild = System.currentTimeMillis()
                 val cached = if (cacheFile.isFile && cacheFile.length() > 0) {
                     readCachedTsv(cacheFile)
                 } else {
                     null
                 }
                 val initial = mergeSystemTables(bundled, cached)
+                runCatching {
+                    android.util.Log.i(
+                        "PocketDeckPerf",
+                        "MetadataRepo.getOrFetch($system): h=${offlineTable.hashToName.size} m=${offlineTable.metaByRawName.size} read=${tRead - t0}ms build=${tBuild - tRead}ms",
+                    )
+                }
                 if (initial != null) {
                     putSystemTable(system, initial)
                     if (cached == null && NetworkStatus.isOnline(appCtx)) {

@@ -270,7 +270,8 @@ class CoverSource(
                 val compact = TitleNormalizer.compactKey(q)
                 if (compact.isNotEmpty()) {
                     byCompact[compact]?.let { list ->
-                        list.take(3).forEach { out.putIfAbsent(it, CoverMatchMode.IndexFuzzy) }
+                        val ordered = if (list.size <= 1) list else list.sortedBy { candidateScore(it) }
+                        ordered.take(3).forEach { out.putIfAbsent(it, CoverMatchMode.IndexFuzzy) }
                     }
                 }
             }
@@ -768,6 +769,7 @@ class CoverSource(
         return lock.withLock {
             if (systemIndexes.containsKey(system)) return@withLock false
             withContext(Dispatchers.IO) {
+                val t0 = System.currentTimeMillis()
                 val cacheFile = File(indexDir, "${sanitizeFileName(system)}.txt")
                 val bundled = OfflineGameDb.loadBoxartNames(appCtx, system)
                 val cached = if (cacheFile.isFile && cacheFile.length() > 0) {
@@ -776,8 +778,16 @@ class CoverSource(
                     emptyList()
                 }
                 val initial = OfflineGameDb.mergeBoxartNames(bundled, cached)
+                val tRead = System.currentTimeMillis()
                 if (initial.isNotEmpty()) {
                     putSystemIndex(system, buildIndex(initial))
+                    val tBuild = System.currentTimeMillis()
+                    runCatching {
+                        android.util.Log.i(
+                            "PocketDeckPerf",
+                            "CoverSource.loadSystemIndex($system): n=${initial.size} read=${tRead - t0}ms build=${tBuild - tRead}ms",
+                        )
+                    }
                     indexFailedUntilMs.remove(system)
                     // 本地已就绪；若尚未拉过远端增量且联网，后台异步合并更新
                     if (cached.isEmpty() && NetworkStatus.isOnline(appCtx)) {
@@ -1742,17 +1752,13 @@ class CoverSource(
         for (fileName in names) {
             val noExt = if (fileName.endsWith(".png", ignoreCase = true)) fileName.dropLast(4) else fileName
             byExact.putIfAbsent(TitleNormalizer.exactKey(noExt), fileName)
-            val norm = TitleNormalizer.normalizedTitle(noExt)
-            val compact = TitleNormalizer.compactFromNorm(norm)
+            val compact = TitleNormalizer.compactKey(noExt)
             if (compact.isNotEmpty()) {
                 grouped.getOrPut(compact) { ArrayList(2) }.add(fileName)
             }
         }
-        val sortedGrouped = HashMap<String, List<String>>(grouped.size)
-        for ((k, list) in grouped) {
-            sortedGrouped[k] = if (list.size <= 1) list else list.sortedBy { candidateScore(it) }
-        }
-        return BoxartIndex(byExact, sortedGrouped, names)
+        // 不在建索引阶段对上万条分组逐一跑 candidateScore 正则排序，改为查询命中该组时按需排序（节省 ~1s）
+        return BoxartIndex(byExact, grouped, names)
     }
 
     /**
