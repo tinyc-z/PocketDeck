@@ -166,7 +166,22 @@ class CoverSource(
             if (infoBatch.isNotEmpty()) {
                 _coverInfo.value = infoBatch
             }
-            if (loadedUrls > 0) {
+            // 启动时后台扫描已下载到本地的离线封面缓存文件，供主线程 O(1) 零 I/O 直接命中
+            val existingNames = webCacheDir.listFiles()
+                ?.asSequence()
+                ?.filter { it.isFile && it.length() > 0L }
+                ?.map { it.name }
+                ?.toHashSet()
+                .orEmpty()
+            if (existingNames.isNotEmpty()) {
+                for (gameId in resolvedUrls.keys) {
+                    val wf = webCacheFile(gameId)
+                    if (wf.name in existingNames) {
+                        webCacheFilesById[gameId] = wf
+                    }
+                }
+            }
+            if (loadedUrls > 0 || webCacheFilesById.isNotEmpty()) {
                 _indexVersion.value += 1
             }
         }
@@ -467,6 +482,7 @@ class CoverSource(
         windowScrapeQueue.scheduleReplace(emptyList(), debounceMs = 0L)
         resolvedUrls.clear()
         resolvedOrigins.clear()
+        webCacheFilesById.clear()
         failedUntilMs.clear()
         candidateOrigins.clear()
         systemIndexes.clear()
@@ -866,12 +882,14 @@ class CoverSource(
     fun fastMemoryCandidates(game: Game): List<Any> {
         val custom = game.customCover
         val local = game.localCover
+        val downloaded = webCacheFilesById[game.id]
         val cached = cachedUrl(game.id)
-        if (custom == null && cached == null && local == null) return emptyList()
+        if (custom == null && downloaded == null && cached == null && local == null) return emptyList()
         val out = ArrayList<Any>(3)
         if (custom != null) out += preferredThumbOrOriginal(File(custom))
         if (local != null && local != custom) out += preferredThumbOrOriginal(File(local))
-        if (cached != null) out += cached
+        if (downloaded != null) out += downloaded
+        else if (cached != null) out += cached
         return out
     }
 
@@ -880,7 +898,7 @@ class CoverSource(
         platform: Platform?,
         officialName: String? = null,
     ): List<Any> {
-        // O(1) 快路径：1. 用户自定义封面 → 2. 本地媒体封面（零网络优先命中） → 3. 已解析命中的在线缓存
+        // O(1) 快路径：1. 用户自定义封面 → 2. 本地媒体封面 → 3. 已下载到本地的离线封面缓存 → 4. 已解析命中的在线 URL
         game.customCover?.let { custom ->
             val f = preferredThumbOrOriginal(File(custom))
             candidateOrigins["${game.id}::$f"] = "custom" to CoverMatchMode.CustomFile
@@ -890,6 +908,11 @@ class CoverSource(
             val f = preferredThumbOrOriginal(File(local))
             candidateOrigins["${game.id}::$f"] = "local" to CoverMatchMode.LocalFile
             return listOf(f)
+        }
+        webCacheFilesById[game.id]?.let { wf ->
+            val (prov, mode) = resolvedOrigins[game.id] ?: ("local" to CoverMatchMode.LocalFile)
+            candidateOrigins["${game.id}::$wf"] = prov to mode
+            return listOf(wf)
         }
         val cached = cachedUrl(game.id)
         if (cached != null) {
@@ -1240,6 +1263,7 @@ class CoverSource(
         scheduleCoverInfoRemove(key)
         scope.launch(Dispatchers.IO) {
             db.deleteCover(key)
+            webCacheFilesById.remove(key)
             runCatching { webCacheFile(key).delete() }
         }
     }
@@ -1304,6 +1328,20 @@ class CoverSource(
         }
         game.localCover?.let { return CoverResolutionInfo("local", CoverMatchMode.LocalFile, it) }
         return null
+    }
+
+    /** 判断该游戏是否已在本地磁盘有可用封面文件（自定义/本地媒体/已下载到本地缓存），用于增量离线补齐。 */
+    fun hasDownloadedCover(game: Game): Boolean {
+        if (!game.customCover.isNullOrBlank() && File(game.customCover).isFile) return true
+        if (!game.localCover.isNullOrBlank() && File(game.localCover).isFile) return true
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return true
+        if (webCacheFilesById.containsKey(game.id)) return true
+        val wf = webCacheFile(game.id)
+        if (wf.isFile && wf.length() > 0L) {
+            webCacheFilesById[game.id] = wf
+            return true
+        }
+        return false
     }
 
     /** 判断掌机本地或已缓存索引中是否存在该游戏的封面（供 Web 列表快速标记）。 */
@@ -1433,7 +1471,9 @@ class CoverSource(
 
         suspend fun tryDownloadAndSave(url: String): Boolean {
             downloadImageBytes(url)?.let { downloaded ->
-                runCatching { webCacheFile(game.id).writeBytes(downloaded.second) }
+                val wf = webCacheFile(game.id)
+                val saved = runCatching { wf.writeBytes(downloaded.second); true }.getOrDefault(false)
+                if (saved) webCacheFilesById[game.id] = wf
                 rememberSuccess(game.id, url)
                 _indexVersion.value += 1
                 return true
@@ -1441,7 +1481,9 @@ class CoverSource(
             for ((mirrorIdx, altUrl) in libretroAlternativeMirrors(url)) {
                 downloadImageBytes(altUrl)?.let { downloaded ->
                     activeLibretroMirror = mirrorIdx
-                    runCatching { webCacheFile(game.id).writeBytes(downloaded.second) }
+                    val wf = webCacheFile(game.id)
+                    val saved = runCatching { wf.writeBytes(downloaded.second); true }.getOrDefault(false)
+                    if (saved) webCacheFilesById[game.id] = wf
                     rememberSuccess(game.id, altUrl)
                     _indexVersion.value += 1
                     return true
@@ -1451,6 +1493,10 @@ class CoverSource(
         }
 
         val tried = HashSet<String>()
+        // 若此前已解析出封面 URL 但尚未落盘到本地文件，优先直接下载该 URL 落盘
+        cachedUrl(game.id)?.takeIf { it.startsWith("http") }?.let { knownUrl ->
+            if (tried.add(knownUrl) && tryDownloadAndSave(knownUrl)) return@withContext true
+        }
         for (node in enabled) {
             when (node.id) {
                 ScraperCatalog.CoverIds.LIBRETRO_BOXARTS -> if (system != null) {
@@ -1595,6 +1641,8 @@ class CoverSource(
             snap.data.toFile().takeIf { it.isFile && it.canRead() }?.readBytes()
         }
     }.getOrNull()
+
+    private val webCacheFilesById = ConcurrentHashMap<String, File>()
 
     private fun webCacheFile(gameId: String): File {
         val hash = MessageDigest.getInstance("SHA-256")

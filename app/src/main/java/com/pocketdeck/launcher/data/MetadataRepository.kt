@@ -377,7 +377,7 @@ class MetadataRepository(
         val metaSnap = _metadata.value
         val pending = romGames.filter { g ->
             val missingMeta = (metaSnap[g.id] ?: gameCache[g.id])?.isEmpty != false
-            val missingCover = !covers.hasLocalOrCachedCover(g)
+            val missingCover = !covers.hasDownloadedCover(g)
             missingMeta || missingCover
         }
         if (pending.isEmpty()) {
@@ -446,7 +446,7 @@ class MetadataRepository(
                         )
 
                         val needMeta = (_metadata.value[g.id] ?: gameCache[g.id])?.isEmpty != false
-                        val needCover = !covers.hasLocalOrCachedCover(g)
+                        val needCover = !covers.hasDownloadedCover(g)
                         var gotSomething = false
                         var offName = _officialNames.value[g.id]
 
