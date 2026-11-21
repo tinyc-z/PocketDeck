@@ -6,13 +6,16 @@ import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.launch.GameLauncher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,8 +50,15 @@ data class ScrapeProgress(
     val done: Int = 0,
     val total: Int = 0,
     val currentTitle: String = "",
+    val currentPlatform: String = "",
+    val updatedCount: Int = 0,
     val failedCount: Int = 0,
-)
+    val cancelled: Boolean = false,
+    val finishedAtMs: Long = 0L,
+) {
+    val percent: Int
+        get() = if (total <= 0) 0 else ((done * 100L) / total).toInt().coerceIn(0, 100)
+}
 
 data class ManualScrapeCandidate(
     val title: String,
@@ -105,6 +115,9 @@ class MetadataRepository(
 
     private val _scrapeProgress = MutableStateFlow(ScrapeProgress())
     val scrapeProgress: StateFlow<ScrapeProgress> = _scrapeProgress.asStateFlow()
+
+    @Volatile
+    private var missingScrapeJob: Job? = null
 
     // 批量合并增量更新，避免高频 resolveFocusGame 引发 O(N²) Map 拷贝
     private val batchLock = Any()
@@ -331,6 +344,7 @@ class MetadataRepository(
     }
 
     fun refreshAll(games: List<Game>, platformResolver: (Game) -> Platform?) {
+        cancelScrapeMissing()
         if (!NetworkStatus.isOnline(appCtx)) {
             ensureLoaded(games, platformResolver)
             return
@@ -344,6 +358,160 @@ class MetadataRepository(
         scope.launch(Dispatchers.IO) {
             client.clearApiCache()
             ensureLoaded(games, platformResolver)
+        }
+    }
+
+    /**
+     * 增量后台刮削所有缺少封面或元数据的游戏（不清空已有缓存，支持随时 [cancelScrapeMissing] 终止）。
+     * @return 本次进入队列的缺失游戏数量；若已有任务运行中，返回当前任务总数。
+     */
+    fun scrapeMissing(
+        games: List<Game>,
+        platformResolver: (Game) -> Platform?,
+        covers: CoverSource,
+    ): Int {
+        if (missingScrapeJob?.isActive == true) {
+            return _scrapeProgress.value.total
+        }
+        val romGames = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
+        val metaSnap = _metadata.value
+        val pending = romGames.filter { g ->
+            val missingMeta = (metaSnap[g.id] ?: gameCache[g.id])?.isEmpty != false
+            val missingCover = !covers.hasLocalOrCachedCover(g)
+            missingMeta || missingCover
+        }
+        if (pending.isEmpty()) {
+            _scrapeProgress.value = ScrapeProgress()
+            return 0
+        }
+
+        val total = pending.size
+        val enabled = providerConfigs.filter { it.enabled }
+        val cred = credentials
+        val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
+        val useArcadeItalia = enabled.any { it.id == ScraperCatalog.MetaIds.ARCADEITALIA }
+
+        _scrapeProgress.value = ScrapeProgress(
+            running = true,
+            done = 0,
+            total = total,
+            currentTitle = pending.firstOrNull()?.title.orEmpty(),
+            currentPlatform = platformResolver(pending.first())?.shortName.orEmpty(),
+        )
+
+        missingScrapeJob = scope.launch(Dispatchers.IO) {
+            var doneCount = 0
+            var updatedCount = 0
+            var failCount = 0
+            var wasCancelled = false
+            val updates = HashMap<String, GameMetadata>()
+            val nameUpdates = HashMap<String, String>()
+            val infoUpdates = HashMap<String, MetadataResolutionInfo>()
+
+            fun flushPartial() {
+                if (updates.isNotEmpty() || nameUpdates.isNotEmpty() || infoUpdates.isNotEmpty()) {
+                    enqueueBatchUpdate(HashMap(updates), HashMap(nameUpdates), HashMap(infoUpdates), immediate = true)
+                    updates.clear()
+                    nameUpdates.clear()
+                    infoUpdates.clear()
+                }
+            }
+
+            try {
+                val grouped = pending.groupBy { platformResolver(it) }
+                for ((platform, platGames) in grouped) {
+                    currentCoroutineContext().ensureActive()
+                    val online = NetworkStatus.isOnline(appCtx)
+                    val system = platform?.libretroSystem
+                    if (useLibretroDb && !system.isNullOrBlank()) {
+                        getOrFetchLibretroTable(system)
+                    }
+                    if (online && platform != null) {
+                        covers.ensureIndexLoaded(platform)
+                    }
+                    if (useArcadeItalia && online) {
+                        client.prefetchArcadeItaliaBatch(platGames.take(60), platform)
+                    }
+
+                    for (g in platGames) {
+                        currentCoroutineContext().ensureActive()
+                        _scrapeProgress.value = ScrapeProgress(
+                            running = true,
+                            done = doneCount,
+                            total = total,
+                            currentTitle = g.title,
+                            currentPlatform = platform?.shortName.orEmpty(),
+                            updatedCount = updatedCount,
+                            failedCount = failCount,
+                        )
+
+                        val needMeta = (_metadata.value[g.id] ?: gameCache[g.id])?.isEmpty != false
+                        val needCover = !covers.hasLocalOrCachedCover(g)
+                        var gotSomething = false
+                        var offName = _officialNames.value[g.id]
+
+                        if (needMeta && enabled.isNotEmpty()) {
+                            val res = resolveSingleGame(
+                                g = g,
+                                platform = platform,
+                                enabled = enabled,
+                                cred = cred,
+                                queryApi = NetworkStatus.isOnline(appCtx),
+                            )
+                            gameCache[g.id] = res.meta
+                            if (!res.meta.isEmpty) {
+                                updates[g.id] = res.meta
+                                gotSomething = true
+                            }
+                            if (!res.officialName.isNullOrBlank()) {
+                                nameUpdates[g.id] = res.officialName
+                                offName = res.officialName
+                            }
+                            res.info?.let { infoUpdates[g.id] = it }
+                        }
+
+                        if (needCover && NetworkStatus.isOnline(appCtx)) {
+                            val ok = covers.fetchWebCoverNow(g, platform, offName)
+                            if (ok) gotSomething = true
+                        }
+
+                        if (gotSomething) updatedCount++ else failCount++
+                        doneCount++
+                        if (doneCount % 4 == 0) flushPartial()
+                    }
+                    flushPartial()
+                }
+            } catch (e: CancellationException) {
+                wasCancelled = true
+                throw e
+            } finally {
+                flushPartial()
+                _scrapeProgress.value = ScrapeProgress(
+                    running = false,
+                    done = doneCount,
+                    total = total,
+                    currentTitle = "",
+                    currentPlatform = "",
+                    updatedCount = updatedCount,
+                    failedCount = failCount,
+                    cancelled = wasCancelled,
+                    finishedAtMs = System.currentTimeMillis(),
+                )
+            }
+        }
+        return total
+    }
+
+    /** 立即终止正在运行的增量刮削任务（已刮削的数据全部保留）。 */
+    fun cancelScrapeMissing() {
+        missingScrapeJob?.cancel()
+        missingScrapeJob = null
+    }
+
+    /** 收起已完成/已终止的任务进度横幅。 */
+    fun dismissScrapeProgress() {
+        if (!_scrapeProgress.value.running) {
+            _scrapeProgress.value = ScrapeProgress()
         }
     }
 

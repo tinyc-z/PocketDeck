@@ -205,6 +205,7 @@ fun HomeScreen(
         state.propertiesGame != null ||
         state.editingGame != null ||
         state.manualScrapeGame != null ||
+        state.showScrapeTaskDialog ||
         state.showQuickHud ||
         state.showLibraryManager ||
         state.showApps ||
@@ -218,6 +219,7 @@ fun HomeScreen(
     BackHandler(enabled = overlayOpen) {
         when {
             showLanControlFromStatusBar -> showLanControlFromStatusBar = false
+            state.showScrapeTaskDialog -> vm.closeScrapeTaskDialog()
             state.showQuickHud -> vm.closeQuickHud()
             state.showLibraryManager -> vm.closeLibraryManager()
             state.manualScrapeGame != null -> vm.closeManualScrape()
@@ -413,6 +415,9 @@ fun HomeScreen(
                     lanPendingIncoming = lanState.incomingRequest != null,
                     lanTransferWaiting = txNow?.phase == TransferPhase.WaitingAccept || txNow?.phase == TransferPhase.PinRequired,
                     lanTaskProgress = lanState.slowestActiveTaskProgress,
+                    scrapeRunning = vm.scrapeProgress.collectAsState().value.running,
+                    scrapePercent = vm.scrapeProgress.collectAsState().value.percent,
+                    onScrapeBadgeClick = remember(vm) { { vm.openScrapeTaskDialog() } },
                     onLanBadgeClick = stableOpenLanDialog,
                     onWifiClick = stableOpenLanDialog,
                     onTabClick = stableSelectTab,

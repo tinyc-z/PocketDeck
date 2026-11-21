@@ -151,6 +151,12 @@
     <string name="scraping_clear_cache">Clear cache</string>
     <string name="scraping_clear_cache_desc">Remove cached covers and game info</string>
     <string name="scraping_cache_cleared_toast">Freed %1$s</string>
+    <string name="scraping_missing">Scrape missing data</string>
+    <string name="scraping_missing_desc">Only fill games missing cover or info; keeps existing data and can be stopped anytime</string>
+    <string name="scraping_missing_running_fmt">Scraping missing · %1$d%% (%2$d / %3$d) · Tap to stop</string>
+    <string name="scraping_missing_started_toast">Started scraping %1$d games in background</string>
+    <string name="scraping_missing_none_toast">All games already have covers and info</string>
+    <string name="scraping_missing_stopped_toast">Scraping stopped; fetched data was kept</string>
     <string name="scraping_refresh_meta">Refresh all info</string>
     <string name="scraping_view_logs">Logs</string>
     <string name="scrape_logs_title">Cover &amp; Metadata Request Logs</string>
@@ -711,6 +717,21 @@
     <string name="disc_label_fmt">Disc</string>
     <!-- Wave 3: Scrape Progress, Manual Search & RetroArch SAF Cores -->
     <string name="scrape_progress_fmt">Scraping %1$d / %2$d</string>
+    <string name="scrape_progress_pct_fmt">Scraping %1$d%% (%2$d / %3$d)</string>
+    <string name="scrape_progress_updated_fmt">Updated %1$d</string>
+    <string name="scrape_task_stop">Stop</string>
+    <string name="scrape_task_stop_action">Stop task</string>
+    <string name="scrape_task_background">Run in background</string>
+    <string name="scrape_task_title">Background Scraping</string>
+    <string name="scrape_task_status_running">Scraping missing covers and info…</string>
+    <string name="scrape_task_status_done">Scraping completed</string>
+    <string name="scrape_task_status_cancelled">Scraping stopped (fetched data kept)</string>
+    <string name="scrape_task_stat_progress">Progress</string>
+    <string name="scrape_task_stat_updated">Updated</string>
+    <string name="scrape_task_stat_missed">Missed</string>
+    <string name="scrape_task_close">Close</string>
+    <string name="scrape_task_done_fmt">Done · Updated %1$d / %2$d</string>
+    <string name="scrape_task_cancelled_fmt">Stopped (%1$d%%) · Updated %2$d</string>
     <string name="scrape_progress_failed_fmt">%1$d missed</string>
     <string name="menu_manual_scrape">Manual search &amp; scrape</string>
     <string name="manual_scrape_title">Manual Search &amp; Scrape</string>

@@ -63,6 +63,7 @@ data class HomeUiState(
     val propertiesGame: Game? = null,
     val editingGame: Game? = null,
     val manualScrapeGame: Game? = null,
+    val showScrapeTaskDialog: Boolean = false,
     val quickHudEnabled: Boolean = false,
     val showQuickHud: Boolean = false,
     val showApps: Boolean = false,
@@ -1361,6 +1362,25 @@ class HomeViewModel(
             preloadAssets(s.games, _focusIndex.value, s::platformFor)
         }
     }
+
+    fun openScrapeTaskDialog() {
+        _state.value = _state.value.copy(showScrapeTaskDialog = true)
+    }
+
+    fun closeScrapeTaskDialog() {
+        _state.value = _state.value.copy(showScrapeTaskDialog = false)
+    }
+
+    fun scrapeMissingAll(): Int {
+        val lib = repo.library.value ?: return 0
+        val allGames = lib.platforms.flatMap { lib.games[it.id].orEmpty() }
+        val s = _state.value
+        return metadataRepo.scrapeMissing(allGames, s::platformFor, covers)
+    }
+
+    fun cancelScrapeMissing() = metadataRepo.cancelScrapeMissing()
+
+    fun dismissScrapeProgress() = metadataRepo.dismissScrapeProgress()
 
     fun refreshAllMetadata() {
         val lib = repo.library.value ?: return

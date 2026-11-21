@@ -5,6 +5,10 @@ const I18N = {
     tab_categories: '标签分类',
     tab_files: '文件管理',
     btn_rescan: '↻ 重新扫描',
+    btn_scrape_missing: '✦ 刮削缺失数据',
+    msg_scrape_missing_started: '掌机已开始后台刮削 {n} 款缺失游戏',
+    msg_scrape_missing_running: '掌机后台刮削任务已在运行中',
+    msg_scrape_missing_none: '全部游戏封面与信息均已完整',
     btn_logout: '退出登录',
     search_games_ph: '搜索游戏',
     vis_all: '全部状态',
@@ -245,6 +249,10 @@ const I18N = {
     tab_categories: '標籤分類',
     tab_files: '檔案管理',
     btn_rescan: '↻ 重新掃描',
+    btn_scrape_missing: '✦ 刮削缺失資料',
+    msg_scrape_missing_started: '掌機已開始背景刮削 {n} 款缺失遊戲',
+    msg_scrape_missing_running: '掌機背景刮削任務已在執行中',
+    msg_scrape_missing_none: '全部遊戲封面與資訊均已完整',
     btn_logout: '登出',
     search_games_ph: '搜尋遊戲',
     vis_all: '全部狀態',
@@ -485,6 +493,10 @@ const I18N = {
     tab_categories: 'Tabs & Tags',
     tab_files: 'Files',
     btn_rescan: 'Rescan',
+    btn_scrape_missing: 'Scrape missing',
+    msg_scrape_missing_started: 'Started background scraping for {n} games on handheld',
+    msg_scrape_missing_running: 'Background scraping is already running on handheld',
+    msg_scrape_missing_none: 'All games already have covers and info',
     btn_logout: 'Log Out',
     search_games_ph: 'Search games',
     vis_all: 'All Status',
@@ -3321,6 +3333,22 @@ async function openAutoCreatePlatformsModal() {
 
   syncAcUi();
   el('modalBg').classList.add('open');
+}
+
+async function triggerScrapeMissing() {
+  const r = await api('/api/scrape/missing', { method: 'POST' });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.ok) {
+    toast(tr('msg_meta_fail') + (d.error || r.status));
+    return;
+  }
+  if (d.alreadyRunning) {
+    toast(tr('msg_scrape_missing_running'));
+  } else if (d.queued > 0) {
+    toast(tr('msg_scrape_missing_started').replace('{n}', String(d.queued)));
+  } else {
+    toast(tr('msg_scrape_missing_none'));
+  }
 }
 
 async function rescan() {

@@ -176,6 +176,9 @@ class ManageCallbacks(
     val moveMetadataSource: (Int, Int) -> Unit = { _, _ -> },
     val saveCredentials: (ScraperCredentials) -> Unit = {},
     val clearCoverCache: suspend () -> Unit = {},
+    val scrapeMissing: () -> Int = { 0 },
+    val cancelScrape: () -> Unit = {},
+    val dismissScrapeProgress: () -> Unit = {},
     val refreshAllMetadata: () -> Unit = {},
     val toggleMetaField: (MetaFieldKey) -> Unit = {},
     val unhideGame: (String) -> Unit = {},
@@ -246,7 +249,7 @@ private fun itemCountForSection(
         ViewMode.entries.size + align + 2 + metaFields + tabsTotal
     }
     SettingsSection.Library -> state.romDirs.size + 4
-    SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 3
+    SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 4
     SettingsSection.Emulators -> 2 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
     SettingsSection.Controls -> 1 + KeyAction.entries.size + 1
     // Language(0), 12h(1), UI sounds(2), LAN & Share(3), StatusBar x8(4..11), Experimental(12), About x5(13..17)
@@ -720,11 +723,25 @@ fun SettingsScreen(
                         menu = ActionMenuState(metaNames[cfg.id] ?: desc.id, items)
                     }
                     idx == actionsStart -> {
+                        if (state.scrapeProgress.running) {
+                            manage.cancelScrape()
+                            Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
+                        } else {
+                            val queued = manage.scrapeMissing()
+                            val msg = if (queued > 0) {
+                                context.getString(R.string.scraping_missing_started_toast, queued)
+                            } else {
+                                context.getString(R.string.scraping_missing_none_toast)
+                            }
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    idx == actionsStart + 1 -> {
                         if (!NetworkStatus.isOnline(context)) {
                             Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
                         } else manage.refreshAllMetadata()
                     }
-                    idx == actionsStart + 1 -> clearScrapeCacheWithFeedback()
+                    idx == actionsStart + 2 -> clearScrapeCacheWithFeedback()
                     else -> showScrapeLogs = true
                 }
             }
@@ -1122,6 +1139,25 @@ fun SettingsScreen(
                                             onMoveMeta = manage.moveMetadataSource,
                                             onOpenCred = { credDialogKind = it },
                                             onRowClick = { idx -> nav.focusOnMenu = false; nav.contentItemIndex = idx; triggerItem(SettingsSection.Covers, idx) },
+                                            onScrapeMissing = {
+                                                if (state.scrapeProgress.running) {
+                                                    manage.cancelScrape()
+                                                    Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    val queued = manage.scrapeMissing()
+                                                    val msg = if (queued > 0) {
+                                                        context.getString(R.string.scraping_missing_started_toast, queued)
+                                                    } else {
+                                                        context.getString(R.string.scraping_missing_none_toast)
+                                                    }
+                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            onCancelScrape = {
+                                                manage.cancelScrape()
+                                                Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
+                                            },
+                                            onDismissScrapeProgress = manage.dismissScrapeProgress,
                                             onRefreshMetadata = {
                                                 if (!NetworkStatus.isOnline(context)) {
                                                     Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()

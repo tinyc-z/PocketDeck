@@ -150,6 +150,12 @@
     <string name="scraping_clear_cache">清除缓存</string>
     <string name="scraping_clear_cache_desc">清空已缓存的封面与游戏信息</string>
     <string name="scraping_cache_cleared_toast">已释放 %1$s</string>
+    <string name="scraping_missing">刮削缺失数据</string>
+    <string name="scraping_missing_desc">仅补全缺封面或信息的游戏，保留已有数据，后台运行可随时终止</string>
+    <string name="scraping_missing_running_fmt">正在刮削缺失数据 · %1$d%%（%2$d / %3$d）· 点击终止</string>
+    <string name="scraping_missing_started_toast">已开始后台刮削 %1$d 款缺失游戏</string>
+    <string name="scraping_missing_none_toast">全部游戏封面与信息均已完整</string>
+    <string name="scraping_missing_stopped_toast">已终止刮削任务，已获取的数据已保留</string>
     <string name="scraping_refresh_meta">刷新全部信息</string>
     <string name="scraping_view_logs">请求日志</string>
     <string name="scrape_logs_title">刮削请求日志</string>
@@ -710,6 +716,21 @@
     <string name="disc_label_fmt">光盘</string>
     <!-- Wave 3: Scrape Progress, Manual Search & RetroArch SAF Cores -->
     <string name="scrape_progress_fmt">正在刮削 %1$d / %2$d</string>
+    <string name="scrape_progress_pct_fmt">刮削中 %1$d%%（%2$d / %3$d）</string>
+    <string name="scrape_progress_updated_fmt">已更新 %1$d</string>
+    <string name="scrape_task_stop">终止</string>
+    <string name="scrape_task_stop_action">终止任务</string>
+    <string name="scrape_task_background">后台运行</string>
+    <string name="scrape_task_title">后台刮削任务</string>
+    <string name="scrape_task_status_running">正在后台刮削缺失数据…</string>
+    <string name="scrape_task_status_done">刮削任务已完成</string>
+    <string name="scrape_task_status_cancelled">刮削任务已终止（已保存已获取数据）</string>
+    <string name="scrape_task_stat_progress">总进度</string>
+    <string name="scrape_task_stat_updated">已更新</string>
+    <string name="scrape_task_stat_missed">未命中</string>
+    <string name="scrape_task_close">关闭</string>
+    <string name="scrape_task_done_fmt">刮削完成 · 已更新 %1$d / %2$d</string>
+    <string name="scrape_task_cancelled_fmt">已终止（%1$d%%）· 已更新 %2$d 款</string>
     <string name="scrape_progress_failed_fmt">未命中 %1$d</string>
     <string name="menu_manual_scrape">手动搜索刮削</string>
     <string name="manual_scrape_title">手动搜索刮削</string>

@@ -169,6 +169,8 @@ fun GameLibraryScreen(
     filesRevision: Long = 0L,
     fileTasks: List<FileTask> = emptyList(),
     scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
+    onCancelScrape: () -> Unit = {},
+    onDismissScrapeProgress: () -> Unit = {},
     hiddenIds: Set<String>,
     favorites: Set<String>,
     categories: List<Category>,
@@ -1328,9 +1330,11 @@ fun GameLibraryScreen(
 
             HorizontalDivider(color = DeckColors.Line, thickness = 1.dp)
 
-            if (scrapeProgress.running && scrapeProgress.total > 0) {
+            if (scrapeProgress.total > 0 && (scrapeProgress.running || scrapeProgress.finishedAtMs > 0L)) {
                 com.pocketdeck.launcher.ui.components.ScrapeProgressBanner(
                     progress = scrapeProgress,
+                    onCancel = onCancelScrape,
+                    onDismiss = onDismissScrapeProgress,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
                 )
             }

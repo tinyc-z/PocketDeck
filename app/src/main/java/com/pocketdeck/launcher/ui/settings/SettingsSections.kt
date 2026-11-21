@@ -530,15 +530,20 @@ internal fun CoversSettingsSection(
     onMoveMeta: (Int, Int) -> Unit,
     onOpenCred: (CredentialKind) -> Unit,
     onRowClick: (Int) -> Unit,
+    onScrapeMissing: () -> Unit = {},
+    onCancelScrape: () -> Unit = {},
+    onDismissScrapeProgress: () -> Unit = {},
     onRefreshMetadata: () -> Unit,
     onClearCoverCache: () -> Unit,
     onViewLogs: () -> Unit,
     scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
     highlightIndex: Int,
 ) {
-    if (scrapeProgress.running && scrapeProgress.total > 0) {
+    if (scrapeProgress.total > 0 && (scrapeProgress.running || scrapeProgress.finishedAtMs > 0L)) {
         com.pocketdeck.launcher.ui.components.ScrapeProgressBanner(
             progress = scrapeProgress,
+            onCancel = onCancelScrape,
+            onDismiss = onDismissScrapeProgress,
             modifier = Modifier.padding(bottom = 10.dp),
         )
     }
@@ -601,16 +606,28 @@ internal fun CoversSettingsSection(
     GroupHeader(stringResource(R.string.settings_group_actions))
     GroupCard {
         SettingRow(
-            label = stringResource(R.string.scraping_refresh_meta),
+            label = if (scrapeProgress.running) {
+                stringResource(R.string.scraping_missing_running_fmt, scrapeProgress.percent, scrapeProgress.done, scrapeProgress.total)
+            } else {
+                stringResource(R.string.scraping_missing)
+            },
+            description = stringResource(R.string.scraping_missing_desc),
             highlighted = highlightIndex == actionsStart,
-            onClick = onRefreshMetadata,
+            onClick = onScrapeMissing,
             leading = { DeckIcon(DeckIcons.Refresh, size = 16.dp, tint = DeckColors.Ruby) },
+        )
+        RowDivider()
+        SettingRow(
+            label = stringResource(R.string.scraping_refresh_meta),
+            highlighted = highlightIndex == actionsStart + 1,
+            onClick = onRefreshMetadata,
+            leading = { DeckIcon(DeckIcons.Refresh, size = 16.dp, tint = DeckColors.TextSecondary) },
         )
         RowDivider()
         SettingRow(
             label = stringResource(R.string.scraping_clear_cache),
             description = stringResource(R.string.scraping_clear_cache_desc),
-            highlighted = highlightIndex == actionsStart + 1,
+            highlighted = highlightIndex == actionsStart + 2,
             onClick = onClearCoverCache,
             leading = { DeckIcon(DeckIcons.Trash, size = 16.dp, tint = DeckColors.TextSecondary) },
             trailing = { ValuePill(cacheSizeLabel) },
@@ -618,7 +635,7 @@ internal fun CoversSettingsSection(
         RowDivider()
         SettingRow(
             label = stringResource(R.string.scraping_view_logs),
-            highlighted = highlightIndex == actionsStart + 2,
+            highlighted = highlightIndex == actionsStart + 3,
             onClick = onViewLogs,
             leading = { DeckIcon(DeckIcons.FileText, size = 16.dp, tint = DeckColors.TextSecondary) },
             trailing = { ValueChevron(null) },

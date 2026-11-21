@@ -150,6 +150,12 @@
     <string name="scraping_clear_cache">清除快取</string>
     <string name="scraping_clear_cache_desc">清空已快取的封面與遊戲資訊</string>
     <string name="scraping_cache_cleared_toast">已釋放 %1$s</string>
+    <string name="scraping_missing">刮削缺失資料</string>
+    <string name="scraping_missing_desc">僅補齊缺封面或資訊的遊戲，保留已有資料，背景執行可隨時終止</string>
+    <string name="scraping_missing_running_fmt">正在刮削缺失資料 · %1$d%%（%2$d / %3$d）· 點擊終止</string>
+    <string name="scraping_missing_started_toast">已開始背景刮削 %1$d 款缺失遊戲</string>
+    <string name="scraping_missing_none_toast">全部遊戲封面與資訊均已完整</string>
+    <string name="scraping_missing_stopped_toast">已終止刮削任務，已取得的資料已保留</string>
     <string name="scraping_refresh_meta">重新整理全部資訊</string>
     <string name="scraping_view_logs">請求日誌</string>
     <string name="scrape_logs_title">刮削請求日誌</string>
@@ -710,6 +716,21 @@
     <string name="disc_label_fmt">光碟</string>
     <!-- Wave 3: Scrape Progress, Manual Search & RetroArch SAF Cores -->
     <string name="scrape_progress_fmt">正在刮削 %1$d / %2$d</string>
+    <string name="scrape_progress_pct_fmt">刮削中 %1$d%%（%2$d / %3$d）</string>
+    <string name="scrape_progress_updated_fmt">已更新 %1$d</string>
+    <string name="scrape_task_stop">終止</string>
+    <string name="scrape_task_stop_action">終止任務</string>
+    <string name="scrape_task_background">背景執行</string>
+    <string name="scrape_task_title">背景刮削任務</string>
+    <string name="scrape_task_status_running">正在背景刮削缺失資料…</string>
+    <string name="scrape_task_status_done">刮削任務已完成</string>
+    <string name="scrape_task_status_cancelled">刮削任務已終止（已保留已取得資料）</string>
+    <string name="scrape_task_stat_progress">總進度</string>
+    <string name="scrape_task_stat_updated">已更新</string>
+    <string name="scrape_task_stat_missed">未命中</string>
+    <string name="scrape_task_close">關閉</string>
+    <string name="scrape_task_done_fmt">刮削完成 · 已更新 %1$d / %2$d</string>
+    <string name="scrape_task_cancelled_fmt">已終止（%1$d%%）· 已更新 %2$d 款</string>
     <string name="scrape_progress_failed_fmt">未命中 %1$d</string>
     <string name="menu_manual_scrape">手動搜尋刮削</string>
     <string name="manual_scrape_title">手動搜尋刮削</string>

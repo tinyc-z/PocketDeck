@@ -156,6 +156,29 @@ internal fun HomeOverlays(
         )
     }
 
+    // 后台刮削任务管理弹窗（点击状态栏旋转进度徽章进入）
+    if (state.showScrapeTaskDialog) {
+        com.pocketdeck.launcher.ui.components.ScrapeTaskDialog(
+            progress = scrapeProgress,
+            swapAbxy = state.swapAbxy,
+            keyBindings = state.keyBindings,
+            onCancel = {
+                vm.cancelScrapeMissing()
+                Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
+            },
+            onRestart = {
+                val queued = vm.scrapeMissingAll()
+                val msg = if (queued > 0) {
+                    context.getString(R.string.scraping_missing_started_toast, queued)
+                } else {
+                    context.getString(R.string.scraping_missing_none_toast)
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { vm.closeScrapeTaskDialog() },
+        )
+    }
+
     // F10 掌机快捷 HUD 浮层（实验性功能）
     if (state.showQuickHud) {
         com.pocketdeck.launcher.ui.components.QuickHudOverlay(
@@ -401,6 +424,9 @@ internal fun HomeOverlays(
                 moveMetadataSource = vm::moveMetadataSource,
                 saveCredentials = vm::updateScraperCredentials,
                 clearCoverCache = vm::clearCoverCache,
+                scrapeMissing = vm::scrapeMissingAll,
+                cancelScrape = vm::cancelScrapeMissing,
+                dismissScrapeProgress = vm::dismissScrapeProgress,
                 refreshAllMetadata = vm::refreshAllMetadata,
                 toggleMetaField = vm::toggleMetaField,
                 unhideGame = vm::unhideGame,
@@ -432,6 +458,8 @@ internal fun HomeOverlays(
             filesRevision = filesRevision,
             fileTasks = fileTasks,
             scrapeProgress = scrapeProgress,
+            onCancelScrape = vm::cancelScrapeMissing,
+            onDismissScrapeProgress = vm::dismissScrapeProgress,
             hiddenIds = state.hiddenIds,
             favorites = state.favorites,
             categories = state.categories,

@@ -1134,6 +1134,7 @@ class WebManagerServer(
             req.method == "POST" && req.path == "/api/games/categories" -> handleGameCategories(req, res)
             req.method == "POST" && req.path == "/api/games/batch" -> handleGamesBatch(req, res)
             req.method == "POST" && req.path == "/api/games/refresh-meta" -> handleGameRefreshMeta(req, res)
+            req.method == "POST" && req.path == "/api/scrape/missing" -> handleScrapeMissing(res)
             req.method == "POST" && req.path == "/api/games/scrape-covers" -> handleGameScrapeCovers(req, res)
             req.method == "POST" && req.path == "/api/games/set-cover" -> handleGameSetCover(req, res)
             req.method == "POST" && req.path == "/api/games/upload-cover" -> handleGameUploadCover(req, res)
@@ -2038,6 +2039,25 @@ class WebManagerServer(
                 .put("name", finalTarget.name)
                 .put("path", finalTarget.absolutePath)
                 .put("size", writtenBytes)
+                .toString(),
+        )
+    }
+
+    private fun handleScrapeMissing(res: HttpResponseWriter) {
+        val lib = repo.fullLibrary.value
+        val allGames = lib?.games?.values?.flatten().orEmpty()
+        val wasRunning = metadataRepo.scrapeProgress.value.running
+        val queued = metadataRepo.scrapeMissing(
+            games = allGames,
+            platformResolver = { g -> lib?.platform(g.platformId) ?: PlatformCatalog.forFolder(g.platformId) },
+            covers = covers,
+        )
+        res.sendJson(
+            200,
+            JSONObject()
+                .put("ok", true)
+                .put("queued", queued)
+                .put("alreadyRunning", wasRunning)
                 .toString(),
         )
     }

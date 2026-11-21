@@ -83,23 +83,33 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
- * 轻量刮削进度条（用于游戏库顶栏与设置 → 封面与信息）。
+ * 刮削任务管理进度条（用于游戏库顶栏与设置 → 封面与信息）：
+ * 显示百分比、已完成/总数、当前平台与游戏名、更新/未命中统计，并支持随时终止或收起结果。
  */
 @Composable
 fun ScrapeProgressBanner(
     progress: ScrapeProgress,
+    onCancel: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (!progress.running || progress.total <= 0) return
+    val showResult = !progress.running && progress.total > 0 && progress.finishedAtMs > 0L
+    if (!progress.running && !showResult) return
+    if (progress.total <= 0) return
     val fraction = (progress.done.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f)
+    val accent = if (progress.running) DeckColors.Ruby else DeckColors.TextPrimary
     Column(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(DeckColors.AccentSoft)
-            .border(0.7.dp, DeckColors.Ruby.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+            .background(if (progress.running) DeckColors.AccentSoft else DeckColors.Surface)
+            .border(
+                0.7.dp,
+                if (progress.running) DeckColors.Ruby.copy(alpha = 0.35f) else DeckColors.Line,
+                RoundedCornerShape(10.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -107,26 +117,85 @@ fun ScrapeProgressBanner(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = stringResource(R.string.scrape_progress_fmt, progress.done, progress.total),
+                text = when {
+                    progress.running -> stringResource(
+                        R.string.scrape_progress_pct_fmt,
+                        progress.percent,
+                        progress.done,
+                        progress.total,
+                    )
+                    progress.cancelled -> stringResource(
+                        R.string.scrape_task_cancelled_fmt,
+                        progress.percent,
+                        progress.updatedCount,
+                    )
+                    else -> stringResource(
+                        R.string.scrape_task_done_fmt,
+                        progress.updatedCount,
+                        progress.total,
+                    )
+                },
                 style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                color = DeckColors.Ruby,
+                color = accent,
             )
-            if (progress.currentTitle.isNotBlank()) {
+            val detailText = buildString {
+                if (progress.running) {
+                    if (progress.currentPlatform.isNotBlank()) {
+                        append('[').append(progress.currentPlatform).append("] ")
+                    }
+                    append(progress.currentTitle)
+                } else if (progress.failedCount > 0) {
+                    append(stringResource(R.string.scrape_progress_failed_fmt, progress.failedCount))
+                }
+            }
+            if (detailText.isNotBlank()) {
                 Text(
-                    text = progress.currentTitle,
+                    text = detailText,
                     style = DeckType.metaLabel,
                     color = DeckColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+            } else {
+                Spacer(Modifier.weight(1f))
             }
-            if (progress.failedCount > 0) {
+            if (progress.running && progress.updatedCount > 0) {
                 Text(
-                    text = stringResource(R.string.scrape_progress_failed_fmt, progress.failedCount),
+                    text = stringResource(R.string.scrape_progress_updated_fmt, progress.updatedCount),
                     style = DeckType.metaLabel,
                     color = DeckColors.TextSecondary,
                 )
+            }
+            if (progress.running && onCancel != null) {
+                Box(
+                    Modifier
+                        .clip(DeckShapes.tabPill)
+                        .background(DeckColors.Ruby)
+                        .soundClickable(onClick = onCancel)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.scrape_task_stop),
+                        style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White,
+                    )
+                }
+            } else if (!progress.running && onDismiss != null) {
+                Box(
+                    Modifier
+                        .clip(DeckShapes.tabPill)
+                        .background(DeckColors.SurfaceAlt)
+                        .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
+                        .soundClickable(onClick = onDismiss)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.scrape_task_close),
+                        style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium),
+                        color = DeckColors.TextSecondary,
+                    )
+                }
             }
         }
         LinearProgressIndicator(
@@ -135,10 +204,224 @@ fun ScrapeProgressBanner(
                 .fillMaxWidth()
                 .height(4.dp)
                 .clip(DeckShapes.tabPill),
-            color = DeckColors.Ruby,
+            color = if (progress.running) DeckColors.Ruby else DeckColors.TextSecondary,
             trackColor = DeckColors.DialogBg,
             gapSize = 0.dp,
             drawStopIndicator = {},
+        )
+    }
+}
+
+/**
+ * 后台刮削任务管理弹窗：由状态栏旋转图标或设置页进入，展示实时百分比、当前游戏与统计，支持随时终止。
+ */
+@Composable
+fun ScrapeTaskDialog(
+    progress: ScrapeProgress,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
+    onCancel: () -> Unit,
+    onRestart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val focusRequester = remember { FocusRequester() }
+    var btnFocus by remember(progress.running) { mutableIntStateOf(0) }
+    val fraction = if (progress.total > 0) {
+        (progress.done.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(DeckColors.CardShadow)
+            .scrimTapDismiss(onDismiss)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when {
+                    GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
+                        onDismiss(); true
+                    }
+                    event.key == Key.DirectionLeft || event.key == Key.DirectionUp -> {
+                        btnFocus = 0; true
+                    }
+                    event.key == Key.DirectionRight || event.key == Key.DirectionDown -> {
+                        btnFocus = 1; true
+                    }
+                    GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
+                        if (progress.running) {
+                            if (btnFocus == 0) onCancel() else onDismiss()
+                        } else {
+                            if (btnFocus == 0) onDismiss() else onRestart()
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        DialogPanelCard(
+            onDismiss = onDismiss,
+            modifier = Modifier
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = 460.dp)
+                .fillMaxWidth(),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(end = 36.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.scrape_task_title),
+                        style = DeckType.menuTitle.copy(fontWeight = FontWeight.Bold),
+                        color = DeckColors.TextPrimary,
+                    )
+                    Text(
+                        text = "${progress.percent}%",
+                        style = DeckType.menuTitle.copy(fontWeight = FontWeight.Bold),
+                        color = if (progress.running) DeckColors.Ruby else DeckColors.TextPrimary,
+                    )
+                }
+
+                Text(
+                    text = when {
+                        progress.running -> stringResource(R.string.scrape_task_status_running)
+                        progress.cancelled -> stringResource(R.string.scrape_task_status_cancelled)
+                        else -> stringResource(R.string.scrape_task_status_done)
+                    },
+                    style = DeckType.metaLabel,
+                    color = DeckColors.TextSecondary,
+                )
+
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(DeckShapes.tabPill),
+                    color = if (progress.running) DeckColors.Ruby else DeckColors.TextSecondary,
+                    trackColor = DeckColors.SurfaceAlt,
+                    gapSize = 0.dp,
+                    drawStopIndicator = {},
+                )
+
+                if (progress.running && progress.currentTitle.isNotBlank()) {
+                    val curLine = if (progress.currentPlatform.isNotBlank()) {
+                        "[${progress.currentPlatform}] ${progress.currentTitle}"
+                    } else {
+                        progress.currentTitle
+                    }
+                    Text(
+                        text = curLine,
+                        style = DeckType.settingsLabel,
+                        color = DeckColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(DeckColors.Surface)
+                        .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    ScrapeStatCell(stringResource(R.string.scrape_task_stat_progress), "${progress.done} / ${progress.total}")
+                    ScrapeStatCell(stringResource(R.string.scrape_task_stat_updated), "${progress.updatedCount}")
+                    ScrapeStatCell(stringResource(R.string.scrape_task_stat_missed), "${progress.failedCount}")
+                }
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    val primaryLabel = if (progress.running) {
+                        stringResource(R.string.scrape_task_stop_action)
+                    } else {
+                        stringResource(R.string.scrape_task_close)
+                    }
+                    val secondaryLabel = if (progress.running) {
+                        stringResource(R.string.scrape_task_background)
+                    } else {
+                        stringResource(R.string.scraping_missing)
+                    }
+                    val shape = RoundedCornerShape(10.dp)
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(shape)
+                            .then(
+                                if (btnFocus == 0) Modifier.brandBackground(shape)
+                                else Modifier.background(DeckColors.AccentSoft),
+                            )
+                            .soundClickable {
+                                btnFocus = 0
+                                if (progress.running) onCancel() else onDismiss()
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = primaryLabel,
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                            color = if (btnFocus == 0) Color.White else DeckColors.Ruby,
+                        )
+                    }
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(shape)
+                            .then(
+                                if (btnFocus == 1) Modifier.brandBackground(shape)
+                                else Modifier.background(DeckColors.Surface),
+                            )
+                            .border(0.7.dp, if (btnFocus == 1) Color.Transparent else DeckColors.Line, shape)
+                            .soundClickable {
+                                btnFocus = 1
+                                if (progress.running) onDismiss() else onRestart()
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = secondaryLabel,
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
+                            color = if (btnFocus == 1) Color.White else DeckColors.TextPrimary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScrapeStatCell(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = label,
+            style = DeckType.metaLabel,
+            color = DeckColors.TextSecondary,
+        )
+        Text(
+            text = value,
+            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+            color = DeckColors.TextPrimary,
         )
     }
 }
