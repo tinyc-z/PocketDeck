@@ -516,13 +516,33 @@ class CoverSource(
         }
     }
 
+    private fun isLibretroBoxartsEnabled(): Boolean =
+        nodeConfigs.any { it.enabled && it.id == ScraperCatalog.CoverIds.LIBRETRO_BOXARTS }
+
+    /** 本地已加载的 Libretro 封面索引是否已直接命中该游戏（命中时直接拉图，无需再发逐游戏 API 请求）。 */
+    private fun hasIndexCoverMatch(game: Game, platform: Platform?): Boolean {
+        if (!isLibretroBoxartsEnabled()) return false
+        val system = platform?.libretroSystem ?: return false
+        val index = systemIndexes[system] ?: return false
+        val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, null)
+        return index.findMatchesWithMode(queries).isNotEmpty()
+    }
+
     private val windowScrapeQueue = ReplaceableTaskQueue<Pair<Game, Platform>>(
         scope = scope,
         maxConcurrency = 2,
         worker = { (g, plat) ->
-            if (!hasLocalOrCachedCover(g)) {
-                scrapeGameApiNodesInternal(g, plat, officialName = null)
+            if (hasLocalOrCachedCover(g)) return@ReplaceableTaskQueue
+            val system = plat.libretroSystem
+            if (system != null && isLibretroBoxartsEnabled() && !systemIndexes.containsKey(system)) {
+                val loaded = loadSystemIndex(system)
+                if (loaded) {
+                    failedUntilMs.clear()
+                    _indexVersion.value += 1
+                }
             }
+            if (hasIndexCoverMatch(g, plat)) return@ReplaceableTaskQueue
+            scrapeGameApiNodesInternal(g, plat, officialName = null)
         },
     )
 
@@ -530,6 +550,7 @@ class CoverSource(
      * 为当前可见窗口内的未聚焦游戏做低并发队列调度（常驻 2 Worker + 180ms 滑动防抖）：
      * - 正在执行中的 1~2 个在途请求保活跑完并写缓存，不浪费已发出的网络流量；
      * - 用户滑到新位置停下后，清空尚未开始执行的旧等待队列，将新窗口的最多 16 款游戏按焦点优先顺序插入队列。
+     * - 若平台 Libretro 封面索引已在本地命中，则跳过逐游戏 API 查询（如 Hasheous），仅对索引未命中的游戏兜底。
      */
     fun ensureWindowCoversScraped(
         games: List<Game>,
@@ -552,7 +573,9 @@ class CoverSource(
                 if (g.id.startsWith(GameLauncher.APK_PREFIX)) continue
                 if (!g.customCover.isNullOrBlank() || !g.localCover.isNullOrBlank()) continue
                 if (hasLocalOrCachedCover(g)) continue
-                ordered += g.id to (g to platformResolver(g))
+                val plat = platformResolver(g)
+                if (hasIndexCoverMatch(g, plat)) continue
+                ordered += g.id to (g to plat)
             }
             offset++
         }
