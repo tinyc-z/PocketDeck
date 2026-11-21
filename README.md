@@ -25,16 +25,22 @@
 
 PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI frameworks, custom `graphicsLayer` + `drawWithCache` zero-GC animations, binary disk index caching with first-tab-first progressive scanning, and a flat minimalist design language—delivering instant cold starts even on 10,000+ ROM libraries, silky 60+ fps scrolling, full controller navigation, and a tiny ~2.8 MB release APK.
 
-### 🖼️ Four View Modes — Maximized for Small Handheld Screens
+### 🖼️ Eight View Modes — Maximized for Small Handheld Screens
 
 <div align="center">
-  <img src="docs/images/views-showcase.jpg" alt="PocketDeck 4 View Modes on KONKR Pocket Block" width="90%"/>
+  <img src="docs/images/views-showcase.jpg" alt="PocketDeck Classic 4 View Modes" width="90%"/>
+  <br/>
+  <img src="docs/images/views-showcase-new.jpg" alt="PocketDeck New 4 View Modes: CoverFlow, Spotlight, Arc Wheel, Shelf" width="90%"/>
 </div>
 
 - **Gallery**: Borderless floating cover carousel with spring elevation, Liquid-Glass favorite badge, and live metadata (Release Date, Genre, Developer, Publisher, File Size).
 - **List**: Smooth console-style title list paired with a live-updating box-art preview (instant memory/disk cache display even during rapid D-pad scrolling) and two-column metadata card.
 - **Grid**: 5-column full-height borderless cover grid with a **hairline-bordered floating title pill** (automatically flips top/bottom to never block the focused game or waste a single grid row).
 - **Bubbles**: Circular honeycomb layout (3-4-3-4) with elastic focus scaling, bottom-centered Liquid-Glass favorite badge, and floating title pill for maximum viewport density on compact 4:3 screens.
+- **CoverFlow**: 3D perspective carousel (`rotationY` + depth scaling) centered on the focused box art with zero-relayout `graphicsLayer` motion, centered marquee title, and frosted metadata pills.
+- **Spotlight (Hero)**: Console-style upper showcase (large cover, platform badge, play count & total playtime pills, and glowing gradient **Play / Continue** CTA) paired with a virtualized bottom filmstrip dock.
+- **Arc Wheel**: Curved C-arc pill dial with a live arc scroll track on the left and a large crisp box-art showcase on the right—effortless one-handed vertical D-pad/stick scrolling.
+- **Shelf**: Virtualized multi-tier frosted acrylic collector shelves with upright game boxes, subtle drop shadows, lifted focus card, and a floating title capsule right beneath the active shelf.
 
 ---
 
