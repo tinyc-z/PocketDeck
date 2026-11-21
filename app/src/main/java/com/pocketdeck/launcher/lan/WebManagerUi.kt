@@ -2693,6 +2693,7 @@ async function openGameDetail(id) {
           (g.isRom ? '<button class="btn sm primary" id="btnRefreshMeta" onclick="refreshGameMetaFromHandheld(\'' + escJs(g.id) + '\')">' + esc(tr('btn_find_cover')) + '</button>' : '') +
           (g.isRom ? '<button class="btn sm" onclick="scrapeCoverCandidates(\'' + escJs(g.id) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' : '') +
           '<label class="btn sm" style="justify-content:center;">' + esc(tr('btn_upload_short')) + '<input type="file" accept="image/*" style="display:none" onchange="uploadCustomCover(\'' + escJs(g.id) + '\', this.files[0])"/></label>' +
+          (g.hasCustomCover ? '<button class="btn sm" onclick="resetGameCover(\'' + escJs(g.id) + '\')">' + esc(tr('btn_reset_cover')) + '</button>' : '') +
         '</div>' +
         '<div class="meta-kv">' +
           '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_release')) + '</div><div class="kv-v" id="detKvRelease">' + esc(m.releaseDate || '—') + '</div></div>' +
