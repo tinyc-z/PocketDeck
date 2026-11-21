@@ -8,7 +8,11 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.size.Precision
+import okhttp3.OkHttpClient
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.GameRepository
 import com.pocketdeck.launcher.data.MetadataRepository
@@ -48,7 +52,25 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val am = getSystemService(ACTIVITY_SERVICE) as? ActivityManager
         val memPercent = if (am?.isLowRamDevice == true) 0.14 else 0.20
+        val coilHttp = OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
+            .addNetworkInterceptor { chain ->
+                val resp = chain.proceed(chain.request())
+                val len = resp.body?.contentLength() ?: -1L
+                if (len > 8L * 1024 * 1024) {
+                    resp.close()
+                    throw IOException("Image exceeds 8MB limit ($len bytes)")
+                }
+                resp
+            }
+            .build()
         return ImageLoader.Builder(context)
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { coilHttp }))
+            }
             .precision(Precision.INEXACT)
             .memoryCache { MemoryCache.Builder().maxSizePercent(context, memPercent).build() }
             .diskCache {

@@ -1330,6 +1330,7 @@ class HomeViewModel(
             covers.ensureGameScraped(it, s.platformFor(it))
             metadataRepo.resolveFocusGame(it, s.platformFor(it))
         }
+        covers.ensureWindowCoversScraped(s.games, _focusIndex.value, s::platformFor)
     }
 
     fun refreshAllMetadata() {

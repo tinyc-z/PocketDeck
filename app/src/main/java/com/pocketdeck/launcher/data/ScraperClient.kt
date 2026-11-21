@@ -53,8 +53,9 @@ class ScraperClient(context: Context) {
 
     val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
         .connectionPool(ConnectionPool(8, 2, TimeUnit.MINUTES))
         .build()

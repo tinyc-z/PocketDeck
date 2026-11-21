@@ -16,16 +16,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
@@ -516,13 +516,20 @@ class CoverSource(
         }
     }
 
-    private val windowScrapeSemaphore = Semaphore(permits = 2)
-    @Volatile
-    private var windowScrapeJob: Job? = null
+    private val windowScrapeQueue = ReplaceableTaskQueue<Pair<Game, Platform>>(
+        scope = scope,
+        maxConcurrency = 2,
+        worker = { (g, plat) ->
+            if (!hasLocalOrCachedCover(g)) {
+                scrapeGameApiNodesInternal(g, plat, officialName = null)
+            }
+        },
+    )
 
     /**
-     * 为当前可见窗口内的未聚焦游戏低并发预刮削封面（最多 2 路并发、以焦点为中心扩散最多 16 个游戏），
-     * 避免 Libretro 整表索引未命中或慢速时整屏长时间停留在占位图；切换分类或焦点窗口时自动取消旧批次。
+     * 为当前可见窗口内的未聚焦游戏做低并发队列调度（常驻 2 Worker + 180ms 滑动防抖）：
+     * - 正在执行中的 1~2 个在途请求保活跑完并写缓存，不浪费已发出的网络流量；
+     * - 用户滑到新位置停下后，清空尚未开始执行的旧等待队列，将新窗口的最多 16 款游戏按焦点优先顺序插入队列。
      */
     fun ensureWindowCoversScraped(
         games: List<Game>,
@@ -534,7 +541,7 @@ class CoverSource(
         val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
         if (enabledApiNodes.isEmpty()) return
 
-        val ordered = ArrayList<Pair<Game, Platform>>(windowSize.coerceAtMost(games.size))
+        val ordered = ArrayList<Pair<String, Pair<Game, Platform>>>(windowSize.coerceAtMost(games.size))
         val safeFocus = focusIdx.coerceIn(0, games.lastIndex)
         var offset = 0
         while (ordered.size < windowSize && (safeFocus + offset <= games.lastIndex || safeFocus - offset >= 0)) {
@@ -545,24 +552,11 @@ class CoverSource(
                 if (g.id.startsWith(GameLauncher.APK_PREFIX)) continue
                 if (!g.customCover.isNullOrBlank() || !g.localCover.isNullOrBlank()) continue
                 if (hasLocalOrCachedCover(g)) continue
-                ordered += g to platformResolver(g)
+                ordered += g.id to (g to platformResolver(g))
             }
             offset++
         }
-        if (ordered.isEmpty()) return
-
-        windowScrapeJob?.cancel()
-        windowScrapeJob = scope.launch {
-            coroutineScope {
-                for ((g, plat) in ordered) {
-                    launch {
-                        windowScrapeSemaphore.withPermit {
-                            scrapeGameApiNodesInternal(g, plat, officialName = null)
-                        }
-                    }
-                }
-            }
-        }
+        windowScrapeQueue.scheduleReplace(ordered, debounceMs = 180L)
     }
 
     /** 为指定游戏异步触发 API / 索引型封面节点查询（GameTDB / Hasheous / ArcadeItalia / SteamGridDB / ScreenScraper / TGDB / IGDB）。 */
@@ -1312,6 +1306,12 @@ class CoverSource(
                     return@withContext null
                 }
                 val body = resp.body ?: return@withContext null
+                val maxBytes = 8 * 1024 * 1024
+                val declaredLen = body.contentLength()
+                if (declaredLen > maxBytes) {
+                    ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "Content-Length ${declaredLen}B exceeds 8MB limit")
+                    return@withContext null
+                }
                 var overflow = false
                 val bytes = body.byteStream().use { input ->
                     val baos = ByteArrayOutputStream()
@@ -1321,7 +1321,7 @@ class CoverSource(
                         val n = input.read(buf)
                         if (n <= 0) break
                         total += n
-                        if (total > 10 * 1024 * 1024) {
+                        if (total > maxBytes) {
                             overflow = true
                             break
                         }
@@ -1330,7 +1330,7 @@ class CoverSource(
                     baos.toByteArray()
                 }
                 if (overflow) {
-                    ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "exceeds 10MB limit")
+                    ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "exceeds 8MB limit")
                     return@withContext null
                 }
                 val ct = resp.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
