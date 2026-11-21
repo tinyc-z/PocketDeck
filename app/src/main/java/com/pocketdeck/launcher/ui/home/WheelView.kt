@@ -68,8 +68,6 @@ import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.ceil
-import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /**
@@ -230,11 +228,11 @@ fun WheelView(
                 Brush.linearGradient(listOf(palette.brandStart, palette.brandMid, palette.brandEnd))
             }
 
-            val visibleRange by remember(games.size) {
+            val visibleRange by remember(focusIndex, isDragging, games.size) {
                 derivedStateOf {
-                    val cur = animatedFocus.value
-                    val start = (floor(cur).toInt() - 2).coerceAtLeast(0)
-                    val end = (ceil(cur).toInt() + 2).coerceAtMost(games.lastIndex)
+                    val center = if (isDragging) animatedFocus.value.roundToInt() else focusIndex
+                    val start = (center - 2).coerceAtLeast(0)
+                    val end = (center + 2).coerceAtMost(games.lastIndex)
                     start..end
                 }
             }
@@ -243,31 +241,27 @@ fun WheelView(
                 val game = games[idx]
                 key(game.id) {
                     val plat = platformOf(game)
-                    val d = idx - animatedFocus.value
-                    val absD = abs(d)
                     val isSelected = idx == safeFocus
-
-                    // 使用左中锚点 + 二次弧度偏移，避免缩放抵消左缘弧线，还原明显 C 形转盘曲率
-                    val normD = (absD / 2.25f).coerceIn(0f, 1.15f)
-                    val bulge = (1f - normD * normD).coerceAtLeast(0f)
-                    val curveX = baseLeftPx + bulge * arcDepthPx
-                    val transY = d * stepYPx
-                    val scale = (1f - absD * 0.075f).coerceAtLeast(0.80f)
-                    val itemAlpha = (1f - absD * 0.24f).coerceIn(0.18f, 1f)
-                    val z = 50f - absD * 10f
+                    val staticZ = 50f - abs(idx - safeFocus) * 10f
 
                     val pillShape = RoundedCornerShape(24.dp)
                     Row(
                         modifier = Modifier
-                            .zIndex(z)
+                            .zIndex(staticZ)
                             .width(pillMaxW)
                             .graphicsLayer {
+                                // 严格在绘制阶段读取 animatedFocus.value，动画期零重组、零重排
+                                val d = idx - animatedFocus.value
+                                val absD = abs(d)
+                                val normD = (absD / 2.25f).coerceIn(0f, 1.15f)
+                                val bulge = (1f - normD * normD).coerceAtLeast(0f)
+                                val s = (1f - absD * 0.075f).coerceAtLeast(0.80f)
                                 transformOrigin = TransformOrigin(0f, 0.5f)
-                                translationX = curveX
-                                translationY = transY
-                                scaleX = scale
-                                scaleY = scale
-                                alpha = itemAlpha
+                                translationX = baseLeftPx + bulge * arcDepthPx
+                                translationY = d * stepYPx
+                                scaleX = s
+                                scaleY = s
+                                alpha = (1f - absD * 0.24f).coerceIn(0.18f, 1f)
                             }
                             .then(
                                 if (isSelected) {

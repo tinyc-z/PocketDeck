@@ -3,7 +3,6 @@ package com.pocketdeck.launcher.ui.home
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -54,8 +53,6 @@ import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.cardSurface
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.ceil
-import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.sign
 
@@ -183,14 +180,14 @@ fun CoverFlowView(
             val baseCenterWPx = with(density) { baseCenterW.toPx() }
             val cameraDistPx = 14f * density.density
 
-            val visibleRange by remember(games.size) {
+            val visibleRange = remember(focusIndex, isDragging, games.size) {
                 derivedStateOf {
-                    val cur = animatedFocus.value
-                    val start = (floor(cur).toInt() - 4).coerceAtLeast(0)
-                    val end = (ceil(cur).toInt() + 4).coerceAtMost(games.lastIndex)
+                    val center = if (isDragging) animatedFocus.value.roundToInt() else focusIndex
+                    val start = (center - 4).coerceAtLeast(0)
+                    val end = (center + 4).coerceAtMost(games.lastIndex)
                     start..end
                 }
-            }
+            }.value
 
             for (idx in visibleRange) {
                 val game = games[idx]
@@ -198,28 +195,25 @@ fun CoverFlowView(
                     val plat = platformOf(game)
                     val aspect = (plat?.coverAspect ?: 0.82f).coerceIn(0.65f, 1.35f)
                     val cardW = (cardH * aspect).coerceAtMost(maxWidth * 0.42f)
-                    val d = idx - animatedFocus.value
-                    val absD = abs(d)
                     val isCenter = idx == safeFocus
-
-                    val nearFactor = absD.coerceAtMost(1f)
-                    val farFactor = (absD - 1f).coerceAtLeast(0f)
-                    val scale = (1f - 0.14f * nearFactor - 0.075f * farFactor).coerceAtLeast(0.58f)
-                    val rotY = if (reduceMotion) 0f else (-sign(d) * (32f * nearFactor + 4f * farFactor.coerceAtMost(2f)))
-                    val transX = sign(d) * (baseCenterWPx * 0.62f * nearFactor + baseCenterWPx * 0.44f * farFactor)
-                    val cardAlpha = (1f - absD * 0.15f).coerceIn(0.28f, 1f)
-                    val z = 100f - absD * 10f
+                    val staticZ = 100f - abs(idx - safeFocus) * 10f
 
                     Box(
                         modifier = Modifier
-                            .zIndex(z)
+                            .zIndex(staticZ)
                             .graphicsLayer {
-                                translationX = transX
-                                scaleX = scale
-                                scaleY = scale
-                                rotationY = rotY
+                                // 严格在绘制阶段读取 animatedFocus.value，动画期零重组、零重排
+                                val d = idx - animatedFocus.value
+                                val absD = abs(d)
+                                val nearFactor = absD.coerceAtMost(1f)
+                                val farFactor = (absD - 1f).coerceAtLeast(0f)
+                                val s = (1f - 0.14f * nearFactor - 0.075f * farFactor).coerceAtLeast(0.58f)
+                                translationX = sign(d) * (baseCenterWPx * 0.62f * nearFactor + baseCenterWPx * 0.44f * farFactor)
+                                scaleX = s
+                                scaleY = s
+                                rotationY = if (reduceMotion) 0f else (-sign(d) * (32f * nearFactor + 4f * farFactor.coerceAtMost(2f)))
                                 cameraDistance = cameraDistPx
-                                alpha = cardAlpha
+                                alpha = (1f - absD * 0.15f).coerceIn(0.28f, 1f)
                             },
                     ) {
                         GameCoverCard(
@@ -257,9 +251,7 @@ fun CoverFlowView(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .widthIn(max = 560.dp)
-                    .basicMarquee(iterations = Int.MAX_VALUE),
+                modifier = Modifier.widthIn(max = 560.dp),
             )
 
             val subtitleParts = buildList {

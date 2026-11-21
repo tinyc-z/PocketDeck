@@ -319,29 +319,24 @@ fun HeroView(
                     val aspect = (plat?.coverAspect ?: 0.85f).coerceIn(0.68f, 1.30f)
                     val thumbW = (thumbH * aspect).coerceIn(58.dp, 124.dp)
 
-                    val liftScale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.07f else 0.96f,
+                    val focusProgress = animateFloatAsState(
+                        targetValue = if (isSelected) 1f else 0f,
                         animationSpec = if (reduceMotion || fastScrolling) snap() else spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
                             stiffness = 620f,
                         ),
-                        label = "heroThumbScale",
-                    )
-                    val liftY by animateFloatAsState(
-                        targetValue = if (isSelected) -4f else 0f,
-                        animationSpec = if (reduceMotion || fastScrolling) snap() else spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = 620f,
-                        ),
-                        label = "heroThumbY",
+                        label = "heroThumbFocus",
                     )
 
                     Box(
                         modifier = Modifier.graphicsLayer {
-                            scaleX = liftScale
-                            scaleY = liftScale
-                            translationY = liftY * density.density
-                            alpha = if (isSelected) 1f else 0.84f
+                            // 仅在绘制阶段读取动画值，切换焦点期间零重组
+                            val p = focusProgress.value
+                            val s = 0.96f + 0.11f * p
+                            scaleX = s
+                            scaleY = s
+                            translationY = (-4f * p) * density.density
+                            alpha = 0.84f + 0.16f * p
                         },
                     ) {
                         GameCoverCard(

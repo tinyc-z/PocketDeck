@@ -139,7 +139,6 @@ fun ShelfView(
             ) { rowIdx ->
                 val startIdx = rowIdx * SHELF_COLUMNS
                 val endIdx = (startIdx + SHELF_COLUMNS).coerceAtMost(games.size)
-                val rowHasFocus = rowIdx == focusedRow
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -163,21 +162,13 @@ fun ShelfView(
                                 val cardW = (boxH * aspect).coerceAtMost(slotW)
                                 val cardH = (cardW / aspect).coerceAtMost(boxH)
 
-                                val pullScale by animateFloatAsState(
-                                    targetValue = if (isSelected) 1.09f else 1f,
+                                val pullProgress = animateFloatAsState(
+                                    targetValue = if (isSelected) 1f else 0f,
                                     animationSpec = if (reduceMotion || fastScrolling) snap() else spring(
                                         dampingRatio = Spring.DampingRatioNoBouncy,
                                         stiffness = 620f,
                                     ),
-                                    label = "shelfScale",
-                                )
-                                val pullY by animateFloatAsState(
-                                    targetValue = if (isSelected) -5f else 0f,
-                                    animationSpec = if (reduceMotion || fastScrolling) snap() else spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = 620f,
-                                    ),
-                                    label = "shelfY",
+                                    label = "shelfPull",
                                 )
 
                                 Box(
@@ -189,9 +180,12 @@ fun ShelfView(
                                 ) {
                                     Box(
                                         modifier = Modifier.graphicsLayer {
-                                            scaleX = pullScale
-                                            scaleY = pullScale
-                                            translationY = pullY * density.density
+                                            // 严格在绘制阶段读取动画值，零重组、零重排
+                                            val p = pullProgress.value
+                                            val s = 1f + 0.09f * p
+                                            scaleX = s
+                                            scaleY = s
+                                            translationY = (-5f * p) * density.density
                                         },
                                     ) {
                                         GameCoverCard(
@@ -264,40 +258,41 @@ fun ShelfView(
                                 shelfShape,
                             ),
                     )
-
-                    // 当前焦点所在层板下方显示简洁浮层信息胶囊
-                    if (rowHasFocus) {
-                        val focusedGame = games[safeFocus]
-                        val focusedPlat = platformOf(focusedGame)
-                        val focusedMeta = metadataMap[focusedGame.id]
-                        val parts = buildList {
-                            add(focusedGame.title)
-                            focusedPlat?.shortName?.takeIf { it.isNotBlank() }?.let { add(it) }
-                            if (showMetadata && metaDisplay.releaseDate) {
-                                focusedMeta?.releaseDate?.takeIf { it.isNotBlank() }?.take(4)?.let { add(it) }
-                            }
-                            add("${safeFocus + 1}/${games.size}")
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .cardSurface(shape = CircleShape, elevation = 4.dp)
-                                .border(0.8.dp, DeckColors.Line, CircleShape)
-                                .padding(horizontal = 16.dp, vertical = 5.dp),
-                        ) {
-                            Text(
-                                text = parts.joinToString(" · "),
-                                style = DeckType.metaLabel.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
-                                color = DeckColors.TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.widthIn(max = 500.dp),
-                            )
-                        }
-                    }
                 }
             }
+        }
+
+        // 悬浮聚焦信息胶囊（独立于 LazyColumn 行外，保证每层架子高度恒定，上下切层零重排跳动）
+        val focusedGame = games[safeFocus]
+        val focusedPlat = platformOf(focusedGame)
+        val focusedMeta = metadataMap[focusedGame.id]
+        val pillText = remember(focusedGame.id, focusedGame.title, focusedPlat?.shortName, focusedMeta, showMetadata, metaDisplay, safeFocus, games.size) {
+            buildList {
+                add(focusedGame.title)
+                focusedPlat?.shortName?.takeIf { it.isNotBlank() }?.let { add(it) }
+                if (showMetadata && metaDisplay.releaseDate) {
+                    focusedMeta?.releaseDate?.takeIf { it.isNotBlank() }?.take(4)?.let { add(it) }
+                }
+                add("${safeFocus + 1}/${games.size}")
+            }.joinToString(" · ")
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 8.dp)
+                .cardSurface(shape = CircleShape, elevation = 6.dp)
+                .border(0.8.dp, DeckColors.Line, CircleShape)
+                .padding(horizontal = 16.dp, vertical = 5.dp),
+        ) {
+            Text(
+                text = pillText,
+                style = DeckType.metaLabel.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                color = DeckColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 500.dp),
+            )
         }
     }
 }
