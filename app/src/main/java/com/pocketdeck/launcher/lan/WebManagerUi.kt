@@ -2453,12 +2453,12 @@ async function openGameDetail(id) {
           '<label class="btn sm" style="justify-content:center;">' + esc(tr('btn_upload_short')) + '<input type="file" accept="image/*" style="display:none" onchange="uploadCustomCover(\'' + escJs(g.id) + '\', this.files[0])"/></label>' +
         '</div>' +
         '<div class="meta-kv">' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_release')) + '</div><div class="kv-v">' + esc(m.releaseDate || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_genre')) + '</div><div class="kv-v">' + esc(m.genre || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_dev')) + '</div><div class="kv-v">' + esc(m.developer || '—') + '</div></div>' +
-          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_pub')) + '</div><div class="kv-v">' + esc(m.publisher || '—') + '</div></div>' +
+          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_release')) + '</div><div class="kv-v" id="detKvRelease">' + esc(m.releaseDate || '—') + '</div></div>' +
+          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_genre')) + '</div><div class="kv-v" id="detKvGenre">' + esc(m.genre || '—') + '</div></div>' +
+          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_dev')) + '</div><div class="kv-v" id="detKvDev">' + esc(m.developer || '—') + '</div></div>' +
+          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_pub')) + '</div><div class="kv-v" id="detKvPub">' + esc(m.publisher || '—') + '</div></div>' +
         '</div>' +
-        '<div class="detail-path">' +
+        '<div class="detail-path" id="detPath">' +
           (mInfo.crc32 ? 'CRC32 ' + esc(mInfo.crc32) + ' · ' : '') + esc(g.id) +
         '</div>' +
       '</div>' +
@@ -2486,6 +2486,26 @@ async function openGameDetail(id) {
     '<button class="btn sm primary" onclick="closeModal()">' + esc(tr('btn_close')) + '</button>';
 
   el('modalBg').classList.add('open');
+  window._curDetailGameId = g.id;
+  if (!window._webMetaFetchedIds) window._webMetaFetchedIds = new Set();
+  const metaEmpty = !m.releaseDate && !m.genre && !m.developer && !m.publisher && !g.officialName;
+  if (metaEmpty && !window._webMetaFetchedIds.has(g.id)) {
+    window._webMetaFetchedIds.add(g.id);
+    api('/api/games/item?id=' + safeId + '&ensureMeta=1').then(r => r.ok ? r.json() : null).then(d => {
+      if (!d || !d.ok || !d.game) return;
+      patchSingleGame(d.game, d.stats);
+      if (window._curDetailGameId === d.game.id && el('modalBg').classList.contains('open')) {
+        const nm = d.game.metadata || {};
+        const nInfo = d.game.metaInfo || {};
+        const setT = (eid, val) => { const n = el(eid); if (n) n.textContent = val; };
+        setT('detKvRelease', nm.releaseDate || '—');
+        setT('detKvGenre', nm.genre || '—');
+        setT('detKvDev', nm.developer || '—');
+        setT('detKvPub', nm.publisher || '—');
+        setT('detPath', (nInfo.crc32 ? 'CRC32 ' + nInfo.crc32 + ' · ' : '') + d.game.id);
+      }
+    }).catch(() => {});
+  }
 }
 
 async function refreshGameMetaFromHandheld(id) {

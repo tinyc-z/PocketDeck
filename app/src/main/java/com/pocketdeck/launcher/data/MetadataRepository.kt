@@ -387,6 +387,40 @@ class MetadataRepository(
         true
     }
 
+    /** 按需补查单个游戏的元数据（优先复用本地索引与 SQLite 缓存，供 Web 详情页打开时静默触发）。 */
+    suspend fun ensureGameMetadata(game: Game, platform: Platform?): Boolean = withContext(Dispatchers.IO) {
+        val existingMeta = gameCache[game.id]
+        val existingName = _officialNames.value[game.id]
+        if (focusApiResolved[game.id] == true && ((existingMeta != null && !existingMeta.isEmpty) || !existingName.isNullOrBlank())) {
+            return@withContext false
+        }
+        val enabled = providerConfigs.filter { it.enabled }
+        if (enabled.isEmpty()) return@withContext false
+        val system = platform?.libretroSystem
+        if (enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB } && !system.isNullOrBlank()) {
+            getOrFetchLibretroTable(system)
+        }
+        val res = resolveSingleGame(
+            g = game,
+            platform = platform,
+            enabled = enabled,
+            cred = credentials,
+            queryApi = NetworkStatus.isOnline(appCtx),
+            forceApiRefresh = false,
+        )
+        focusApiResolved[game.id] = true
+        val hasResult = !res.meta.isEmpty || !res.officialName.isNullOrBlank() || res.info?.crc32 != null
+        if (!hasResult) return@withContext false
+        if (!res.meta.isEmpty) gameCache[game.id] = res.meta
+        enqueueBatchUpdate(
+            metaUpdates = if (!res.meta.isEmpty) mapOf(game.id to res.meta) else emptyMap(),
+            nameUpdates = res.officialName?.takeIf { it.isNotBlank() }?.let { mapOf(game.id to it) }.orEmpty(),
+            infoUpdates = res.info?.let { mapOf(game.id to it) }.orEmpty(),
+            immediate = true,
+        )
+        true
+    }
+
     private data class SingleResolution(
         val meta: GameMetadata,
         val officialName: String?,

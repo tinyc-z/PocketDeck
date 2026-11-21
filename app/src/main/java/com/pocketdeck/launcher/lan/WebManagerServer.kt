@@ -1091,16 +1091,21 @@ class WebManagerServer(
         }
     }
 
-    private fun handleGameItem(req: HttpRequest, res: HttpResponseWriter) {
+    private suspend fun handleGameItem(req: HttpRequest, res: HttpResponseWriter) {
         val id = req.query["id"].orEmpty()
         val game = repo.fullLibrary.value?.byId?.get(id)
         if (game == null) {
             res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
             return
         }
+        if (req.query["ensureMeta"] == "1") {
+            val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
+            metadataRepo.ensureGameMetadata(game, plat)
+        }
+        val fresh = repo.fullLibrary.value?.byId?.get(id) ?: game
         val root = JSONObject().apply {
             put("ok", true)
-            put("game", gameToJson(game))
+            put("game", gameToJson(fresh))
             put("stats", buildGamesStatsJson())
         }
         res.sendJson(200, root.toString())
