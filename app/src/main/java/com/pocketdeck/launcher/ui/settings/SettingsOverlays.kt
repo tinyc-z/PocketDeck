@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.data.CredentialKind
 import com.pocketdeck.launcher.data.PlatformCatalog
 import com.pocketdeck.launcher.data.ScrapeLogStore
@@ -257,23 +258,24 @@ class DirBrowserState(private val appContext: Context? = null) {
         rows = if (cur == null) {
             storageRoots().map { Row(Kind.Dir, it, it.path) }
         } else {
-            val subs = cur.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }
+            cur.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }
                 .orEmpty()
                 .sortedBy { it.name.lowercase() }
                 .map { Row(Kind.Dir, it, it.name) }
-            listOf(Row(Kind.Use, cur, ""), Row(Kind.Up, null, "")) + subs
         }
     }
 
     fun move(delta: Int) {
-        if (rows.isNotEmpty()) index = (index + delta).coerceIn(0, rows.lastIndex)
+        val minIdx = if (current != null) -1 else 0
+        val maxIdx = (rows.size - 1).coerceAtLeast(minIdx)
+        index = (index + delta).coerceIn(minIdx, maxIdx)
     }
 
     private fun enter(dir: File) {
         current = dir
         load()
-        // 有子文件夹时默认停在第一个子文件夹上，方便继续深入
-        index = if (rows.size > 2) 2 else 0
+        // 有子文件夹时默认停在第一个子文件夹上；空目录时直接聚焦顶部的「使用此目录」按钮
+        index = if (rows.isNotEmpty()) 0 else -1
     }
 
     /** 返回上一级；已在存储列表时返回 false。 */
@@ -285,8 +287,9 @@ class DirBrowserState(private val appContext: Context? = null) {
         return true
     }
 
-    /** A 键：进入目录 / 返回上一级 / 选中当前目录（返回路径）。 */
+    /** A 键：进入目录 / 选中当前目录（返回路径）。 */
     fun confirm(): String? {
+        if (index == -1) return current?.path
         val row = rows.getOrNull(index) ?: return null
         when (row.kind) {
             Kind.Use -> return row.file?.path
@@ -305,7 +308,9 @@ fun DirBrowser(
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(state.index, state.current) {
-        listState.animateScrollToItem((state.index - 3).coerceAtLeast(0))
+        if (state.index >= 0) {
+            listState.animateScrollToItem((state.index - 3).coerceAtLeast(0))
+        }
     }
     val internalPath = remember { Environment.getExternalStorageDirectory().path }
     val useLabel = stringResource(R.string.picker_use)
@@ -374,33 +379,80 @@ fun DirBrowser(
                 )
             }
             HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+            if (state.current != null) {
+                val useFocused = state.index == -1
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(DeckShapes.tabPill)
+                            .background(DeckColors.Ruby.copy(alpha = 0.12f))
+                            .soundClickable { state.up() }
+                            .padding(horizontal = 11.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.Ruby, size = 14.dp)
+                        Text(
+                            upLabel,
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                            color = DeckColors.Ruby,
+                            maxLines = 1,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier
+                            .clip(DeckShapes.tabPill)
+                            .then(
+                                if (useFocused) Modifier.brandBackground(DeckShapes.tabPill)
+                                else Modifier.background(DeckColors.Ruby.copy(alpha = 0.14f)),
+                            )
+                            .brandBorder(
+                                active = useFocused,
+                                shape = DeckShapes.tabPill,
+                                activeWidth = 1.5.dp,
+                                inactiveWidth = 0.8.dp,
+                                inactiveColor = DeckColors.Ruby.copy(alpha = 0.35f),
+                            )
+                            .soundClickable {
+                                state.current?.path?.let(onPick)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        DeckIcon(DeckIcons.Check, tint = if (useFocused) Color.White else DeckColors.Ruby, size = 14.dp)
+                        Text(
+                            useLabel,
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Bold),
+                            color = if (useFocused) Color.White else DeckColors.Ruby,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight()
-                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                    .padding(horizontal = 24.dp, vertical = 4.dp),
             ) {
                 itemsIndexed(state.rows) { idx, row ->
                     val hl = idx == state.index
-                    val label = when (row.kind) {
-                        DirBrowserState.Kind.Use -> useLabel
-                        DirBrowserState.Kind.Up -> upLabel
-                        DirBrowserState.Kind.Dir ->
-                            if (state.current == null && row.file?.path == internalPath) internalLabel else row.label
-                    }
+                    val label = if (state.current == null && row.file?.path == internalPath) internalLabel else row.label
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .padding(vertical = 2.dp)
                             .clip(DeckShapes.settingsDropdown)
-                            .background(
-                                when {
-                                    hl -> DeckColors.Ruby.copy(alpha = 0.12f)
-                                    row.kind == DirBrowserState.Kind.Use -> DeckColors.Surface
-                                    else -> Color.Transparent
-                                },
-                            )
+                            .background(if (hl) DeckColors.Ruby.copy(alpha = 0.12f) else Color.Transparent)
                             .soundClickable {
                                 state.index = idx
                                 state.confirm()?.let(onPick)
@@ -408,26 +460,22 @@ fun DirBrowser(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        when (row.kind) {
-                            DirBrowserState.Kind.Use -> DeckIcon(DeckIcons.Check, tint = DeckColors.Ruby, size = 16.dp)
-                            DirBrowserState.Kind.Up -> Text("↑", style = DeckType.settingsValue, color = DeckColors.Ruby)
-                            DirBrowserState.Kind.Dir -> DeckIcon(
-                                icon = if (state.current == null) DeckIcons.HardDrive else DeckIcons.Folder,
-                                tint = DeckColors.Ruby,
-                                size = 16.dp,
-                            )
-                        }
+                        DeckIcon(
+                            icon = if (state.current == null) DeckIcons.HardDrive else DeckIcons.Folder,
+                            tint = DeckColors.Ruby,
+                            size = 16.dp,
+                        )
                         Spacer(Modifier.width(12.dp))
                         Text(
                             label,
                             style = DeckType.settingsValue,
-                            color = if (hl || row.kind == DirBrowserState.Kind.Use) DeckColors.Ruby else DeckColors.TextPrimary,
+                            color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
-                if (state.current != null && state.rows.size <= 2) {
+                if (state.current != null && state.rows.isEmpty()) {
                     item {
                         Text(
                             stringResource(R.string.picker_empty),

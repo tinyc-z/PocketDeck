@@ -97,7 +97,7 @@
     <string name="action_ok">確定</string>
     <string name="picker_title">選擇目錄</string>
     <string name="picker_use">使用此目錄</string>
-    <string name="picker_up">上一層</string>
+    <string name="picker_up">返回上層</string>
     <string name="picker_storage">儲存裝置</string>
     <string name="picker_internal">內部儲存</string>
     <string name="picker_hint">A 開啟 · B 返回</string>

@@ -98,7 +98,7 @@
     <string name="action_ok">OK</string>
     <string name="picker_title">Choose a folder</string>
     <string name="picker_use">Use this folder</string>
-    <string name="picker_up">Up one level</string>
+    <string name="picker_up">Up</string>
     <string name="picker_storage">Storage</string>
     <string name="picker_internal">Internal storage</string>
     <string name="picker_hint">A open · B back</string>
