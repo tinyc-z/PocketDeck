@@ -111,6 +111,7 @@ fun GameDetailDialog(
     onManualScrape: (() -> Unit)? = null,
     onProperties: () -> Unit,
     onDismiss: () -> Unit,
+    isTopmost: Boolean = true,
 ) {
     val focusRequester = remember { FocusRequester() }
     var actionIdx by remember(game.id) { mutableIntStateOf(0) }
@@ -124,15 +125,11 @@ fun GameDetailDialog(
 
     val hasMultiDisc = game.discFiles.size > 1 && onLaunchDisc != null
     val discLabelFmt = stringResource(R.string.disc_label_fmt)
-    val playBadge = GamepadKeys.badgeLabel(keyBindings, KeyAction.Play, swapAbxy)
-    val favBadge = GamepadKeys.badgeLabel(keyBindings, KeyAction.Menu, swapAbxy)
-    val editBadge = GamepadKeys.badgeLabel(keyBindings, KeyAction.Settings, swapAbxy)
     val actions = buildList {
         add(
             DetailAction(
                 label = stringResource(R.string.menu_play),
                 primary = true,
-                shortcutBadge = playBadge,
                 onClick = onLaunch,
             ),
         )
@@ -150,22 +147,20 @@ fun GameDetailDialog(
                 label = if (isFavorite) stringResource(R.string.menu_unfavourite) else stringResource(R.string.menu_favourite),
                 active = isFavorite,
                 isFavoriteToggle = true,
-                shortcutBadge = favBadge,
                 onClick = onToggleFavorite,
             ),
         )
         add(
             DetailAction(
                 label = stringResource(R.string.menu_edit),
-                shortcutBadge = editBadge,
                 onClick = onEdit,
             ),
         )
     }
     if (actionIdx >= actions.size) actionIdx = 0
 
-    LaunchedEffect(game.id) {
-        runCatching { focusRequester.requestFocus() }
+    LaunchedEffect(game.id, isTopmost) {
+        if (isTopmost) runCatching { focusRequester.requestFocus() }
     }
 
     BoxWithConstraints(
@@ -236,14 +231,6 @@ fun GameDetailDialog(
                             DetailFocusZone.CoverEdit -> Unit
                             DetailFocusZone.Actions -> actionIdx = (actionIdx - 1 + actions.size) % actions.size
                         }
-                        true
-                    }
-                    GamepadKeys.isMenu(event.key, swapAbxy, keyBindings) -> {
-                        onToggleFavorite()
-                        true
-                    }
-                    GamepadKeys.isSettings(event.key, swapAbxy, keyBindings) -> {
-                        onEdit()
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {

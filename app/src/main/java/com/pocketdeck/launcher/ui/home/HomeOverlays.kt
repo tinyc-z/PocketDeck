@@ -150,11 +150,9 @@ internal fun HomeOverlays(
             onManualScrape = if (!game.id.startsWith(GameLauncher.APK_PREFIX)) {
                 { vm.openManualScrape(game) }
             } else null,
-            onProperties = {
-                vm.closeDetail()
-                vm.openProperties(game)
-            },
+            onProperties = { vm.openProperties(game) },
             onDismiss = { vm.closeDetail() },
+            isTopmost = state.propertiesGame == null && state.manualScrapeGame == null && state.editingGame == null,
         )
     }
 
