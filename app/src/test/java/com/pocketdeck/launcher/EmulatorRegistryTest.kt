@@ -32,6 +32,14 @@ class EmulatorRegistryTest {
         assertNotNull(duck)
         assertEquals("duckstation", duck?.id)
 
+        assertEquals("skyemu", EmulatorRegistry.findByPackage("com.sky.SkyEmu")?.id)
+        assertEquals("skyemu", EmulatorRegistry.findByPackage("com.skylersaleh.skyemu")?.id)
+        assertEquals("lemuroid", EmulatorRegistry.findByPackage("com.swordfish.lemuroid")?.id)
+        assertEquals("nes_emu", EmulatorRegistry.findByPackage("com.explusalpha.NesEmu")?.id)
+        assertEquals("snes9x_ex", EmulatorRegistry.findByPackage("com.explusalpha.Snes9xPlus")?.id)
+        assertEquals("azahar", EmulatorRegistry.findByPackage("org.azahar_emu.azahar")?.id)
+        assertEquals("flycast_standalone", EmulatorRegistry.findByPackage("com.flycast.emulator")?.id)
+
         assertNull(EmulatorRegistry.findByPackage("com.example.unknown"))
     }
 
@@ -39,8 +47,13 @@ class EmulatorRegistryTest {
     fun platformMappingCoversCoreConsoles() {
         assertTrue(EmulatorRegistry.allForPlatform("psp").any { it.id == "ppsspp" })
         assertTrue(EmulatorRegistry.allForPlatform("psx").any { it.id == "duckstation" })
-        assertTrue(EmulatorRegistry.allForPlatform("gba").isNotEmpty())
-        assertTrue(EmulatorRegistry.allForPlatform("nds").isNotEmpty())
+        assertTrue(EmulatorRegistry.allForPlatform("gba").any { it.id == "skyemu" })
+        assertTrue(EmulatorRegistry.allForPlatform("gb").any { it.id == "skyemu" })
+        assertTrue(EmulatorRegistry.allForPlatform("nes").any { it.id == "nes_emu" })
+        assertTrue(EmulatorRegistry.allForPlatform("snes").any { it.id == "snes9x_ex" })
+        assertTrue(EmulatorRegistry.allForPlatform("nds").any { it.id == "melonds_standalone" })
+        assertTrue(EmulatorRegistry.allForPlatform("3ds").any { it.id == "azahar" })
+        assertTrue(EmulatorRegistry.allForPlatform("dreamcast").any { it.id == "flycast_standalone" })
     }
 }
 
