@@ -413,26 +413,38 @@ class ScraperClient(context: Context) {
             var qid: String? = null
             var label: String? = null
             var bestScore = 0.68
+            var fallbackQid: String? = null
+            var fallbackLabel: String? = null
+            var bestFallbackScore = 0.899
             for (i in 0 until results.length()) {
                 val r = results.getJSONObject(i)
-                val desc = r.optString("description").lowercase()
-                if ("video game" !in desc && "arcade game" !in desc && "computer game" !in desc && "电子游戏" !in desc) {
-                    continue
-                }
+                val desc = r.optString("description")
                 val lbl = r.optString("label").takeIf { it.isNotBlank() } ?: continue
                 val sim = TitleNormalizer.similarity(query, lbl)
-                if (sim > bestScore) {
-                    bestScore = sim
-                    qid = r.optString("id")
-                    label = lbl
+                if (isWikidataGameDescription(desc)) {
+                    if (sim > bestScore) {
+                        bestScore = sim
+                        qid = r.optString("id")
+                        label = lbl
+                    }
+                } else if (isWikidataFallbackCandidate(desc, sim) && sim > bestFallbackScore) {
+                    bestFallbackScore = sim
+                    fallbackQid = r.optString("id")
+                    fallbackLabel = lbl
                 }
             }
-            if (qid == null) return@runCatching ScrapeHit()
+            val usedFallback = qid == null && fallbackQid != null
+            val chosenQid = qid ?: fallbackQid ?: return@runCatching ScrapeHit()
+            val chosenLabel = label ?: fallbackLabel
 
-            val entRes = httpGet("https://www.wikidata.org/w/api.php?action=wbgetentities&ids=$qid&props=claims&format=json")
+            val entRes = httpGet("https://www.wikidata.org/w/api.php?action=wbgetentities&ids=$chosenQid&props=claims&format=json")
             if (entRes.body == null) return@runCatching ScrapeHit()
             val claims = JSONObject(entRes.body).optJSONObject("entities")
-                ?.optJSONObject(qid)?.optJSONObject("claims") ?: return@runCatching ScrapeHit()
+                ?.optJSONObject(chosenQid)?.optJSONObject("claims") ?: return@runCatching ScrapeHit()
+            // 兜底候选必须带有 P400（游戏平台）属性才确认是游戏词条，防止误配非游戏百科条目
+            if (usedFallback && firstClaimEntityId(claims, "P400") == null) {
+                return@runCatching ScrapeHit()
+            }
 
             val devId = firstClaimEntityId(claims, "P178")
             val pubId = firstClaimEntityId(claims, "P123")
@@ -443,7 +455,7 @@ class ScraperClient(context: Context) {
             val labels = if (idsToResolve.isEmpty()) emptyMap() else resolveWikidataLabels(idsToResolve)
 
             ScrapeHit(
-                officialName = label,
+                officialName = chosenLabel,
                 meta = GameMetadata(
                     releaseDate = release,
                     genre = genreId?.let { labels[it] },
@@ -945,7 +957,7 @@ class ScraperClient(context: Context) {
         }
     }
 
-    private companion object {
+    internal companion object {
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
         val TEXT_PLAIN = "text/plain; charset=utf-8".toMediaType()
 
@@ -1014,6 +1026,39 @@ class ScraperClient(context: Context) {
             "arcade" to 52, "fbneo" to 52, "mame" to 52, "cps1" to 52, "cps2" to 52, "cps3" to 52, "pgm" to 52,
             "dos" to 13, "winlator" to 6, "android" to 34,
         )
+
+        private val WIKIDATA_GAME_DESC_KEYWORDS = listOf(
+            "video game", "arcade game", "computer game", "console game", "handheld game",
+            "indie game", "mobile game", "browser game", "homebrew", "rom hack",
+            "platformer", "metroidvania", "roguelike", "shoot 'em up", "beat 'em up",
+            "role-playing game", "fighting game", "puzzle game", "racing game",
+            "action game", "adventure game", "strategy game", "simulation game",
+            "visual novel", "first-person shooter", "third-person shooter",
+            "电子游戏", "街机游戏", "电脑游戏", "主机游戏", "掌机游戏", "独立游戏",
+        )
+
+        private val WIKIDATA_NON_GAME_DESC_KEYWORDS = listOf(
+            "video game series", "game series", "media franchise", "franchise",
+            "film", "movie", "television", "tv series", "anime", "manga",
+            "soundtrack", "album", "song", "musical",
+            "light novel", "graphic novel", "book", "comic", "fictional character", "character",
+            "video game developer", "video game publisher", "game developer", "game publisher",
+            "software company", "company", "person", "actor", "musician",
+            "city", "town", "village", "country", "planet", "species",
+            "电影", "动画", "漫画", "小说", "专辑", "歌曲", "原声", "角色", "公司", "游戏系列",
+        )
+
+        internal fun isWikidataGameDescription(desc: String): Boolean {
+            val d = desc.lowercase()
+            if (WIKIDATA_NON_GAME_DESC_KEYWORDS.any { it in d }) return false
+            return WIKIDATA_GAME_DESC_KEYWORDS.any { it in d }
+        }
+
+        internal fun isWikidataFallbackCandidate(desc: String, similarity: Double): Boolean {
+            if (similarity < 0.90) return false
+            val d = desc.lowercase()
+            return WIKIDATA_NON_GAME_DESC_KEYWORDS.none { it in d }
+        }
 
         fun firstClaimEntityId(claims: JSONObject, prop: String): String? =
             claims.optJSONArray(prop)?.optJSONObject(0)?.optJSONObject("mainsnak")
