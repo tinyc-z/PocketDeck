@@ -801,7 +801,7 @@ internal fun LibraryOverlayDialogs(
     // 发送方式选择（局域网快传 vs 安卓系统/快速分享）
     shareMethodTarget?.let { target ->
         val summary = if (target.files.size > 1) {
-            "${target.files.size} 个文件 · ${formatCompactSize(target.totalSize).orEmpty()}"
+            "${stringResource(R.string.lan_multi_file_summary, target.files.size)} · ${formatCompactSize(target.totalSize).orEmpty()}"
         } else {
             "${target.gameTitle} · ${target.primaryFile.name}"
         }

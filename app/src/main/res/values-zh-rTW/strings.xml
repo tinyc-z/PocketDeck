@@ -43,17 +43,13 @@
 
     <!-- Settings -->
     <string name="settings_title">設定</string>
-    <string name="settings_general">系統</string>
     <string name="settings_show_metadata">遊戲資訊</string>
     <string name="settings_metadata_desc">顯示於封面下方</string>
     <string name="settings_show_bottom_bar">底部欄</string>
-    <string name="settings_background">背景</string>
     <string name="settings_default_view">預設檢視</string>
     <string name="settings_tabs">標籤頁</string>
-    <string name="settings_input">操控</string>
     <string name="settings_swap_abxy">交換 ABXY</string>
     <string name="settings_swap_desc">任天堂 ↔ Xbox 配置</string>
-    <string name="settings_library">遊戲庫</string>
     <string name="settings_rescan">重新掃描</string>
     <string name="settings_about">關於</string>
     <string name="settings_version">版本</string>
@@ -61,18 +57,15 @@
     <string name="settings_about_desc">面向掌機的開源遊戲啟動器。</string>
     <string name="settings_language">語言</string>
     <string name="settings_clock_12h">12 小時制</string>
-    <string name="settings_clock_desc">使用 12 小時時間格式</string>
     <string name="lang_system">跟隨系統</string>
 
     <!-- Status bar settings -->
     <string name="settings_statusbar">狀態列</string>
-    <string name="settings_statusbar_desc">頂部狀態列圖示</string>
     <string name="settings_show_clock">時鐘</string>
     <string name="settings_show_battery">電池</string>
     <string name="settings_show_wifi">Wi-Fi</string>
     <string name="settings_show_bluetooth">藍牙</string>
     <string name="settings_show_mobile">訊號</string>
-    <string name="settings_show_mobile_desc">當插入有網路的 SIM 卡時顯示</string>
     <string name="settings_show_headset">耳機</string>
     <string name="settings_show_airplane">飛航模式</string>
     <string name="settings_show_dnd">勿擾</string>
@@ -96,7 +89,6 @@
     <string name="align_bottom">底部</string>
     <string name="settings_dirs_desc">每個平台一個子資料夾</string>
     <string name="settings_dir_auto">自動偵測</string>
-    <string name="settings_dir_games">%d 個遊戲</string>
     <string name="settings_dir_disabled">已關閉</string>
     <string name="settings_dir_add">新增資料夾</string>
     <string name="action_enable">啟用</string>
@@ -112,7 +104,6 @@
     <string name="picker_empty">沒有子資料夾</string>
     <string name="picker_auto_create_btn">一鍵建目錄</string>
     <string name="picker_auto_create_title">自動建立平台目錄</string>
-    <string name="picker_auto_create_parent_label">父資料夾名稱（留空則直接建在目前目錄下）</string>
     <string name="picker_auto_create_parent_ph">例如 roms</string>
     <string name="picker_auto_create_target">目標路徑：%s</string>
     <string name="picker_auto_create_dir_exists_warn">提示：目標目錄已存在，僅補充缺少的平台目錄，不會刪除原有內容</string>
@@ -131,7 +122,6 @@
     <string name="tab_kind_now">最近遊玩</string>
     <string name="tab_kind_favs">收藏</string>
     <string name="tab_kind_custom">自訂</string>
-    <string name="tab_includes">%s</string>
     <string name="tab_hidden">已隱藏</string>
     <string name="tab_new">新增分類</string>
     <string name="action_move_up">上移</string>
@@ -153,7 +143,6 @@
     <string name="theme_dark">深色</string>
 
     <!-- Scraping & Metadata -->
-    <string name="settings_scraping">封面與資訊</string>
     <string name="scraping_cover_title">封面來源</string>
     <string name="scraping_cover_desc">依序嘗試，拖曳排序</string>
     <string name="scraping_meta_title">資訊來源</string>
@@ -207,12 +196,6 @@
     <string name="node_gametdb_desc">任天堂全系與 PS3 官方編號封面</string>
     <string name="node_steamgriddb">SteamGridDB</string>
     <string name="node_steamgriddb_desc">Switch/PC/獨立高清封面（需 API Key）</string>
-    <string name="node_libretro_cdn">Libretro</string>
-    <string name="node_libretro_cdn_desc">官方封面庫</string>
-    <string name="node_libretro_jsdelivr">Libretro (jsDelivr)</string>
-    <string name="node_libretro_jsdelivr_desc">CDN 鏡像</string>
-    <string name="node_libretro_github">Libretro (GitHub)</string>
-    <string name="node_libretro_github_desc">GitHub 鏡像</string>
     <string name="node_hasheous">Hasheous</string>
     <string name="node_hasheous_desc">依 ROM 雜湊比對</string>
     <string name="node_arcadeitalia">ArcadeItalia</string>
@@ -229,17 +212,12 @@
     <string name="meta_src_libretro_db">Libretro DB</string>
     <string name="meta_src_libretro_db_desc">No-Intro/Redump 中繼資料（多鏡像容災）</string>
     <string name="meta_src_gametdb_desc">任天堂與 PS3 編號識別及中英日譯名</string>
-    <string name="meta_src_libretro_jsdelivr">Libretro DB (jsDelivr CDN)</string>
-    <string name="meta_src_libretro_jsdelivr_desc">No-Intro/Redump 中繼資料 CDN</string>
-    <string name="meta_src_libretro_github">Libretro DB (GitHub)</string>
-    <string name="meta_src_libretro_github_desc">Libretro 官方中繼資料 DAT</string>
     <string name="meta_src_hasheous_desc">CRC32 匹配官方名稱與發行商</string>
     <string name="meta_src_arcadeitalia_desc">MAME/FBNeo 年份、類型與廠商</string>
     <string name="meta_src_wikidata">Wikidata 維基數據</string>
     <string name="meta_src_wikidata_desc">開放知識圖譜補充查詢</string>
 
     <!-- Edit game scraping -->
-    <string name="edit_scrape_boxart">線上刮削封面</string>
     <string name="scrape_title">線上刮削封面</string>
     <string name="scrape_loading">正在從已啟用節點查詢…</string>
     <string name="scrape_empty">未找到封面</string>
@@ -308,7 +286,6 @@
     <string name="launcher_pick_custom_app">其他應用…</string>
     <string name="launcher_pick_app_title">選擇啟動器應用</string>
     <string name="launcher_search_app_hint">搜尋應用名稱或套件名…</string>
-    <string name="launch_mode_title">為「%s」選擇啟動方式</string>
     <string name="launch_mode_content_uri">標準（content://）</string>
     <string name="launch_mode_content_uri_desc">推薦</string>
     <string name="launch_mode_file_uri">舊版（file://）</string>
@@ -350,7 +327,7 @@
     <string name="key_action_settings">設定</string>
     <string name="key_action_play">開始 / 確認</string>
     <string name="key_action_back">返回</string>
-    <string name="key_action_menu">遊戲選單</string>
+    <string name="key_action_menu">遊戲詳情</string>
     <string name="key_action_view_mode">切換檢視</string>
     <string name="key_action_search">搜尋</string>
     <string name="keybind_capture_title">綁定「%s」</string>
@@ -367,15 +344,10 @@
 
     <!-- Theme Accent -->
     <string name="settings_theme_accent">主題色</string>
-    <string name="accent_ocean">海洋</string>
-    <string name="accent_sunset">日落</string>
-    <string name="accent_sakura">櫻花</string>
-    <string name="accent_graphite">石墨</string>
 
     <!-- Reorganized Settings Sections -->
     <string name="settings_sec_appearance">外觀</string>
     <string name="settings_sec_home">主頁</string>
-    <string name="settings_sec_library_scrape">遊戲庫與刮削</string>
     <string name="settings_sec_controls">操控</string>
     <string name="settings_sec_system">系統</string>
 
@@ -405,7 +377,6 @@
     <string name="tab_follow_system_lang_desc">自動翻譯名稱</string>
     <string name="tab_uncategorized_title">未歸類平台 · %d</string>
     <string name="tab_uncategorized_all_done">平台已全部歸類</string>
-    <string name="tab_quick_create_cat">新增分類</string>
     <string name="tab_add_to_existing_cat">歸入已有分類…</string>
     <string name="tab_pick_category_title">將「%s」歸入分類</string>
 
@@ -419,8 +390,6 @@
     <string name="launcher_aspect_square">方形 1:1</string>
     <string name="launcher_aspect_landscape">橫向 4:3</string>
     <string name="launcher_aspect_wide">寬螢幕 16:9</string>
-    <string name="launcher_supported_not_installed">未安裝</string>
-    <string name="launcher_not_installed">未安裝</string>
     <string name="launcher_ra_custom_core">自訂核心…</string>
     <string name="launcher_ra_custom_core_title">輸入 RetroArch 核心名</string>
     <string name="launcher_ra_custom_core_hint">如 bsnes_hd_beta 或 fbneo</string>
@@ -466,11 +435,8 @@
     <string name="keybind_reset_confirm_desc">自訂按鍵將被清除。</string>
     <string name="keybind_reset_confirm_yes">重設</string>
     <string name="bg_style_aurora">極光</string>
-    <string name="bg_style_aurora_desc">柔和光帶</string>
     <string name="bg_style_image">圖片</string>
-    <string name="bg_style_image_desc">自訂圖片</string>
     <string name="bg_style_none">純色</string>
-    <string name="bg_style_none_desc">無動畫</string>
 
     <!-- Offline Messages -->
     <string name="scrape_offline">離線，請使用本機圖片</string>
@@ -526,7 +492,6 @@
     <string name="lib_files_empty">目前目錄為空</string>
     <string name="lib_files_search_hint">搜尋資料夾</string>
     <string name="lib_files_search_recursive_hint">搜尋子資料夾</string>
-    <string name="lib_files_search_current">目前目錄</string>
     <string name="lib_files_search_multi">多層搜尋</string>
     <string name="lib_files_search_multi_short">多層</string>
     <string name="lib_files_search_empty">未找到相符的檔案或目錄</string>
@@ -556,7 +521,6 @@
     <string name="lan_nic_empty">無可用區域網路</string>
     <string name="lan_share_title">遊戲快傳服務</string>
     <string name="lan_share_desc">向附近裝置傳送遊戲</string>
-    <string name="lan_share_online_fmt">%1$s:%2$d · 附近 %3$d 台</string>
     <string name="lan_share_scan">掃描裝置</string>
     <string name="lan_share_peers_empty">未發現裝置，請連線同一網路</string>
     <string name="lan_web_title">網頁管理</string>
@@ -671,23 +635,8 @@
     <string name="lib_font_apply_ui">設為介面字體</string>
 
     <!-- Quick Share Standalone Screen, History, Web Clients, External Storage & Copy -->
-    <string name="quick_share_title">遊戲快傳</string>
-    <string name="quick_share_tab_transfer">快傳收發</string>
-    <string name="quick_share_tab_history">接收記錄</string>
-    <string name="quick_share_open_standalone">紀錄 · %d</string>
-    <string name="quick_share_history_count">共 %d 筆歷史接收記錄</string>
-    <string name="quick_share_history_empty">暫無接收紀錄</string>
     <string name="quick_share_history_clear">清空記錄</string>
-    <string name="quick_share_history_clear_title">清空全部接收記錄？</string>
-    <string name="quick_share_history_clear_desc">檔案不會被刪除。</string>
     <string name="quick_share_history_delete">刪除記錄</string>
-    <string name="quick_share_history_delete_only">僅刪除記錄</string>
-    <string name="quick_share_history_delete_with_files">同時刪除本機檔案</string>
-    <string name="quick_share_history_detail">接收詳情</string>
-    <string name="quick_share_history_from">傳送方：%1$s（%2$s）</string>
-    <string name="quick_share_history_missing">本機檔案已移動或刪除</string>
-    <string name="quick_share_history_open_file">預覽 / 檢視</string>
-    <string name="quick_share_history_open_folder">打開所在資料夾</string>
     <string name="quick_share_history_jump_folder">資料夾</string>
     <string name="lan_web_clients_title">已連線用戶端 (%d)</string>
     <string name="lan_web_clients_empty">暫無連線</string>
@@ -722,37 +671,27 @@
     <string name="lan_web_history_btn">Web 傳輸記錄 (%d)</string>
     <string name="lan_web_history_title">Web 上傳與下載記錄 (%d)</string>
     <string name="lan_web_history_empty">暫無透過 Web 管理後台上傳或下載檔案的記錄。</string>
-    <string name="lan_share_history_btn">快傳收發記錄 (%d)</string>
-    <string name="lan_share_history_title">快傳收發記錄 (%d)</string>
-    <string name="lan_share_history_empty">暫無遊戲快傳收發記錄。</string>
+    <string name="lan_share_history_btn">快傳接收記錄 (%d)</string>
+    <string name="lan_share_history_title">快傳接收記錄 (%d)</string>
+    <string name="lan_share_history_empty">暫無遊戲快傳接收記錄。</string>
     <string name="lan_web_dir_upload">上傳</string>
     <string name="lan_web_dir_download">下載</string>
     <string name="lan_web_tx_failed">中斷</string>
-    <string name="accent_berry">莓果</string>
-    <string name="accent_mint">薄荷</string>
-    <string name="accent_lemon">檸檬</string>
-    <string name="accent_grape">葡萄</string>
     <string name="bg_style_sunset_flow">日落流光</string>
-    <string name="bg_style_sunset_flow_desc">柔和流動的色彩</string>
     <string name="bg_style_pixel_drift">像素漂浮</string>
-    <string name="bg_style_pixel_drift_desc">復古像素緩緩飄起</string>
     <string name="bg_style_retro_grid">復古網格</string>
-    <string name="bg_style_retro_grid_desc">合成波地平線</string>
     <string name="bg_style_cover_glow">封面氛圍光</string>
-    <string name="bg_style_cover_glow_desc">取自目前遊戲封面</string>
     <string name="view_gallery">畫廊</string>
     <string name="view_list">列表</string>
     <string name="view_grid">網格</string>
     <string name="view_bubbles">氣泡</string>
     <string name="hint_view">視圖</string>
-    <string name="hint_options">選項</string>
     <string name="settings_sec_library">遊戲庫</string>
     <string name="settings_sec_covers">封面與資訊</string>
     <string name="settings_sec_emulators">模擬器</string>
     <string name="settings_switch_section">切換分類</string>
     <string name="settings_group_theme">主題</string>
     <string name="settings_group_background">背景</string>
-    <string name="settings_group_typography">字體</string>
     <string name="settings_group_layout">版面</string>
     <string name="settings_group_folders">目錄</string>
     <string name="settings_group_actions">操作</string>
@@ -791,7 +730,6 @@
     <string name="key_action_next_letter">下一個字母（R2）</string>
     <string name="key_action_quick_hud">快捷 HUD</string>
     <string name="menu_detail">詳情</string>
-    <string name="detail_action_rescrape">重刮</string>
     <string name="detail_play_count">遊玩次數</string>
     <string name="detail_play_time">累計時長</string>
     <string name="detail_last_played">上次遊玩</string>
@@ -818,6 +756,5 @@
     <string name="lan_web_connected_short">%1$d 台接入</string>
     <string name="lan_share_peers_short">%1$d 台附近</string>
     <string name="lan_status_off">未開啟</string>
-    <string name="lan_service_enable_btn">開啟</string>
     <string name="lan_badge_incoming">待接收</string>
 </resources>

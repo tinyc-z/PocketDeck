@@ -1069,7 +1069,9 @@ fun ShareTransferHistoryDialog(
                         val openDir = remember(item.filePath) {
                             if (targetFile.isDirectory) targetFile else targetFile.parentFile
                         }?.takeIf { it.isDirectory }
-                        val countPart = if (item.fileCount > 1) " · ${item.fileCount} files" else ""
+                        val countPart = if (item.fileCount > 1) {
+                            " · ${stringResource(R.string.lan_multi_file_summary, item.fileCount)}"
+                        } else ""
                         val timePart = if (item.receivedAtMs > 0L) " · ${timeFmt.format(Date(item.receivedAtMs))}" else ""
                         val senderPart = if (item.senderName.isNotBlank()) "${item.senderName} (${item.senderIp})" else item.senderIp
 
