@@ -181,6 +181,7 @@ class WebManagerServer(
         private const val AUTO_SCRAPE_QUEUE_CAPACITY = 256
         private const val MAX_SSE_CONNECTIONS = 6
         private const val SSE_PING_INTERVAL_MS = 15_000L
+        private const val SSE_TASKS_THROTTLE_MS = 250L
     }
 
     private class SessionRecord(
@@ -354,7 +355,47 @@ class WebManagerServer(
         .put("theme", themeConfig.toJson())
         .put("online", NetworkStatus.isOnline(context))
         .put("filesRevision", repo.filesRevision.value)
-        .put("activeTaskCount", repo.fileTasks.value.size)
+
+    private fun buildFileTasksPayload(): JSONObject {
+        val now = System.currentTimeMillis()
+        val arr = JSONArray()
+        for (t in repo.fileTasks.value) {
+            arr.put(
+                JSONObject().apply {
+                    put("id", t.id)
+                    put("kind", t.kind.name.lowercase())
+                    put("source", t.source.name.lowercase())
+                    put("title", t.title)
+                    put("detail", t.detail)
+                    put("bytesDone", t.bytesDone)
+                    put("totalBytes", t.totalBytes)
+                    put("elapsedMs", (now - t.startedAtMs).coerceAtLeast(0L))
+                    put("cancelling", t.cancelling)
+                    put("cancellable", t.cancellable)
+                },
+            )
+        }
+        val evt = repo.lastFileTaskEvent.value
+        val evtObj = evt?.let {
+            JSONObject().apply {
+                put("seq", it.seq)
+                put("taskId", it.taskId)
+                put("kind", it.kind.name.lowercase())
+                put("source", it.source.name.lowercase())
+                put("title", it.title)
+                put("success", it.success)
+                put("cancelled", it.cancelled)
+                put("count", it.count)
+                put("createdName", it.createdName ?: "")
+                put("error", it.error ?: "")
+            }
+        }
+        return JSONObject().apply {
+            put("filesRevision", repo.filesRevision.value)
+            put("tasks", arr)
+            if (evtObj != null) put("lastEvent", evtObj)
+        }
+    }
 
     private fun enqueueAutoScrape(gameId: String, forceRefresh: Boolean) {
         if (gameId.isBlank() || gameId.startsWith(GameLauncher.APK_PREFIX)) return
@@ -450,8 +491,39 @@ class WebManagerServer(
             }
         }
         scope.launch {
-            repo.fileTasks.drop(1).collect {
-                emitSse("state", buildStatePayload().toString())
+            var lastPushMs = 0L
+            var lastShape = emptyList<Pair<String, Boolean>>()
+            repo.fileTasks.drop(1).collect { list ->
+                val shape = list.map { it.id to it.cancelling }
+                val now = System.currentTimeMillis()
+                val structural = list.isEmpty() || shape != lastShape
+                if (structural || now - lastPushMs >= SSE_TASKS_THROTTLE_MS) {
+                    lastShape = shape
+                    lastPushMs = now
+                    emitSse("tasks", buildFileTasksPayload().toString())
+                }
+            }
+        }
+        scope.launch {
+            repo.lastFileTaskEvent.drop(1).collect {
+                emitSse("tasks", buildFileTasksPayload().toString())
+            }
+        }
+        ScrapeLogStore.init(context)
+        scope.launch {
+            ScrapeLogStore.newBatches.collect { batch ->
+                if (activeSseCount.get() > 0 && batch.isNotEmpty()) {
+                    val arr = JSONArray()
+                    batch.forEach { arr.put(it) }
+                    emitSse("scrape_log", JSONObject().put("lines", arr).toString())
+                }
+            }
+        }
+        scope.launch {
+            ScrapeLogStore.cleared.collect {
+                if (activeSseCount.get() > 0) {
+                    emitSse("scrape_log_cleared", "{}")
+                }
             }
         }
 
@@ -934,7 +1006,6 @@ class WebManagerServer(
             req.method == "POST" && req.path == "/api/files/batch-move" -> handleBatchMove(req, res)
             req.method == "POST" && req.path == "/api/files/batch-copy" -> handleBatchCopy(req, res)
             req.method == "POST" && req.path == "/api/files/batch-delete" -> handleBatchDelete(req, res)
-            req.method == "GET" && req.path == "/api/files/tasks" -> handleFileTasks(res)
             req.method == "POST" && req.path == "/api/files/tasks/cancel" -> handleCancelFileTask(req, res)
             req.method == "GET" && req.path == "/api/scrape-logs" -> {
                 ScrapeLogStore.init(context)
@@ -1177,6 +1248,7 @@ class WebManagerServer(
         try {
             res.startEventStream()
             if (!sendEvent("state", buildStatePayload().toString())) return
+            if (!sendEvent("tasks", buildFileTasksPayload().toString())) return
 
             kotlinx.coroutines.coroutineScope {
                 val pingJob = launch {
@@ -2858,49 +2930,6 @@ class WebManagerServer(
         } else {
             res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "batch_delete_failed").toString())
         }
-    }
-
-    private fun handleFileTasks(res: HttpResponseWriter) {
-        val now = System.currentTimeMillis()
-        val arr = JSONArray()
-        for (t in repo.fileTasks.value) {
-            arr.put(
-                JSONObject().apply {
-                    put("id", t.id)
-                    put("kind", t.kind.name.lowercase())
-                    put("source", t.source.name.lowercase())
-                    put("title", t.title)
-                    put("detail", t.detail)
-                    put("bytesDone", t.bytesDone)
-                    put("totalBytes", t.totalBytes)
-                    put("elapsedMs", (now - t.startedAtMs).coerceAtLeast(0L))
-                    put("cancelling", t.cancelling)
-                    put("cancellable", t.cancellable)
-                },
-            )
-        }
-        val evt = repo.lastFileTaskEvent.value
-        val evtObj = evt?.let {
-            JSONObject().apply {
-                put("seq", it.seq)
-                put("taskId", it.taskId)
-                put("kind", it.kind.name.lowercase())
-                put("source", it.source.name.lowercase())
-                put("title", it.title)
-                put("success", it.success)
-                put("cancelled", it.cancelled)
-                put("count", it.count)
-                put("createdName", it.createdName ?: "")
-                put("error", it.error ?: "")
-            }
-        }
-        val body = JSONObject().apply {
-            put("ok", true)
-            put("filesRevision", repo.filesRevision.value)
-            put("tasks", arr)
-            if (evtObj != null) put("lastEvent", evtObj)
-        }
-        res.sendJson(200, body.toString())
     }
 
     private suspend fun handleCancelFileTask(req: HttpRequest, res: HttpResponseWriter) {

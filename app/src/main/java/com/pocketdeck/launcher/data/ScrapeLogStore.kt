@@ -7,8 +7,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
@@ -43,6 +46,12 @@ object ScrapeLogStore {
 
     private val _lines = MutableStateFlow<List<String>>(emptyList())
     val lines: StateFlow<List<String>> = _lines.asStateFlow()
+
+    private val _newBatches = MutableSharedFlow<List<String>>(extraBufferCapacity = 32)
+    val newBatches: SharedFlow<List<String>> = _newBatches.asSharedFlow()
+
+    private val _cleared = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
+    val cleared: SharedFlow<Unit> = _cleared.asSharedFlow()
 
     private val writeChannel = Channel<String>(capacity = 512, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -105,6 +114,7 @@ object ScrapeLogStore {
             }
             _lines.value = ring.toList()
         }
+        _newBatches.tryEmit(batch.toList())
         val file = logFile ?: return
         val payload = buildString(batch.size * 96) {
             for (line in batch) {
@@ -226,6 +236,7 @@ object ScrapeLogStore {
             ring.clear()
             _lines.value = emptyList()
         }
+        _cleared.tryEmit(Unit)
         val file = logFile ?: return
         ioScope.launch {
             synchronized(fileLock) {

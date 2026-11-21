@@ -1796,7 +1796,6 @@ let curTab = 'games';
 let lastKnownFilesRev = -1;
 let lastTaskEventSeq = 0;
 let hadActiveTasks = false;
-let taskPollTimer = null;
 
 function fmtDuration(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -1860,52 +1859,41 @@ function renderFileTasks(tasks) {
     '</div>';
   }).join('');
 }
-function scheduleTaskPoll(delayMs) {
-  clearTimeout(taskPollTimer);
-  taskPollTimer = setTimeout(pollFileTasks, delayMs);
-}
-async function pollFileTasks() {
-  clearTimeout(taskPollTimer);
-  try {
-    const r = await api('/api/files/tasks');
-    const d = await r.json();
-    if (!d || !d.ok) return;
-    const tasks = d.tasks || [];
-    renderFileTasks(tasks);
-    if (d.lastEvent && d.lastEvent.seq > lastTaskEventSeq) {
-      const firstInit = lastTaskEventSeq === 0 && !hadActiveTasks && !tasks.length;
-      lastTaskEventSeq = d.lastEvent.seq;
-      if (!firstInit) {
-        toast(formatTaskEventToast(d.lastEvent));
-        if (curTab === 'files') loadFiles(curDir, true);
-        loadGames();
-      }
-    }
-    if (typeof d.filesRevision === 'number') {
-      if (lastKnownFilesRev >= 0 && d.filesRevision !== lastKnownFilesRev) {
-        lastKnownFilesRev = d.filesRevision;
-        if (curTab === 'files') loadFiles(curDir, true);
-        loadGames();
-      } else {
-        lastKnownFilesRev = d.filesRevision;
-      }
-    }
-    if (tasks.length > 0) {
-      hadActiveTasks = true;
-      scheduleTaskPoll(650);
-    } else if (hadActiveTasks) {
-      hadActiveTasks = false;
+function applyFileTasksPayload(d) {
+  if (!d) return;
+  const tasks = d.tasks || [];
+  renderFileTasks(tasks);
+  if (d.lastEvent && d.lastEvent.seq > lastTaskEventSeq) {
+    const firstInit = lastTaskEventSeq === 0 && !hadActiveTasks && !tasks.length;
+    lastTaskEventSeq = d.lastEvent.seq;
+    if (!firstInit) {
+      toast(formatTaskEventToast(d.lastEvent));
       if (curTab === 'files') loadFiles(curDir, true);
       loadGames();
     }
-  } catch {}
+  }
+  if (typeof d.filesRevision === 'number') {
+    if (lastKnownFilesRev >= 0 && d.filesRevision !== lastKnownFilesRev) {
+      lastKnownFilesRev = d.filesRevision;
+      if (curTab === 'files') loadFiles(curDir, true);
+      loadGames();
+    } else {
+      lastKnownFilesRev = d.filesRevision;
+    }
+  }
+  if (tasks.length > 0) {
+    hadActiveTasks = true;
+  } else if (hadActiveTasks) {
+    hadActiveTasks = false;
+    if (curTab === 'files') loadFiles(curDir, true);
+    loadGames();
+  }
 }
 async function cancelFileTask(id, kind) {
   if (kind === 'upload' && activeUploadCtrl) {
     cancelWebUpload();
   }
   await api('/api/files/tasks/cancel', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) });
-  pollFileTasks();
 }
 
 let eventSrc = null;
@@ -2002,7 +1990,12 @@ function connectEventsSse() {
           lastKnownFilesRev = d.filesRevision;
         }
       }
-      if (d.activeTaskCount > 0 || hadActiveTasks) pollFileTasks();
+    } catch (_) {}
+  });
+  es.addEventListener('tasks', (e) => {
+    lastAliveAt = Date.now();
+    try {
+      applyFileTasksPayload(JSON.parse(e.data));
     } catch (_) {}
   });
   es.addEventListener('theme', (e) => {
@@ -2031,6 +2024,29 @@ function connectEventsSse() {
         syncOpenDetailModal(d.game);
       }
     } catch (_) {}
+  });
+  es.addEventListener('scrape_log', (e) => {
+    lastAliveAt = Date.now();
+    try {
+      const win = el('logWin');
+      if (logPollPaused || !win || !win.classList.contains('open') || win.classList.contains('min')) return;
+      const d = JSON.parse(e.data);
+      const added = (d && Array.isArray(d.lines)) ? d.lines : [];
+      if (!added.length) return;
+      for (let i = 0; i < added.length; i++) {
+        logLinesCache.unshift(added[i]);
+      }
+      if (logLinesCache.length > 300) logLinesCache.length = 300;
+      logLinesSig = '';
+      renderScrapeLogsBody();
+    } catch (_) {}
+  });
+  es.addEventListener('scrape_log_cleared', () => {
+    lastAliveAt = Date.now();
+    logLinesCache = [];
+    logLinesSig = '';
+    const win = el('logWin');
+    if (win && win.classList.contains('open')) renderScrapeLogsBody();
   });
   es.addEventListener('auth_revoked', () => {
     sseAuthDead = true;
@@ -3652,7 +3668,6 @@ async function batchDeleteSelected() {
   const j = await r.json().catch(() => ({}));
   if (r.ok && j.ok) {
     clearFileSelection();
-    pollFileTasks();
   } else {
     hadActiveTasks = false;
     toast(tr('msg_batch_del_fail') + (j.error || r.status));
@@ -3671,7 +3686,6 @@ async function compressSelected() {
   const j = await r.json().catch(() => ({}));
   if (r.ok && j.ok) {
     clearFileSelection();
-    pollFileTasks();
   } else {
     hadActiveTasks = false;
     toast(tr('msg_zip_fail') + (j.error || r.status));
@@ -3705,21 +3719,18 @@ async function extractArchive(path, name, mode) {
   const j = await r.json().catch(() => ({}));
   if (r.ok && j.ok) {
     closeModal();
-    pollFileTasks();
   } else {
     hadActiveTasks = false;
     toast(tr('msg_extract_fail') + (j.error || r.status));
   }
 }
 
-let logPollTimer = null;
 let logPollPaused = false;
 let logFetchCtrl = null;
 let logLinesCache = [];
 let logFilterKind = 'all';
 
 function stopScrapeLogsPoll() {
-  if (logPollTimer) { clearInterval(logPollTimer); logPollTimer = null; }
   if (logFetchCtrl) { try { logFetchCtrl.abort(); } catch {} logFetchCtrl = null; }
 }
 
@@ -3829,6 +3840,7 @@ function toggleLogWinMin() {
   const isMin = win.classList.toggle('min');
   const btn = el('logMinBtn');
   if (btn) btn.textContent = isMin ? '▢' : '—';
+  if (!isMin && !logPollPaused) pollScrapeLogs();
 }
 
 function toggleLogPause() {
@@ -3906,7 +3918,6 @@ function openScrapeLogsModal() {
   win.classList.add('open');
   stopScrapeLogsPoll();
   pollScrapeLogs();
-  logPollTimer = setInterval(pollScrapeLogs, 1200);
 }
 
 function closeModal() {
@@ -3978,7 +3989,6 @@ async function renderTransferBrowser(dir) {
     if (mr.ok && mj.ok) {
       clearFileSelection();
       closeModal();
-      pollFileTasks();
     } else {
       hadActiveTasks = false;
       toast(tr('msg_op_fail') + (mj.error || mr.status));
@@ -4018,7 +4028,6 @@ async function uploadFileItems(items) {
   wrap.style.display = 'block';
   cancelBox.style.display = 'block';
   hadActiveTasks = true;
-  scheduleTaskPoll(250);
   const targetDir = curDir;
   let uploadedCount = 0;
   for (let i = 0; i < items.length; i++) {
@@ -4057,7 +4066,6 @@ async function uploadFileItems(items) {
   if (wasCancelled) toast(tr('msg_upload_cancelled'));
   else if (uploadedCount > 0) toast(tr('msg_upload_done', { n: uploadedCount }));
   loadFiles(curDir, true); loadGames();
-  pollFileTasks();
 }
 
 function uploadFiles(fileList) {
@@ -4298,7 +4306,6 @@ function escJs(s) {
 })();
 
 loadInit();
-pollFileTasks();
 </script>
 </body>
 </html>"""
