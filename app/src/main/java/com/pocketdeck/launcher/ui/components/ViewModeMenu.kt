@@ -44,10 +44,12 @@ fun viewModeLabel(mode: ViewMode): String = when (mode) {
     ViewMode.List -> stringResource(R.string.view_list)
     ViewMode.Grid -> stringResource(R.string.view_grid)
     ViewMode.Bubbles -> stringResource(R.string.view_bubbles)
+    ViewMode.CoverFlow -> stringResource(R.string.view_coverflow)
 }
 
 /**
  * 视图切换弹出菜单（Sunset Arcade）：白卡 + 渐变焦点行 + 本地化名称 + 勾选图标。
+ * 当视图超过 4 种时自动切换为紧凑双列布局，确保在 4:3 掌机小屏上完整显示不溢出。
  */
 @Composable
 fun ViewModeMenu(
@@ -59,6 +61,8 @@ fun ViewModeMenu(
 ) {
     val cardShape = RoundedCornerShape(DeckBrand.RadiusL)
     val rowShape = RoundedCornerShape(DeckBrand.RadiusS)
+    val entries = ViewMode.entries
+    val twoColumns = entries.size > 4
 
     Box(
         modifier
@@ -68,52 +72,66 @@ fun ViewModeMenu(
         Column(
             Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 156.dp, bottom = 52.dp)
-                .width(172.dp)
+                .padding(start = 148.dp, bottom = 52.dp)
+                .width(if (twoColumns) 308.dp else 172.dp)
                 .cardSurface(shape = cardShape, elevation = 12.dp)
                 .border(0.8.dp, DeckColors.Line, cardShape)
                 .clickable(enabled = false, onClick = {})
                 .padding(6.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            ViewMode.entries.forEachIndexed { idx, mode ->
-                val focused = idx == highlightedIndex
-                val active = mode == currentMode
-                val tint = if (focused || active) DeckColors.Ruby else DeckColors.TextPrimary
+            val cols = if (twoColumns) 2 else 1
+            val rows = entries.chunked(cols)
+            rows.forEachIndexed { rowIdx, rowModes ->
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(rowShape)
-                        .then(
-                            when {
-                                focused -> Modifier.brandFocusRow(focused = true, shape = rowShape)
-                                active -> Modifier.background(DeckColors.AccentSoft, rowShape)
-                                else -> Modifier
-                            },
-                        )
-                        .soundClickable { onSelect(mode) }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Start,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Box(
-                        Modifier
-                            .size(19.dp)
-                            .drawBehind { drawViewModeIcon(mode, tint) },
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        text = viewModeLabel(mode),
-                        style = if (focused || active) {
-                            DeckType.listItemSelected.copy(fontWeight = FontWeight.SemiBold)
-                        } else {
-                            DeckType.listItem
-                        },
-                        color = tint,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (active) {
-                        DeckIcon(HomeIcons.Check, size = 16.dp, tint = DeckColors.Ruby)
+                    rowModes.forEachIndexed { colIdx, mode ->
+                        val idx = rowIdx * cols + colIdx
+                        val focused = idx == highlightedIndex
+                        val active = mode == currentMode
+                        val tint = if (focused || active) DeckColors.Ruby else DeckColors.TextPrimary
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .clip(rowShape)
+                                .then(
+                                    when {
+                                        focused -> Modifier.brandFocusRow(focused = true, shape = rowShape)
+                                        active -> Modifier.background(DeckColors.AccentSoft, rowShape)
+                                        else -> Modifier
+                                    },
+                                )
+                                .soundClickable { onSelect(mode) }
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(18.dp)
+                                    .drawBehind { drawViewModeIcon(mode, tint) },
+                            )
+                            Spacer(Modifier.width(9.dp))
+                            Text(
+                                text = viewModeLabel(mode),
+                                style = if (focused || active) {
+                                    DeckType.listItemSelected.copy(fontWeight = FontWeight.SemiBold)
+                                } else {
+                                    DeckType.listItem
+                                },
+                                color = tint,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (active) {
+                                DeckIcon(HomeIcons.Check, size = 15.dp, tint = DeckColors.Ruby)
+                            }
+                        }
+                    }
+                    if (twoColumns && rowModes.size == 1) {
+                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -121,14 +139,31 @@ fun ViewModeMenu(
     }
 }
 
-/** 统一绘制 4 种视图模式图标（BottomBar 和 ViewModeMenu 共用）。 */
+/** 统一绘制视图模式图标（BottomBar 和 ViewModeMenu 共用）。 */
 fun DrawScope.drawViewModeIcon(mode: ViewMode, color: Color) {
     when (mode) {
         ViewMode.Gallery -> drawGalleryIcon(color)
         ViewMode.List -> drawListIcon(color)
         ViewMode.Grid -> drawGridIcon(color)
         ViewMode.Bubbles -> drawBubblesIcon(color)
+        ViewMode.CoverFlow -> drawCoverFlowIcon(color)
     }
+}
+
+private fun DrawScope.drawCoverFlowIcon(color: Color) {
+    val w = size.width
+    val h = size.height
+    val centerW = w * 0.40f
+    val centerH = h * 0.72f
+    val centerX = (w - centerW) / 2f
+    val centerY = (h - centerH) / 2f
+    drawRoundRect(color, Offset(centerX, centerY), Size(centerW, centerH), CornerRadius(2.dp.toPx()))
+    val sideW = w * 0.14f
+    val sideH = h * 0.54f
+    val sideY = (h - sideH) / 2f
+    val gap = w * 0.06f
+    drawRoundRect(color.copy(alpha = 0.72f), Offset(centerX - gap - sideW, sideY), Size(sideW, sideH), CornerRadius(1.2.dp.toPx()))
+    drawRoundRect(color.copy(alpha = 0.72f), Offset(centerX + centerW + gap, sideY), Size(sideW, sideH), CornerRadius(1.2.dp.toPx()))
 }
 
 private fun DrawScope.drawGalleryIcon(color: Color) {

@@ -50,7 +50,7 @@ internal fun handleHomePreviewKeyEvent(
     openLanControlFromStatusBar: () -> Unit,
 ): Boolean {
     val isGameScrollKey = when (state.viewMode) {
-        ViewMode.Gallery -> event.key == Key.DirectionLeft || event.key == Key.DirectionRight
+        ViewMode.Gallery, ViewMode.CoverFlow -> event.key == Key.DirectionLeft || event.key == Key.DirectionRight
         ViewMode.List -> event.key == Key.DirectionUp || event.key == Key.DirectionDown
         ViewMode.Grid, ViewMode.Bubbles ->
             event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
@@ -124,16 +124,25 @@ internal fun handleHomePreviewKeyEvent(
 
     // 视图菜单打开时截获方向与确认键
     if (state.showViewMenu) {
+        val cols = if (ViewMode.entries.size > 4) 2 else 1
         return when {
             GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> {
                 vm.closeViewMenu()
                 true
             }
             event.key == Key.DirectionUp -> {
-                vm.moveViewMenu(-1)
+                vm.moveViewMenu(-cols)
                 true
             }
             event.key == Key.DirectionDown -> {
+                vm.moveViewMenu(cols)
+                true
+            }
+            event.key == Key.DirectionLeft -> {
+                vm.moveViewMenu(-1)
+                true
+            }
+            event.key == Key.DirectionRight -> {
                 vm.moveViewMenu(1)
                 true
             }
@@ -223,7 +232,7 @@ internal fun handleHomePreviewKeyEvent(
                 ViewMode.List -> vm.moveFocus(1)
                 ViewMode.Grid -> vm.moveFocus(GRID_COLUMNS)
                 ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, 1))
-                ViewMode.Gallery -> Unit
+                ViewMode.Gallery, ViewMode.CoverFlow -> Unit
             }
             true
         }
@@ -232,7 +241,7 @@ internal fun handleHomePreviewKeyEvent(
                 ViewMode.List -> vm.moveFocus(-1)
                 ViewMode.Grid -> vm.moveFocus(-GRID_COLUMNS)
                 ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, -1))
-                ViewMode.Gallery -> Unit
+                ViewMode.Gallery, ViewMode.CoverFlow -> Unit
             }
             true
         }
