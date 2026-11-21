@@ -1656,6 +1656,11 @@ class WebManagerServer(
         val fresh = withTimeoutOrNull(500L) {
             repo.fullLibrary.first { it?.byId?.get(id)?.customCover == null }?.byId?.get(id)
         } ?: repo.fullLibrary.value?.byId?.get(id)?.copy(customCover = null)
+        if (fresh != null && fresh.localCover.isNullOrBlank() && !fresh.id.startsWith(GameLauncher.APK_PREFIX) && NetworkStatus.isOnline(context)) {
+            val plat = repo.fullLibrary.value?.platform(fresh.platformId) ?: PlatformCatalog.forFolder(fresh.platformId)
+            val off = metadataRepo.officialNames.value[fresh.id]
+            covers.fetchWebCoverNow(fresh, plat, off)
+        }
         val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
         if (fresh != null) root.put("game", gameToJson(fresh))
         res.sendJson(200, root.toString())
