@@ -58,6 +58,7 @@ class ScraperClient(context: Context) {
         .callTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
         .connectionPool(ConnectionPool(8, 2, TimeUnit.MINUTES))
+        .addInterceptor(HttpLogInterceptor("scraper"))
         .build()
 
     val gameTdb = GameTdbClient(appCtx, http, identityExtractor)

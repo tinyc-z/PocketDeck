@@ -15,6 +15,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.GameRepository
+import com.pocketdeck.launcher.data.HttpLogInterceptor
 import com.pocketdeck.launcher.data.MetadataRepository
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.data.ScraperClient
@@ -57,6 +58,7 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
             .readTimeout(12, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
             .callTimeout(20, TimeUnit.SECONDS)
+            .addInterceptor(HttpLogInterceptor("coil"))
             .addNetworkInterceptor { chain ->
                 val resp = chain.proceed(chain.request())
                 val len = resp.body?.contentLength() ?: -1L
