@@ -452,15 +452,13 @@ fun GameLibraryScreen(
             }
             map
         }
-        val upNow = dir != null && q.isEmpty()
         val targetPath = pendingFocusPath
         if (targetPath != null) {
             val matchIdx = fileEntries.indexOfFirst { it.path == targetPath }
-            selectedIdx = if (matchIdx >= 0) (if (upNow) 1 else 0) + matchIdx else 0
+            selectedIdx = if (matchIdx >= 0) matchIdx else 0
             pendingFocusPath = null
         } else if (!dirChanged) {
-            val totalNow = (if (upNow) 1 else 0) + fileEntries.size
-            selectedIdx = selectedIdx.coerceIn(0, (totalNow - 1).coerceAtLeast(0))
+            selectedIdx = selectedIdx.coerceIn(0, (fileEntries.size - 1).coerceAtLeast(0))
         } else {
             selectedIdx = 0
         }
