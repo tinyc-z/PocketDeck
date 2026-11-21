@@ -140,14 +140,11 @@ fun EditGameScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val savedPath = withContext(Dispatchers.IO) {
-                runCatching {
-                    val dir = File(context.filesDir, "covers").apply { mkdirs() }
-                    val target = File(dir, "${game.id.hashCode().toUInt()}_${System.currentTimeMillis()}.png")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    if (target.isFile && target.length() > 0) target.absolutePath else null
-                }.getOrNull()
+                val dir = File(context.filesDir, "covers")
+                val prefix = "${game.id.hashCode().toUInt()}_${System.currentTimeMillis()}"
+                com.pocketdeck.launcher.data.ImageImportHelper
+                    .saveOptimizedCoverFromUri(context, uri, dir, prefix)
+                    ?.absolutePath
             }
             if (savedPath != null) {
                 coverPath = savedPath

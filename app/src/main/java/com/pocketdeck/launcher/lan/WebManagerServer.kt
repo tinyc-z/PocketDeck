@@ -2145,9 +2145,14 @@ class WebManagerServer(
         }
         val dir = File(context.filesDir, "custom_covers").apply { mkdirs() }
         val prevCover = repo.user.value?.covers?.get(id)
-        val target = File(dir, "upload_${System.currentTimeMillis()}.$ext")
-        val saved = runCatching { target.writeBytes(bytes); true }.getOrDefault(false)
-        if (!saved) {
+        val prefix = "upload_${System.currentTimeMillis()}"
+        val target = com.pocketdeck.launcher.data.ImageImportHelper.saveOptimizedCoverBytes(
+            context = context,
+            bytes = bytes,
+            destDir = dir,
+            filePrefix = prefix,
+        ) ?: File(dir, "$prefix.$ext").takeIf { f -> runCatching { f.writeBytes(bytes); true }.getOrDefault(false) }
+        if (target == null) {
             res.sendJson(500, """{"ok":false,"error":"save_failed"}""")
             return
         }

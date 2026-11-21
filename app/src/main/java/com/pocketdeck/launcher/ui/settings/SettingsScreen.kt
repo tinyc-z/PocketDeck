@@ -347,14 +347,10 @@ fun SettingsScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val savedPath = withContext(Dispatchers.IO) {
-                runCatching {
-                    val dir = File(context.filesDir, "backgrounds").apply { mkdirs() }
-                    val target = File(dir, "bg_${System.currentTimeMillis()}.jpg")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    if (target.isFile && target.length() > 0) target.absolutePath else null
-                }.getOrNull()
+                val dir = File(context.filesDir, "backgrounds")
+                com.pocketdeck.launcher.data.ImageImportHelper
+                    .saveOptimizedBackgroundFromUri(context, uri, dir)
+                    ?.absolutePath
             }
             if (savedPath != null) onSetCustomBackground(savedPath)
             else Toast.makeText(context, context.getString(R.string.edit_image_failed), Toast.LENGTH_SHORT).show()
