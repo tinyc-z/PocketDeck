@@ -31,12 +31,13 @@ object OfflineGameDb {
         val hashToName: Map<String, String>,
         val metaByExactName: Map<String, GameMetadata>,
         val metaByNormTitle: Map<String, GameMetadata>,
+        val metaByRawName: Map<String, GameMetadata> = emptyMap(),
     ) {
         val isEmpty: Boolean
             get() = hashToName.isEmpty() && metaByExactName.isEmpty()
 
         companion object {
-            val EMPTY = PlatformTable(emptyMap(), emptyMap(), emptyMap())
+            val EMPTY = PlatformTable(emptyMap(), emptyMap(), emptyMap(), emptyMap())
         }
     }
 
@@ -112,6 +113,7 @@ object OfflineGameDb {
     /** 纯函数解析 `meta/<system>.tsv`，便于 JVM 单元测试直接验证。 */
     fun parseMetaTsv(lines: Sequence<String>): PlatformTable {
         val hashToName = HashMap<String, String>(2048)
+        val metaByRaw = HashMap<String, GameMetadata>(1024)
         val metaByExact = HashMap<String, GameMetadata>(1024)
         val metaByNorm = HashMap<String, GameMetadata>(1024)
 
@@ -136,6 +138,7 @@ object OfflineGameDb {
                         releaseDate = parts[5].trim().takeIf { it.isNotEmpty() },
                     )
                     if (meta.isEmpty) continue
+                    metaByRaw[name] = metaByRaw[name]?.let { mergeMeta(it, meta) } ?: meta
                     val exactKey = TitleNormalizer.exactKey(name)
                     if (exactKey.isNotEmpty()) {
                         metaByExact[exactKey] = metaByExact[exactKey]?.let { mergeMeta(it, meta) } ?: meta
@@ -147,7 +150,7 @@ object OfflineGameDb {
                 }
             }
         }
-        return PlatformTable(hashToName, metaByExact, metaByNorm)
+        return PlatformTable(hashToName, metaByExact, metaByNorm, metaByRaw)
     }
 
     fun mergeMeta(primary: GameMetadata, fallback: GameMetadata): GameMetadata = GameMetadata(

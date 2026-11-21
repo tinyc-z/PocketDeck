@@ -1177,46 +1177,45 @@ class MetadataRepository(
         val byCompact = HashMap<String, ResolvedRow>(offline.metaByNormTitle.size + 16)
         val byToken = HashMap<String, MutableList<ResolvedRow>>(offline.metaByNormTitle.size + 16)
 
-        for ((crc, canonicalName) in offline.hashToName) {
-            val exactKey = TitleNormalizer.exactKey(canonicalName)
-            val normKey = TitleNormalizer.normalizedTitle(canonicalName)
-            val meta = offline.metaByExactName[exactKey]
-                ?: offline.metaByNormTitle[normKey]
-                ?: GameMetadata()
-            val row = ResolvedRow(canonicalName, meta)
-            byCrc.putIfAbsent(crc, row)
-            if (!meta.isEmpty) {
-                if (exactKey.isNotEmpty()) byExact.putIfAbsent(exactKey, row)
-                if (normKey.isNotEmpty()) {
-                    val prev = byTitle[normKey]
-                    if (prev == null || fieldCount(meta) > fieldCount(prev.meta)) {
-                        byTitle[normKey] = row
-                    }
-                    val comp = TitleNormalizer.compactKey(canonicalName)
-                    if (comp.isNotEmpty()) {
-                        val prevC = byCompact[comp]
-                        if (prevC == null || fieldCount(meta) > fieldCount(prevC.meta)) {
-                            byCompact[comp] = row
-                        }
-                    }
-                    for (tok in TitleNormalizer.tokenize(normKey)) {
-                        byToken.getOrPut(tok) { ArrayList(4) }.add(row)
-                    }
-                }
-            }
-        }
-        // 补入仅有标题元数据而无 CRC 的条目
-        for ((exactKey, meta) in offline.metaByExactName) {
-            if (exactKey.isEmpty() || meta.isEmpty || byExact.containsKey(exactKey)) continue
-            val row = ResolvedRow(exactKey, meta)
-            byExact[exactKey] = row
-            val normKey = TitleNormalizer.normalizedTitle(exactKey)
+        // 1. 仅对有元数据的 M 行建标题/分词索引（如 NES 仅 4.9k 条而非 25k 条，构建速度快 5~10 倍且内存更省）
+        val metaSource = if (offline.metaByRawName.isNotEmpty()) offline.metaByRawName else offline.metaByExactName
+        for ((name, meta) in metaSource) {
+            if (name.isEmpty() || meta.isEmpty) continue
+            val row = ResolvedRow(name, meta)
+            val exactKey = TitleNormalizer.exactKey(name)
+            if (exactKey.isNotEmpty()) byExact.putIfAbsent(exactKey, row)
+            val normKey = TitleNormalizer.normalizedTitle(name)
             if (normKey.isNotEmpty()) {
                 val prev = byTitle[normKey]
                 if (prev == null || fieldCount(meta) > fieldCount(prev.meta)) {
                     byTitle[normKey] = row
                 }
+                val comp = TitleNormalizer.compactKey(name)
+                if (comp.isNotEmpty()) {
+                    val prevC = byCompact[comp]
+                    if (prevC == null || fieldCount(meta) > fieldCount(prevC.meta)) {
+                        byCompact[comp] = row
+                    }
+                }
+                for (tok in TitleNormalizer.tokenize(normKey)) {
+                    byToken.getOrPut(tok) { ArrayList(4) }.add(row)
+                }
             }
+        }
+
+        // 2. CRC32 -> 标准名（与元数据 O(1) 关联，无元数据时零正则开销）
+        val hasAnyMeta = offline.metaByRawName.isNotEmpty() || offline.metaByExactName.isNotEmpty()
+        val emptyMeta = GameMetadata()
+        for ((crc, canonicalName) in offline.hashToName) {
+            val meta = if (!hasAnyMeta) {
+                emptyMeta
+            } else {
+                offline.metaByRawName[canonicalName]
+                    ?: offline.metaByExactName[TitleNormalizer.exactKey(canonicalName)]
+                    ?: offline.metaByNormTitle[TitleNormalizer.normalizedTitle(canonicalName)]
+                    ?: emptyMeta
+            }
+            byCrc.putIfAbsent(crc, ResolvedRow(canonicalName, meta))
         }
         return SystemTable(byCrc, emptyMap(), byExact, byTitle, byCompact, byToken)
     }
