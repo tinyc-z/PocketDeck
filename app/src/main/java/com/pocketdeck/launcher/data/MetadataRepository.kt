@@ -499,6 +499,9 @@ class MetadataRepository(
         fun isComplete(): Boolean =
             officialName != null && releaseDate != null && genre != null && developer != null && publisher != null
 
+        fun hasBasicMetadata(): Boolean =
+            releaseDate != null || genre != null || developer != null || publisher != null || description != null
+
         for (provider in enabled) {
             if (isComplete()) break
             when (provider.id) {
@@ -534,6 +537,8 @@ class MetadataRepository(
                     }
                 }
                 else -> {
+                    // 非强制刷新时：只要内置库/本地库已查到任意元数据，就不再发在线 API（如 Hasheous）补全个别缺失字段
+                    if (!forceApiRefresh && hasBasicMetadata()) continue
                     val desc = ScraperCatalog.metaDescriptor(provider.id)
                     if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
                     var hit = if (queryApi) {
