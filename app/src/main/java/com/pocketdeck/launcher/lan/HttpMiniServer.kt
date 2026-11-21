@@ -467,6 +467,7 @@ class HttpResponseWriter(private val out: OutputStream) {
             202 -> "Accepted"
             204 -> "No Content"
             206 -> "Partial Content"
+            304 -> "Not Modified"
             400 -> "Bad Request"
             401 -> "Unauthorized"
             403 -> "Forbidden"

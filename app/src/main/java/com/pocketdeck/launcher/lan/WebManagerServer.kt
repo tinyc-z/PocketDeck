@@ -1194,11 +1194,23 @@ class WebManagerServer(
             res.sendText(404, "No cover")
             return
         }
+        val bytes = resolved.second
+        val crc = java.util.zip.CRC32().apply { update(bytes) }.value
+        val etag = "\"${bytes.size}-${crc.toString(16)}\""
+        val cacheHeaders = mapOf(
+            "ETag" to etag,
+            "Cache-Control" to "private, max-age=604800",
+        )
+        val ifNoneMatch = req.headers["if-none-match"]?.trim()
+        if (ifNoneMatch != null && (ifNoneMatch == etag || ifNoneMatch == "*" || etag in ifNoneMatch)) {
+            res.sendBytes(304, ByteArray(0), resolved.first, extraHeaders = cacheHeaders)
+            return
+        }
         res.sendBytes(
             200,
-            resolved.second,
+            bytes,
             resolved.first,
-            extraHeaders = mapOf("Cache-Control" to "private, max-age=86400"),
+            extraHeaders = cacheHeaders,
         )
     }
 
