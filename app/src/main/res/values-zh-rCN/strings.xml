@@ -477,7 +477,7 @@
     <string name="lib_move_here">移动到当前目录</string>
     <string name="lib_move_done">文件已移动</string>
     <string name="lib_move_failed">移动失败：%s</string>
-    <string name="lib_new_folder">新建文件夹</string>
+    <string name="lib_new_folder">新建</string>
     <string name="lib_new_folder_title">新建文件夹名称</string>
     <string name="lib_new_folder_done">文件夹已创建</string>
     <string name="lib_new_folder_failed">创建文件夹失败：%s</string>

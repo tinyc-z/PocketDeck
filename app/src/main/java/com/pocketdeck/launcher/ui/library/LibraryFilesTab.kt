@@ -344,7 +344,7 @@ internal fun LibraryFilesTab(
             ) {
                 DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.Ruby, size = 14.dp)
                 Text(
-                    stringResource(R.string.lib_files_up).removePrefix(".. ").trim(),
+                    stringResource(R.string.key_action_back),
                     style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
                     color = DeckColors.Ruby,
                     maxLines = 1,

@@ -477,7 +477,7 @@
     <string name="lib_move_here">移動到目前目錄</string>
     <string name="lib_move_done">檔案已移動</string>
     <string name="lib_move_failed">移動失敗：%s</string>
-    <string name="lib_new_folder">新增資料夾</string>
+    <string name="lib_new_folder">新增</string>
     <string name="lib_new_folder_title">新增資料夾名稱</string>
     <string name="lib_new_folder_done">資料夾已建立</string>
     <string name="lib_new_folder_failed">建立資料夾失敗：%s</string>

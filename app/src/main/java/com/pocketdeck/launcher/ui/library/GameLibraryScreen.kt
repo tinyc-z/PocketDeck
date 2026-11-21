@@ -574,7 +574,6 @@ fun GameLibraryScreen(
     val copyDone = stringResource(R.string.lib_copy_done)
     val copyFailFmt = stringResource(R.string.lib_copy_failed)
     val copyBatchDoneFmt = stringResource(R.string.lib_copy_batch_done)
-    val storageLocationsLabel = stringResource(R.string.lib_storage_locations)
     val batchCopyFmt = stringResource(R.string.lib_batch_copy)
     val deleteDone = stringResource(R.string.delete_file_done)
     val deleteFailFmt = stringResource(R.string.delete_file_failed)
@@ -987,15 +986,6 @@ fun GameLibraryScreen(
                 ),
             )
             if (currentDir != null) {
-                add(
-                    FilesToolbarAction(label = "$storageLocationsLabel") {
-                        pendingFocusPath = currentDir?.path
-                        fileSearchOpen = false
-                        fileSearchQuery = ""
-                        currentDir = null
-                        filesToolbarIdx = 0
-                    },
-                )
                 add(FilesToolbarAction(label = stringResource(R.string.lib_new_folder), onClick = ::openNewFolderDialog))
                 if (fileEntries.isNotEmpty()) {
                     add(
@@ -1036,20 +1026,30 @@ fun GameLibraryScreen(
 
     val totalFilterChips = 6 + allPlatforms.size
 
+    fun selectLibraryMode(targetMode: LibraryMode) {
+        if (targetMode == LibraryMode.Files && mode == LibraryMode.Files && currentDir != null) {
+            // 已在文件目录页时再次点击「文件目录」Tab：直接回到顶层「存储位置」列表
+            pendingFocusPath = currentDir?.path
+            fileSearchOpen = false
+            fileSearchQuery = ""
+            multiSelectMode = false
+            selectedPaths = emptySet()
+            currentDir = null
+            filesToolbarIdx = 0
+            focusZone = LibraryZone.List
+            return
+        }
+        mode = targetMode
+        selectedIdx = 0
+        focusZone = LibraryZone.List
+    }
+
     fun triggerHeader(idx: Int) {
         when (idx) {
             0 -> onDismiss()
             1 -> showLanDialog = true
-            2 -> {
-                mode = LibraryMode.Games
-                selectedIdx = 0
-                focusZone = LibraryZone.List
-            }
-            3 -> {
-                mode = LibraryMode.Files
-                selectedIdx = 0
-                focusZone = LibraryZone.List
-            }
+            2 -> selectLibraryMode(LibraryMode.Games)
+            3 -> selectLibraryMode(LibraryMode.Files)
         }
     }
 
@@ -1322,11 +1322,7 @@ fun GameLibraryScreen(
                 focusZone = focusZone,
                 headerIdx = headerIdx,
                 onOpenLanDialog = { showLanDialog = true },
-                onSelectMode = { targetMode ->
-                    mode = targetMode
-                    selectedIdx = 0
-                    focusZone = LibraryZone.List
-                },
+                onSelectMode = ::selectLibraryMode,
                 onDismiss = onDismiss,
             )
 
