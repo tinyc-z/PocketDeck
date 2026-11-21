@@ -2652,19 +2652,70 @@ function _webSuggestKeywords(kw, system) {
   }
   return out;
 }
+const _WEB_IDX_IDB_NAME = 'pd_web_cover_idx_v1';
+const _WEB_IDX_IDB_STORE = 'indexes';
+const _WEB_IDX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+let _webIdxDbPromise = null;
+function _openWebIdxDb() {
+  if (_webIdxDbPromise) return _webIdxDbPromise;
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  _webIdxDbPromise = new Promise(resolve => {
+    try {
+      const req = indexedDB.open(_WEB_IDX_IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(_WEB_IDX_IDB_STORE)) db.createObjectStore(_WEB_IDX_IDB_STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch (e) { resolve(null); }
+  });
+  return _webIdxDbPromise;
+}
+async function _webIdxIdbGet(system) {
+  const db = await _openWebIdxDb();
+  if (!db) return null;
+  return new Promise(resolve => {
+    try {
+      const tx = db.transaction(_WEB_IDX_IDB_STORE, 'readonly');
+      const req = tx.objectStore(_WEB_IDX_IDB_STORE).get(system);
+      req.onsuccess = () => {
+        const rec = req.result;
+        if (rec && Array.isArray(rec.names) && rec.names.length && (Date.now() - (rec.ts || 0)) < _WEB_IDX_TTL_MS) {
+          resolve(rec.names);
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => resolve(null);
+    } catch (e) { resolve(null); }
+  });
+}
+async function _webIdxIdbSet(system, names) {
+  const db = await _openWebIdxDb();
+  if (!db || !Array.isArray(names) || !names.length) return;
+  try {
+    const tx = db.transaction(_WEB_IDX_IDB_STORE, 'readwrite');
+    tx.objectStore(_WEB_IDX_IDB_STORE).put({ names, ts: Date.now() }, system);
+  } catch (e) {}
+}
+
 async function _ensureWebLibretroIndex(system, statusEl) {
   if (!system) return null;
   if (_webLibretroIdx[system]) return _webLibretroIdx[system];
   const repo = encodeURIComponent(system.replace(/ /g, '_'));
-  let names = [];
-  if (statusEl) statusEl.textContent = '正在从 jsDelivr 拉取 ' + system + ' 封面目录…';
-  try {
-    const r = await fetch('https://data.jsdelivr.com/v1/package/gh/libretro-thumbnails/' + repo + '@master/flat');
-    if (r.ok) {
-      const d = await r.json();
-      names = (d.files || []).map(f => f.name || '').filter(p => p.startsWith('/Named_Boxarts/') && /\.png$/i.test(p)).map(p => p.slice('/Named_Boxarts/'.length));
-    }
-  } catch (e) {}
+  let names = await _webIdxIdbGet(system) || [];
+  let fromCache = names.length > 0;
+  if (!names.length) {
+    if (statusEl) statusEl.textContent = '正在从 jsDelivr 拉取 ' + system + ' 封面目录…';
+    try {
+      const r = await fetch('https://data.jsdelivr.com/v1/package/gh/libretro-thumbnails/' + repo + '@master/flat');
+      if (r.ok) {
+        const d = await r.json();
+        names = (d.files || []).map(f => f.name || '').filter(p => p.startsWith('/Named_Boxarts/') && /\.png$/i.test(p)).map(p => p.slice('/Named_Boxarts/'.length));
+      }
+    } catch (e) {}
+  }
   if (!names.length) {
     if (statusEl) statusEl.textContent = '正在从 GitHub 拉取 ' + system + ' 封面目录…';
     try {
@@ -2686,6 +2737,7 @@ async function _ensureWebLibretroIndex(system, statusEl) {
     } catch (e) {}
   }
   if (!names.length) return null;
+  if (!fromCache) _webIdxIdbSet(system, names);
   const byCompact = new Map();
   for (const fn of names) {
     const ck = _webCompact(fn.replace(/\.png$/i, ''));
