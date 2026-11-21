@@ -747,6 +747,7 @@ class WebManagerServer(
             req.method == "GET" && req.path == "/api/info" -> handleInfo(res)
             req.method == "GET" && req.path == "/api/games" -> handleGames(req, res)
             req.method == "GET" && req.path == "/api/games/item" -> handleGameItem(req, res)
+            req.method == "GET" && req.path == "/api/games/hash-covers" -> handleGameHashCovers(req, res)
             req.method == "GET" && req.path == "/api/cover" -> handleCover(req, res)
             req.method == "GET" && req.path == "/api/cover-candidate" -> handleCoverCandidate(req, res)
             req.method == "POST" && req.path == "/api/games/rename" -> handleGameRename(req, res)
@@ -1109,6 +1110,31 @@ class WebManagerServer(
             put("stats", buildGamesStatsJson())
         }
         res.sendJson(200, root.toString())
+    }
+
+    private suspend fun handleGameHashCovers(req: HttpRequest, res: HttpResponseWriter) {
+        val id = req.query["id"].orEmpty()
+        val game = repo.fullLibrary.value?.byId?.get(id)
+        if (game == null) {
+            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
+        val hits = metadataRepo.searchByHashForWeb(game, plat, covers)
+        val arr = JSONArray()
+        for (h in hits) {
+            val u = h.coverUrl?.takeIf { it.isNotBlank() } ?: continue
+            arr.put(
+                JSONObject().apply {
+                    put("title", h.title)
+                    put("providerId", h.providerId)
+                    put("url", u)
+                    put("fallbackUrl", h.fallbackCoverUrls.firstOrNull().orEmpty())
+                    put("matchedByHash", true)
+                },
+            )
+        }
+        res.sendJson(200, JSONObject().put("ok", true).put("candidates", arr).toString())
     }
 
     private fun handleGames(req: HttpRequest, res: HttpResponseWriter) {
@@ -1617,11 +1643,21 @@ class WebManagerServer(
             res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
             return
         }
-        if ((!req.isChunked && req.contentLength <= 0L) || req.contentLength > MAX_COVER_UPLOAD_BYTES) {
+        val sourceUrl = req.query["sourceUrl"]?.trim().orEmpty()
+        val hasSourceUrl = sourceUrl.startsWith("http://", ignoreCase = true) || sourceUrl.startsWith("https://", ignoreCase = true)
+        if (req.contentLength > MAX_COVER_UPLOAD_BYTES) {
             res.sendJson(400, """{"ok":false,"error":"invalid_image_size"}""")
             return
         }
-        val bytes = req.readBodyBytes(MAX_COVER_UPLOAD_BYTES.toInt())
+        val bodyBytes = if (req.isChunked || req.contentLength > 0L) req.readBodyBytes(MAX_COVER_UPLOAD_BYTES.toInt()) else ByteArray(0)
+        val bytes = if (bodyBytes.isNotEmpty()) {
+            bodyBytes
+        } else if (hasSourceUrl) {
+            // 若外链不允许浏览器 CORS 直读（如 hasheous.org），回退由掌机直接下载该 URL
+            covers.downloadImageBytes(sourceUrl)?.second ?: ByteArray(0)
+        } else {
+            ByteArray(0)
+        }
         if (bytes.isEmpty()) {
             res.sendJson(400, """{"ok":false,"error":"invalid_image_size"}""")
             return
@@ -1643,8 +1679,7 @@ class WebManagerServer(
             runCatching { File(prevCover).delete() }
         }
         covers.forget(id)
-        val sourceUrl = req.query["sourceUrl"]?.trim().orEmpty()
-        if (sourceUrl.startsWith("http://", ignoreCase = true) || sourceUrl.startsWith("https://", ignoreCase = true)) {
+        if (hasSourceUrl) {
             covers.recordWebPickerSourceUrl(id, sourceUrl)
         }
         val existingName = repo.user.value?.renames?.get(id)

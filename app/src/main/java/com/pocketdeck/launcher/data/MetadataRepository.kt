@@ -835,7 +835,26 @@ class MetadataRepository(
                                         ManualScrapeCandidate(title, pid, url, hit.meta, matchedByHash = isHashHit)
                                     }
                                 } else {
-                                    listOf(ManualScrapeCandidate(title, pid, null, hit.meta, matchedByHash = isHashHit))
+                                    // 若 Hash/API 命中了官方名但未自带图片（如 Hasheous 仅返回游戏名），顺手用该官方名补配 Libretro 封面
+                                    val fallbackBoxarts = if (hit.officialName?.isNotBlank() == true) {
+                                        runCatching { covers.searchIndexCandidates(title, platform) }.getOrDefault(emptyList())
+                                    } else {
+                                        emptyList()
+                                    }
+                                    if (fallbackBoxarts.isNotEmpty()) {
+                                        fallbackBoxarts.take(2).map { match ->
+                                            ManualScrapeCandidate(
+                                                title = title,
+                                                providerId = pid,
+                                                coverUrl = match.url,
+                                                metadata = hit.meta,
+                                                fallbackCoverUrls = match.fallbackUrls,
+                                                matchedByHash = isHashHit,
+                                            )
+                                        }
+                                    } else {
+                                        listOf(ManualScrapeCandidate(title, pid, null, hit.meta, matchedByHash = isHashHit))
+                                    }
                                 }
                                 val changed = synchronized(lock) { addCandidatesLocked(batch) }
                                 if (changed) {
@@ -856,6 +875,103 @@ class MetadataRepository(
             onActiveSourcesChanged(emptyList())
         }
         snapshot()
+    }
+
+    /** 专供 Web 端「在线选图」并发查询 ROM Hash 候选封面（Libretro DB CRC32/Serial + Hasheous + ScreenScraper），仅返回外链 URL。 */
+    suspend fun searchByHashForWeb(
+        game: Game,
+        platform: Platform?,
+        covers: CoverSource,
+    ): List<ManualScrapeCandidate> = withContext(Dispatchers.IO) {
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@withContext emptyList()
+        val romId = runCatching { client.extractIdentity(File(game.id), platform?.id) }.getOrNull()
+        if (romId == null || (romId.crc32 == null && romId.sha1 == null && romId.serial == null)) {
+            return@withContext emptyList()
+        }
+        val out = ArrayList<ManualScrapeCandidate>()
+        val seenUrls = HashSet<String>()
+        val lock = Any()
+        fun addItem(item: ManualScrapeCandidate) {
+            val u = item.coverUrl?.takeIf { it.isNotBlank() } ?: return
+            synchronized(lock) {
+                if (seenUrls.add(u)) out += item
+            }
+        }
+
+        val system = platform?.libretroSystem
+        val table = system?.let { systemTables[it] }
+        val online = NetworkStatus.isOnline(appCtx)
+        val cred = credentials
+
+        coroutineScope {
+            // 1) 离线 Libretro DB CRC32 / Serial → 官方名 → Libretro Boxarts
+            if (table != null && (romId.crc32 != null || romId.serial != null)) {
+                launch(Dispatchers.IO) {
+                    val hashHit = table.find("", "", crc = romId.crc32, serial = romId.serial)
+                        ?.takeIf { it.mode == MetaMatchMode.Crc32Hash || it.mode == MetaMatchMode.SerialId }
+                    val official = hashHit?.row?.officialName?.takeIf { it.isNotBlank() } ?: return@launch
+                    val boxarts = runCatching { covers.searchIndexCandidates(official, platform) }.getOrDefault(emptyList())
+                    boxarts.take(3).forEach { match ->
+                        addItem(
+                            ManualScrapeCandidate(
+                                title = official,
+                                providerId = ScraperCatalog.MetaIds.LIBRETRO_DB,
+                                coverUrl = match.url,
+                                metadata = hashHit.row.meta,
+                                fallbackCoverUrls = match.fallbackUrls,
+                                matchedByHash = true,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            // 2) 在线 Hash 源（Hasheous + 已配置凭证时的 ScreenScraper）
+            if (online) {
+                val hashProviders = buildList {
+                    add(ScraperCatalog.MetaIds.HASHEOUS)
+                    val ssDesc = ScraperCatalog.metaDescriptor(ScraperCatalog.MetaIds.SCREENSCRAPER)
+                    if (ScraperCatalog.hasCredentials(ssDesc?.credentialKind, cred)) {
+                        add(ScraperCatalog.MetaIds.SCREENSCRAPER)
+                    }
+                }
+                for (pid in hashProviders) {
+                    launch(Dispatchers.IO) {
+                        val hit = runCatching {
+                            client.queryProvider(
+                                providerId = pid,
+                                game = game,
+                                platform = platform,
+                                cred = cred,
+                                forceRefresh = false,
+                                officialNameHint = _officialNames.value[game.id],
+                            )
+                        }.getOrNull() ?: return@launch
+                        val title = hit.officialName?.takeIf { it.isNotBlank() } ?: game.title
+                        if (hit.coverUrls.isNotEmpty()) {
+                            hit.coverUrls.take(3).forEach { url ->
+                                addItem(ManualScrapeCandidate(title, pid, url, hit.meta, matchedByHash = true))
+                            }
+                        } else if (!hit.officialName.isNullOrBlank()) {
+                            val boxarts = runCatching { covers.searchIndexCandidates(title, platform) }.getOrDefault(emptyList())
+                            boxarts.take(2).forEach { match ->
+                                addItem(
+                                    ManualScrapeCandidate(
+                                        title = title,
+                                        providerId = pid,
+                                        coverUrl = match.url,
+                                        metadata = hit.meta,
+                                        fallbackCoverUrls = match.fallbackUrls,
+                                        matchedByHash = true,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        synchronized(lock) { out.take(6).toList() }
     }
 
     /** 一键应用手动搜索刮削结果（封面 + 元数据 + 官方名）。 */

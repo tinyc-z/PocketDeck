@@ -529,7 +529,11 @@ fun ManualScrapeDialog(
                                     } else if (canRetry) {
                                         DeckIcon(DeckIcons.Refresh, tint = DeckColors.Ruby, size = 18.dp)
                                     } else {
-                                        DeckIcon(DeckIcons.Image, tint = DeckColors.TextSecondary, size = 18.dp)
+                                        Text(
+                                            text = "—",
+                                            style = DeckType.metaLabel,
+                                            color = DeckColors.TextSecondary,
+                                        )
                                     }
                                 }
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

@@ -2747,21 +2747,41 @@ async function runWebCoverSearch(id, sys) {
   const kw = inp.value.trim();
   if (!kw) return;
   grid.innerHTML = '';
+  const hashPromise = api('/api/games/hash-covers?id=' + encodeURIComponent(id))
+    .then(r => r.ok ? r.json() : null)
+    .then(d => (d && d.ok && Array.isArray(d.candidates)) ? d.candidates : [])
+    .catch(() => []);
   const idx = await _ensureWebLibretroIndex(sys, statusEl);
-  if (!idx) {
-    if (statusEl) statusEl.textContent = '无法连接封面目录源（jsDelivr / GitHub），请检查电脑网络。';
-    return;
+  const libItems = idx ? _searchWebLibretro(idx, kw, 16) : [];
+  const hashRaw = await hashPromise;
+  const merged = [];
+  const seen = new Set();
+  const normKey = u => String(u || '').replace(/^https:\/\/(thumbnails\.libretro\.com|cdn\.jsdelivr\.net\/gh\/libretro-thumbnails|raw\.githubusercontent\.com\/libretro-thumbnails)\//, '');
+  const pushItem = it => {
+    const k = normKey(it.primaryUrl);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    merged.push(it);
+  };
+  for (const h of hashRaw) {
+    pushItem({
+      title: h.title || kw,
+      primaryUrl: h.url,
+      fallbackUrl: h.fallbackUrl || h.url,
+      matchedByHash: true,
+    });
   }
-  const items = _searchWebLibretro(idx, kw, 16);
-  if (!items.length) {
-    if (statusEl) statusEl.textContent = tr('msg_no_cands');
-    renderWebCoverSuggest(id, sys);
+  for (const c of libItems) pushItem(c);
+  if (!merged.length) {
+    if (statusEl) statusEl.textContent = idx ? tr('msg_no_cands') : '无法连接封面目录源（jsDelivr / GitHub），请检查电脑网络。';
+    if (idx) renderWebCoverSuggest(id, sys);
     return;
   }
   if (statusEl) statusEl.textContent = '点击应用候选封面（浏览器直连加载，选定后同步到掌机）';
-  grid.innerHTML = items.map((c, i) =>
-    '<div class="cand-item" onclick="applyWebDirectCover(\'' + escJs(id) + '\',\'' + escJs(c.primaryUrl) + '\',\'' + escJs(c.fallbackUrl) + '\',this)">' +
-      '<img loading="lazy" src="' + esc(c.primaryUrl) + '" data-fb="' + esc(c.fallbackUrl) + '" onerror="if(!this.dataset.tried){this.dataset.tried=\'1\';this.src=this.dataset.fb;}"/>' +
+  grid.innerHTML = merged.map(c =>
+    '<div class="cand-item" style="position:relative;" onclick="applyWebDirectCover(\'' + escJs(id) + '\',\'' + escJs(c.primaryUrl) + '\',\'' + escJs(c.fallbackUrl) + '\',this)">' +
+      (c.matchedByHash ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:var(--ruby);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">Hash</em>' : '') +
+      '<img loading="lazy" src="' + esc(c.primaryUrl) + '" data-fb="' + esc(c.fallbackUrl) + '" onerror="if(!this.dataset.tried&&this.dataset.fb&&this.dataset.fb!==this.src){this.dataset.tried=\'1\';this.src=this.dataset.fb;}"/>' +
       '<span title="' + esc(c.title) + '">' + esc(c.title) + '</span>' +
     '</div>'
   ).join('');
@@ -2779,14 +2799,9 @@ async function applyWebDirectCover(id, primaryUrl, fallbackUrl, cardEl) {
       if (resp.ok) { blob = await resp.blob(); usedUrl = url; break; }
     } catch (e) {}
   }
-  if (!blob || blob.size < 32) {
-    if (cardEl) cardEl.style.opacity = '1';
-    toast(tr('msg_cover_fail'));
-    return;
-  }
   const uploadUrl = '/api/games/upload-cover?id=' + encodeURIComponent(id) + (usedUrl ? ('&sourceUrl=' + encodeURIComponent(usedUrl)) : '');
   const r = await api(uploadUrl, {
-    method: 'POST', body: blob
+    method: 'POST', body: (blob && blob.size >= 32) ? blob : ''
   });
   if (r.ok) {
     const d = await r.json().catch(() => ({}));
