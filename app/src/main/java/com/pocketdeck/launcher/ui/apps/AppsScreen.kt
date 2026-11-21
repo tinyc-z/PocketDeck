@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -147,6 +148,7 @@ fun AppsScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusRequester = remember { FocusRequester() }
     var focusIndex by remember { mutableIntStateOf(0) }
+    var scrollTick by remember { mutableIntStateOf(0) }
     val gridState = rememberLazyGridState()
     var apps by remember { mutableStateOf(InstalledAppsCache.apps) }
     var refreshTick by remember { mutableIntStateOf(0) }
@@ -245,11 +247,20 @@ fun AppsScreen(
     }
 
     val totalItems = 2 + apps.size
-    LaunchedEffect(focusIndex, totalItems) {
-        if (focusIndex in 0 until totalItems) {
-            val visible = gridState.layoutInfo.visibleItemsInfo
-            if (visible.none { it.index == focusIndex }) {
-                gridState.animateScrollToItem(focusIndex)
+    LaunchedEffect(focusIndex, totalItems, scrollTick) {
+        if (focusIndex !in 0 until totalItems) return@LaunchedEffect
+        val info = gridState.layoutInfo
+        val visibleTop = info.viewportStartOffset + info.beforeContentPadding
+        val visibleBottom = info.viewportEndOffset - info.afterContentPadding
+        val itemInfo = info.visibleItemsInfo.firstOrNull { it.index == focusIndex }
+        if (itemInfo == null) {
+            gridState.animateScrollToItem(focusIndex)
+        } else {
+            val itemTop = itemInfo.offset.y
+            val itemBottom = itemTop + itemInfo.size.height
+            when {
+                itemTop < visibleTop -> gridState.animateScrollBy((itemTop - visibleTop).toFloat())
+                itemBottom > visibleBottom -> gridState.animateScrollBy((itemBottom - visibleBottom).toFloat())
             }
         }
     }
@@ -328,20 +339,24 @@ fun AppsScreen(
                     }
                     event.key == Key.DirectionLeft -> {
                         focusIndex = (focusIndex - 1).coerceAtLeast(0)
+                        scrollTick++
                         true
                     }
                     event.key == Key.DirectionRight -> {
                         focusIndex = (focusIndex + 1).coerceAtMost(totalItems - 1)
+                        scrollTick++
                         true
                     }
                     event.key == Key.DirectionUp -> {
                         val cols = appsColumnsForWidth(context.resources.configuration.screenWidthDp)
                         focusIndex = (focusIndex - cols).coerceAtLeast(0)
+                        scrollTick++
                         true
                     }
                     event.key == Key.DirectionDown -> {
                         val cols = appsColumnsForWidth(context.resources.configuration.screenWidthDp)
                         focusIndex = (focusIndex + cols).coerceAtMost(totalItems - 1)
+                        scrollTick++
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
