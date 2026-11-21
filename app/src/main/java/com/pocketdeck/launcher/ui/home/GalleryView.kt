@@ -1,5 +1,6 @@
 package com.pocketdeck.launcher.ui.home
 
+import com.pocketdeck.launcher.data.formatFileSize
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
@@ -28,7 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -597,17 +598,6 @@ private fun computeCardX(
     val t = clamped - f0
     val x0 = xAtFocus(f0)
     return if (f0 == f1 || t <= 0f) x0 else x0 + (xAtFocus(f1) - x0) * t
-}
-
-internal fun formatFileSize(bytes: Long): String = when {
-    bytes <= 0L -> "0 B"
-    bytes < 1024L -> "$bytes B"
-    bytes < 1024L * 1024L -> {
-        val kb = bytes / 1024.0
-        if (kb >= 100.0) String.format(Locale.US, "%.0f KB", kb) else String.format(Locale.US, "%.1f KB", kb)
-    }
-    bytes < 1024L * 1024L * 1024L -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
-    else -> String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
 }
 
 internal fun GameMetadata?.toDisplayFields(

@@ -5,6 +5,9 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import com.pocketdeck.launcher.data.GameRepository
+import com.pocketdeck.launcher.data.mimeTypeForFile
+import com.pocketdeck.launcher.data.sanitizeUploadFileName
+import com.pocketdeck.launcher.data.uniqueFile
 import com.pocketdeck.launcher.safeCoroutineHandler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -739,7 +742,7 @@ class QuickShareService(
         val sessionId = body?.optString("sessionId", "").orEmpty().replace(CONTROL_CHARS, "").trim()
         val senderId = body?.optString("senderId", "").orEmpty().replace(CONTROL_CHARS, "").take(128)
         val senderName = body?.optString("senderName", "").orEmpty().replace(CONTROL_CHARS, "").trim().take(64).ifBlank { req.remoteIp }
-        val fileName = sanitizeFileName(body?.optString("fileName", "").orEmpty())
+        val fileName = sanitizeUploadFileName(body?.optString("fileName", "").orEmpty(), stripControlChars = true, maxLength = 255)
         val fileSize = body?.optLong("fileSize", 0L) ?: 0L
         val platformId = body?.optString("platformId", "").orEmpty().replace(CONTROL_CHARS, "").take(40)
         val platformName = body?.optString("platformName", "").orEmpty().replace(CONTROL_CHARS, "").take(40)
@@ -749,7 +752,7 @@ class QuickShareService(
             if (namesJson != null) {
                 val limit = minOf(namesJson.length(), MAX_FILES_PER_SESSION)
                 for (i in 0 until limit) {
-                    sanitizeFileName(namesJson.optString(i, ""))?.let(::add)
+                    sanitizeUploadFileName(namesJson.optString(i, ""), stripControlChars = true, maxLength = 255)?.let(::add)
                 }
             }
             if (isEmpty() && fileName != null) add(fileName)
@@ -837,7 +840,7 @@ class QuickShareService(
         }
 
         val rawName = req.query["name"].orEmpty()
-        val itemName = sanitizeFileName(rawName) ?: sess.req.fileName
+        val itemName = sanitizeUploadFileName(rawName, stripControlChars = true, maxLength = 255) ?: sess.req.fileName
         val itemIdx = req.query["index"]?.toIntOrNull()?.coerceAtLeast(1) ?: (sess.receivedCount.get() + 1)
         val totalFiles = sess.req.fileCount.coerceAtLeast(1)
         val isLast = req.query["isLast"]?.let { it == "1" || it.equals("true", ignoreCase = true) }
@@ -1471,7 +1474,7 @@ class QuickShareService(
                             put("id", fid)
                             put("fileName", file.name)
                             put("size", file.length())
-                            put("fileType", guessMime(file))
+                            put("fileType", mimeTypeForFile(file))
                         },
                     )
                 }
@@ -2126,40 +2129,10 @@ class QuickShareService(
         return dirs.toList()
     }
 
-    private fun sanitizeFileName(raw: String): String? {
-        val t = raw.replace(CONTROL_CHARS, "").trim()
-        if (t.isEmpty() || t.length > 255 || t == "." || t == "..") return null
-        if ('/' in t || '\\' in t || '\u0000' in t) return null
-        return t
-    }
-
     private fun sanitizeLocalSendFileName(raw: String): String? {
         // LocalSend sometimes sends relative path segments; extract only final leaf safely
         val leaf = raw.replace('\\', '/').substringAfterLast('/').trim()
-        return sanitizeFileName(leaf)
-    }
-
-    private fun guessMime(file: File): String = when (file.extension.lowercase()) {
-        "png" -> "image/png"
-        "jpg", "jpeg" -> "image/jpeg"
-        "webp" -> "image/webp"
-        "zip" -> "application/zip"
-        "txt", "cfg", "ini", "json" -> "text/plain"
-        else -> "application/octet-stream"
-    }
-
-    private fun uniqueFile(dir: File, name: String): File {
-        var candidate = File(dir, name)
-        if (!candidate.exists()) return candidate
-        val dot = name.lastIndexOf('.')
-        val stem = if (dot > 0) name.substring(0, dot) else name
-        val ext = if (dot > 0) name.substring(dot) else ""
-        var n = 1
-        while (candidate.exists()) {
-            candidate = File(dir, "${stem}_$n$ext")
-            n++
-        }
-        return candidate
+        return sanitizeUploadFileName(leaf, stripControlChars = true, maxLength = 255)
     }
 
     private fun acquireMulticastLock() {

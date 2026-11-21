@@ -1,10 +1,9 @@
 package com.pocketdeck.launcher.ui.library
 
 import android.content.Context
-import android.os.Build
 import android.os.Environment
-import android.os.storage.StorageManager
 import android.widget.Toast
+import com.pocketdeck.launcher.data.formatCompactSize
 import com.pocketdeck.launcher.lan.TransferPhase
 import com.pocketdeck.launcher.ui.components.BrandTileIcon
 import com.pocketdeck.launcher.ui.components.FavoriteHeartIcon
@@ -39,10 +38,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.LinearProgressIndicator
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -284,7 +283,7 @@ fun GameLibraryScreen(
         if (gameSearchOpen) {
             runCatching { filterRowState.animateScrollToItem(0) }
             delay(80)
-            runCatching { searchFieldFr.requestFocus() }
+            searchFieldFr.requestFocusSafely()
         }
     }
     var fileSearchOpen by remember { mutableStateOf(false) }
@@ -506,7 +505,7 @@ fun GameLibraryScreen(
     LaunchedEffect(fileSearchOpen) {
         if (fileSearchOpen) {
             delay(40)
-            runCatching { fileSearchFieldFr.requestFocus() }
+            fileSearchFieldFr.requestFocusSafely()
         }
     }
 
@@ -985,7 +984,7 @@ fun GameLibraryScreen(
                         if (!fileSearchOpen) {
                             fileSearchOpen = true
                         } else {
-                            runCatching { fileSearchFieldFr.requestFocus() }
+                            fileSearchFieldFr.requestFocusSafely()
                         }
                     },
                 ),
@@ -1064,7 +1063,7 @@ fun GameLibraryScreen(
                 if (!gameSearchOpen) {
                     gameSearchOpen = true
                 } else {
-                    runCatching { searchFieldFr.requestFocus() }
+                    searchFieldFr.requestFocusSafely()
                 }
                 selectedIdx = 0
             }
@@ -1374,7 +1373,7 @@ fun GameLibraryScreen(
                         searchQuery = ""
                         gameSearchOpen = false
                         selectedIdx = 0
-                        runCatching { focusRequester.requestFocus() }
+                        focusRequester.requestFocusSafely()
                     },
                     onSearchFieldFocusChange = { searchFieldFocused = it },
                     onSearchAction = {
@@ -1422,7 +1421,7 @@ fun GameLibraryScreen(
                         fileSearchQuery = ""
                         fileSearchOpen = false
                         selectedIdx = 0
-                        runCatching { focusRequester.requestFocus() }
+                        focusRequester.requestFocusSafely()
                     },
                     onFileSearchFieldFocusChange = { fileSearchFieldFocused = it },
                     onFileSearchAction = {

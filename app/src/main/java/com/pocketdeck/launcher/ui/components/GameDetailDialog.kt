@@ -1,5 +1,6 @@
 package com.pocketdeck.launcher.ui.components
 
+import com.pocketdeck.launcher.data.formatCompactSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -23,8 +24,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -160,7 +159,7 @@ fun GameDetailDialog(
     if (actionIdx >= actions.size) actionIdx = 0
 
     LaunchedEffect(game.id, isTopmost) {
-        if (isTopmost) runCatching { focusRequester.requestFocus() }
+        if (isTopmost) focusRequester.requestFocusSafely()
     }
 
     BoxWithConstraints(
@@ -304,7 +303,7 @@ fun GameDetailDialog(
                 metadata?.releaseDate,
                 metadata?.publisher ?: metadata?.developer,
                 metadata?.genre,
-                formatDetailFileSize(game.fileSize),
+                formatCompactSize(game.fileSize),
                 if (game.discFiles.size > 1) stringResource(R.string.detail_multi_disc_fmt, game.discFiles.size) else null,
             )
             val categoryLabel = if (categoryNames.isNotEmpty()) {
@@ -686,13 +685,4 @@ private fun formatPlayDuration(ms: Long): String {
     val hours = totalMins / 60L
     val mins = totalMins % 60L
     return if (hours > 0L) "${hours}h ${mins}m" else "${mins}m"
-}
-
-private fun formatDetailFileSize(bytes: Long): String? {
-    if (bytes <= 0L) return null
-    val kb = bytes / 1024.0
-    if (kb < 1024.0) return String.format(Locale.US, "%.0f KB", kb)
-    val mb = kb / 1024.0
-    if (mb < 1024.0) return String.format(Locale.US, "%.1f MB", mb)
-    return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }

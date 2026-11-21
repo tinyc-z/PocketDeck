@@ -12,6 +12,7 @@ import com.pocketdeck.launcher.launch.EmulatorRegistry
 import com.pocketdeck.launcher.launch.GameLauncher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -293,13 +294,19 @@ class GameRepository(
         scope.launch {
             _scanning.value = true
             try {
+                // 并行启动二进制索引预读与 UserStore 首读，缩短冷启等待
+                val warmCacheDeferred = if (scanned.value == null) {
+                    async(Dispatchers.IO) { indexCache.loadUnchecked() }
+                } else {
+                    null
+                }
                 val userData = userStore.data.first()
                 val roots = effectiveRoots(userData)
                 val rootsKey = roots.joinToString(";") { it.path }
 
                 // 阶段 1：冷启动命中本地二进制索引缓存 → < 30ms 秒开首屏
                 val hadWarmCache = if (scanned.value == null) {
-                    val cached = withContext(Dispatchers.IO) { indexCache.load(rootsKey) }
+                    val cached = warmCacheDeferred?.await()?.takeIf { it.root == rootsKey }
                     if (cached != null && refreshGen.get() == gen) {
                         scanned.value = cached
                         true

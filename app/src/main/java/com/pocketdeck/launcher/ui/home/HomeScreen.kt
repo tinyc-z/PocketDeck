@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -31,7 +32,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -109,6 +110,7 @@ fun HomeScreen(
     vm: HomeViewModel = homeViewModel(),
 ) {
     val state by vm.state.collectAsState()
+    ReportDrawnWhen { state.libraryLoaded }
     val fullLibrary by vm.fullLibrary.collectAsState()
     val filesRevision by vm.filesRevision.collectAsState()
     val fileTasks by vm.fileTasks.collectAsState()

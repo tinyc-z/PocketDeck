@@ -16,14 +16,21 @@ object AppLocale {
 
     private const val PREFS = "app_locale"
     private const val KEY = "lang"
+    @Volatile
+    private var cachedCode: String? = null
 
     fun get(context: Context): String {
+        cachedCode?.let { return it }
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, SYSTEM) ?: SYSTEM
-        return if (saved in CODES) saved else SYSTEM
+        val resolved = if (saved in CODES) saved else SYSTEM
+        cachedCode = resolved
+        return resolved
     }
 
     fun set(context: Context, code: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, code).commit()
+        val resolved = if (code in CODES) code else SYSTEM
+        cachedCode = resolved
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, resolved).commit()
     }
 
     private fun localeOf(code: String): Locale? = when (code) {

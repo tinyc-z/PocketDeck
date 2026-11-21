@@ -1,5 +1,7 @@
 package com.pocketdeck.launcher.ui.lan
 
+import com.pocketdeck.launcher.data.formatSize
+import com.pocketdeck.launcher.data.formatSpeed
 import android.os.Environment
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -29,12 +31,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.LinearProgressIndicator
+import com.pocketdeck.launcher.ui.components.Switch
+import com.pocketdeck.launcher.ui.components.SwitchDefaults
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -99,6 +101,7 @@ import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.DpadNavController
 import com.pocketdeck.launcher.ui.components.dpadNavItem
 import com.pocketdeck.launcher.ui.components.gamepadClickable
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.settings.NameDialog
@@ -577,7 +580,7 @@ fun WebTransferHistoryDialog(
     val timeFmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
 
     LaunchedEffect(Unit) {
-        runCatching { closeFr.requestFocus() }
+        closeFr.requestFocusSafely()
     }
 
     Box(

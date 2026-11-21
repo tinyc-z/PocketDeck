@@ -1,5 +1,6 @@
 package com.pocketdeck.launcher.ui.lan
 
+import com.pocketdeck.launcher.data.formatSize
 import android.os.Environment
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -29,12 +30,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.LinearProgressIndicator
+import com.pocketdeck.launcher.ui.components.Switch
+import com.pocketdeck.launcher.ui.components.SwitchDefaults
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -661,24 +662,5 @@ internal fun ShareTransferProgressSection(
             }
         }
     }
-}
-
-internal fun formatSpeed(bytesPerSec: Long): String {
-    if (bytesPerSec <= 0L) return "0 B/s"
-    if (bytesPerSec < 1024L) return "$bytesPerSec B/s"
-    val kb = bytesPerSec / 1024.0
-    if (kb < 1024.0) return String.format(Locale.US, "%.0f KB/s", kb)
-    val mb = kb / 1024.0
-    if (mb < 1024.0) return String.format(Locale.US, "%.1f MB/s", mb)
-    return String.format(Locale.US, "%.2f GB/s", mb / 1024.0)
-}
-
-internal fun formatSize(bytes: Long): String {
-    if (bytes <= 0L) return "0 B"
-    val kb = bytes / 1024.0
-    if (kb < 1024) return String.format(Locale.US, "%.0f KB", kb)
-    val mb = kb / 1024.0
-    if (mb < 1024) return String.format(Locale.US, "%.1f MB", mb)
-    return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
 

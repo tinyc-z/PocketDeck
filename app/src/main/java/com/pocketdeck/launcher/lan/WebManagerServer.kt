@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
-import android.os.storage.StorageManager
 import com.pocketdeck.launcher.data.AppTheme
 import com.pocketdeck.launcher.BuildConfig
 import com.pocketdeck.launcher.data.ArchiveManager
@@ -20,6 +19,10 @@ import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.data.RomScanner
 import com.pocketdeck.launcher.data.ThemeAccent
 import com.pocketdeck.launcher.data.UserData
+import com.pocketdeck.launcher.data.detectImageFormat
+import com.pocketdeck.launcher.data.listExternalStorageVolumes
+import com.pocketdeck.launcher.data.sanitizeUploadFileName
+import com.pocketdeck.launcher.data.uniqueFile
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.safeCoroutineHandler
 import com.pocketdeck.launcher.ui.theme.deckPalette
@@ -532,6 +535,26 @@ class WebManagerServer(
                 }
             }
         }
+        fun emitChangedGamesSse(changedIds: List<String>, lib: com.pocketdeck.launcher.data.model.Library?) {
+            if (changedIds.isEmpty()) return
+            if (changedIds.size > 16) {
+                emitSse("library_changed", "{}")
+                return
+            }
+            if (lib == null) return
+            val statsJson = buildGamesStatsJson()
+            for (id in changedIds) {
+                val g = lib.byId[id] ?: continue
+                emitSse(
+                    "game_updated",
+                    JSONObject()
+                        .put("game", gameToJson(g))
+                        .put("stats", statsJson)
+                        .toString(),
+                )
+            }
+        }
+
         // 监听掌机端游戏库 / 封面 / 元数据 / 收藏 / 隐藏 / 重命名 / 分类变化，实时通过 SSE 同步到 Web 端
         launchCollector {
             data class GameSnap(
@@ -564,29 +587,13 @@ class WebManagerServer(
                     if (curTabSig != prevTabSig) {
                         emitSse("categories_changed", "{}")
                     }
-                    val addedOrRemoved = curSnaps.keys != prevSnaps.keys
-                    if (addedOrRemoved) {
+                    if (curSnaps.keys != prevSnaps.keys) {
                         emitSse("library_changed", "{}")
                     } else {
-                        val changedIds = ArrayList<String>()
-                        for ((id, snap) in curSnaps) {
-                            if (prevSnaps[id] != snap) changedIds += id
+                        val changedIds = curSnaps.entries.mapNotNull { (id, snap) ->
+                            id.takeIf { prevSnaps[id] != snap }
                         }
-                        if (changedIds.size > 16) {
-                            emitSse("library_changed", "{}")
-                        } else if (changedIds.isNotEmpty()) {
-                            val statsJson = buildGamesStatsJson()
-                            for (id in changedIds) {
-                                val g = lib.byId[id] ?: continue
-                                emitSse(
-                                    "game_updated",
-                                    JSONObject()
-                                        .put("game", gameToJson(g))
-                                        .put("stats", statsJson)
-                                        .toString(),
-                                )
-                            }
-                        }
+                        emitChangedGamesSse(changedIds, lib)
                     }
                 }
                 prevSnaps = curSnaps
@@ -597,29 +604,11 @@ class WebManagerServer(
             var prev = covers.coverInfo.value
             covers.coverInfo.drop(1).collect { cur ->
                 if (activeSseCount.get() > 0) {
-                    val lib = repo.fullLibrary.value
-                    val changed = ArrayList<String>()
-                    for ((id, info) in cur) {
-                        if (prev[id] != info) changed += id
+                    val changed = buildList {
+                        for ((id, info) in cur) if (prev[id] != info) add(id)
+                        for (id in prev.keys) if (id !in cur) add(id)
                     }
-                    for (id in prev.keys) {
-                        if (id !in cur) changed += id
-                    }
-                    if (changed.size > 16) {
-                        emitSse("library_changed", "{}")
-                    } else if (changed.isNotEmpty() && lib != null) {
-                        val statsJson = buildGamesStatsJson()
-                        for (id in changed) {
-                            val g = lib.byId[id] ?: continue
-                            emitSse(
-                                "game_updated",
-                                JSONObject()
-                                    .put("game", gameToJson(g))
-                                    .put("stats", statsJson)
-                                    .toString(),
-                            )
-                        }
-                    }
+                    emitChangedGamesSse(changed, repo.fullLibrary.value)
                 }
                 prev = cur
             }
@@ -628,26 +617,10 @@ class WebManagerServer(
             var prev = metadataRepo.metadata.value
             metadataRepo.metadata.drop(1).collect { cur ->
                 if (activeSseCount.get() > 0) {
-                    val lib = repo.fullLibrary.value
-                    val changed = ArrayList<String>()
-                    for ((id, meta) in cur) {
-                        if (prev[id] != meta) changed += id
+                    val changed = cur.entries.mapNotNull { (id, meta) ->
+                        id.takeIf { prev[id] != meta }
                     }
-                    if (changed.size > 16) {
-                        emitSse("library_changed", "{}")
-                    } else if (changed.isNotEmpty() && lib != null) {
-                        val statsJson = buildGamesStatsJson()
-                        for (id in changed) {
-                            val g = lib.byId[id] ?: continue
-                            emitSse(
-                                "game_updated",
-                                JSONObject()
-                                    .put("game", gameToJson(g))
-                                    .put("stats", statsJson)
-                                    .toString(),
-                            )
-                        }
-                    }
+                    emitChangedGamesSse(changed, repo.fullLibrary.value)
                 }
                 prev = cur
             }
@@ -1321,38 +1294,9 @@ class WebManagerServer(
         val primaryCanon = primaryDir?.let { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
         addVolume(primaryDir, "internal", "Internal")
 
-        // 2. 外置 TF / SD / USB 存储卷（Android 11+ StorageManager）
-        val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
-        if (sm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                sm.storageVolumes.forEach { vol ->
-                    if (!vol.isPrimary && vol.state == Environment.MEDIA_MOUNTED) {
-                        val volDir = vol.directory
-                        val desc = runCatching { vol.getDescription(context) }.getOrNull().orEmpty()
-                            .ifBlank { volDir?.name ?: "TF / SD" }
-                        addVolume(volDir, "external", desc)
-                    }
-                }
-            }
-        }
-        // 3. 兼容部分掌机 ROM 的 TF / USB 挂载路径
-        runCatching {
-            context.getExternalFilesDirs(null).orEmpty().forEach { appDir ->
-                var cur = appDir
-                repeat(4) { cur = cur?.parentFile }
-                val canon = cur?.let { runCatching { it.canonicalPath }.getOrDefault(it.absolutePath) }
-                if (cur != null && canon != null && canon != primaryCanon) {
-                    addVolume(cur, "external", cur.name.ifBlank { "TF / SD" })
-                }
-            }
-        }
-        runCatching {
-            File("/storage").listFiles()?.forEach { vol ->
-                val n = vol.name
-                if (vol.isDirectory && n != "emulated" && n != "self" && n != "enc_emulated") {
-                    addVolume(vol, "external", n)
-                }
-            }
+        // 2. 外置 TF / SD / USB 存储卷
+        for (vol in listExternalStorageVolumes(context)) {
+            addVolume(vol.dir, "external", vol.description)
         }
         // 4. 兜底：若用户配置了上述未覆盖到的挂载根目录，也一并纳入
         for (r in roots) {
@@ -1929,7 +1873,7 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"invalid_platform"}""")
             return
         }
-        val cleanName = sanitizeFileName(rawName)
+        val cleanName = sanitizeUploadFileName(rawName)
         if (cleanName == null) {
             res.sendJson(400, """{"ok":false,"error":"invalid_file_name"}""")
             return
@@ -2126,7 +2070,7 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"invalid_image_size"}""")
             return
         }
-        val ext = detectImageExt(bytes)
+        val ext = detectImageFormat(bytes)?.first
         if (ext == null) {
             res.sendJson(400, """{"ok":false,"error":"invalid_image_format"}""")
             return
@@ -2699,7 +2643,7 @@ class WebManagerServer(
         val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
         val pathsArr = body?.optJSONArray("paths")
         val targetDirPath = body?.optString("targetDir", "").orEmpty()
-        val rawZipName = sanitizeFileName(body?.optString("zipName", "").orEmpty())
+        val rawZipName = sanitizeUploadFileName(body?.optString("zipName", "").orEmpty())
         val roots = repo.configuredRoots()
         val targetDir = resolveAllowedDir(targetDirPath, roots)
         if (pathsArr == null || targetDir == null || rawZipName == null) {
@@ -2753,14 +2697,14 @@ class WebManagerServer(
             res.sendJson(403, """{"ok":false,"error":"invalid_dir"}""")
             return
         }
-        val cleanName = sanitizeFileName(rawName)
+        val cleanName = sanitizeUploadFileName(rawName)
         if (cleanName == null) {
             res.sendJson(400, """{"ok":false,"error":"invalid_file_name"}""")
             return
         }
         val targetDir = if (rawSubpath.isNotEmpty()) {
             val segments = rawSubpath.replace('\\', '/').split('/').filter { it.isNotEmpty() }
-            if (segments.size > 16 || segments.any { sanitizeFileName(it) == null }) {
+            if (segments.size > 16 || segments.any { sanitizeUploadFileName(it) == null }) {
                 res.sendJson(400, """{"ok":false,"error":"invalid_subpath"}""")
                 return
             }
@@ -2858,7 +2802,7 @@ class WebManagerServer(
     private suspend fun handleMkdir(req: HttpRequest, res: HttpResponseWriter) {
         val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
         val dirPath = body?.optString("dir", "").orEmpty()
-        val name = sanitizeFileName(body?.optString("name", "").orEmpty())
+        val name = sanitizeUploadFileName(body?.optString("name", "").orEmpty())
         val roots = repo.configuredRoots()
         val parent = resolveAllowedDir(dirPath, roots)
         if (parent == null || name == null) {
@@ -2890,16 +2834,7 @@ class WebManagerServer(
         val storageRoots = buildList {
             addAll(roots)
             runCatching { Environment.getExternalStorageDirectory() }.getOrNull()?.takeIf { it.isDirectory }?.let(::add)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                runCatching {
-                    val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
-                    sm?.storageVolumes?.forEach { vol ->
-                        if (!vol.isPrimary && vol.state == Environment.MEDIA_MOUNTED) {
-                            vol.directory?.takeIf { it.isDirectory }?.let(::add)
-                        }
-                    }
-                }
-            }
+            listExternalStorageVolumes(context, includeExternalFilesDirs = false).forEach { add(it.dir) }
         }
         val baseDir = if (dirPath.isNotEmpty()) {
             resolveAllowedDir(dirPath, storageRoots)
@@ -2914,7 +2849,7 @@ class WebManagerServer(
         val cleanParent = if (rawParent.isEmpty()) {
             null
         } else {
-            sanitizeFileName(rawParent) ?: run {
+            sanitizeUploadFileName(rawParent) ?: run {
                 res.sendJson(400, """{"ok":false,"error":"invalid_parent_name"}""")
                 return
             }
@@ -2980,7 +2915,7 @@ class WebManagerServer(
     private suspend fun handleFileRename(req: HttpRequest, res: HttpResponseWriter) {
         val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
         val path = body?.optString("path", "").orEmpty()
-        val newName = sanitizeFileName(body?.optString("newName", "").orEmpty())
+        val newName = sanitizeUploadFileName(body?.optString("newName", "").orEmpty())
         val roots = repo.configuredRoots()
         val file = resolveAllowedFile(path, roots)
         if (file == null || newName == null || !file.exists()) {
@@ -3190,34 +3125,5 @@ class WebManagerServer(
             canonical == rc || canonical.startsWith("$rc${File.separator}")
         }
         return if (allowed) f else null
-    }
-
-    private fun sanitizeFileName(raw: String): String? {
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty() || trimmed == "." || trimmed == "..") return null
-        if ('/' in trimmed || '\\' in trimmed || '\u0000' in trimmed) return null
-        return trimmed
-    }
-
-    private fun detectImageExt(bytes: ByteArray): String? = when {
-        bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() -> "png"
-        bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() -> "jpg"
-        bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[8] == 'W'.code.toByte() -> "webp"
-        bytes.size >= 3 && bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() -> "gif"
-        else -> null
-    }
-
-    private fun uniqueFile(dir: File, name: String): File {
-        var candidate = File(dir, name)
-        if (!candidate.exists()) return candidate
-        val dot = name.lastIndexOf('.')
-        val stem = if (dot > 0) name.substring(0, dot) else name
-        val ext = if (dot > 0) name.substring(dot) else ""
-        var n = 1
-        while (candidate.exists()) {
-            candidate = File(dir, "${stem}_$n$ext")
-            n++
-        }
-        return candidate
     }
 }

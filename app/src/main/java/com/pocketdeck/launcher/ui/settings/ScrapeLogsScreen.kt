@@ -34,8 +34,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -77,6 +77,7 @@ import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
@@ -124,7 +125,7 @@ fun ScrapeLogsScreen(
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) { ScrapeLogStore.init(context) }
-        runCatching { screenFr.requestFocus() }
+        screenFr.requestFocusSafely()
     }
 
     val liveLines by ScrapeLogStore.lines.collectAsState()
@@ -143,14 +144,14 @@ fun ScrapeLogsScreen(
     LaunchedEffect(searchOpen) {
         if (searchOpen) {
             delay(60)
-            runCatching { searchFr.requestFocus() }
+            searchFr.requestFocusSafely()
         } else if (!showExportDialog) {
-            runCatching { screenFr.requestFocus() }
+            screenFr.requestFocusSafely()
         }
     }
     LaunchedEffect(showExportDialog) {
         if (!showExportDialog && !searchOpen) {
-            runCatching { screenFr.requestFocus() }
+            screenFr.requestFocusSafely()
         }
     }
 
@@ -344,11 +345,11 @@ fun ScrapeLogsScreen(
                         onClose = {
                             query = ""
                             searchOpen = false
-                            runCatching { screenFr.requestFocus() }
+                            screenFr.requestFocusSafely()
                         },
                         focusRequester = searchFr,
                         expandedWidth = 188.dp,
-                        onSearchAction = { runCatching { screenFr.requestFocus() } },
+                        onSearchAction = { screenFr.requestFocusSafely() },
                     )
                     val chips = listOf(
                         ScrapeLogFilter.All to stringResource(R.string.scrape_logs_filter_all),
@@ -512,7 +513,7 @@ private fun ExportLogDirDialog(
     var subDirs by remember { mutableStateOf<List<File>>(emptyList()) }
     val dialogFr = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) { runCatching { dialogFr.requestFocus() } }
+    LaunchedEffect(Unit) { dialogFr.requestFocusSafely() }
     LaunchedEffect(currentDir) {
         subDirs = withContext(Dispatchers.IO) {
             currentDir.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }

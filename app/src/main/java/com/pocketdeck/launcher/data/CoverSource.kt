@@ -1398,7 +1398,7 @@ class CoverSource(
         val len = runCatching { target.length() }.getOrDefault(-1L)
         if (len !in 1L..(16L * 1024 * 1024)) return null
         val bytes = runCatching { target.readBytes() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
-        return mimeForFile(target) to bytes
+        return mimeTypeForFile(target, defaultMime = "image/jpeg") to bytes
     }
 
     /**
@@ -1431,14 +1431,14 @@ class CoverSource(
         if (cachedFile.isFile && cachedFile.length() > 0L) {
             val bytes = runCatching { cachedFile.readBytes() }.getOrNull()
             if (bytes != null && bytes.isNotEmpty()) {
-                return@withContext detectImageMime(bytes) to bytes
+                return@withContext (detectImageFormat(bytes)?.second ?: "image/jpeg") to bytes
             }
         }
 
         val url = cachedUrl(game.id) ?: return@withContext null
         readCoilDiskCache(url)?.let { bytes ->
             runCatching { cachedFile.writeBytes(bytes) }
-            return@withContext detectImageMime(bytes) to bytes
+            return@withContext (detectImageFormat(bytes)?.second ?: "image/jpeg") to bytes
         }
 
         if (NetworkStatus.isOnline(appCtx)) {
@@ -1626,7 +1626,7 @@ class CoverSource(
                     ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "too small (${bytes.size}B)")
                     return@withContext null
                 }
-                val mime = if (ct.startsWith("image/")) ct else detectImageMime(bytes)
+                val mime = if (ct.startsWith("image/")) ct else (detectImageFormat(bytes)?.second ?: "image/jpeg")
                 ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${bytes.size}B ($mime)")
                 mime to bytes
             }
@@ -1651,20 +1651,6 @@ class CoverSource(
             .digest(gameId.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
         return File(webCacheDir, "$hash.img")
-    }
-
-    private fun mimeForFile(f: File): String = when (f.extension.lowercase()) {
-        "png" -> "image/png"
-        "webp" -> "image/webp"
-        "gif" -> "image/gif"
-        else -> "image/jpeg"
-    }
-
-    private fun detectImageMime(bytes: ByteArray): String = when {
-        bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() -> "image/png"
-        bytes.size >= 12 && bytes[0] == 'R'.code.toByte() && bytes[8] == 'W'.code.toByte() -> "image/webp"
-        bytes.size >= 3 && bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() -> "image/gif"
-        else -> "image/jpeg"
     }
 
     private fun cachedOrigin(key: String, url: String): Pair<String, CoverMatchMode> {
@@ -1918,10 +1904,9 @@ class CoverSource(
         val REGIONS = listOf("(USA)", "(World)", "(USA, Europe)", "(Europe)", "(Japan)")
         val ILLEGAL = Regex("""[&*/:`<>?\\|"]""")
         val HREF_PNG_REGEX = Regex("""href="([^"]+\.png)"""", RegexOption.IGNORE_CASE)
-        val SAFE_FILE_REGEX = Regex("""[^a-zA-Z0-9._-]""")
 
         fun sanitize(name: String) = name.replace(ILLEGAL, "_")
-        fun sanitizeFileName(name: String) = name.replace(SAFE_FILE_REGEX, "_")
+        fun sanitizeFileName(name: String) = sanitizeFileKey(name)
 
         val COMPILATION_REISSUE_REGEX = Regex(
             """\((Namcot Collection|Namco Museum|Virtual Console|Switch Online|Evercade|Arcade Archives|Classic Mini|Retro-Bit|Collector's Edition|Anniversary Collection|Legacy Collection|Cowabunga Collection)""",

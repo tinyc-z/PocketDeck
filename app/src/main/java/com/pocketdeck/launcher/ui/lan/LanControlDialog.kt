@@ -22,8 +22,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +63,7 @@ import com.pocketdeck.launcher.ui.components.DeckSwitch
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.DpadNavController
 import com.pocketdeck.launcher.ui.components.dpadNavItem
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.settings.NameDialog
@@ -147,7 +148,7 @@ fun LanServiceControlDialog(
     LaunchedEffect(editingName, showWebHistory, showShareHistory, state.pinChallenge != null, state.incomingRequest?.sessionId) {
         if (!editingName && !showWebHistory && !showShareHistory && state.pinChallenge == null) {
             delay(30)
-            runCatching { nav.rootFr.requestFocus() }
+            nav.rootFr.requestFocusSafely()
             nav.ensureDefault(
                 preferredId = if (state.incomingRequest != null) "inc_accept" else "tile_web",
                 inTouchMode = view.isInTouchMode,

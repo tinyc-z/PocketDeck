@@ -1,12 +1,6 @@
 package com.pocketdeck.launcher.data
 
 import android.content.Context
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import com.pocketdeck.launcher.input.KeyAction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -236,69 +230,69 @@ data class UserData(
     val searchAllCategories: Boolean = true,
 )
 
-private val Context.dataStore by preferencesDataStore(name = "user")
+/** 用户数据（收藏、最近、改名、偏好设置）。轻量级 AtomicFile JSON 单文件，读写均在 IO 线程。 */
+class UserStore(context: Context) {
 
-/** 用户数据（收藏、最近、改名、偏好设置）。DataStore 单文件，读写都在 IO 线程。 */
-class UserStore(private val context: Context) {
+    private val store = LocalPrefsStore.forUserPrefs(context)
 
     private object K {
-        val favorites = stringSetPreferencesKey("favorites")
-        val recents = stringPreferencesKey("recents")
-        val renames = stringSetPreferencesKey("renames")
-        val covers = stringSetPreferencesKey("covers")
-        val hidden = stringSetPreferencesKey("hidden")
-        val viewMode = stringPreferencesKey("view_mode")
-        val background = stringPreferencesKey("background_style")
-        val showMetadata = booleanPreferencesKey("show_metadata")
-        val bottomBar = booleanPreferencesKey("bottom_bar")
-        val nowTab = booleanPreferencesKey("now_tab")
-        val favsTab = booleanPreferencesKey("favs_tab")
-        val clock12h = booleanPreferencesKey("clock_12h")
-        val swapAbxy = booleanPreferencesKey("swap_abxy")
-        val romRoot = stringPreferencesKey("rom_root")
-        val showClock = booleanPreferencesKey("show_clock")
-        val showBattery = booleanPreferencesKey("show_battery")
-        val showWifi = booleanPreferencesKey("show_wifi")
-        val showBluetooth = booleanPreferencesKey("show_bluetooth")
-        val showMobileSignal = booleanPreferencesKey("show_mobile_signal")
-        val showHeadset = booleanPreferencesKey("show_headset")
-        val showAirplane = booleanPreferencesKey("show_airplane")
-        val showDnd = booleanPreferencesKey("show_dnd")
-        val platformLaunchers = stringSetPreferencesKey("platform_launchers")
-        val galleryAlign = stringPreferencesKey("gallery_align")
-        val romDirs = stringPreferencesKey("rom_dirs")
-        val categories = stringPreferencesKey("categories")
-        val tabOrder = stringPreferencesKey("tab_order")
-        val hiddenTabs = stringSetPreferencesKey("hidden_tabs")
-        val theme = stringPreferencesKey("theme")
-        val coverSources = stringPreferencesKey("cover_sources")
-        val metadataSources = stringPreferencesKey("metadata_sources")
-        val scraperCredentials = stringPreferencesKey("scraper_credentials")
-        val metaShowReleaseDate = booleanPreferencesKey("meta_show_release_date")
-        val metaShowGenre = booleanPreferencesKey("meta_show_genre")
-        val metaShowDeveloper = booleanPreferencesKey("meta_show_developer")
-        val metaShowPublisher = booleanPreferencesKey("meta_show_publisher")
-        val metaShowFileSize = booleanPreferencesKey("meta_show_file_size")
-        val gameLaunchers = stringSetPreferencesKey("game_launchers")
-        val showAndroidGames = booleanPreferencesKey("show_android_games")
-        val androidGamePackages = stringSetPreferencesKey("android_game_packages")
-        val excludedAndroidPackages = stringSetPreferencesKey("excluded_android_packages")
-        val customBackground = stringPreferencesKey("custom_background")
-        val keyBindings = stringSetPreferencesKey("key_bindings")
-        val keySoundEnabled = booleanPreferencesKey("key_sound_enabled")
-        val reduceMotion = booleanPreferencesKey("reduce_motion")
-        val themeAccent = stringPreferencesKey("theme_accent")
-        val fontId = stringPreferencesKey("font_id")
-        val platformAspects = stringSetPreferencesKey("platform_aspects")
-        val customLaunchers = stringPreferencesKey("custom_launchers")
-        val systemTabs = stringPreferencesKey("system_tabs")
-        val categoriesInitialized = booleanPreferencesKey("categories_initialized")
-        val deviceId = stringPreferencesKey("device_id")
-        val deviceName = stringPreferencesKey("device_name")
-        val localSendCompat = booleanPreferencesKey("local_send_compat")
-        val playStats = stringPreferencesKey("play_stats")
-        val quickHudEnabled = booleanPreferencesKey("quick_hud_enabled")
-        val searchAllCategories = booleanPreferencesKey("search_all_categories")
+        val favorites = stringSetPrefsKey("favorites")
+        val recents = stringPrefsKey("recents")
+        val renames = stringSetPrefsKey("renames")
+        val covers = stringSetPrefsKey("covers")
+        val hidden = stringSetPrefsKey("hidden")
+        val viewMode = stringPrefsKey("view_mode")
+        val background = stringPrefsKey("background_style")
+        val showMetadata = booleanPrefsKey("show_metadata")
+        val bottomBar = booleanPrefsKey("bottom_bar")
+        val nowTab = booleanPrefsKey("now_tab")
+        val favsTab = booleanPrefsKey("favs_tab")
+        val clock12h = booleanPrefsKey("clock_12h")
+        val swapAbxy = booleanPrefsKey("swap_abxy")
+        val romRoot = stringPrefsKey("rom_root")
+        val showClock = booleanPrefsKey("show_clock")
+        val showBattery = booleanPrefsKey("show_battery")
+        val showWifi = booleanPrefsKey("show_wifi")
+        val showBluetooth = booleanPrefsKey("show_bluetooth")
+        val showMobileSignal = booleanPrefsKey("show_mobile_signal")
+        val showHeadset = booleanPrefsKey("show_headset")
+        val showAirplane = booleanPrefsKey("show_airplane")
+        val showDnd = booleanPrefsKey("show_dnd")
+        val platformLaunchers = stringSetPrefsKey("platform_launchers")
+        val galleryAlign = stringPrefsKey("gallery_align")
+        val romDirs = stringPrefsKey("rom_dirs")
+        val categories = stringPrefsKey("categories")
+        val tabOrder = stringPrefsKey("tab_order")
+        val hiddenTabs = stringSetPrefsKey("hidden_tabs")
+        val theme = stringPrefsKey("theme")
+        val coverSources = stringPrefsKey("cover_sources")
+        val metadataSources = stringPrefsKey("metadata_sources")
+        val scraperCredentials = stringPrefsKey("scraper_credentials")
+        val metaShowReleaseDate = booleanPrefsKey("meta_show_release_date")
+        val metaShowGenre = booleanPrefsKey("meta_show_genre")
+        val metaShowDeveloper = booleanPrefsKey("meta_show_developer")
+        val metaShowPublisher = booleanPrefsKey("meta_show_publisher")
+        val metaShowFileSize = booleanPrefsKey("meta_show_file_size")
+        val gameLaunchers = stringSetPrefsKey("game_launchers")
+        val showAndroidGames = booleanPrefsKey("show_android_games")
+        val androidGamePackages = stringSetPrefsKey("android_game_packages")
+        val excludedAndroidPackages = stringSetPrefsKey("excluded_android_packages")
+        val customBackground = stringPrefsKey("custom_background")
+        val keyBindings = stringSetPrefsKey("key_bindings")
+        val keySoundEnabled = booleanPrefsKey("key_sound_enabled")
+        val reduceMotion = booleanPrefsKey("reduce_motion")
+        val themeAccent = stringPrefsKey("theme_accent")
+        val fontId = stringPrefsKey("font_id")
+        val platformAspects = stringSetPrefsKey("platform_aspects")
+        val customLaunchers = stringPrefsKey("custom_launchers")
+        val systemTabs = stringPrefsKey("system_tabs")
+        val categoriesInitialized = booleanPrefsKey("categories_initialized")
+        val deviceId = stringPrefsKey("device_id")
+        val deviceName = stringPrefsKey("device_name")
+        val localSendCompat = booleanPrefsKey("local_send_compat")
+        val playStats = stringPrefsKey("play_stats")
+        val quickHudEnabled = booleanPrefsKey("quick_hud_enabled")
+        val searchAllCategories = booleanPrefsKey("search_all_categories")
     }
 
     private companion object {
@@ -463,9 +457,9 @@ class UserStore(private val context: Context) {
         }.toString()
     }
 
-    val data: Flow<UserData> = context.dataStore.data.map { p -> p.toUserData() }
+    val data: Flow<UserData> = store.data.map { p -> p.toUserData() }
 
-    private fun Preferences.toUserData(): UserData {
+    private fun PrefsSnapshot.toUserData(): UserData {
         val rawCategories = decodeCategories(this[K.categories])
         val initialized = this[K.categoriesInitialized] ?: false
         val effectiveCategories = if (!initialized && rawCategories.isEmpty()) DefaultCategories.build() else rawCategories
@@ -532,14 +526,14 @@ class UserStore(private val context: Context) {
         )
     }
 
-    suspend fun toggleFavorite(id: String) = context.dataStore.edit { p ->
+    suspend fun toggleFavorite(id: String) = store.edit { p ->
         val cur = p[K.favorites].orEmpty()
         p[K.favorites] = if (id in cur) cur - id else cur + id
     }
 
     suspend fun addRecent(id: String) = recordGameLaunch(id)
 
-    suspend fun recordGameLaunch(id: String, nowMs: Long = System.currentTimeMillis()) = context.dataStore.edit { p ->
+    suspend fun recordGameLaunch(id: String, nowMs: Long = System.currentTimeMillis()) = store.edit { p ->
         val cur = p[K.recents]?.split('\n')?.filter { it.isNotEmpty() }.orEmpty()
         p[K.recents] = (listOf(id) + (cur - id)).take(MAX_RECENTS).joinToString("\n")
         val stats = PlayStatsCodec.decodePlayStats(p[K.playStats]).toMutableMap()
@@ -551,7 +545,7 @@ class UserStore(private val context: Context) {
         p[K.playStats] = PlayStatsCodec.encodePlayStats(stats)
     }
 
-    suspend fun addPlayDuration(id: String, deltaMs: Long) = context.dataStore.edit { p ->
+    suspend fun addPlayDuration(id: String, deltaMs: Long) = store.edit { p ->
         if (deltaMs <= 0L) return@edit
         val stats = PlayStatsCodec.decodePlayStats(p[K.playStats]).toMutableMap()
         val prev = stats[id] ?: PlayStats()
@@ -562,7 +556,7 @@ class UserStore(private val context: Context) {
         p[K.playStats] = PlayStatsCodec.encodePlayStats(stats)
     }
 
-    suspend fun saveGameEdits(id: String, name: String?, cover: String?) = context.dataStore.edit { p ->
+    suspend fun saveGameEdits(id: String, name: String?, cover: String?) = store.edit { p ->
         val renames = decodeMap(p[K.renames]).toMutableMap()
         if (name.isNullOrBlank()) renames.remove(id) else renames[id] = name.trim()
         p[K.renames] = encodeMap(renames)
@@ -571,11 +565,11 @@ class UserStore(private val context: Context) {
         p[K.covers] = encodeMap(covers)
     }
 
-    suspend fun hide(id: String) = context.dataStore.edit { p ->
+    suspend fun hide(id: String) = store.edit { p ->
         p[K.hidden] = p[K.hidden].orEmpty() + id
     }
 
-    suspend fun unhide(id: String) = context.dataStore.edit { p ->
+    suspend fun unhide(id: String) = store.edit { p ->
         p[K.hidden] = p[K.hidden].orEmpty() - id
     }
 
@@ -666,8 +660,8 @@ class UserStore(private val context: Context) {
         }
     }
 
-    suspend fun update(transform: (UserData) -> UserData) = context.dataStore.edit { p ->
-        val old = p.toUserData()
+    suspend fun update(transform: (UserData) -> UserData) = store.edit { p ->
+        val old = p.toSnapshot().toUserData()
         val new = transform(old)
         p[K.viewMode] = new.viewMode.name
         p[K.favorites] = new.favorites

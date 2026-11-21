@@ -1,10 +1,9 @@
 package com.pocketdeck.launcher.ui.library
 
 import android.content.Context
-import android.os.Build
 import android.os.Environment
-import android.os.storage.StorageManager
 import android.widget.Toast
+import com.pocketdeck.launcher.data.formatCompactSize
 import com.pocketdeck.launcher.lan.TransferPhase
 import com.pocketdeck.launcher.ui.components.BrandTileIcon
 import com.pocketdeck.launcher.ui.components.FavoriteHeartIcon
@@ -39,10 +38,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.LinearProgressIndicator
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -523,13 +522,4 @@ internal fun FileTasksBanner(
             }
         }
     }
-}
-
-internal fun formatCompactSize(bytes: Long): String? {
-    if (bytes <= 0L) return null
-    val kb = bytes / 1024.0
-    if (kb < 1024) return "%.0f KB".format(kb)
-    val mb = kb / 1024.0
-    if (mb < 1024) return "%.1f MB".format(mb)
-    return "%.2f GB".format(mb / 1024.0)
 }

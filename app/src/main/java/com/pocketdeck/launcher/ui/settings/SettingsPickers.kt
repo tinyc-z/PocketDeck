@@ -30,12 +30,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.Switch
+import com.pocketdeck.launcher.ui.components.SwitchDefaults
+import com.pocketdeck.launcher.ui.components.Text
+import com.pocketdeck.launcher.ui.components.TextField
+import com.pocketdeck.launcher.ui.components.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -332,7 +332,7 @@ internal fun InstalledAppPickerDialog(
     val listState = rememberLazyListState()
     var focusIdx by remember(filtered.size) { mutableIntStateOf(0) }
     val listFr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { listFr.requestFocus() } }
+    LaunchedEffect(Unit) { listFr.requestFocusSafely() }
     LaunchedEffect(focusIdx) {
         if (focusIdx in filtered.indices) {
             listState.animateScrollToItem((focusIdx - 2).coerceAtLeast(0))

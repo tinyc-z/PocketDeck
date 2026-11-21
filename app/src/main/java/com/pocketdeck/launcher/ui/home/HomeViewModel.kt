@@ -32,13 +32,17 @@ import com.pocketdeck.launcher.data.model.Library
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.launch.GameLauncher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 enum class MetaFieldKey { ReleaseDate, Developer, Publisher, FileSize }
 
@@ -182,10 +186,15 @@ class HomeViewModel(
     val coverResolutionMap: StateFlow<Map<String, CoverResolutionInfo>> = covers.coverInfo
     val scrapeProgress: StateFlow<com.pocketdeck.launcher.data.ScrapeProgress> = metadataRepo.scrapeProgress
 
-    private val _focusPerTab = HashMap<String, Int>()
-    private val _focusGameIdPerTab = HashMap<String, String>()
+    private val _focusPerTab = ConcurrentHashMap<String, Int>()
+    private val _focusGameIdPerTab = ConcurrentHashMap<String, String>()
     private var initialTabPicked = false
     private var focusResolveJob: Job? = null
+    private var recomputeJob: Job? = null
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val stateDispatcher = Dispatchers.Default.limitedParallelism(1)
+    private var cachedUncatKey: Triple<Int, List<Category>, Map<String, Float>>? = null
+    private var cachedUncatResult: Pair<List<UncategorizedPlatformInfo>, Int> = emptyList<UncategorizedPlatformInfo>() to 0
     private var activeSessionGameId: String? = null
     private var activeSessionStartElapsedMs: Long = 0L
 
@@ -207,7 +216,7 @@ class HomeViewModel(
     }
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(stateDispatcher) {
             var lastLib: Library? = null
             var lastUser: UserData? = null
             var lastScanning: Boolean? = null
@@ -263,10 +272,12 @@ class HomeViewModel(
                     val sortsByRelease = activeSort == CategorySortOrder.ReleaseNewest ||
                         activeSort == CategorySortOrder.ReleaseOldest
                     if (onlyMetaChanged && !sortsByRelease) {
-                        _state.value = cur.copy(
-                            metadataMap = data.metaMap,
-                            officialNames = data.officialNames,
-                        )
+                        _state.update { latest ->
+                            latest.copy(
+                                metadataMap = data.metaMap,
+                                officialNames = data.officialNames,
+                            )
+                        }
                     } else {
                         lastLib = data.lib
                         lastUser = u
@@ -283,25 +294,27 @@ class HomeViewModel(
                     lastLib = null
                     lastUser = u
                     lastScanning = data.scanning
-                    _state.value = _state.value.copy(
-                        scanning = data.scanning,
-                        libraryLoaded = data.lib != null,
-                        theme = u?.theme ?: _state.value.theme,
-                        themeAccent = u?.themeAccent ?: _state.value.themeAccent,
-                        fontId = u?.fontId ?: _state.value.fontId,
-                        platformAspects = u?.platformAspects ?: _state.value.platformAspects,
-                        customLaunchers = u?.customLaunchers ?: _state.value.customLaunchers,
-                        systemTabs = u?.systemTabs ?: _state.value.systemTabs,
-                        backgroundStyle = u?.backgroundStyle ?: _state.value.backgroundStyle,
-                        customBackground = u?.customBackground ?: _state.value.customBackground,
-                        keyBindings = u?.keyBindings ?: _state.value.keyBindings,
-                        keySoundEnabled = u?.keySoundEnabled ?: _state.value.keySoundEnabled,
-                        reduceMotion = u?.reduceMotion ?: _state.value.reduceMotion,
-                        viewMode = u?.viewMode ?: _state.value.viewMode,
-                        metaDisplay = u?.metaDisplay ?: _state.value.metaDisplay,
-                        metadataMap = data.metaMap,
-                        officialNames = data.officialNames,
-                    )
+                    _state.update { latest ->
+                        latest.copy(
+                            scanning = data.scanning,
+                            libraryLoaded = data.lib != null,
+                            theme = u?.theme ?: latest.theme,
+                            themeAccent = u?.themeAccent ?: latest.themeAccent,
+                            fontId = u?.fontId ?: latest.fontId,
+                            platformAspects = u?.platformAspects ?: latest.platformAspects,
+                            customLaunchers = u?.customLaunchers ?: latest.customLaunchers,
+                            systemTabs = u?.systemTabs ?: latest.systemTabs,
+                            backgroundStyle = u?.backgroundStyle ?: latest.backgroundStyle,
+                            customBackground = u?.customBackground ?: latest.customBackground,
+                            keyBindings = u?.keyBindings ?: latest.keyBindings,
+                            keySoundEnabled = u?.keySoundEnabled ?: latest.keySoundEnabled,
+                            reduceMotion = u?.reduceMotion ?: latest.reduceMotion,
+                            viewMode = u?.viewMode ?: latest.viewMode,
+                            metaDisplay = u?.metaDisplay ?: latest.metaDisplay,
+                            metadataMap = data.metaMap,
+                            officialNames = data.officialNames,
+                        )
+                    }
                 }
             }
         }
@@ -380,92 +393,107 @@ class HomeViewModel(
         val platformsById = lib.platforms.associateBy { it.id }
         val platform = tab?.let { lib.platform(it.id) }
 
-        val categorizedPlatforms = user.categories.flatMap { it.sources }.toSet()
-        val categorizedGames = user.categories.flatMap { it.games }.toSet()
-        val uncategorizedGames = lib.byId.values.filter {
-            it.platformId !in categorizedPlatforms && it.id !in categorizedGames
-        }
-        val uncategorizedByPlatform = uncategorizedGames
-            .groupBy { it.platformId }
-            .entries
-            .map { (pid, list) ->
-                val plat = platformsById[pid] ?: PlatformCatalog.forFolder(pid).let { p ->
-                    val aspect = user.platformAspects[p.id]
-                    if (aspect != null) p.copy(coverAspect = aspect) else p
-                }
-                UncategorizedPlatformInfo(plat, list.size)
+        val uncatKey = Triple(System.identityHashCode(lib), user.categories, user.platformAspects)
+        val (uncategorizedByPlatform, uncategorizedCount) = if (cachedUncatKey == uncatKey) {
+            cachedUncatResult
+        } else {
+            val categorizedPlatforms = user.categories.flatMap { it.sources }.toSet()
+            val categorizedGames = user.categories.flatMap { it.games }.toSet()
+            val uncategorizedGames = lib.byId.values.filter {
+                it.platformId !in categorizedPlatforms && it.id !in categorizedGames
             }
-            .sortedWith(compareBy({ PlatformCatalog.sortKey(it.platform.id) }, { it.platform.shortName }))
+            val byPlatform = uncategorizedGames
+                .groupBy { it.platformId }
+                .entries
+                .map { (pid, list) ->
+                    val plat = platformsById[pid] ?: PlatformCatalog.forFolder(pid).let { p ->
+                        val aspect = user.platformAspects[p.id]
+                        if (aspect != null) p.copy(coverAspect = aspect) else p
+                    }
+                    UncategorizedPlatformInfo(plat, list.size)
+                }
+                .sortedWith(compareBy({ PlatformCatalog.sortKey(it.platform.id) }, { it.platform.shortName }))
+            (byPlatform to uncategorizedGames.size).also {
+                cachedUncatKey = uncatKey
+                cachedUncatResult = it
+            }
+        }
 
         val autoAndroidPkgs = lib.games[PlatformCatalog.ANDROID_ID].orEmpty()
             .map { it.id.removePrefix(GameLauncher.APK_PREFIX) }
             .filter { it !in user.androidGamePackages }
             .toSet()
 
-        val newState = current.copy(
-            tabs = tabs,
-            selectedTab = tabIdx,
-            games = filteredGames,
-            platformsById = platformsById,
-            platform = platform,
-            focusIndex = focusIdx,
-            viewMode = user.viewMode,
-            showMetadata = user.showMetadata,
-            metaDisplay = user.metaDisplay,
-            bottomBar = user.bottomBar,
-            is12h = user.clock12h,
-            swapAbxy = user.swapAbxy,
-            scanning = scanning,
-            libraryLoaded = true,
-            favorites = user.favorites,
-            romRoot = user.romRoot,
-            backgroundStyle = user.backgroundStyle,
-            theme = user.theme,
-            themeAccent = user.themeAccent,
-            fontId = user.fontId,
-            platformAspects = user.platformAspects,
-            customLaunchers = user.customLaunchers,
-            systemTabs = user.systemTabs,
-            uncategorizedPlatforms = uncategorizedByPlatform,
-            uncategorizedCount = uncategorizedGames.size,
-            metadataMap = metaMap,
-            officialNames = officialNames,
-            detailGame = current.detailGame?.let { lib.byId[it.id] ?: it },
-            propertiesGame = current.propertiesGame?.let { lib.byId[it.id] ?: it },
-            editingGame = current.editingGame?.let { lib.byId[it.id] ?: it },
-            showClock = user.showClock,
-            showBattery = user.showBattery,
-            showWifi = user.showWifi,
-            showBluetooth = user.showBluetooth,
-            showMobileSignal = user.showMobileSignal,
-            showHeadset = user.showHeadset,
-            showAirplane = user.showAirplane,
-            showDnd = user.showDnd,
-            platformLaunchers = user.platformLaunchers,
-            gameLaunchers = user.gameLaunchers,
-            galleryAlign = user.galleryAlign,
-            manageTabs = manage,
-            romDirs = user.romDirs.map { RomDirEntry(it.path, it.enabled, lib.rootCounts[it.path]) },
-            autoRoot = if (user.romDirs.isEmpty()) lib.root else null,
-            categories = user.categories,
-            coverSources = user.coverSources,
-            metadataSources = user.metadataSources,
-            scraperCredentials = user.scraperCredentials,
-            hiddenIds = user.hidden,
-            showAndroidGames = user.showAndroidGames,
-            androidGamePackages = user.androidGamePackages,
-            excludedAndroidPackages = user.excludedAndroidPackages,
-            autoAndroidPackages = autoAndroidPkgs,
-            customBackground = user.customBackground,
-            keyBindings = user.keyBindings,
-            keySoundEnabled = user.keySoundEnabled,
-            reduceMotion = user.reduceMotion,
-            playStats = user.playStats,
-            quickHudEnabled = user.quickHudEnabled,
-            searchAllCategories = effectiveSearchAll,
-        )
-        _state.value = newState
-        preloadAssets(filteredGames, focusIdx, newState::platformFor)
+        val romDirsList = user.romDirs.map { RomDirEntry(it.path, it.enabled, lib.rootCounts[it.path]) }
+        val autoRootVal = if (user.romDirs.isEmpty()) lib.root else null
+        var committedState: HomeUiState? = null
+        _state.update { latest ->
+            val base = stateOverride ?: latest
+            base.copy(
+                tabs = tabs,
+                selectedTab = tabIdx,
+                games = filteredGames,
+                platformsById = platformsById,
+                platform = platform,
+                focusIndex = focusIdx,
+                viewMode = user.viewMode,
+                showMetadata = user.showMetadata,
+                metaDisplay = user.metaDisplay,
+                bottomBar = user.bottomBar,
+                is12h = user.clock12h,
+                swapAbxy = user.swapAbxy,
+                scanning = scanning,
+                libraryLoaded = true,
+                favorites = user.favorites,
+                romRoot = user.romRoot,
+                backgroundStyle = user.backgroundStyle,
+                theme = user.theme,
+                themeAccent = user.themeAccent,
+                fontId = user.fontId,
+                platformAspects = user.platformAspects,
+                customLaunchers = user.customLaunchers,
+                systemTabs = user.systemTabs,
+                uncategorizedPlatforms = uncategorizedByPlatform,
+                uncategorizedCount = uncategorizedCount,
+                metadataMap = metaMap,
+                officialNames = officialNames,
+                detailGame = base.detailGame?.let { lib.byId[it.id] ?: it },
+                propertiesGame = base.propertiesGame?.let { lib.byId[it.id] ?: it },
+                editingGame = base.editingGame?.let { lib.byId[it.id] ?: it },
+                showClock = user.showClock,
+                showBattery = user.showBattery,
+                showWifi = user.showWifi,
+                showBluetooth = user.showBluetooth,
+                showMobileSignal = user.showMobileSignal,
+                showHeadset = user.showHeadset,
+                showAirplane = user.showAirplane,
+                showDnd = user.showDnd,
+                platformLaunchers = user.platformLaunchers,
+                gameLaunchers = user.gameLaunchers,
+                galleryAlign = user.galleryAlign,
+                manageTabs = manage,
+                romDirs = romDirsList,
+                autoRoot = autoRootVal,
+                categories = user.categories,
+                coverSources = user.coverSources,
+                metadataSources = user.metadataSources,
+                scraperCredentials = user.scraperCredentials,
+                hiddenIds = user.hidden,
+                showAndroidGames = user.showAndroidGames,
+                androidGamePackages = user.androidGamePackages,
+                excludedAndroidPackages = user.excludedAndroidPackages,
+                autoAndroidPackages = autoAndroidPkgs,
+                customBackground = user.customBackground,
+                keyBindings = user.keyBindings,
+                keySoundEnabled = user.keySoundEnabled,
+                reduceMotion = user.reduceMotion,
+                playStats = user.playStats,
+                quickHudEnabled = user.quickHudEnabled,
+                searchAllCategories = effectiveSearchAll,
+            ).also { committedState = it }
+        }
+        val finalState = committedState ?: return
+        preloadAssets(filteredGames, focusIdx, finalState::platformFor)
     }
 
     private fun preloadAssets(
@@ -742,8 +770,9 @@ class HomeViewModel(
         current.tabs.getOrNull(current.selectedTab)?.let {
             _focusPerTab[it.id] = _focusIndex.value
         }
-        _state.value = current.copy(selectedTab = clamped)
-        recomputeFromRepo()
+        val nextState = current.copy(selectedTab = clamped)
+        _state.update { it.copy(selectedTab = clamped) }
+        recomputeFromRepo(nextState)
     }
 
     fun nextTab() {
@@ -784,29 +813,31 @@ class HomeViewModel(
     fun moveFocus(delta: Int) = setFocus(_focusIndex.value + delta)
 
     fun toggleSearch() {
-        val s = _state.value
-        val nextSearching = !s.searching
-        val nextState = s.copy(
-            searching = nextSearching,
-            searchQuery = if (!nextSearching) "" else s.searchQuery,
-            focusIndex = if (nextSearching) 0 else s.focusIndex,
-        )
-        if (nextSearching) _focusIndex.value = 0
-        if (!recomputeFromRepo(nextState)) {
-            _state.value = nextState
+        var nextState: HomeUiState? = null
+        _state.update { s ->
+            val nextSearching = !s.searching
+            if (nextSearching) _focusIndex.value = 0
+            s.copy(
+                searching = nextSearching,
+                searchQuery = if (!nextSearching) "" else s.searchQuery,
+                focusIndex = if (nextSearching) 0 else s.focusIndex,
+            ).also { nextState = it }
         }
+        nextState?.let { recomputeFromRepo(it) }
     }
 
     fun toggleSearchAllCategories() {
-        val nextVal = !_state.value.searchAllCategories
+        var nextVal = true
+        var nextState: HomeUiState? = null
         _focusIndex.value = 0
-        val nextState = _state.value.copy(
-            searchAllCategories = nextVal,
-            focusIndex = 0,
-        )
-        if (!recomputeFromRepo(nextState)) {
-            _state.value = nextState
+        _state.update { s ->
+            nextVal = !s.searchAllCategories
+            s.copy(
+                searchAllCategories = nextVal,
+                focusIndex = 0,
+            ).also { nextState = it }
         }
+        nextState?.let { recomputeFromRepo(it) }
         viewModelScope.launch {
             repo.updatePrefs { it.copy(searchAllCategories = nextVal) }
         }
@@ -814,65 +845,69 @@ class HomeViewModel(
 
     fun setSearchQuery(q: String) {
         _focusIndex.value = 0
-        val nextState = _state.value.copy(searchQuery = q, focusIndex = 0)
-        if (!recomputeFromRepo(nextState)) {
-            _state.value = nextState
+        var nextState: HomeUiState? = null
+        _state.update { s ->
+            s.copy(searchQuery = q, focusIndex = 0).also { nextState = it }
         }
+        nextState?.let { recomputeFromRepo(it) }
     }
 
     private fun recomputeFromRepo(stateOverride: HomeUiState? = null): Boolean {
         val lib = repo.library.value ?: return false
         val user = repo.user.value ?: return false
-        updateState(
-            lib,
-            user,
-            (stateOverride ?: _state.value).scanning,
-            metadataRepo.metadata.value,
-            metadataRepo.officialNames.value,
-            stateOverride = stateOverride,
-        )
+        recomputeJob?.cancel()
+        recomputeJob = viewModelScope.launch(stateDispatcher) {
+            updateState(
+                lib,
+                user,
+                (stateOverride ?: _state.value).scanning,
+                metadataRepo.metadata.value,
+                metadataRepo.officialNames.value,
+                stateOverride = stateOverride,
+            )
+        }
         return true
     }
 
     private fun latestGame(game: Game): Game =
         repo.fullLibrary.value?.byId?.get(game.id) ?: game
 
-    fun showMenu(game: Game) { _state.value = _state.value.copy(detailGame = latestGame(game)) }
+    fun showMenu(game: Game) { _state.update { it.copy(detailGame = latestGame(game)) } }
 
     fun openProperties(game: Game) {
-        _state.value = _state.value.copy(propertiesGame = latestGame(game))
+        _state.update { it.copy(propertiesGame = latestGame(game)) }
     }
 
     fun closeProperties() {
-        _state.value = _state.value.copy(propertiesGame = null)
+        _state.update { it.copy(propertiesGame = null) }
     }
 
     suspend fun computeCrc32(path: String): String? = metadataRepo.computeCrc32(path)
 
     fun openEdit(game: Game) {
-        _state.value = _state.value.copy(detailGame = null, editingGame = latestGame(game))
+        _state.update { it.copy(detailGame = null, editingGame = latestGame(game)) }
     }
 
     fun closeEdit() {
-        _state.value = _state.value.copy(editingGame = null)
+        _state.update { it.copy(editingGame = null) }
     }
 
     fun openDetail(game: Game) {
-        _state.value = _state.value.copy(detailGame = latestGame(game))
+        _state.update { it.copy(detailGame = latestGame(game)) }
     }
 
     fun closeDetail() {
-        _state.value = _state.value.copy(detailGame = null)
+        _state.update { it.copy(detailGame = null) }
     }
 
     fun toggleQuickHud() {
-        val cur = _state.value
-        if (!cur.quickHudEnabled && !cur.showQuickHud) return
-        _state.value = cur.copy(showQuickHud = !cur.showQuickHud)
+        _state.update { cur ->
+            if (!cur.quickHudEnabled && !cur.showQuickHud) cur else cur.copy(showQuickHud = !cur.showQuickHud)
+        }
     }
 
     fun closeQuickHud() {
-        _state.value = _state.value.copy(showQuickHud = false)
+        _state.update { it.copy(showQuickHud = false) }
     }
 
     fun toggleQuickHudEnabled() {
@@ -908,11 +943,11 @@ class HomeViewModel(
     }
 
     fun openManualScrape(game: Game) {
-        _state.value = _state.value.copy(manualScrapeGame = latestGame(game))
+        _state.update { it.copy(manualScrapeGame = latestGame(game)) }
     }
 
     fun closeManualScrape() {
-        _state.value = _state.value.copy(manualScrapeGame = null)
+        _state.update { it.copy(manualScrapeGame = null) }
     }
 
     fun suggestManualScrapeKeywords(keyword: String, game: Game): List<String> =
@@ -947,13 +982,13 @@ class HomeViewModel(
                 repo.saveGameEdits(latest.id, existingName, null)
             }
         }
-        _state.value = _state.value.copy(manualScrapeGame = null)
+        _state.update { it.copy(manualScrapeGame = null) }
     }
 
     fun saveGameEdits(id: String, name: String?, coverPath: String?) {
         covers.forget(id)
         viewModelScope.launch { repo.saveGameEdits(id, name, coverPath) }
-        _state.value = _state.value.copy(editingGame = null)
+        _state.update { it.copy(editingGame = null) }
     }
 
     fun toggleFavorite(id: String) {
@@ -962,7 +997,7 @@ class HomeViewModel(
 
     fun hideGame(id: String) {
         viewModelScope.launch { repo.hide(id) }
-        _state.value = _state.value.copy(editingGame = null, propertiesGame = null)
+        _state.update { it.copy(editingGame = null, propertiesGame = null) }
     }
 
     fun addRecent(id: String) {
@@ -996,75 +1031,82 @@ class HomeViewModel(
     }
 
     fun openViewMenu() {
-        val idx = ViewMode.entries.indexOf(_state.value.viewMode).coerceAtLeast(0)
-        _state.value = _state.value.copy(showViewMenu = true, viewMenuIndex = idx)
+        _state.update { cur ->
+            val idx = ViewMode.entries.indexOf(cur.viewMode).coerceAtLeast(0)
+            cur.copy(showViewMenu = true, viewMenuIndex = idx)
+        }
     }
 
     fun closeViewMenu() {
-        _state.value = _state.value.copy(showViewMenu = false)
+        _state.update { it.copy(showViewMenu = false) }
     }
 
     fun moveViewMenu(delta: Int) {
         val size = ViewMode.entries.size
-        val next = (_state.value.viewMenuIndex + delta + size) % size
-        _state.value = _state.value.copy(viewMenuIndex = next)
+        _state.update { cur ->
+            val next = (cur.viewMenuIndex + delta + size) % size
+            cur.copy(viewMenuIndex = next)
+        }
     }
 
     fun setViewMode(mode: ViewMode) {
-        _state.value = _state.value.copy(showViewMenu = false)
+        _state.update { it.copy(showViewMenu = false) }
         viewModelScope.launch { repo.updatePrefs { it.copy(viewMode = mode) } }
     }
 
-    fun openApps() { _state.value = _state.value.copy(showApps = true) }
-    fun closeApps() { _state.value = _state.value.copy(showApps = false) }
+    fun openApps() { _state.update { it.copy(showApps = true) } }
+    fun closeApps() { _state.update { it.copy(showApps = false) } }
 
     fun openLibraryManager(
         hiddenOnly: Boolean = false,
         initialDirPath: String? = null,
         initialFocusFilePath: String? = null,
     ) {
-        _state.value = _state.value.copy(
-            showLibraryManager = true,
-            libraryManagerHiddenOnly = hiddenOnly,
-            libraryManagerInitialDir = initialDirPath,
-            libraryManagerInitialFocusFile = initialFocusFilePath,
-        )
+        _state.update {
+            it.copy(
+                showLibraryManager = true,
+                libraryManagerHiddenOnly = hiddenOnly,
+                libraryManagerInitialDir = initialDirPath,
+                libraryManagerInitialFocusFile = initialFocusFilePath,
+            )
+        }
     }
 
     fun closeLibraryManager() {
-        _state.value = _state.value.copy(
-            showLibraryManager = false,
-            libraryManagerInitialDir = null,
-            libraryManagerInitialFocusFile = null,
-        )
+        _state.update {
+            it.copy(
+                showLibraryManager = false,
+                libraryManagerInitialDir = null,
+                libraryManagerInitialFocusFile = null,
+            )
+        }
     }
 
     /** 按系统 Home 键时收起全部子页面、弹窗与搜索状态，直接回到 PocketDeck 主桌面。 */
     fun returnToDesktop() {
-        val cur = _state.value
-        val wasSearching = cur.searching
-        val next = cur.copy(
-            showApps = false,
-            showSettings = false,
-            showLibraryManager = false,
-            libraryManagerInitialDir = null,
-            libraryManagerInitialFocusFile = null,
-            showViewMenu = false,
-            showQuickHud = false,
-            showScrapeTaskDialog = false,
-            detailGame = null,
-            propertiesGame = null,
-            editingGame = null,
-            manualScrapeGame = null,
-            searching = false,
-            searchQuery = "",
-        )
+        var wasSearching = false
+        var snapshot: HomeUiState? = null
+        _state.update { cur ->
+            wasSearching = cur.searching
+            cur.copy(
+                showApps = false,
+                showSettings = false,
+                showLibraryManager = false,
+                libraryManagerInitialDir = null,
+                libraryManagerInitialFocusFile = null,
+                showViewMenu = false,
+                showQuickHud = false,
+                showScrapeTaskDialog = false,
+                detailGame = null,
+                propertiesGame = null,
+                editingGame = null,
+                manualScrapeGame = null,
+                searching = false,
+                searchQuery = "",
+            ).also { snapshot = it }
+        }
         if (wasSearching) {
-            if (!recomputeFromRepo(next)) {
-                _state.value = next
-            }
-        } else if (next != cur) {
-            _state.value = next
+            snapshot?.let { recomputeFromRepo(it) }
         }
     }
 
@@ -1104,7 +1146,7 @@ class HomeViewModel(
     suspend fun deleteFile(file: File): Result<Unit> {
         val res = repo.deleteFile(file)
         if (res.isSuccess) {
-            _state.value = _state.value.copy(editingGame = null, propertiesGame = null)
+            _state.update { it.copy(editingGame = null, propertiesGame = null) }
         }
         return res
     }
@@ -1112,7 +1154,7 @@ class HomeViewModel(
     suspend fun deleteEntries(entries: List<File>): Result<Int> {
         val res = repo.deleteEntries(entries)
         if (res.isSuccess) {
-            _state.value = _state.value.copy(editingGame = null, propertiesGame = null)
+            _state.update { it.copy(editingGame = null, propertiesGame = null) }
         }
         return res
     }
@@ -1138,9 +1180,13 @@ class HomeViewModel(
     private var pendingRescrapeAfterSettings = false
 
     fun toggleSettings() {
-        val wasOpen = _state.value.showSettings
-        val nextOpen = !wasOpen
-        _state.value = _state.value.copy(showSettings = nextOpen)
+        var wasOpen = false
+        var nextOpen = false
+        _state.update { cur ->
+            wasOpen = cur.showSettings
+            nextOpen = !wasOpen
+            cur.copy(showSettings = nextOpen)
+        }
         if (wasOpen && !nextOpen && pendingRescrapeAfterSettings) {
             pendingRescrapeAfterSettings = false
             val s = _state.value
@@ -1357,11 +1403,11 @@ class HomeViewModel(
     }
 
     fun openScrapeTaskDialog() {
-        _state.value = _state.value.copy(showScrapeTaskDialog = true)
+        _state.update { it.copy(showScrapeTaskDialog = true) }
     }
 
     fun closeScrapeTaskDialog() {
-        _state.value = _state.value.copy(showScrapeTaskDialog = false)
+        _state.update { it.copy(showScrapeTaskDialog = false) }
     }
 
     suspend fun scrapeMissingAll(): Int {

@@ -75,11 +75,19 @@ object KeySound {
         Tone.TabSwitch -> R.raw.key_mech
     }
 
+    /** 后台预热 SoundPool，避免阻塞 Application.onCreate 主线程。 */
     fun warmup(context: Context) {
+        if (pool != null) return
+        val appCtx = context.applicationContext
+        soundExecutor.execute {
+            runCatching { ensurePoolInitialized(appCtx) }
+        }
+    }
+
+    private fun ensurePoolInitialized(appCtx: Context) {
         if (pool != null) return
         synchronized(this) {
             if (pool != null) return
-            val appCtx = context.applicationContext
             val attrs = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -126,7 +134,7 @@ object KeySound {
         // 异步到专属音频线程触发 SoundPool.play，彻底避免 AudioFlinger JNI IPC 阻塞主线程（实测每键 4ms+）
         soundExecutor.execute {
             runCatching {
-                if (pool == null) warmup(appCtx)
+                if (pool == null) ensurePoolInitialized(appCtx)
                 val sp = pool
                 val sid = soundIds[tone] ?: 0
                 if (sp != null && sid != 0 && sid in loadedIds) {

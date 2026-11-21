@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -96,7 +94,7 @@ fun QuickHudOverlay(
 
     var selectedRow by remember { mutableIntStateOf(0) } // 0=Brightness, 1=Volume, 2=QuickShare, 3=Web
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     fun adjustBrightness(delta: Float) {
         val next = (brightness + delta).coerceIn(0.05f, 1f)

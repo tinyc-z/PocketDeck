@@ -29,12 +29,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.LinearProgressIndicator
+import com.pocketdeck.launcher.ui.components.Switch
+import com.pocketdeck.launcher.ui.components.SwitchDefaults
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,6 +84,7 @@ import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.data.FileTask
 import com.pocketdeck.launcher.data.FileTaskKind
 import com.pocketdeck.launcher.data.FileTaskSource
+import com.pocketdeck.launcher.data.formatSize
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.lan.IncomingShareRequest
@@ -400,7 +401,7 @@ fun SharePeerPickerDialog(
     }
     LaunchedEffect(state.pinChallenge != null) {
         if (state.pinChallenge == null) {
-            runCatching { focusRequester.requestFocus() }
+            focusRequester.requestFocusSafely()
         }
     }
 
@@ -685,7 +686,7 @@ internal fun LocalSendPinDialog(
     val inputFr = remember { FocusRequester() }
     var pinText by remember(challenge.sessionId, challenge.wrongPin) { mutableStateOf("") }
     LaunchedEffect(challenge.sessionId, challenge.wrongPin) {
-        runCatching { inputFr.requestFocus() }
+        inputFr.requestFocusSafely()
     }
 
     Box(
@@ -817,7 +818,7 @@ fun ShareTransferHistoryDialog(
     val timeFmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
 
     LaunchedEffect(Unit) {
-        runCatching { closeFr.requestFocus() }
+        closeFr.requestFocusSafely()
     }
 
     Box(

@@ -1,5 +1,6 @@
 package com.pocketdeck.launcher.ui.library
 
+import com.pocketdeck.launcher.data.formatSize
 import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.widget.Toast
@@ -29,11 +30,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.Slider
+import com.pocketdeck.launcher.ui.components.SliderDefaults
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -230,7 +231,7 @@ fun ImageViewerDialog(
                 )
                 val dims = loaded?.let { if (it.second > 0) "${it.second}×${it.third} · " else "" }.orEmpty()
                 Text(
-                    "$dims${formatViewerSize(file.length())} · ${stringResource(R.string.lib_image_zoom_hint)}",
+                    "$dims${formatSize(file.length())} · ${stringResource(R.string.lib_image_zoom_hint)}",
                     style = DeckType.metaLabel,
                     color = Color.White.copy(alpha = 0.72f),
                 )
@@ -293,8 +294,8 @@ fun TextFileViewerEditorDialog(
     }
 
     LaunchedEffect(editing) {
-        if (editing) runCatching { editorFr.requestFocus() }
-        else runCatching { rootFr.requestFocus() }
+        if (editing) editorFr.requestFocusSafely()
+        else rootFr.requestFocusSafely()
     }
 
     val saveOkMsg = stringResource(R.string.lib_text_saved)
@@ -375,7 +376,7 @@ fun TextFileViewerEditorDialog(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "${formatViewerSize(file.length())} · ${content.count { it == '\n' } + 1} lines" +
+                        "${formatSize(file.length())} · ${content.count { it == '\n' } + 1} lines" +
                             if (content != originalContent) " *" else "",
                         style = DeckType.metaLabel,
                         color = DeckColors.TextSecondary,
@@ -566,7 +567,7 @@ fun ArchivePreviewDialog(
                     val fileCount = entries.count { !it.isDir }
                     val totalSize = entries.sumOf { if (it.isDir) 0L else it.size }
                     Text(
-                        stringResource(R.string.lib_archive_entries_fmt, fileCount, formatViewerSize(totalSize)),
+                        stringResource(R.string.lib_archive_entries_fmt, fileCount, formatSize(totalSize)),
                         style = DeckType.settingsLabel,
                         color = DeckColors.TextSecondary,
                     )
@@ -610,7 +611,7 @@ fun ArchivePreviewDialog(
                             if (!e.isDir && e.size > 0L) {
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    formatViewerSize(e.size),
+                                    formatSize(e.size),
                                     style = DeckType.metaLabel,
                                     color = DeckColors.TextSecondary,
                                 )
@@ -762,7 +763,7 @@ fun FileOpProgressDialog(
     onCancel: () -> Unit,
 ) {
     val progressFr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { progressFr.requestFocus() } }
+    LaunchedEffect(Unit) { progressFr.requestFocusSafely() }
     Box(
         Modifier
             .fillMaxSize()
@@ -993,7 +994,7 @@ fun AudioPlayerDialog(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "${file.extension.uppercase()} · ${formatViewerSize(file.length())}",
+                        "${file.extension.uppercase()} · ${formatSize(file.length())}",
                         style = DeckType.metaLabel,
                         color = DeckColors.TextSecondary,
                     )
@@ -1180,7 +1181,7 @@ fun FontViewerDialog(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "${file.extension.uppercase()} · ${formatViewerSize(file.length())}",
+                    "${file.extension.uppercase()} · ${formatSize(file.length())}",
                     style = DeckType.metaLabel,
                     color = DeckColors.TextSecondary,
                 )
@@ -1291,13 +1292,4 @@ fun FontViewerDialog(
 private fun formatAudioTime(ms: Int): String {
     val sec = (ms / 1000).coerceAtLeast(0)
     return String.format(Locale.US, "%02d:%02d", sec / 60, sec % 60)
-}
-
-private fun formatViewerSize(bytes: Long): String {
-    if (bytes <= 0L) return "0 B"
-    val kb = bytes / 1024.0
-    if (kb < 1024) return String.format(Locale.US, "%.0f KB", kb)
-    val mb = kb / 1024.0
-    if (mb < 1024) return String.format(Locale.US, "%.1f MB", mb)
-    return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }

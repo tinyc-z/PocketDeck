@@ -45,13 +45,6 @@ class HttpLogInterceptor(
             }
             return "$base?$masked"
         }
-
-        private fun formatBytes(bytes: Long): String = when {
-            bytes < 0L -> "?B"
-            bytes < 1024L -> "${bytes}B"
-            bytes < 1024L * 1024L -> "${bytes / 1024}KB"
-            else -> String.format("%.1fMB", bytes / (1024.0 * 1024.0))
-        }
     }
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -67,7 +60,7 @@ class HttpLogInterceptor(
             val ms = (System.nanoTime() - t0) / 1_000_000L
             val len = resp.body?.contentLength() ?: -1L
             val left = inflight.decrementAndGet()
-            logInfo("<-- [$source] #$id ${resp.code} ${ms}ms ${formatBytes(len)} inflight=$left $url")
+            logInfo("<-- [$source] #$id ${resp.code} ${ms}ms ${formatHttpLogBytes(len)} inflight=$left $url")
             resp
         } catch (e: Throwable) {
             val ms = (System.nanoTime() - t0) / 1_000_000L

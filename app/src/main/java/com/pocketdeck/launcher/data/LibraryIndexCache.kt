@@ -23,7 +23,13 @@ class LibraryIndexCache(context: Context) {
     private val cacheFile = File(context.filesDir, "library_index_v1.bin")
     private val tmpFile = File(context.filesDir, "library_index_v1.bin.tmp")
 
-    fun load(expectedRootsKey: String): Library? {
+    fun load(expectedRootsKey: String): Library? =
+        loadInternal(expectedRootsKey)
+
+    fun loadUnchecked(): Library? =
+        loadInternal(expectedRootsKey = null)
+
+    private fun loadInternal(expectedRootsKey: String?): Library? {
         if (!cacheFile.isFile) return null
         return runCatching {
             DataInputStream(BufferedInputStream(FileInputStream(cacheFile), 32 * 1024)).use { inp ->
@@ -31,7 +37,7 @@ class LibraryIndexCache(context: Context) {
                 val version = inp.readInt()
                 if (magic != MAGIC || version != VERSION) return null
                 val rootsKey = inp.readUTF()
-                if (rootsKey != expectedRootsKey) return null
+                if (expectedRootsKey != null && rootsKey != expectedRootsKey) return null
 
                 val rootCountSize = inp.readInt().coerceAtLeast(0)
                 val rootCounts = LinkedHashMap<String, Int>(rootCountSize * 2)

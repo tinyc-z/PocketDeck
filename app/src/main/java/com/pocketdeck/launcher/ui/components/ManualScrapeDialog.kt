@@ -29,9 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -231,7 +228,7 @@ fun ScrapeTaskDialog(
     } else 0f
 
     LaunchedEffect(Unit) {
-        runCatching { focusRequester.requestFocus() }
+        focusRequester.requestFocusSafely()
     }
 
     Box(
@@ -493,7 +490,7 @@ fun ManualScrapeDialog(
     fun dismissKeyboard() {
         keyboardController?.hide()
         focusManager.clearFocus(force = true)
-        runCatching { focusRequester.requestFocus() }
+        focusRequester.requestFocusSafely()
     }
 
     fun runSearch(overrideKeyword: String? = null) {
@@ -533,7 +530,7 @@ fun ManualScrapeDialog(
     }
 
     LaunchedEffect(game.id) {
-        runCatching { focusRequester.requestFocus() }
+        focusRequester.requestFocusSafely()
         runSearch()
     }
 

@@ -105,7 +105,7 @@ class LanServerManager(
     val state: StateFlow<LanServerState> = _state.asStateFlow()
 
     init {
-        refreshInterfaces()
+        scope.launch(Dispatchers.IO) { refreshInterfaces() }
         scope.launch {
             userStore.data.collectLatest { u ->
                 var id = u.deviceId

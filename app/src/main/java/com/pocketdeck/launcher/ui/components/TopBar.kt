@@ -22,6 +22,13 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import com.pocketdeck.launcher.safeCoroutineHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -50,7 +57,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -206,15 +212,37 @@ fun TopBar(
         val fmt = SimpleDateFormat(if (is12h) "h:mm" else "H:mm", Locale.getDefault())
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val disposed = AtomicBoolean(false)
+        val statusScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + safeCoroutineHandler("TopBarStatus"))
 
-        fun syncAllStatus(excludingLostNetwork: Network? = null) {
-            timeText = fmt.format(Date())
-            wifiLevel = readWifiLevel(context, excludingLostNetwork)
-            btEnabled = readBluetoothEnabled(context)
-            headsetConnected = readWiredHeadsetConnected(audioManager)
-            airplaneMode = readAirplaneMode(context)
-            dndEnabled = readDndEnabled(context)
-            mobileLevel = readMobileSignalLevel(context)
+        timeText = fmt.format(Date())
+
+        fun syncAllStatusAsync(excludingLostNetwork: Network? = null) {
+            statusScope.launch {
+                if (disposed.get()) return@launch
+                val wifi = readWifiLevel(context, excludingLostNetwork)
+                val bt = readBluetoothEnabled(context)
+                val headset = readWiredHeadsetConnected(audioManager)
+                val airplane = readAirplaneMode(context)
+                val dnd = readDndEnabled(context)
+                val mobile = readMobileSignalLevel(context)
+                val battery = runCatching {
+                    val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                    bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                }.getOrNull()
+                val nowStr = fmt.format(Date())
+                mainHandler.post {
+                    if (disposed.get()) return@post
+                    timeText = nowStr
+                    wifiLevel = wifi
+                    btEnabled = bt
+                    headsetConnected = headset
+                    airplaneMode = airplane
+                    dndEnabled = dnd
+                    mobileLevel = mobile
+                    if (battery != null && battery in 0..100) batteryPct = battery
+                }
+            }
         }
 
         val receiver = object : BroadcastReceiver() {
@@ -276,24 +304,18 @@ fun TopBar(
 
         val wifiCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                mainHandler.post { wifiLevel = readWifiLevel(context) }
+                mainHandler.post { if (!disposed.get()) wifiLevel = readWifiLevel(context) }
             }
 
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-                mainHandler.post { wifiLevel = readWifiLevel(context) }
+                mainHandler.post { if (!disposed.get()) wifiLevel = readWifiLevel(context) }
             }
 
             override fun onLost(network: Network) {
-                mainHandler.post { wifiLevel = readWifiLevel(context, excludingNetwork = network) }
+                mainHandler.post { if (!disposed.get()) wifiLevel = readWifiLevel(context, excludingNetwork = network) }
             }
         }
-        val wifiCallbackRegistered = runCatching {
-            val req = NetworkRequest.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                .build()
-            connectivityManager?.registerNetworkCallback(req, wifiCallback)
-            connectivityManager != null
-        }.getOrDefault(false)
+        val wifiCallbackRegistered = AtomicBoolean(false)
 
         val audioCallback = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
@@ -304,7 +326,6 @@ fun TopBar(
                 headsetConnected = readWiredHeadsetConnected(audioManager)
             }
         }
-        audioManager?.registerAudioDeviceCallback(audioCallback, mainHandler)
 
         val settingsObserver = object : ContentObserver(mainHandler) {
             override fun onChange(selfChange: Boolean) {
@@ -313,36 +334,45 @@ fun TopBar(
                 wifiLevel = readWifiLevel(context)
             }
         }
-        runCatching {
-            context.contentResolver.registerContentObserver(
-                Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON),
-                false,
-                settingsObserver,
-            )
-            context.contentResolver.registerContentObserver(
-                Settings.Global.getUriFor("zen_mode"),
-                false,
-                settingsObserver,
-            )
-        }
 
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                syncAllStatus()
+                syncAllStatusAsync()
             }
         }
         lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
 
-        // 初始值
-        syncAllStatus()
-        try {
-            val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-            batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 100
-        } catch (_: Exception) {}
+        // 首帧完成绘制后再异步批量读取系统状态并挂载回调，避免冷启首帧触发主线程 Binder IPC 风暴
+        syncAllStatusAsync()
+        mainHandler.post {
+            if (disposed.get()) return@post
+            runCatching {
+                val req = NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .build()
+                connectivityManager?.registerNetworkCallback(req, wifiCallback)
+                if (connectivityManager != null) wifiCallbackRegistered.set(true)
+            }
+            runCatching { audioManager?.registerAudioDeviceCallback(audioCallback, mainHandler) }
+            runCatching {
+                context.contentResolver.registerContentObserver(
+                    Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON),
+                    false,
+                    settingsObserver,
+                )
+                context.contentResolver.registerContentObserver(
+                    Settings.Global.getUriFor("zen_mode"),
+                    false,
+                    settingsObserver,
+                )
+            }
+        }
 
         onDispose {
+            disposed.set(true)
+            statusScope.cancel()
             runCatching { context.unregisterReceiver(receiver) }
-            if (wifiCallbackRegistered) {
+            if (wifiCallbackRegistered.get()) {
                 runCatching { connectivityManager?.unregisterNetworkCallback(wifiCallback) }
             }
             runCatching { audioManager?.unregisterAudioDeviceCallback(audioCallback) }

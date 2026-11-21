@@ -508,18 +508,22 @@ class MetadataRepository(
         val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
         val useArcadeItalia = enabled.any { it.id == ScraperCatalog.MetaIds.ARCADEITALIA }
 
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             val grouped = romGames.groupBy { platformResolver(it) }
-            for ((platform, platGames) in grouped) {
-                val system = platform?.libretroSystem
-                if (useLibretroDb && !system.isNullOrBlank()) {
-                    getOrFetchLibretroTable(system)
+            coroutineScope {
+                for ((platform, platGames) in grouped) {
+                    launch {
+                        val system = platform?.libretroSystem
+                        if (useLibretroDb && !system.isNullOrBlank()) {
+                            getOrFetchLibretroTable(system)
+                        }
+                        if (useArcadeItalia && NetworkStatus.isOnline(appCtx)) {
+                            // 街机平台批量预取（每批 20 款仅 1 次 HTTP RTT）
+                            client.prefetchArcadeItaliaBatch(platGames.take(60), platform)
+                        }
+                        resolveGames(platGames, platform, queryApi = false)
+                    }
                 }
-                if (useArcadeItalia && NetworkStatus.isOnline(appCtx)) {
-                    // 街机平台批量预取（每批 20 款仅 1 次 HTTP RTT）
-                    client.prefetchArcadeItaliaBatch(platGames.take(60), platform)
-                }
-                resolveGames(platGames, platform, queryApi = false)
             }
         }
     }
@@ -1713,7 +1717,6 @@ class MetadataRepository(
                 (if (m.developer != null) 1 else 0) +
                 (if (m.publisher != null) 1 else 0)
 
-        fun sanitizeFileName(name: String): String =
-            name.replace(Regex("""[^a-zA-Z0-9._-]"""), "_")
+        fun sanitizeFileName(name: String): String = sanitizeFileKey(name)
     }
 }

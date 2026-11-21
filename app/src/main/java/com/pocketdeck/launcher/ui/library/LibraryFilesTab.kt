@@ -1,10 +1,9 @@
 package com.pocketdeck.launcher.ui.library
 
 import android.content.Context
-import android.os.Build
 import android.os.Environment
-import android.os.storage.StorageManager
 import android.widget.Toast
+import com.pocketdeck.launcher.data.listExternalStorageVolumes
 import com.pocketdeck.launcher.lan.TransferPhase
 import com.pocketdeck.launcher.ui.components.BrandTileIcon
 import com.pocketdeck.launcher.ui.components.FavoriteHeartIcon
@@ -40,10 +39,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.LinearProgressIndicator
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -243,34 +242,9 @@ internal fun discoverStorageLocations(context: Context, romRoots: List<File>): L
     addIfValid(sdDir, context.getString(R.string.lib_storage_internal), isRomRoot = false, badge = null)
 
     // 4) 外接 TF / SD 卡与 USB OTG U 盘
-    val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
-    if (sm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        sm.storageVolumes.forEach { vol ->
-            if (!vol.isPrimary && vol.state == Environment.MEDIA_MOUNTED) {
-                val volDir = vol.directory
-                val desc = runCatching { vol.getDescription(context) }.getOrNull().orEmpty()
-                    .ifBlank { volDir?.name ?: context.getString(R.string.lib_storage_external) }
-                addIfValid(volDir, desc, isRomRoot = false, badge = context.getString(R.string.lib_storage_external))
-            }
-        }
-    }
-    // 兼容部分机型 USB/TF 挂载扫描
-    runCatching {
-        context.getExternalFilesDirs(null).forEach { appDir ->
-            var cur = appDir
-            repeat(4) { cur = cur?.parentFile }
-            if (cur != null && cur.path != sdPath) {
-                addIfValid(cur, cur.name, isRomRoot = false, badge = context.getString(R.string.lib_storage_external))
-            }
-        }
-    }
-    runCatching {
-        File("/storage").listFiles()?.forEach { vol ->
-            val n = vol.name
-            if (vol.isDirectory && n != "emulated" && n != "self" && n != "enc_emulated") {
-                addIfValid(vol, n, isRomRoot = false, badge = context.getString(R.string.lib_storage_external))
-            }
-        }
+    val externalBadge = context.getString(R.string.lib_storage_external)
+    for (vol in listExternalStorageVolumes(context, fallbackLabel = externalBadge)) {
+        addIfValid(vol.dir, vol.description, isRomRoot = false, badge = externalBadge)
     }
     return result
 }

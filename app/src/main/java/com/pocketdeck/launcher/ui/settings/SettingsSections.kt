@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +53,7 @@ import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.AppLocale
 import com.pocketdeck.launcher.data.AppTheme
 import com.pocketdeck.launcher.data.BackgroundStyle
+import com.pocketdeck.launcher.data.formatCacheBytes
 import com.pocketdeck.launcher.data.Category
 import com.pocketdeck.launcher.data.CategorySortOrder
 import com.pocketdeck.launcher.data.CredentialKind
@@ -1288,15 +1289,6 @@ internal fun computeScrapeCacheBytes(cacheDir: File): Long {
         }
     }
     return total
-}
-
-internal fun formatCacheBytes(bytes: Long): String {
-    if (bytes <= 0L) return "0 B"
-    val kb = bytes / 1024.0
-    if (kb < 1024.0) return String.format(Locale.US, "%.1f KB", kb)
-    val mb = kb / 1024.0
-    if (mb < 1024.0) return String.format(Locale.US, "%.1f MB", mb)
-    return String.format(Locale.US, "%.2f GB", mb / 1024.0)
 }
 
 internal fun openProjectUrl(context: android.content.Context) {

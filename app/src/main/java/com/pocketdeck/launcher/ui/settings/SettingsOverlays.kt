@@ -1,10 +1,9 @@
 package com.pocketdeck.launcher.ui.settings
 
 import android.content.Context
-import android.os.Build
 import android.os.Environment
-import android.os.storage.StorageManager
 import android.widget.Toast
+import com.pocketdeck.launcher.data.listExternalStorageVolumes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,12 +34,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.Switch
+import com.pocketdeck.launcher.ui.components.SwitchDefaults
+import com.pocketdeck.launcher.ui.components.Text
+import com.pocketdeck.launcher.ui.components.TextField
+import com.pocketdeck.launcher.ui.components.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -231,20 +230,12 @@ class DirBrowserState(private val appContext: Context? = null) {
         }
         add(Environment.getExternalStorageDirectory())
         val ctx = appContext
-        if (ctx != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                val sm = ctx.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
-                sm?.storageVolumes?.forEach { vol ->
-                    if (!vol.isPrimary && vol.state == Environment.MEDIA_MOUNTED) {
-                        add(vol.directory)
-                    }
-                }
-            }
-        }
-        runCatching {
-            File("/storage").listFiles { f ->
-                f.isDirectory && f.name != "emulated" && f.name != "self" && f.name != "enc_emulated" && f.canRead()
-            }.orEmpty().sortedBy { it.name }.forEach(::add)
+        if (ctx != null) {
+            listExternalStorageVolumes(
+                context = ctx,
+                includeExternalFilesDirs = false,
+                requireReadable = true,
+            ).forEach { add(it.dir) }
         }
         return roots
     }

@@ -4,9 +4,14 @@ import android.app.Activity
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.Layout
+import kotlinx.coroutines.delay
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.AppLocale
 import com.pocketdeck.launcher.data.FileTask
@@ -22,7 +27,6 @@ import com.pocketdeck.launcher.ui.components.ViewModeMenu
 import com.pocketdeck.launcher.ui.edit.EditGameScreen
 import com.pocketdeck.launcher.ui.lan.LanServiceControlDialog
 import com.pocketdeck.launcher.ui.library.GameLibraryScreen
-import com.pocketdeck.launcher.ui.settings.LauncherRow
 import com.pocketdeck.launcher.ui.settings.ManageCallbacks
 import com.pocketdeck.launcher.ui.settings.SettingsScreen
 import com.pocketdeck.launcher.ui.settings.SettingsState
@@ -234,16 +238,24 @@ internal fun HomeOverlays(
         )
     }
 
-    // 设置页面
-    if (state.showSettings) {
-        val launcherRows = remember(state.platformsById) {
-            state.platformsById.values
-                .sortedBy { it.shortName }
-                .map { p -> LauncherRow(p.id, p.fullName, GameLauncher.availableLaunchers(context, p.id)) }
-                .filter { it.options.isNotEmpty() }
+    // 设置页面：首帧稳定后空闲预热 + 关闭后零尺寸保活，消除首次/再次进入设置页的冷组合卡顿
+    var settingsWarmed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(1200L)
+        settingsWarmed = true
+    }
+    if (state.showSettings && !settingsWarmed) {
+        settingsWarmed = true
+    }
+    if (settingsWarmed) {
+        val libraryPlatforms = remember(state.platformsById) {
+            state.platformsById.values.sortedWith(
+                compareBy({ PlatformCatalog.sortKey(it.id) }, { it.shortName }),
+            )
         }
-        SettingsScreen(
-            state = SettingsState(
+        val frozenStateHolder = remember { mutableStateOf<SettingsState?>(null) }
+        val activeSettingsState = if (state.showSettings || frozenStateHolder.value == null) {
+            SettingsState(
                 romRoot = state.romRoot,
                 clock12h = state.is12h,
                 swapAbxy = state.swapAbxy,
@@ -263,7 +275,6 @@ internal fun HomeOverlays(
                 showAirplane = state.showAirplane,
                 showDnd = state.showDnd,
                 platformLaunchers = state.platformLaunchers,
-                launcherRows = launcherRows,
                 galleryAlign = state.galleryAlign,
                 language = AppLocale.get(context),
                 romDirs = state.romDirs,
@@ -275,9 +286,7 @@ internal fun HomeOverlays(
                 scraperCredentials = state.scraperCredentials,
                 metaDisplay = state.metaDisplay,
                 categories = state.categories,
-                libraryPlatforms = state.platformsById.values.sortedWith(
-                    compareBy({ PlatformCatalog.sortKey(it.id) }, { it.shortName }),
-                ),
+                libraryPlatforms = libraryPlatforms,
                 hiddenIds = state.hiddenIds,
                 showAndroidGames = state.showAndroidGames,
                 keyBindings = state.keyBindings,
@@ -294,7 +303,15 @@ internal fun HomeOverlays(
                 lanWebRunning = lanState.webRunning,
                 scrapeProgress = scrapeProgress,
                 quickHudEnabled = state.quickHudEnabled,
-            ),
+            ).also { frozenStateHolder.value = it }
+        } else {
+            frozenStateHolder.value!!
+        }
+        val showSettingsNow = state.showSettings
+        Layout(
+            content = {
+                SettingsScreen(
+                    state = activeSettingsState,
             onDismiss = {
                 onCapturingKeyBindChange(false)
                 vm.toggleSettings()
@@ -367,12 +384,24 @@ internal fun HomeOverlays(
                 openLanService = { onShowLanControlFromStatusBarChange(true) },
                 toggleQuickHudEnabled = vm::toggleQuickHudEnabled,
             ),
+            isVisible = showSettingsNow,
             isCovered = state.showLibraryManager || showLanControlFromStatusBar,
             onLanguageChange = { code ->
                 AppLocale.set(context, code)
                 (context as? Activity)?.recreate()
             },
         )
+            },
+        ) { measurables, constraints ->
+            if (!showSettingsNow) {
+                layout(0, 0) {}
+            } else {
+                val p = measurables.firstOrNull()?.measure(constraints)
+                layout(constraints.maxWidth, constraints.maxHeight) {
+                    p?.placeRelative(0, 0)
+                }
+            }
+        }
     }
 
     // 游戏库管理器（可从 Apps 中「游戏库」打开，或从「设置 → 游戏库 → 管理已隐藏」直接跳入）

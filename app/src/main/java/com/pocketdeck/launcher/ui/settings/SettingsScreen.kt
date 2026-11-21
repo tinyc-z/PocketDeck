@@ -27,7 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -82,6 +82,7 @@ import com.pocketdeck.launcher.data.SourceItemConfig
 import com.pocketdeck.launcher.data.SystemTabConfig
 import com.pocketdeck.launcher.data.ThemeAccent
 import com.pocketdeck.launcher.data.ViewMode
+import com.pocketdeck.launcher.data.formatCacheBytes
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
@@ -124,7 +125,6 @@ data class SettingsState(
     val showAirplane: Boolean = true,
     val showDnd: Boolean = true,
     val platformLaunchers: Map<String, String> = emptyMap(),
-    val launcherRows: List<LauncherRow> = emptyList(),
     val galleryAlign: GalleryAlign = GalleryAlign.Top,
     val romDirs: List<RomDirEntry> = emptyList(),
     val autoRoot: String? = null,
@@ -193,12 +193,6 @@ class ManageCallbacks(
     val openLibraryHidden: () -> Unit = {},
     val openLanService: () -> Unit = {},
     val toggleQuickHudEnabled: () -> Unit = {},
-)
-
-data class LauncherRow(
-    val platformId: String,
-    val platformName: String,
-    val options: List<Pair<String, String>>,
 )
 
 enum class SettingsSection {
@@ -271,7 +265,7 @@ private fun launcherPlatformsFor(
             }
     }
     if (fromLib.isNotEmpty()) return fromLib
-    return state.launcherRows.map { PlatformCatalog.forFolder(it.platformId) }
+    return emptyList()
 }
 
 @Composable
@@ -308,9 +302,11 @@ fun SettingsScreen(
     onSetPlatformLauncher: (platformId: String, emulatorId: String?) -> Unit = { _, _ -> },
     onCycleGalleryAlign: () -> Unit = {},
     manage: ManageCallbacks = ManageCallbacks(),
+    isVisible: Boolean = true,
     isCovered: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val effectiveCovered = isCovered || !isVisible
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -395,15 +391,6 @@ fun SettingsScreen(
             }
         }
     }
-    LaunchedEffect(raCoreRefreshTick) {
-        val (cnt, authed) = withContext(Dispatchers.IO) {
-            val scanned = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.scanSafAndExternalCores(context)
-            val uri = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.getSafCoresUri(context)
-            scanned.size to (uri != null)
-        }
-        raCoreCount = cnt
-        raSafAuthorized = authed
-    }
     val raSafPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         com.pocketdeck.launcher.launch.RetroArchCoreCatalog.saveSafCoresUri(context, uri)
@@ -429,12 +416,12 @@ fun SettingsScreen(
     LaunchedEffect(
         nameSpec, browsing, credDialogKind, showScrapeLogs, bindingCategorySpec,
         launcherPickerPlatform, showHiddenDialog, showFontPicker, editingSystemTab,
-        capturingAction, pendingKeyConflict, showResetBindingsConfirm, isCovered,
+        capturingAction, pendingKeyConflict, showResetBindingsConfirm, effectiveCovered,
     ) {
         if (nameSpec == null && !browsing && credDialogKind == null && !showScrapeLogs &&
             bindingCategorySpec == null && launcherPickerPlatform == null && !showHiddenDialog &&
             !showFontPicker && editingSystemTab == null && capturingAction == null &&
-            pendingKeyConflict == null && !showResetBindingsConfirm && !isCovered
+            pendingKeyConflict == null && !showResetBindingsConfirm && !effectiveCovered
         ) {
             focusRequester.requestFocusSafely()
         }
@@ -486,6 +473,31 @@ fun SettingsScreen(
     val nav = remember { SettingsNavState() }
     var langPicker by remember { mutableStateOf<Int?>(null) }
 
+    LaunchedEffect(isVisible) {
+        if (!isVisible) {
+            nav.selectedSection = 0
+            nav.focusOnMenu = true
+            nav.contentItemIndex = 0
+            menu = null
+            browsing = false
+            nameSpec = null
+            credDialogKind = null
+            showScrapeLogs = false
+            bindingCategorySpec = null
+            launcherPickerPlatform = null
+            showHiddenDialog = false
+            showFontPicker = false
+            editingSystemTab = null
+            accentPicker = null
+            bgPicker = null
+            langPicker = null
+            capturingAction = null
+            keyBindError = null
+            pendingKeyConflict = null
+            showResetBindingsConfirm = false
+        }
+    }
+
     fun toggleLangPicker() {
         langPicker = if (langPicker == null) AppLocale.CODES.indexOf(state.language).coerceAtLeast(0) else null
     }
@@ -504,10 +516,22 @@ fun SettingsScreen(
     }
 
     var scrapeCacheBytes by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(nav) {
+    LaunchedEffect(nav, raCoreRefreshTick) {
         snapshotFlow { sections[nav.selectedSection] }.collect { sec ->
-            if (sec == SettingsSection.Covers) {
-                scrapeCacheBytes = withContext(Dispatchers.IO) { computeScrapeCacheBytes(context.cacheDir) }
+            when (sec) {
+                SettingsSection.Covers -> {
+                    scrapeCacheBytes = withContext(Dispatchers.IO) { computeScrapeCacheBytes(context.cacheDir) }
+                }
+                SettingsSection.Emulators -> {
+                    val (cnt, authed) = withContext(Dispatchers.IO) {
+                        val scanned = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.scanSafAndExternalCores(context)
+                        val uri = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.getSafCoresUri(context)
+                        scanned.size to (uri != null)
+                    }
+                    raCoreCount = cnt
+                    raSafAuthorized = authed
+                }
+                else -> Unit
             }
         }
     }
@@ -807,7 +831,7 @@ fun SettingsScreen(
             RailItem(DeckIcons.Device, railSys),
         )
     }
-    val cachedLauncherPlatforms = remember(state.libraryPlatforms, state.launcherRows, state.platformAspects, showAllLauncherPlatforms) {
+    val cachedLauncherPlatforms = remember(state.libraryPlatforms, state.platformAspects, showAllLauncherPlatforms) {
         launcherPlatformsFor(state, showAllLauncherPlatforms)
     }
     val prevKeyBadge = GamepadKeys.badgeLabel(state.keyBindings, KeyAction.PrevTab, state.swapAbxy) ?: "L1"
@@ -819,10 +843,10 @@ fun SettingsScreen(
             .settingsBackdrop()
             .blockOverlayTouchThrough()
             .focusRequester(focusRequester)
-            .focusProperties { canFocus = !isCovered }
+            .focusProperties { canFocus = !effectiveCovered }
             .focusable()
             .onPreviewKeyEvent { event ->
-                if (isCovered || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (effectiveCovered || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
                 nameSpec?.let { spec ->
                     return@onPreviewKeyEvent when {
@@ -1276,7 +1300,7 @@ fun SettingsScreen(
                     }
                     val dlProg = updateDownloadProgress
                     if (dlProg != null) {
-                        androidx.compose.material3.LinearProgressIndicator(
+                        com.pocketdeck.launcher.ui.components.LinearProgressIndicator(
                             progress = { dlProg.coerceIn(0f, 1f) },
                             modifier = Modifier
                                 .fillMaxWidth()

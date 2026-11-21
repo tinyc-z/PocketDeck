@@ -20,7 +20,6 @@ import com.pocketdeck.launcher.data.model.GameMetadata
  */
 object OfflineGameDb {
 
-    private val SAFE_FILE_REGEX = Regex("""[^a-zA-Z0-9._-]""")
     private const val MAX_CACHED_PLATFORMS = 4
 
     /** 当前前台列表正在使用的 `libretroSystem` 集合：LRU 淘汰与 `onTrimMemory` 均受保护，不会被释放。 */
@@ -45,7 +44,7 @@ object OfflineGameDb {
     private val boxartCache = LinkedHashMap<String, List<String>>(8, 0.75f, true)
     private val metaCache = LinkedHashMap<String, PlatformTable>(8, 0.75f, true)
 
-    fun sanitizeSystemName(system: String): String = system.replace(SAFE_FILE_REGEX, "_")
+    fun sanitizeSystemName(system: String): String = sanitizeFileKey(system)
 
     /** 释放非活跃平台的内存副本（保留 [keepSystems] 中当前正在使用的平台）。 */
     fun trimMemory(keepSystems: Set<String> = activeSystems) {
