@@ -1065,9 +1065,7 @@ class CoverSource(
         val local = game.localCover?.let(::File)?.takeIf { it.isFile }
         if (local != null) return "l-${local.lastModified()}-${local.length()}"
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) {
-            val pkg = game.id.removePrefix(GameLauncher.APK_PREFIX)
-            val updated = runCatching { appCtx.packageManager.getPackageInfo(pkg, 0).lastUpdateTime }.getOrDefault(0L)
-            return "a-$updated"
+            return "a-${game.lastModifiedMs}"
         }
         val url = cachedUrl(game.id)
         val wf = webCacheFile(game.id)
