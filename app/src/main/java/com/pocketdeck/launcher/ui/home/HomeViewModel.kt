@@ -940,7 +940,7 @@ class HomeViewModel(
         if (!candidate.coverUrl.isNullOrBlank() && !latest.customCover.isNullOrBlank()) {
             val prevCover = latest.customCover
             val existingName = repo.user.value?.renames?.get(latest.id)
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
                 if (prevCover.contains("/custom_covers/")) {
                     runCatching { java.io.File(prevCover).delete() }
                 }
@@ -1364,7 +1364,7 @@ class HomeViewModel(
         _state.value = _state.value.copy(showScrapeTaskDialog = false)
     }
 
-    fun scrapeMissingAll(): Int {
+    suspend fun scrapeMissingAll(): Int {
         val lib = repo.library.value ?: return 0
         val allGames = lib.platforms.flatMap { lib.games[it.id].orEmpty() }
         val s = _state.value

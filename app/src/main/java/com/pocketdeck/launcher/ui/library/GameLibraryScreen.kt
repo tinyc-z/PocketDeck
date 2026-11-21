@@ -89,6 +89,7 @@ import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.ui.components.InlineExpandableSearchPill
 import com.pocketdeck.launcher.ui.components.icons.PanelIcons
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.data.Category
 import com.pocketdeck.launcher.data.CoverResolutionInfo
@@ -382,7 +383,7 @@ fun GameLibraryScreen(
         } else if (roots.size == 1) {
             currentDir = roots.first()
         }
-        focusRequester.requestFocus()
+        focusRequester.requestFocusSafely()
     }
 
     LaunchedEffect(mode, currentDir, dirRefreshTick, filesRevision, fileSearchQuery, fileSearchRecursive) {
@@ -500,7 +501,7 @@ fun GameLibraryScreen(
         opProgress != null
 
     LaunchedEffect(overlayActive) {
-        if (!overlayActive) focusRequester.requestFocus()
+        if (!overlayActive) focusRequester.requestFocusSafely()
     }
     LaunchedEffect(fileSearchOpen) {
         if (fileSearchOpen) {
@@ -1130,12 +1131,12 @@ fun GameLibraryScreen(
                 if (searchFieldFocused || fileSearchFieldFocused) {
                     return@onPreviewKeyEvent when (event.key) {
                         Key.Escape, Key.Back -> {
-                            focusRequester.requestFocus()
+                            focusRequester.requestFocusSafely()
                             focusZone = if (searchFieldFocused) LibraryZone.Filter else LibraryZone.FilesToolbar
                             true
                         }
                         Key.DirectionDown -> {
-                            focusRequester.requestFocus()
+                            focusRequester.requestFocusSafely()
                             focusZone = LibraryZone.List
                             true
                         }
@@ -1377,7 +1378,7 @@ fun GameLibraryScreen(
                     },
                     onSearchFieldFocusChange = { searchFieldFocused = it },
                     onSearchAction = {
-                        focusRequester.requestFocus()
+                        focusRequester.requestFocusSafely()
                         focusZone = LibraryZone.List
                     },
                     onSelectFilter = { gamesFilter = it; selectedIdx = 0 },
@@ -1425,7 +1426,7 @@ fun GameLibraryScreen(
                     },
                     onFileSearchFieldFocusChange = { fileSearchFieldFocused = it },
                     onFileSearchAction = {
-                        focusRequester.requestFocus()
+                        focusRequester.requestFocusSafely()
                         focusZone = LibraryZone.List
                     },
                     onToggleFileSearchRecursive = {

@@ -74,6 +74,7 @@ import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckProgressBar
 import com.pocketdeck.launcher.ui.components.DeckSwitch
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.brandBorder
@@ -268,7 +269,7 @@ fun ShareMethodDialog(
 ) {
     val focusRequester = remember { FocusRequester() }
     var focusIdx by remember { mutableIntStateOf(0) } // 0 = LAN, 1 = System Quick Share
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     Box(
         Modifier
@@ -394,7 +395,7 @@ fun SharePeerPickerDialog(
     val peers = state.peers
 
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        focusRequester.requestFocusSafely()
         if (state.shareRunning) onScanPeers()
     }
     LaunchedEffect(state.pinChallenge != null) {

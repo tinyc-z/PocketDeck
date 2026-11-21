@@ -8,6 +8,7 @@ import android.widget.Toast
 import com.pocketdeck.launcher.lan.TransferPhase
 import com.pocketdeck.launcher.ui.components.BrandTileIcon
 import com.pocketdeck.launcher.ui.components.FavoriteHeartIcon
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.components.soundClickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -197,7 +198,7 @@ internal fun MoveFolderDialog(
     val listState = rememberLazyListState()
     val sdPath = remember { Environment.getExternalStorageDirectory().path }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
     LaunchedEffect(curDir) {
         val d = curDir
         dirs = if (d == null) {

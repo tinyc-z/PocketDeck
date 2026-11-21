@@ -101,9 +101,9 @@ fun GameCategoryPickerDialog(
 
     LaunchedEffect(showNewInput) {
         if (showNewInput) {
-            newInputFocus.requestFocus()
+            newInputFocus.requestFocusSafely()
         } else {
-            focusRequester.requestFocus()
+            focusRequester.requestFocusSafely()
         }
     }
     LaunchedEffect(focusIdx) {

@@ -70,9 +70,15 @@ fun QuickHudOverlay(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val maxVol = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
-    var volume by remember { mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    val maxVol = remember {
+        runCatching { audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }.getOrNull()?.coerceAtLeast(1) ?: 15
+    }
+    var volume by remember {
+        mutableIntStateOf(
+            runCatching { audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrNull() ?: 0,
+        )
+    }
 
     val activity = context as? Activity
     var brightness by remember {
@@ -105,7 +111,7 @@ fun QuickHudOverlay(
     fun adjustVolume(delta: Int) {
         val next = (volume + delta).coerceIn(0, maxVol)
         volume = next
-        runCatching { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0) }
+        runCatching { audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0) }
     }
 
     Box(

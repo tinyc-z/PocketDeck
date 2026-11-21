@@ -86,6 +86,7 @@ import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.DeckIcons
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.home.MetaFieldKey
 import com.pocketdeck.launcher.ui.home.RomDirEntry
 import com.pocketdeck.launcher.ui.home.TabEntry
@@ -176,7 +177,7 @@ class ManageCallbacks(
     val moveMetadataSource: (Int, Int) -> Unit = { _, _ -> },
     val saveCredentials: (ScraperCredentials) -> Unit = {},
     val clearCoverCache: suspend () -> Unit = {},
-    val scrapeMissing: () -> Int = { 0 },
+    val scrapeMissing: suspend () -> Int = { 0 },
     val cancelScrape: () -> Unit = {},
     val openScrapeTask: () -> Unit = {},
     val dismissScrapeProgress: () -> Unit = {},
@@ -435,7 +436,7 @@ fun SettingsScreen(
             !showFontPicker && editingSystemTab == null && capturingAction == null &&
             pendingKeyConflict == null && !showResetBindingsConfirm && !isCovered
         ) {
-            focusRequester.requestFocus()
+            focusRequester.requestFocusSafely()
         }
     }
 
@@ -641,7 +642,7 @@ fun SettingsScreen(
                     0 -> onCycleTheme()
                     1 -> toggleAccentPicker()
                     2 -> toggleBgPicker()
-                    3 -> if (hasImg) pickBgLauncher.launch("image/*") else onToggleReduceMotion()
+                    3 -> if (hasImg) runCatching { pickBgLauncher.launch("image/*") } else onToggleReduceMotion()
                     motionIdx -> onToggleReduceMotion()
                     fontIdx -> showFontPicker = true
                 }
@@ -726,11 +727,13 @@ fun SettingsScreen(
                         if (state.scrapeProgress.running) {
                             manage.openScrapeTask()
                         } else {
-                            val queued = manage.scrapeMissing()
-                            if (queued > 0) {
-                                manage.openScrapeTask()
-                            } else {
-                                Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
+                            scope.launch {
+                                val queued = manage.scrapeMissing()
+                                if (queued > 0) {
+                                    manage.openScrapeTask()
+                                } else {
+                                    Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     }
@@ -744,7 +747,7 @@ fun SettingsScreen(
                     return
                 }
                 if (idx == 1) {
-                    raSafPickerLauncher.launch(null)
+                    runCatching { raSafPickerLauncher.launch(null) }
                     return
                 }
                 launcherPlatformsFor(state, showAllLauncherPlatforms).getOrNull(idx - 2)?.let {
@@ -1091,7 +1094,7 @@ fun SettingsScreen(
                                             onToggleBgPicker = ::toggleBgPicker,
                                             onSelectBackgroundStyle = { bgPicker = null; onSetBackgroundStyle(it) },
                                             customBackground = state.customBackground,
-                                            onPickCustomBackground = { pickBgLauncher.launch("image/*") },
+                                            onPickCustomBackground = { runCatching { pickBgLauncher.launch("image/*") } },
                                             onClearCustomBackground = { onSetCustomBackground(null) },
                                             reduceMotion = state.reduceMotion,
                                             onToggleReduceMotion = onToggleReduceMotion,
@@ -1139,11 +1142,13 @@ fun SettingsScreen(
                                                 if (state.scrapeProgress.running) {
                                                     manage.openScrapeTask()
                                                 } else {
-                                                    val queued = manage.scrapeMissing()
-                                                    if (queued > 0) {
-                                                        manage.openScrapeTask()
-                                                    } else {
-                                                        Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
+                                                    scope.launch {
+                                                        val queued = manage.scrapeMissing()
+                                                        if (queued > 0) {
+                                                            manage.openScrapeTask()
+                                                        } else {
+                                                            Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
+                                                        }
                                                     }
                                                 }
                                             },
@@ -1158,7 +1163,7 @@ fun SettingsScreen(
                                             onToggleShowAllPlatforms = { showAllLauncherPlatforms = !showAllLauncherPlatforms; nav.contentItemIndex = 0 },
                                             onAuthorizeRetroArchCores = {
                                                 val initial = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.buildSuggestedInitialUri(context)
-                                                raSafPickerLauncher.launch(initial)
+                                                runCatching { raSafPickerLauncher.launch(initial) }
                                             },
                                             retroArchCoreCount = raCoreCount,
                                             retroArchSafAuthorized = raSafAuthorized,

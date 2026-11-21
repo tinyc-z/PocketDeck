@@ -5,6 +5,8 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import com.pocketdeck.launcher.data.GameRepository
+import com.pocketdeck.launcher.safeCoroutineHandler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -293,7 +295,7 @@ class QuickShareService(
         val port = server.start()
         httpServer = server
 
-        val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val s = CoroutineScope(SupervisorJob() + Dispatchers.IO + safeCoroutineHandler("QuickShareService"))
         scope = s
 
         acquireMulticastLock()
@@ -334,11 +336,13 @@ class QuickShareService(
     fun scanPeers() {
         if (!isRunning) return
         scope?.launch(Dispatchers.IO) {
-            sendDiscoveryPacket("probe")
-            delay(120)
-            sendDiscoveryPacket("announce")
-            if (localSendCompatEnabled) {
-                sendLocalSendAnnounce(announce = true)
+            runCatching {
+                sendDiscoveryPacket("probe")
+                delay(120)
+                sendDiscoveryPacket("announce")
+                if (localSendCompatEnabled) {
+                    sendLocalSendAnnounce(announce = true)
+                }
             }
         }
     }
@@ -1053,14 +1057,14 @@ class QuickShareService(
                         val msg = runCatching {
                             String(pkt.data, pkt.offset, pkt.length, StandardCharsets.UTF_8)
                         }.getOrNull() ?: continue
-                        handleLocalSendDiscoveryPacket(msg, senderIp, lan)
+                        runCatching { handleLocalSendDiscoveryPacket(msg, senderIp, lan) }
                     }
                 }
             }
 
             localSendJobs += s.launch {
                 while (isActive && localSendCompatEnabled) {
-                    sendLocalSendAnnounce(announce = true)
+                    runCatching { sendLocalSendAnnounce(announce = true) }
                     delay(ANNOUNCE_INTERVAL_MS)
                 }
             }
@@ -1800,7 +1804,7 @@ class QuickShareService(
                     val senderIp = pkt.address?.hostAddress.orEmpty()
                     val msg = runCatching { String(pkt.data, pkt.offset, pkt.length, StandardCharsets.UTF_8) }.getOrNull()
                         ?: continue
-                    handleDiscoveryMessage(msg, senderIp)
+                    runCatching { handleDiscoveryMessage(msg, senderIp) }
                 }
             }
         }
@@ -1808,8 +1812,10 @@ class QuickShareService(
         // 定时广播自己 + 清理离线设备
         s.launch {
             while (isActive) {
-                sendDiscoveryPacket("announce")
-                pruneStalePeers()
+                runCatching {
+                    sendDiscoveryPacket("announce")
+                    pruneStalePeers()
+                }
                 delay(ANNOUNCE_INTERVAL_MS)
             }
         }
@@ -1843,7 +1849,7 @@ class QuickShareService(
                     publishPeers()
                 }
                 if (type == "probe") {
-                    scope?.launch(Dispatchers.IO) { sendDiscoveryPacket("announce") }
+                    scope?.launch(Dispatchers.IO) { runCatching { sendDiscoveryPacket("announce") } }
                 }
             }
         }

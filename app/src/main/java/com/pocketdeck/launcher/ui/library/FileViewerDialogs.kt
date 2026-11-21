@@ -79,6 +79,7 @@ import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.DialogCloseButton
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
@@ -130,7 +131,7 @@ fun ImageViewerDialog(
         }
     }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     Box(
         Modifier
@@ -492,7 +493,7 @@ fun ArchivePreviewDialog(
     )
     var focusIdx by remember { mutableIntStateOf(0) }
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     Box(
         Modifier
@@ -667,7 +668,7 @@ fun BatchDeleteConfirmDialog(
 ) {
     val focusRequester = remember { FocusRequester() }
     var selectedIdx by remember { mutableIntStateOf(1) } // 0 = Delete, 1 = Cancel
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     Box(
         Modifier
@@ -896,7 +897,7 @@ fun AudioPlayerDialog(
         }
     }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     fun togglePlay() {
         val mp = playerRef ?: return
@@ -1130,7 +1131,7 @@ fun FontViewerDialog(
     val appliedMsg = stringResource(R.string.font_import_success)
     val invalidMsg = stringResource(R.string.lib_font_invalid)
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     Box(
         Modifier

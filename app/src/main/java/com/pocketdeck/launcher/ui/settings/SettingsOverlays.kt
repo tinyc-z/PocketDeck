@@ -87,6 +87,7 @@ import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.ButtonBadge
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.soundClickable
 import com.pocketdeck.launcher.ui.theme.DeckColors
@@ -926,7 +927,7 @@ fun NameDialog(
     onDismiss: () -> Unit,
 ) {
     val fr = remember { FocusRequester() }
-    LaunchedEffect(spec) { fr.requestFocus() }
+    LaunchedEffect(spec) { fr.requestFocusSafely() }
     Box(
         Modifier
             .fillMaxSize()
@@ -1053,7 +1054,7 @@ fun ScraperCredentialDialog(
     }
 
     val firstFr = remember { FocusRequester() }
-    LaunchedEffect(kind) { firstFr.requestFocus() }
+    LaunchedEffect(kind) { firstFr.requestFocusSafely() }
 
     val tfColors = TextFieldDefaults.colors(
         focusedContainerColor = DeckColors.Surface,
@@ -1390,7 +1391,7 @@ fun SystemTabEditDialog(
     var name by remember(defaultLabel, initialCustomName) { mutableStateOf(initialCustomName) }
     var followSystem by remember(defaultLabel, initialFollowSystem) { mutableStateOf(initialFollowSystem) }
     val fieldFr = remember { FocusRequester() }
-    LaunchedEffect(defaultLabel) { fieldFr.requestFocus() }
+    LaunchedEffect(defaultLabel) { fieldFr.requestFocusSafely() }
 
     Box(
         Modifier
@@ -1548,7 +1549,7 @@ fun FontPickerDialog(
     var focusIdx by remember { mutableIntStateOf(0) }
     var initializedSelection by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
     LaunchedEffect(fonts) {
         if (!initializedSelection && fonts.size > 1) {
             val idx = fonts.indexOfFirst { it.id == currentFontId }

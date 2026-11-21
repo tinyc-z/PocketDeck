@@ -117,7 +117,7 @@ fun GamePropertiesDialog(
         if (!isApk && crc32 == null) {
             crc32 = computeCrc32(game.id)
         }
-        focusRequester.requestFocus()
+        focusRequester.requestFocusSafely()
     }
 
     val noneLabel = stringResource(R.string.prop_none)

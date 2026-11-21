@@ -82,6 +82,7 @@ import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.settings.LauncherPickerDialog
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
@@ -324,7 +325,7 @@ fun EditGameScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         OutlinedButton(
-                            onClick = { pickImageLauncher.launch("image/*") },
+                            onClick = { runCatching { pickImageLauncher.launch("image/*") } },
                             shape = CircleShape,
                             border = BorderStroke(1.dp, DeckColors.Line),
                             modifier = Modifier.fillMaxWidth(),
@@ -648,7 +649,7 @@ fun DeleteFileConfirmDialog(
     val cancelIdx = options.lastIndex
     var selectedIdx by remember { mutableIntStateOf(cancelIdx) }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     Box(
         Modifier
@@ -758,7 +759,7 @@ private fun ScrapeCoverDialog(
     var failedUrls by remember { mutableStateOf<Set<String>>(emptySet()) }
     var focusIdx by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
     LaunchedEffect(game.id, game.title) {
         if (!NetworkStatus.isOnline(context)) {

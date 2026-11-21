@@ -347,7 +347,7 @@ class MetadataRepository(
      * 增量后台刮削所有缺少封面或元数据的游戏（不清空已有缓存，支持随时 [cancelScrapeMissing] 终止）。
      * @return 本次进入队列的缺失游戏数量；若已有任务运行中，返回当前任务总数。
      */
-    fun scrapeMissing(
+    suspend fun scrapeMissing(
         games: List<Game>,
         platformResolver: (Game) -> Platform?,
         covers: CoverSource,
@@ -355,12 +355,14 @@ class MetadataRepository(
         if (missingScrapeJob?.isActive == true) {
             return _scrapeProgress.value.total
         }
-        val romGames = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
         val metaSnap = _metadata.value
-        val pending = romGames.filter { g ->
-            val missingMeta = (metaSnap[g.id] ?: gameCache[g.id])?.isEmpty != false
-            val missingCover = !covers.hasDownloadedCover(g)
-            missingMeta || missingCover
+        val pending = withContext(Dispatchers.IO) {
+            val romGames = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
+            romGames.filter { g ->
+                val missingMeta = (metaSnap[g.id] ?: gameCache[g.id])?.isEmpty != false
+                val missingCover = !covers.hasDownloadedCover(g)
+                missingMeta || missingCover
+            }
         }
         if (pending.isEmpty()) {
             _scrapeProgress.value = ScrapeProgress()

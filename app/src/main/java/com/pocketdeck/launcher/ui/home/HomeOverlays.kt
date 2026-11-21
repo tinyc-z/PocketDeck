@@ -486,13 +486,15 @@ internal fun HomeOverlays(
                 Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
             },
             onRestart = {
-                val queued = vm.scrapeMissingAll()
-                val msg = if (queued > 0) {
-                    context.getString(R.string.scraping_missing_started_toast, queued)
-                } else {
-                    context.getString(R.string.scraping_missing_none_toast)
+                scope.launch {
+                    val queued = vm.scrapeMissingAll()
+                    val msg = if (queued > 0) {
+                        context.getString(R.string.scraping_missing_started_toast, queued)
+                    } else {
+                        context.getString(R.string.scraping_missing_none_toast)
+                    }
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             },
             onDismiss = { vm.closeScrapeTaskDialog() },
         )

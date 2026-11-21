@@ -35,6 +35,10 @@ import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 
+/** 安全触发焦点请求：避免节点尚未组合/已被移除时抛 IllegalStateException。 */
+internal fun FocusRequester.requestFocusSafely(): Boolean =
+    runCatching { requestFocus() }.getOrDefault(false)
+
 /** 弹窗半透明遮罩的纯点击关闭（不参与 D-pad/键盘焦点链，防止误触发关闭）。 */
 fun Modifier.scrimTapDismiss(onDismiss: () -> Unit): Modifier =
     pointerInput(Unit) {

@@ -13,6 +13,7 @@ import coil3.size.Precision
 import okhttp3.OkHttpClient
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import android.util.Log
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.GameRepository
 import com.pocketdeck.launcher.data.HttpLogInterceptor
@@ -23,14 +24,21 @@ import com.pocketdeck.launcher.data.ScraperClient
 import com.pocketdeck.launcher.data.UserStore
 import com.pocketdeck.launcher.input.KeySound
 import com.pocketdeck.launcher.lan.LanServerManager
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okio.Path.Companion.toOkioPath
 
+/** 防止 SupervisorJob 根协程内未捕获异常沿线程 UncaughtExceptionHandler 击穿进程。 */
+internal fun safeCoroutineHandler(tag: String): CoroutineExceptionHandler =
+    CoroutineExceptionHandler { _, throwable ->
+        Log.w(tag, "Uncaught coroutine exception", throwable)
+    }
+
 /** 手写依赖容器：不用 Hilt，少一次注解处理，冷启动更快。 */
 class AppContainer(app: Application) {
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + safeCoroutineHandler("PocketDeckApp"))
     val userStore = UserStore(app)
     val scraperClient = ScraperClient(app)
     val repository = GameRepository(app, userStore, appScope)

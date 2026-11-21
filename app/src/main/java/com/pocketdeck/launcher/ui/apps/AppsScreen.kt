@@ -92,6 +92,7 @@ import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.ui.components.DeckRow
 import com.pocketdeck.launcher.ui.components.DeckScreenHeader
 import com.pocketdeck.launcher.ui.components.icons.PanelIcons
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.brandFocusRing
 import com.pocketdeck.launcher.ui.theme.cardSurface
@@ -236,11 +237,11 @@ fun AppsScreen(
         (pkg in autoGamePackages || pkg in androidGamePackages) && pkg !in excludedAndroidPackages
 
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        focusRequester.requestFocusSafely()
     }
 
     LaunchedEffect(hasTopOverlay) {
-        if (!hasTopOverlay) focusRequester.requestFocus()
+        if (!hasTopOverlay) focusRequester.requestFocusSafely()
     }
 
     val totalItems = 2 + apps.size

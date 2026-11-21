@@ -125,15 +125,15 @@ object KeySound {
         val appCtx = context.applicationContext
         // 异步到专属音频线程触发 SoundPool.play，彻底避免 AudioFlinger JNI IPC 阻塞主线程（实测每键 4ms+）
         soundExecutor.execute {
-            if (pool == null) warmup(appCtx)
-            val sp = pool
-            val sid = soundIds[tone] ?: 0
-            if (sp != null && sid != 0 && sid in loadedIds) {
-                sp.play(sid, 0.9f, 0.9f, 1, 0, 1f)
-            } else if (sp != null && sid != 0) {
-                pendingTone = tone
-            } else {
-                runCatching {
+            runCatching {
+                if (pool == null) warmup(appCtx)
+                val sp = pool
+                val sid = soundIds[tone] ?: 0
+                if (sp != null && sid != 0 && sid in loadedIds) {
+                    sp.play(sid, 0.9f, 0.9f, 1, 0, 1f)
+                } else if (sp != null && sid != 0) {
+                    pendingTone = tone
+                } else {
                     val am = appCtx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                     am?.playSoundEffect(AudioManager.FX_KEY_CLICK, 0.8f)
                 }

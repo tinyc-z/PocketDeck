@@ -21,7 +21,9 @@ import com.pocketdeck.launcher.data.RomScanner
 import com.pocketdeck.launcher.data.ThemeAccent
 import com.pocketdeck.launcher.data.UserData
 import com.pocketdeck.launcher.launch.GameLauncher
+import com.pocketdeck.launcher.safeCoroutineHandler
 import com.pocketdeck.launcher.ui.theme.deckPalette
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -463,27 +465,38 @@ class WebManagerServer(
             globalFailures.clear()
             globalLockoutUntilMs = 0L
         }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + safeCoroutineHandler("WebManagerServer"))
         val queue = Channel<AutoScrapeJob>(capacity = AUTO_SCRAPE_QUEUE_CAPACITY)
         serverScope = scope
         scrapeQueue = queue
         pendingScrapeIds.clear()
 
+        fun launchCollector(block: suspend CoroutineScope.() -> Unit) {
+            scope.launch {
+                try {
+                    block()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                }
+            }
+        }
+
         // 限制并发的后台自动刮削队列（最多 2 路并发，避免批量拖入卡死掌机）
         repeat(AUTO_SCRAPE_WORKERS) {
-            scope.launch {
+            launchCollector {
                 for (job in queue) {
                     processAutoScrape(job)
                 }
             }
         }
         // 监听文件变更与后台文件任务变化，主动通过 SSE 推送给 Web 端
-        scope.launch {
+        launchCollector {
             repo.filesRevision.drop(1).collect {
                 emitSse("state", buildStatePayload().toString())
             }
         }
-        scope.launch {
+        launchCollector {
             var lastPushMs = 0L
             var lastShape = emptyList<Pair<String, Boolean>>()
             repo.fileTasks.drop(1).collect { list ->
@@ -497,13 +510,13 @@ class WebManagerServer(
                 }
             }
         }
-        scope.launch {
+        launchCollector {
             repo.lastFileTaskEvent.drop(1).collect {
                 emitSse("tasks", buildFileTasksPayload().toString())
             }
         }
         ScrapeLogStore.init(context)
-        scope.launch {
+        launchCollector {
             ScrapeLogStore.newBatches.collect { batch ->
                 if (activeSseCount.get() > 0 && batch.isNotEmpty()) {
                     val arr = JSONArray()
@@ -512,7 +525,7 @@ class WebManagerServer(
                 }
             }
         }
-        scope.launch {
+        launchCollector {
             ScrapeLogStore.cleared.collect {
                 if (activeSseCount.get() > 0) {
                     emitSse("scrape_log_cleared", "{}")
@@ -520,7 +533,7 @@ class WebManagerServer(
             }
         }
         // 监听掌机端游戏库 / 封面 / 元数据 / 收藏 / 隐藏 / 重命名 / 分类变化，实时通过 SSE 同步到 Web 端
-        scope.launch {
+        launchCollector {
             data class GameSnap(
                 val title: String,
                 val customCover: String?,
@@ -580,7 +593,7 @@ class WebManagerServer(
                 prevTabSig = curTabSig
             }
         }
-        scope.launch {
+        launchCollector {
             var prev = covers.coverInfo.value
             covers.coverInfo.drop(1).collect { cur ->
                 if (activeSseCount.get() > 0) {
@@ -611,7 +624,7 @@ class WebManagerServer(
                 prev = cur
             }
         }
-        scope.launch {
+        launchCollector {
             var prev = metadataRepo.metadata.value
             metadataRepo.metadata.drop(1).collect { cur ->
                 if (activeSseCount.get() > 0) {
@@ -792,21 +805,27 @@ class WebManagerServer(
             shouldPublish = (now - lastHttpTxPublishMs) >= 180L
             if (shouldPublish) lastHttpTxPublishMs = now
             if (httpTxDecayJob?.isActive != true) {
-                httpTxDecayJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
-                    while (true) {
-                        kotlinx.coroutines.delay(500L)
-                        val t = System.currentTimeMillis()
-                        val empty = synchronized(httpTxLock) {
-                            val it = httpTxSamples.entries.iterator()
-                            while (it.hasNext()) {
-                                val entry = it.next()
-                                pruneHttpTxLocked(entry.value, t)
-                                if (entry.value.isEmpty()) it.remove()
+                val targetScope = serverScope ?: CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default + safeCoroutineHandler("WebTxDecay"))
+                httpTxDecayJob = targetScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                    try {
+                        while (true) {
+                            kotlinx.coroutines.delay(500L)
+                            val t = System.currentTimeMillis()
+                            val empty = synchronized(httpTxLock) {
+                                val it = httpTxSamples.entries.iterator()
+                                while (it.hasNext()) {
+                                    val entry = it.next()
+                                    pruneHttpTxLocked(entry.value, t)
+                                    if (entry.value.isEmpty()) it.remove()
+                                }
+                                httpTxSamples.isEmpty()
                             }
-                            httpTxSamples.isEmpty()
+                            publishClients()
+                            if (empty) break
                         }
-                        publishClients()
-                        if (empty) break
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
                     }
                 }
             }
@@ -2015,7 +2034,7 @@ class WebManagerServer(
         )
     }
 
-    private fun handleScrapeMissing(res: HttpResponseWriter) {
+    private suspend fun handleScrapeMissing(res: HttpResponseWriter) {
         val lib = repo.fullLibrary.value
         val allGames = lib?.games?.values?.flatten().orEmpty()
         val wasRunning = metadataRepo.scrapeProgress.value.running

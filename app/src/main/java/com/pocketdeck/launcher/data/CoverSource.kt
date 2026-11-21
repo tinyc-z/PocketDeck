@@ -1386,19 +1386,25 @@ class CoverSource(
         return if (uPart != "0" || wPart != "0") "u-$uPart-$wPart" else "0"
     }
 
+    private fun readCoverFileBounded(file: File): Pair<String, ByteArray>? {
+        val target = preferredThumbOrOriginal(file).takeIf { it.isFile && it.canRead() } ?: file
+        val len = runCatching { target.length() }.getOrDefault(-1L)
+        if (len !in 1L..(16L * 1024 * 1024)) return null
+        val bytes = runCatching { target.readBytes() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
+        return mimeForFile(target) to bytes
+    }
+
     /**
      * 仅从掌机本地文件、应用图标、Coil 磁盘缓存或掌机本地 Web 缓存读取封面字节（不触发外部网络，Web 端绝不直连外网）。
      */
     suspend fun resolveWebCoverBytes(game: Game): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
         val custom = game.customCover?.let(::File)?.takeIf { it.isFile && it.canRead() }
         if (custom != null) {
-            val f = preferredThumbOrOriginal(custom).takeIf { it.isFile && it.canRead() } ?: custom
-            return@withContext mimeForFile(f) to f.readBytes()
+            readCoverFileBounded(custom)?.let { return@withContext it }
         }
         val local = game.localCover?.let(::File)?.takeIf { it.isFile && it.canRead() }
         if (local != null) {
-            val f = preferredThumbOrOriginal(local).takeIf { it.isFile && it.canRead() } ?: local
-            return@withContext mimeForFile(f) to f.readBytes()
+            readCoverFileBounded(local)?.let { return@withContext it }
         }
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) {
             val pkg = game.id.removePrefix(GameLauncher.APK_PREFIX)

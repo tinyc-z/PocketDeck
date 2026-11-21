@@ -240,9 +240,10 @@ private suspend fun loadCoverBitmap(context: Context, model: Any, online: Boolea
  * 廉价主色提取：缩放到 16x16，按 RGB 各 3bit 分桶求平均，
  * 以「像素数 × 饱和度权重」打分，选出彼此差异足够大的 3 个颜色。
  */
-internal fun extractDominantColors(bmp: Bitmap): IntArray? {
+internal fun extractDominantColors(bmp: Bitmap): IntArray? = runCatching {
+    if (bmp.isRecycled) return@runCatching null
     val src = if (bmp.config == Bitmap.Config.HARDWARE) {
-        bmp.copy(Bitmap.Config.ARGB_8888, false) ?: return null
+        bmp.copy(Bitmap.Config.ARGB_8888, false) ?: return@runCatching null
     } else {
         bmp
     }
@@ -283,7 +284,7 @@ internal fun extractDominantColors(bmp: Bitmap): IntArray? {
         if (v > 0.93f && s < 0.10f) weight *= 0.35f // 近白
         buckets += (0xFF000000.toInt() or (r shl 16) or (g shl 8) or b) to n * weight
     }
-    if (buckets.isEmpty()) return null
+    if (buckets.isEmpty()) return@runCatching null
     buckets.sortByDescending { it.second }
 
     val chosen = ArrayList<Int>(3)
@@ -296,8 +297,8 @@ internal fun extractDominantColors(bmp: Bitmap): IntArray? {
     while (chosen.size < 3) {
         chosen += if (chosen.size == 1) shade(first, 1.25f) else shade(first, 0.72f)
     }
-    return chosen.toIntArray()
-}
+    chosen.toIntArray()
+}.getOrNull()
 
 private fun colorDist2(a: Int, b: Int): Int {
     val dr = ((a shr 16) and 0xFF) - ((b shr 16) and 0xFF)

@@ -75,6 +75,7 @@ import com.pocketdeck.launcher.launch.CustomLauncherCodec
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import java.util.Locale
 import kotlin.math.abs
 import com.pocketdeck.launcher.ui.theme.DeckColors
@@ -125,7 +126,7 @@ fun CategoryPlatformsDialog(
     var focusIdx by remember { mutableIntStateOf(0) }
     val totalFocus = sortedPlatforms.size + 2
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
     LaunchedEffect(focusIdx) {
         if (focusIdx in sortedPlatforms.indices) {
             listState.animateScrollToItem((focusIdx - 3).coerceAtLeast(0))

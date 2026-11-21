@@ -83,6 +83,7 @@ import com.pocketdeck.launcher.ui.components.LocalIsOnline
 import com.pocketdeck.launcher.ui.components.SearchBar
 import com.pocketdeck.launcher.ui.components.TopBar
 import com.pocketdeck.launcher.ui.components.WaveBackground
+import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.InterFamily
@@ -159,7 +160,7 @@ fun HomeScreen(
             !state.showLibraryManager && !state.showApps && !state.showSettings &&
             !showLanControlFromStatusBar
         ) {
-            focusRequester.requestFocus()
+            focusRequester.requestFocusSafely()
         }
     }
     DisposableEffect(lifecycleOwner) {
@@ -182,7 +183,7 @@ fun HomeScreen(
         keyboardController?.hide()
         searchFieldFocused = false
         focusManager.clearFocus(force = true)
-        focusRequester.requestFocus()
+        focusRequester.requestFocusSafely()
     }
 
     // 软键盘被系统返回或收起按钮关闭后，自动把焦点交还主页以便方向键选游戏
@@ -194,7 +195,7 @@ fun HomeScreen(
             if (prevImeVisible && !imeVisible && searchFieldFocused) {
                 searchFieldFocused = false
                 focusManager.clearFocus(force = true)
-                focusRequester.requestFocus()
+                focusRequester.requestFocusSafely()
             }
             prevImeVisible = imeVisible
         }
@@ -242,7 +243,7 @@ fun HomeScreen(
     // 任意弹窗关闭后自动夺回主页按键焦点
     LaunchedEffect(overlayOpen) {
         if (!overlayOpen) {
-            focusRequester.requestFocus()
+            focusRequester.requestFocusSafely()
         }
     }
 
@@ -252,7 +253,7 @@ fun HomeScreen(
         showLanControlFromStatusBar = false
         dismissSearchKeyboard()
         vm.returnToDesktop()
-        focusRequester.requestFocus()
+        focusRequester.requestFocusSafely()
     }
 
     // 快滚/导航动画状态用 StateFlow + 协程 Job 管理，绝不在 HomeScreen 顶层读取，避免每次方向键触发顶层全树重组

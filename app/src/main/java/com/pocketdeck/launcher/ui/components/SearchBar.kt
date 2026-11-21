@@ -56,7 +56,7 @@ fun SearchBar(
     val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        focusRequester.requestFocusSafely()
         keyboard?.show()
     }
 
