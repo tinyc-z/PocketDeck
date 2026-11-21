@@ -398,8 +398,11 @@ class CoverSource(
         scope.launch { clearCoverCacheNow() }
     }
 
+    private var windowPrepareJob: Job? = null
+
     /** 彻底清理内存与磁盘上的封面、缩略图、索引及 API 缓存，等待磁盘删除全部完成后再返回。 */
     suspend fun clearCoverCacheNow() {
+        windowPrepareJob?.cancel()
         windowScrapeQueue.scheduleReplace(emptyList(), debounceMs = 0L)
         resolvedUrls.clear()
         resolvedOrigins.clear()
@@ -602,28 +605,34 @@ class CoverSource(
         platformResolver: (Game) -> Platform,
         windowSize: Int = 16,
     ) {
-        if (games.isEmpty() || !NetworkStatus.isOnline(appCtx)) return
-        val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
-        if (enabledApiNodes.isEmpty()) return
+        // 快速滚动期间在主线程零计算、零磁盘 I/O：仅重置 180ms 防抖协程，停稳后再切后台线程筛选并替换队列
+        windowPrepareJob?.cancel()
+        if (games.isEmpty()) return
+        windowPrepareJob = scope.launch(Dispatchers.Default) {
+            delay(180L)
+            if (!NetworkStatus.isOnline(appCtx)) return@launch
+            val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
+            if (enabledApiNodes.isEmpty()) return@launch
 
-        val ordered = ArrayList<Pair<String, Pair<Game, Platform>>>(windowSize.coerceAtMost(games.size))
-        val safeFocus = focusIdx.coerceIn(0, games.lastIndex)
-        var offset = 0
-        while (ordered.size < windowSize && (safeFocus + offset <= games.lastIndex || safeFocus - offset >= 0)) {
-            val indices = if (offset == 0) intArrayOf(safeFocus) else intArrayOf(safeFocus + offset, safeFocus - offset)
-            for (idx in indices) {
-                if (idx !in games.indices || ordered.size >= windowSize) continue
-                val g = games[idx]
-                if (g.id.startsWith(GameLauncher.APK_PREFIX)) continue
-                if (!g.customCover.isNullOrBlank() || !g.localCover.isNullOrBlank()) continue
-                if (hasLocalOrCachedCover(g)) continue
-                val plat = platformResolver(g)
-                if (hasIndexCoverMatch(g, plat)) continue
-                ordered += g.id to (g to plat)
+            val ordered = ArrayList<Pair<String, Pair<Game, Platform>>>(windowSize.coerceAtMost(games.size))
+            val safeFocus = focusIdx.coerceIn(0, games.lastIndex)
+            var offset = 0
+            while (ordered.size < windowSize && (safeFocus + offset <= games.lastIndex || safeFocus - offset >= 0)) {
+                val indices = if (offset == 0) intArrayOf(safeFocus) else intArrayOf(safeFocus + offset, safeFocus - offset)
+                for (idx in indices) {
+                    if (idx !in games.indices || ordered.size >= windowSize) continue
+                    val g = games[idx]
+                    if (g.id.startsWith(GameLauncher.APK_PREFIX)) continue
+                    if (!g.customCover.isNullOrBlank() || !g.localCover.isNullOrBlank()) continue
+                    if (hasLocalOrCachedCover(g)) continue
+                    val plat = platformResolver(g)
+                    if (hasIndexCoverMatch(g, plat)) continue
+                    ordered += g.id to (g to plat)
+                }
+                offset++
             }
-            offset++
+            windowScrapeQueue.replacePending(ordered)
         }
-        windowScrapeQueue.scheduleReplace(ordered, debounceMs = 180L)
     }
 
     /** 为指定游戏异步触发 API / 索引型封面节点查询（GameTDB / Hasheous / ArcadeItalia / SteamGridDB / ScreenScraper / TGDB / IGDB）。 */
