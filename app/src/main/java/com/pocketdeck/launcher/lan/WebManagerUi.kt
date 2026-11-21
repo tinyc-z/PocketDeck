@@ -550,7 +550,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; background:var(--surf);
   }
 
-  .detail-hero { display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap; margin-bottom:14px; }
+  .detail-hero { display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; margin-bottom:10px; }
   .drawer-cover {
     width:168px; height:168px; border-radius:16px; overflow:hidden; flex-shrink:0;
     background:var(--brand); box-shadow:var(--shadow);
@@ -558,14 +558,15 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   }
   .drawer-cover span { padding:14px; }
   .drawer-cover img { width:100%; height:100%; object-fit:cover; display:block; }
-  .detail-info { flex:1; min-width:220px; }
+  .detail-info { flex:1; min-width:260px; }
   .drawer-title { font-size:21px; font-weight:800; letter-spacing:-.3px; margin:0 0 10px; line-height:1.25; }
-  .drawer-tags { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:12px; }
-  .meta-kv { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0 14px; }
-  .kv-box { background:var(--surf-alt); border-radius:12px; padding:10px 12px; }
-  .kv-k { font-size:11.5px; color:var(--label); font-weight:600; }
-  .kv-v { font-size:13.5px; font-weight:700; margin-top:3px; word-break:break-word; color:var(--text); }
-  .drawer-acts { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .drawer-tags { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  .meta-kv { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:8px 0 6px; }
+  .kv-box { background:var(--surf-alt); border-radius:9px; padding:5px 9px; }
+  .kv-k { font-size:10.5px; color:var(--label); font-weight:600; line-height:1.2; }
+  .kv-v { font-size:12.5px; font-weight:700; margin-top:1px; word-break:break-word; color:var(--text); line-height:1.3; }
+  .detail-path { font-size:11px; color:var(--label); opacity:.58; line-height:1.35; word-break:break-all; margin-top:4px; }
+  .drawer-acts { display:flex; gap:7px; flex-wrap:wrap; margin-top:0; }
   .drawer-acts .btn { justify-content:center; }
 
   .plat-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:7px; max-height:220px; overflow:auto; padding:2px; }
@@ -2452,17 +2453,20 @@ async function openGameDetail(id) {
           '<label class="btn sm" style="justify-content:center;">' + esc(tr('btn_upload_short')) + '<input type="file" accept="image/*" style="display:none" onchange="uploadCustomCover(\'' + escJs(g.id) + '\', this.files[0])"/></label>' +
           (g.hasCustomCover ? '<button class="btn sm" onclick="resetGameCover(\'' + escJs(g.id) + '\')">' + esc(tr('btn_reset_cover')) + '</button>' : '') +
         '</div>' +
+        '<div class="meta-kv">' +
+          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_release')) + '</div><div class="kv-v">' + esc(m.releaseDate || '—') + '</div></div>' +
+          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_genre')) + '</div><div class="kv-v">' + esc(m.genre || '—') + '</div></div>' +
+          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_dev')) + '</div><div class="kv-v">' + esc(m.developer || '—') + '</div></div>' +
+          '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_pub')) + '</div><div class="kv-v">' + esc(m.publisher || '—') + '</div></div>' +
+        '</div>' +
+        '<div class="detail-path">' +
+          (mInfo.crc32 ? 'CRC32 ' + esc(mInfo.crc32) + ' · ' : '') + esc(g.id) +
+        '</div>' +
       '</div>' +
-    '</div>' +
-    '<div class="meta-kv">' +
-      '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_release')) + '</div><div class="kv-v">' + esc(m.releaseDate || '—') + '</div></div>' +
-      '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_genre')) + '</div><div class="kv-v">' + esc(m.genre || '—') + '</div></div>' +
-      '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_dev')) + '</div><div class="kv-v">' + esc(m.developer || '—') + '</div></div>' +
-      '<div class="kv-box"><div class="kv-k">' + esc(tr('kv_pub')) + '</div><div class="kv-v">' + esc(m.publisher || '—') + '</div></div>' +
     '</div>' +
     '<div id="candArea"></div>' +
     (customCats.length
-      ? '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">' +
+      ? '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">' +
           '<div style="font-weight:700;font-size:12.5px;color:var(--label);margin-bottom:8px;">' + esc(tr('det_cats_title')) + '</div>' +
           '<div class="plat-grid" style="max-height:130px;">' + customCats.map(c => {
             const viaPlat = (c.sources || []).includes(g.platformId);
@@ -2472,10 +2476,7 @@ async function openGameDetail(id) {
               '<input type="checkbox" class="gcat-chk" value="' + esc(c.id) + '" ' + (checked ? 'checked' : '') + ' ' + (viaPlat ? 'disabled' : 'onchange="saveGameCats(\'' + escJs(g.id) + '\')"') + '/>' +
               '<span>' + esc(c.name) + (viaPlat ? esc(tr('det_via_plat')) : '') + '</span></label>';
           }).join('') + '</div></div>'
-      : '') +
-    '<div class="sub" style="margin-top:14px;word-break:break-all;font-size:11.5px;">' +
-      (mInfo.crc32 ? 'CRC32 ' + esc(mInfo.crc32) + ' · ' : '') + esc(g.id) +
-    '</div>';
+      : '');
 
   el('mFoot').innerHTML =
     '<button class="btn sm" onclick="toggleFav(\'' + escJs(g.id) + '\',' + (!g.favorite) + ',true)">' + esc(g.favorite ? tr('btn_unfav') : ('♥ ' + tr('btn_fav'))) + '</button>' +
