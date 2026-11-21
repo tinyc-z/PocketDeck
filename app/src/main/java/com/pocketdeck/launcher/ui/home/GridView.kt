@@ -171,11 +171,12 @@ fun GridView(
                     val aspect = plat?.coverAspect ?: 1f
                     val cellHeight = (cellWidth / aspect).coerceIn(66.dp, 134.dp)
                     val focused = i == focusIndex
+                    val latestGame by rememberUpdatedState(game)
                     val itemOnClick = remember(game.id, i, focused, onLaunch, onFocusChange) {
-                        { if (focused) onLaunch(game) else onFocusChange(i) }
+                        { if (focused) onLaunch(latestGame) else onFocusChange(i) }
                     }
                     val itemOnLongPress = remember(game.id, onLongPress) {
-                        onLongPress?.let { cb -> { cb(game) } }
+                        onLongPress?.let { cb -> { cb(latestGame) } }
                     }
 
                     val cardTiltMod = if (focused && !reduceMotion) {

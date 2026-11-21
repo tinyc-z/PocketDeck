@@ -189,11 +189,12 @@ fun BubblesView(
                             val game = games[gameIdx]
                             val plat = platformOf(game)
                             val focused = gameIdx == focusIndex
+                            val latestGame by rememberUpdatedState(game)
                             val itemOnClick = remember(game.id, gameIdx, focused, onLaunch, onFocusChange) {
-                                { if (focused) onLaunch(game) else onFocusChange(gameIdx) }
+                                { if (focused) onLaunch(latestGame) else onFocusChange(gameIdx) }
                             }
                             val itemOnLongPress = remember(game.id, onLongPress) {
-                                onLongPress?.let { cb -> { cb(game) } }
+                                onLongPress?.let { cb -> { cb(latestGame) } }
                             }
 
                             val bubbleFloatMod = if (focused && !reduceMotion) {

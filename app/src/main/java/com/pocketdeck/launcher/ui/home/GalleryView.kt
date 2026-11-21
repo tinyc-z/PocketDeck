@@ -363,13 +363,14 @@ fun GalleryView(
                     val aspect = plat?.coverAspect ?: 1f
                     val cardFullW = focusCardHeight * aspect
                     val isCardFocused = i == focusIndex
+                    val latestGame by rememberUpdatedState(game)
                     val cardOnClick = remember(game.id, i, isCardFocused, onLaunch, onFocusChange) {
                         {
-                            if (isCardFocused) onLaunch(game) else onFocusChange(i)
+                            if (isCardFocused) onLaunch(latestGame) else onFocusChange(i)
                         }
                     }
                     val cardOnLongPress = remember(game.id, onLongPress) {
-                        onLongPress?.let { cb -> { cb(game) } }
+                        onLongPress?.let { cb -> { cb(latestGame) } }
                     }
                     val cardModifier = remember(i, isCardFocused, cardAspects, prefixSmallW, focusCardHPx, spacingPx, startXPx, minScale, alignY) {
                         Modifier

@@ -835,11 +835,14 @@ class HomeViewModel(
         return true
     }
 
-    fun showMenu(game: Game) { _state.value = _state.value.copy(menuGame = null, detailGame = game) }
+    private fun latestGame(game: Game): Game =
+        repo.fullLibrary.value?.byId?.get(game.id) ?: game
+
+    fun showMenu(game: Game) { _state.value = _state.value.copy(menuGame = null, detailGame = latestGame(game)) }
     fun hideMenu() { _state.value = _state.value.copy(menuGame = null, detailGame = null) }
 
     fun openProperties(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, propertiesGame = game)
+        _state.value = _state.value.copy(menuGame = null, propertiesGame = latestGame(game))
     }
 
     fun closeProperties() {
@@ -849,7 +852,7 @@ class HomeViewModel(
     suspend fun computeCrc32(path: String): String? = metadataRepo.computeCrc32(path)
 
     fun openEdit(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, detailGame = null, editingGame = game)
+        _state.value = _state.value.copy(menuGame = null, detailGame = null, editingGame = latestGame(game))
     }
 
     fun closeEdit() {
@@ -857,7 +860,7 @@ class HomeViewModel(
     }
 
     fun openDetail(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, detailGame = game)
+        _state.value = _state.value.copy(menuGame = null, detailGame = latestGame(game))
     }
 
     fun closeDetail() {
@@ -907,7 +910,7 @@ class HomeViewModel(
     }
 
     fun openManualScrape(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, manualScrapeGame = game)
+        _state.value = _state.value.copy(menuGame = null, manualScrapeGame = latestGame(game))
     }
 
     fun closeManualScrape() {
