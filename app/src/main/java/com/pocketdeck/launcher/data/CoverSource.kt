@@ -92,6 +92,7 @@ class CoverSource(
     private val systemIndexes = ConcurrentHashMap<String, BoxartIndex>()
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
     private val indexFailedUntilMs = ConcurrentHashMap<String, Long>()
+    private val remoteIndexRefreshInFlight = ConcurrentHashMap<String, Boolean>()
     @Volatile
     private var githubIndexBlockedUntilMs: Long = 0L
     private val scrapingInFlight = ConcurrentHashMap<String, Boolean>()
@@ -406,6 +407,7 @@ class CoverSource(
         candidateOrigins.clear()
         systemIndexes.clear()
         indexFailedUntilMs.clear()
+        remoteIndexRefreshInFlight.clear()
         thumbPathLru.evictAll()
         clearPendingCoverInfo()
         _coverInfo.value = emptyMap()
@@ -530,12 +532,43 @@ class CoverSource(
         nodeConfigs.any { it.enabled && it.id == ScraperCatalog.CoverIds.LIBRETRO_BOXARTS }
 
     /** 本地已加载的 Libretro 封面索引是否已直接命中该游戏（命中时直接拉图，无需再发逐游戏 API 请求）。 */
-    private fun hasIndexCoverMatch(game: Game, platform: Platform?): Boolean {
+    private fun hasIndexCoverMatch(game: Game, platform: Platform?, officialName: String? = null): Boolean {
         if (!isLibretroBoxartsEnabled()) return false
         val system = platform?.libretroSystem ?: return false
         val index = systemIndexes[system] ?: return false
-        val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, null)
+        val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, officialName)
         return index.findMatchesWithMode(queries).isNotEmpty()
+    }
+
+    /**
+     * 通过内置离线哈希表（CRC32 -> 标准英文名）结合本地 BoxartIndex 直接匹配封面，
+     * 让中文名或改名 ROM 也能在零 API 请求下命中 Libretro 封面图。
+     */
+    private suspend fun tryResolveCoverViaOfflineHash(game: Game, platform: Platform?): Boolean {
+        if (!isLibretroBoxartsEnabled()) return false
+        val system = platform?.libretroSystem ?: return false
+        val index = systemIndexes[system] ?: return false
+        val crc = withContext(Dispatchers.IO) {
+            client.computeRomCrc32(File(game.id), platform.id)
+        } ?: return false
+        val canonicalName = withContext(Dispatchers.IO) {
+            OfflineGameDb.lookupCanonicalNameByCrc(appCtx, system, crc)
+        } ?: return false
+        val queries = TitleNormalizer.buildQueryVariants(canonicalName, canonicalName, null)
+        val match = index.findMatchesWithMode(queries).firstOrNull() ?: return false
+        val mirror = if (activeLibretroMirror == 2) 2 else 1
+        val url = buildLibretroBoxartUrl(system, match.first, mirror)
+        resolvedUrls[game.id] = url
+        resolvedOrigins[game.id] = ScraperCatalog.CoverIds.LIBRETRO_BOXARTS to match.second
+        failedUntilMs.remove(game.id)
+        scope.launch(Dispatchers.IO) {
+            db.putCoverSuccess(game.id, url, ScraperCatalog.CoverIds.LIBRETRO_BOXARTS, match.second.name)
+        }
+        _coverInfo.value = _coverInfo.value + (
+            game.id to CoverResolutionInfo(ScraperCatalog.CoverIds.LIBRETRO_BOXARTS, match.second, url)
+        )
+        _indexVersion.value += 1
+        return true
     }
 
     private val windowScrapeQueue = ReplaceableTaskQueue<Pair<Game, Platform>>(
@@ -552,6 +585,7 @@ class CoverSource(
                 }
             }
             if (hasIndexCoverMatch(g, plat)) return@ReplaceableTaskQueue
+            if (tryResolveCoverViaOfflineHash(g, plat)) return@ReplaceableTaskQueue
             scrapeGameApiNodesInternal(g, plat, officialName = null)
         },
     )
@@ -653,25 +687,43 @@ class CoverSource(
         }
     }
 
+    /**
+     * 加载指定平台的封面文件名索引：
+     * 1. 立即加载 APK 内置只读底座（`assets/offline_db/boxart/`）并与本地缓存文件合并，零等待立刻可用；
+     * 2. 若尚无远端缓存文件且联网，则异步在后台拉取 `api.github.com` 增量合并写入缓存，不阻塞当前封面加载，
+     *    即使 GitHub 返回 403 也不影响正常出图。
+     */
     private suspend fun loadSystemIndex(system: String): Boolean {
         if (systemIndexes.containsKey(system)) return false
-        val now = System.currentTimeMillis()
-        if ((indexFailedUntilMs[system] ?: 0L) > now) return false
         val lock = systemLocks.getOrPut(system) { Mutex() }
         return lock.withLock {
             if (systemIndexes.containsKey(system)) return@withLock false
-            if ((indexFailedUntilMs[system] ?: 0L) > System.currentTimeMillis()) return@withLock false
             withContext(Dispatchers.IO) {
                 val cacheFile = File(indexDir, "${sanitizeFileName(system)}.txt")
-                val names = if (cacheFile.isFile && cacheFile.length() > 0) {
+                val bundled = OfflineGameDb.loadBoxartNames(appCtx, system)
+                val cached = if (cacheFile.isFile && cacheFile.length() > 0) {
                     runCatching { cacheFile.readLines().filter { it.isNotBlank() } }.getOrNull().orEmpty()
-                } else if (NetworkStatus.isOnline(appCtx)) {
-                    fetchOnlineBoxartList(system, cacheFile)
                 } else {
                     emptyList()
                 }
-                if (names.isNotEmpty()) {
-                    systemIndexes[system] = buildIndex(names)
+                val initial = OfflineGameDb.mergeBoxartNames(bundled, cached)
+                if (initial.isNotEmpty()) {
+                    systemIndexes[system] = buildIndex(initial)
+                    indexFailedUntilMs.remove(system)
+                    // 本地已就绪；若尚未拉过远端增量且联网，后台异步合并更新
+                    if (cached.isEmpty() && NetworkStatus.isOnline(appCtx)) {
+                        launchAsyncRemoteIndexMerge(system, cacheFile, bundled)
+                    }
+                    return@withContext true
+                }
+                // 无内置底座的冷门平台：退回在线拉取（带失败冷却）
+                val now = System.currentTimeMillis()
+                if ((indexFailedUntilMs[system] ?: 0L) > now || !NetworkStatus.isOnline(appCtx)) {
+                    return@withContext false
+                }
+                val remote = fetchOnlineBoxartList(system, cacheFile)
+                if (remote.isNotEmpty()) {
+                    systemIndexes[system] = buildIndex(remote)
                     indexFailedUntilMs.remove(system)
                     true
                 } else {
@@ -682,14 +734,43 @@ class CoverSource(
         }
     }
 
-    /** 读取指定平台的本地缓存封面文件名列表（供 Web 端在 jsDelivr/GitHub 超限或限流时兜底）。 */
+    private fun launchAsyncRemoteIndexMerge(system: String, cacheFile: File, bundled: List<String>) {
+        val now = System.currentTimeMillis()
+        if ((indexFailedUntilMs[system] ?: 0L) > now || githubIndexBlockedUntilMs > now) return
+        if (remoteIndexRefreshInFlight.putIfAbsent(system, true) != null) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val remote = fetchOnlineBoxartList(system, cacheFile)
+                if (remote.isNotEmpty()) {
+                    val merged = OfflineGameDb.mergeBoxartNames(bundled, remote)
+                    writeIndexCache(cacheFile, merged)
+                    if (merged.size > bundled.size) {
+                        systemIndexes[system] = buildIndex(merged)
+                        failedUntilMs.clear()
+                        _indexVersion.value += 1
+                    }
+                } else {
+                    indexFailedUntilMs[system] = System.currentTimeMillis() + INDEX_FAIL_COOLDOWN_MS
+                }
+            } finally {
+                remoteIndexRefreshInFlight.remove(system)
+            }
+        }
+    }
+
+    /** 读取指定平台的本地缓存/内置封面文件名列表（供 Web 端在 jsDelivr/GitHub 超限或限流时兜底）。 */
     suspend fun readSystemIndexText(system: String): String? = withContext(Dispatchers.IO) {
         val clean = system.trim()
         if (clean.isEmpty()) return@withContext null
         val cacheFile = File(indexDir, "${sanitizeFileName(clean)}.txt")
-        if (!cacheFile.isFile || cacheFile.length() <= 0L) {
-            loadSystemIndex(clean)
+        if (cacheFile.isFile && cacheFile.length() > 0L) {
+            return@withContext runCatching { cacheFile.readText() }.getOrNull()
         }
+        val bundled = OfflineGameDb.loadBoxartNames(appCtx, clean)
+        if (bundled.isNotEmpty()) {
+            return@withContext bundled.joinToString("\n")
+        }
+        loadSystemIndex(clean)
         if (cacheFile.isFile && cacheFile.length() > 0L) {
             runCatching { cacheFile.readText() }.getOrNull()
         } else {

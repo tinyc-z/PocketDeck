@@ -24,6 +24,7 @@
 | **UT-09** | `HttpMiniServerSseTest` | `lan/HttpMiniServer.kt` | `startEventStream()` 响应头（`text/event-stream` / `no-cache` / `X-Accel-Buffering`）与 `sendSseRaw()` 写入/断链返回 `false` | 已有 |
 | **UT-10** | `WindowCoverQueueTest` | `data/ReplaceableTaskQueue.kt` | 可替换等待队列调度：严格 ≤ 2 并发、保活在途任务、替换时丢弃未开始旧任务并按序执行新窗口任务 | 已有 |
 | **UT-11** | `ImageImportHelperTest` | `data/ImageImportHelper.kt` | 按设备分辨率动态计算封面/背景图缩放上限（720p/1080p/2K/4K）、采样率与等比不放大校验 | 已有 |
+| **UT-12** | `OfflineGameDbTest` | `data/OfflineGameDb.kt` | 内置只读离线库 TSV 解析（CRC32→标准名、元数据字段）、封面清单去重合并与平台文件名规范化 | 已有 |
 
 ---
 

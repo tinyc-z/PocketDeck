@@ -78,6 +78,7 @@ class MetadataRepository(
     private val cacheDir = File(appCtx.cacheDir, "metadata").apply { mkdirs() }
     private val systemTables = ConcurrentHashMap<String, SystemTable>()
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
+    private val remoteMetaRefreshInFlight = ConcurrentHashMap<String, Boolean>()
     private val gameCache = ConcurrentHashMap<String, GameMetadata>()
     private val localSeedMap = ConcurrentHashMap<String, GameMetadata>()
     private val focusApiResolved = ConcurrentHashMap<String, Boolean>()
@@ -275,6 +276,7 @@ class MetadataRepository(
     /** 彻底清理内存与磁盘上的元数据缓存，等待磁盘删除完成后再返回。 */
     suspend fun clearCacheNow() {
         systemTables.clear()
+        remoteMetaRefreshInFlight.clear()
         gameCache.clear()
         focusApiResolved.clear()
         inFlightFocus.clear()
@@ -1088,6 +1090,12 @@ class MetadataRepository(
         }
     }
 
+    /**
+     * 加载指定平台的 Libretro 元数据与哈希表：
+     * 1. 立即读取 APK 内置只读底座（`assets/offline_db/meta/`）并与本地缓存文件合并，零等待立刻可用；
+     * 2. 若尚无远端缓存文件且联网，则异步在后台拉取 `libretro-database` 5 份 `.dat` 并合并覆盖到本地缓存，
+     *    不阻塞当前界面与封面加载。
+     */
     private suspend fun getOrFetchLibretroTable(system: String): SystemTable? {
         systemTables[system]?.let { return it }
         val lock = systemLocks.getOrPut(system) { Mutex() }
@@ -1095,19 +1103,131 @@ class MetadataRepository(
             systemTables[system]?.let { return@withLock it }
             withContext(Dispatchers.IO) {
                 val cacheFile = File(cacheDir, "v3_${sanitizeFileName(system)}.tsv")
-                val table = if (cacheFile.isFile && cacheFile.length() > 0) {
+                val bundled = buildSystemTableFromOffline(OfflineGameDb.loadPlatformTable(appCtx, system))
+                val cached = if (cacheFile.isFile && cacheFile.length() > 0) {
                     readCachedTsv(cacheFile)
-                } else if (NetworkStatus.isOnline(appCtx)) {
+                } else {
+                    null
+                }
+                val initial = mergeSystemTables(bundled, cached)
+                if (initial != null) {
+                    systemTables[system] = initial
+                    if (cached == null && NetworkStatus.isOnline(appCtx)) {
+                        launchAsyncRemoteMetaMerge(system, cacheFile, bundled)
+                    }
+                    return@withContext initial
+                }
+                val remote = if (NetworkStatus.isOnline(appCtx)) {
                     fetchFromLibretroWithFailover(system, cacheFile)
                 } else {
                     null
                 }
-                if (table != null) {
-                    systemTables[system] = table
+                if (remote != null) {
+                    systemTables[system] = remote
                 }
-                table
+                remote
             }
         }
+    }
+
+    private fun launchAsyncRemoteMetaMerge(system: String, cacheFile: File, bundled: SystemTable?) {
+        if (remoteMetaRefreshInFlight.putIfAbsent(system, true) != null) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val remote = fetchFromLibretroWithFailover(system, cacheFile) ?: return@launch
+                val merged = mergeSystemTables(bundled, remote) ?: return@launch
+                systemTables[system] = merged
+            } finally {
+                remoteMetaRefreshInFlight.remove(system)
+            }
+        }
+    }
+
+    private fun buildSystemTableFromOffline(offline: OfflineGameDb.PlatformTable): SystemTable? {
+        if (offline.isEmpty) return null
+        val byCrc = HashMap<String, ResolvedRow>(offline.hashToName.size + 16)
+        val byExact = HashMap<String, ResolvedRow>(offline.metaByExactName.size + 16)
+        val byTitle = HashMap<String, ResolvedRow>(offline.metaByNormTitle.size + 16)
+        val byCompact = HashMap<String, ResolvedRow>(offline.metaByNormTitle.size + 16)
+        val byToken = HashMap<String, MutableList<ResolvedRow>>(offline.metaByNormTitle.size + 16)
+
+        for ((crc, canonicalName) in offline.hashToName) {
+            val exactKey = TitleNormalizer.exactKey(canonicalName)
+            val normKey = TitleNormalizer.normalizedTitle(canonicalName)
+            val meta = offline.metaByExactName[exactKey]
+                ?: offline.metaByNormTitle[normKey]
+                ?: GameMetadata()
+            val row = ResolvedRow(canonicalName, meta)
+            byCrc.putIfAbsent(crc, row)
+            if (!meta.isEmpty) {
+                if (exactKey.isNotEmpty()) byExact.putIfAbsent(exactKey, row)
+                if (normKey.isNotEmpty()) {
+                    val prev = byTitle[normKey]
+                    if (prev == null || fieldCount(meta) > fieldCount(prev.meta)) {
+                        byTitle[normKey] = row
+                    }
+                    val comp = TitleNormalizer.compactKey(canonicalName)
+                    if (comp.isNotEmpty()) {
+                        val prevC = byCompact[comp]
+                        if (prevC == null || fieldCount(meta) > fieldCount(prevC.meta)) {
+                            byCompact[comp] = row
+                        }
+                    }
+                    for (tok in TitleNormalizer.tokenize(normKey)) {
+                        byToken.getOrPut(tok) { ArrayList(4) }.add(row)
+                    }
+                }
+            }
+        }
+        // 补入仅有标题元数据而无 CRC 的条目
+        for ((exactKey, meta) in offline.metaByExactName) {
+            if (exactKey.isEmpty() || meta.isEmpty || byExact.containsKey(exactKey)) continue
+            val row = ResolvedRow(exactKey, meta)
+            byExact[exactKey] = row
+            val normKey = TitleNormalizer.normalizedTitle(exactKey)
+            if (normKey.isNotEmpty()) {
+                val prev = byTitle[normKey]
+                if (prev == null || fieldCount(meta) > fieldCount(prev.meta)) {
+                    byTitle[normKey] = row
+                }
+            }
+        }
+        return SystemTable(byCrc, emptyMap(), byExact, byTitle, byCompact, byToken)
+    }
+
+    private fun mergeSystemTables(base: SystemTable?, overlay: SystemTable?): SystemTable? {
+        if (base == null) return overlay
+        if (overlay == null) return base
+        fun mergeRowMap(
+            a: Map<String, ResolvedRow>,
+            b: Map<String, ResolvedRow>,
+        ): Map<String, ResolvedRow> {
+            val out = HashMap<String, ResolvedRow>(a.size + b.size)
+            out.putAll(a)
+            for ((k, ov) in b) {
+                val prev = out[k]
+                out[k] = if (prev == null) {
+                    ov
+                } else {
+                    ResolvedRow(
+                        officialName = ov.officialName.ifBlank { prev.officialName },
+                        meta = OfflineGameDb.mergeMeta(ov.meta, prev.meta),
+                    )
+                }
+            }
+            return out
+        }
+        val mergedTokens = HashMap<String, MutableList<ResolvedRow>>(base.byToken.size + overlay.byToken.size)
+        for ((k, list) in base.byToken) mergedTokens[k] = ArrayList(list)
+        for ((k, list) in overlay.byToken) mergedTokens.getOrPut(k) { ArrayList(list.size) }.addAll(list)
+        return SystemTable(
+            byCrc = mergeRowMap(base.byCrc, overlay.byCrc),
+            bySerial = mergeRowMap(base.bySerial, overlay.bySerial),
+            byExact = mergeRowMap(base.byExact, overlay.byExact),
+            byTitle = mergeRowMap(base.byTitle, overlay.byTitle),
+            byCompact = mergeRowMap(base.byCompact, overlay.byCompact),
+            byToken = mergedTokens,
+        )
     }
 
     private suspend fun fetchFromLibretroWithFailover(
