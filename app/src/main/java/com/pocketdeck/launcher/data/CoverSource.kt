@@ -106,9 +106,9 @@ class CoverSource(
             },
         )
 
-    /** Libretro 活跃镜像索引：0 = thumbnails.libretro.com，1 = jsDelivr，2 = GitHub Raw（仅网络/5xx 故障时自动切换）。 */
+    /** Libretro 活跃镜像索引：1 = jsDelivr CDN（默认），2 = GitHub Raw，0 = thumbnails.libretro.com（仅兜底）。 */
     @Volatile
-    private var activeLibretroMirror: Int = 0
+    private var activeLibretroMirror: Int = 1
 
     @Volatile
     private var nodeConfigs: List<SourceItemConfig> = ScraperCatalog.defaultCoverConfigs()
@@ -761,16 +761,14 @@ class CoverSource(
         for (node in enabled) {
             when (node.id) {
                 ScraperCatalog.CoverIds.LIBRETRO_BOXARTS -> if (online && system != null) {
-                    val primary = activeLibretroMirror
-                    val fallback1 = (primary + 1) % 3
-                    val fallback2 = (primary + 2) % 3
+                    val primary = if (activeLibretroMirror == 2) 2 else 1
+                    val fallback = if (primary == 1) 2 else 1
                     indexMatches.forEach { (fileName, mode) ->
                         addUrl(buildLibretroBoxartUrl(system, fileName, primary), node.id, mode)
                     }
-                    // 主镜像宕机或 404 时，为最匹配候选自动追加其余两个镜像兜底（命中后会切换全局活跃镜像）
+                    // 主镜像宕机或 404 时，为最匹配候选自动追加备用镜像（jsDelivr <-> GitHub Raw）
                     indexMatches.take(2).forEach { (fileName, mode) ->
-                        addUrl(buildLibretroBoxartUrl(system, fileName, fallback1), node.id, mode)
-                        addUrl(buildLibretroBoxartUrl(system, fileName, fallback2), node.id, mode)
+                        addUrl(buildLibretroBoxartUrl(system, fileName, fallback), node.id, mode)
                     }
                 }
                 ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (online && system != null) {
@@ -1474,19 +1472,12 @@ class CoverSource(
     }
 
     private fun fetchOnlineBoxartList(system: String, cacheFile: File): List<String> {
-        // 两级镜像容灾：1. thumbnails.libretro.com HTML → 2. GitHub Trees API（跳过超过 50MB 必 403 的 jsDelivr flat）
-        val primaryUrl = "https://thumbnails.libretro.com/${Uri.encode(system)}/Named_Boxarts/"
-        val primaryNames = fetchLibretroHtmlListing(system, primaryUrl)
-        if (!primaryNames.isNullOrEmpty()) {
-            activeLibretroMirror = 0
-            writeIndexCache(cacheFile, primaryNames)
-            return primaryNames
-        }
+        // thumbnails.libretro.com 官方 Apache 目录已清空（全 404），直接走 GitHub Trees API 拉取索引；
+        // 单张图片优先走 cdn.jsdelivr.net CDN（快且不受 GitHub 50MB/限流限制）
         val repo = Uri.encode(system.replace(' ', '_'))
         val githubUrl = "https://api.github.com/repos/libretro-thumbnails/$repo/git/trees/master?recursive=1"
         val githubNames = fetchGitHubBoxartList(system, githubUrl)
         if (githubNames.isNotEmpty()) {
-            // 单张图片依然优先走 cdn.jsdelivr.net CDN（单图直连不受 50MB 限制）
             activeLibretroMirror = 1
             writeIndexCache(cacheFile, githubNames)
         }
