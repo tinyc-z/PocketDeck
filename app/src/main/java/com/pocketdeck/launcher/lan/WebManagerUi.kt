@@ -239,12 +239,6 @@ function applyThemeObj(t){
   if(t.flowC) r.style.setProperty('--flow-c', t.flowC);
   r.style.setProperty('--input-bg', t.isDark ? '#231A2E' : '#FFFFFF');
 }
-setInterval(async ()=>{
-  try{
-    const d = await (await fetch('/api/theme', { cache:'no-store' })).json();
-    if(d.ok) applyThemeObj(d.theme);
-  }catch{}
-}, 4000);
 
 document.getElementById('f').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1914,58 +1908,158 @@ async function cancelFileTask(id, kind) {
   pollFileTasks();
 }
 
-let hbInFlight = false;
-let hbFailCount = 0;
+let eventSrc = null;
+let sseReconnectTimer = null;
+let sseBackoffMs = 2000;
+let sseAuthDead = false;
+let sseProbing = false;
 let lastAliveAt = Date.now();
 
-async function heartbeat() {
-  if (hbInFlight || document.hidden) return;
-  hbInFlight = true;
-  const busy = (typeof activeUploadCtrl !== 'undefined' && !!activeUploadCtrl) || hadActiveTasks;
-  const timeoutMs = busy ? 25000 : 15000;
-  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
-  try {
-    const r = await fetch('/api/theme', { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
-    if (!r.ok) throw new Error('http_' + r.status);
-    const d = await r.json();
-    if (!d.ok) throw new Error('not_ok');
-    if (d.authed === false) { location.reload(); return; }
-    hbFailCount = 0;
-    lastAliveAt = Date.now();
-    applyThemeObj(d.theme);
-    const wasOff = !webConnected;
-    renderDevInfo(true, typeof d.online === 'boolean' ? d.online : deviceInfo.online);
-    if (wasOff) toast(tr('conn_restored'));
-    if (typeof d.filesRevision === 'number') {
-      if (lastKnownFilesRev >= 0 && d.filesRevision !== lastKnownFilesRev) {
-        lastKnownFilesRev = d.filesRevision;
-        if (curTab === 'files') loadFiles(curDir, true);
-        loadGames();
-      } else {
-        lastKnownFilesRev = d.filesRevision;
-      }
-    }
-    if (d.activeTaskCount > 0 || hadActiveTasks) pollFileTasks();
-  } catch (err) {
-    if (Date.now() - lastAliveAt < 12000) return;
-    const isTimeout = err && err.name === 'AbortError';
-    const failThreshold = (busy || isTimeout) ? 6 : 3;
-    hbFailCount++;
-    if (hbFailCount >= failThreshold) {
-      if (webConnected) {
-        renderDevInfo(false, false);
-        toast(tr('conn_off'));
-      } else {
-        renderDevInfo(false, false);
-      }
-    }
-  } finally {
-    if (timer) clearTimeout(timer);
-    hbInFlight = false;
+function syncOpenDetailModal(g) {
+  if (!g || window._curDetailGameId !== g.id || !el('modalBg').classList.contains('open')) return;
+  const nm = g.metadata || {};
+  const nInfo = g.metaInfo || {};
+  const setT = (eid, val) => { const n = el(eid); if (n) n.textContent = val; };
+  setT('detKvRelease', nm.releaseDate || '—');
+  setT('detKvGenre', nm.genre || '—');
+  setT('detKvDev', nm.developer || '—');
+  setT('detKvPub', nm.publisher || '—');
+  setT('detPath', (nInfo.crc32 ? 'CRC32 ' + nInfo.crc32 + ' · ' : '') + g.id);
+  const coverBox = document.querySelector('#mBody .drawer-cover');
+  if (coverBox && g.hasCover) {
+    coverBox.innerHTML = _webCoverImgHtml(g, encodeURIComponent(g.id), { id: 'detCoverImg', titleFallback: true });
   }
 }
-setInterval(heartbeat, 5000);
+
+function closeEventsSse() {
+  if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
+  if (eventSrc) { try { eventSrc.close(); } catch (_) {} eventSrc = null; }
+}
+
+function scheduleSseReconnect() {
+  if (sseAuthDead || sseReconnectTimer) return;
+  const delay = sseBackoffMs;
+  sseBackoffMs = Math.min(sseBackoffMs * 2, 5000);
+  sseReconnectTimer = setTimeout(() => {
+    sseReconnectTimer = null;
+    connectEventsSse();
+  }, delay);
+}
+
+async function probeAuthAndReconnect() {
+  if (sseAuthDead || sseProbing) return;
+  sseProbing = true;
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 5000) : null;
+  try {
+    const r = await fetch('/api/info', { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
+    if (r.status === 401) {
+      sseAuthDead = true;
+      closeEventsSse();
+      location.reload();
+      return;
+    }
+    if (r.ok) {
+      sseBackoffMs = 2000;
+      scheduleSseReconnect();
+      return;
+    }
+  } catch (_) {
+    // 掌机离线或网络瞬断，走离线提示与退避重连
+  } finally {
+    if (timer) clearTimeout(timer);
+    sseProbing = false;
+  }
+  if (webConnected) {
+    renderDevInfo(false, false);
+    toast(tr('conn_off'));
+  } else {
+    renderDevInfo(false, false);
+  }
+  scheduleSseReconnect();
+}
+
+function connectEventsSse() {
+  if (sseAuthDead || typeof EventSource === 'undefined') return;
+  if (eventSrc) { try { eventSrc.close(); } catch (_) {} eventSrc = null; }
+  const es = new EventSource('/api/events');
+  eventSrc = es;
+  es.addEventListener('state', (e) => {
+    sseBackoffMs = 2000;
+    lastAliveAt = Date.now();
+    try {
+      const d = JSON.parse(e.data);
+      if (d.theme) applyThemeObj(d.theme);
+      const wasOff = !webConnected;
+      renderDevInfo(true, typeof d.online === 'boolean' ? d.online : deviceInfo.online);
+      if (wasOff) toast(tr('conn_restored'));
+      if (typeof d.filesRevision === 'number') {
+        if (lastKnownFilesRev >= 0 && d.filesRevision !== lastKnownFilesRev) {
+          lastKnownFilesRev = d.filesRevision;
+          if (curTab === 'files') loadFiles(curDir, true);
+          loadGames();
+        } else {
+          lastKnownFilesRev = d.filesRevision;
+        }
+      }
+      if (d.activeTaskCount > 0 || hadActiveTasks) pollFileTasks();
+    } catch (_) {}
+  });
+  es.addEventListener('theme', (e) => {
+    lastAliveAt = Date.now();
+    try {
+      const d = JSON.parse(e.data);
+      if (d.theme) applyThemeObj(d.theme);
+    } catch (_) {}
+  });
+  es.addEventListener('ping', (e) => {
+    sseBackoffMs = 2000;
+    lastAliveAt = Date.now();
+    try {
+      const d = JSON.parse(e.data);
+      const wasOff = !webConnected;
+      renderDevInfo(true, typeof d.online === 'boolean' ? d.online : deviceInfo.online);
+      if (wasOff) toast(tr('conn_restored'));
+    } catch (_) {}
+  });
+  es.addEventListener('game_updated', (e) => {
+    lastAliveAt = Date.now();
+    try {
+      const d = JSON.parse(e.data);
+      if (d && d.game) {
+        patchSingleGame(d.game, d.stats);
+        syncOpenDetailModal(d.game);
+      }
+    } catch (_) {}
+  });
+  es.addEventListener('auth_revoked', () => {
+    sseAuthDead = true;
+    closeEventsSse();
+    location.reload();
+  });
+  es.onerror = () => {
+    if (eventSrc !== es) return;
+    try { es.close(); } catch (_) {}
+    eventSrc = null;
+    probeAuthAndReconnect();
+  };
+}
+
+setInterval(() => {
+  if (sseAuthDead || document.hidden || !eventSrc) return;
+  if (Date.now() - lastAliveAt > 35000) {
+    try { eventSrc.close(); } catch (_) {}
+    eventSrc = null;
+    probeAuthAndReconnect();
+  }
+}, 10000);
+window.addEventListener('beforeunload', closeEventsSse);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !eventSrc && !sseAuthDead) {
+    sseBackoffMs = 2000;
+    connectEventsSse();
+  }
+});
 
 document.querySelectorAll('.side .nav-item[data-tab]').forEach(b => b.onclick = () => switchNavTab(b.dataset.tab));
 
@@ -1985,6 +2079,7 @@ async function loadInit() {
   roots = info.roots || [];
   if (info.theme) applyThemeObj(info.theme);
   renderDevInfo(true, !!info.online);
+  connectEventsSse();
   await Promise.all([loadGames(), loadCategories()]);
 }
 

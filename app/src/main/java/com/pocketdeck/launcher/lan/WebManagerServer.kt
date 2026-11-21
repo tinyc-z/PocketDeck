@@ -1,7 +1,5 @@
 package com.pocketdeck.launcher.lan
 
-import kotlinx.coroutines.launch
-
 import android.content.Context
 import android.os.Build
 import android.os.Environment
@@ -23,10 +21,20 @@ import com.pocketdeck.launcher.data.ThemeAccent
 import com.pocketdeck.launcher.data.UserData
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.theme.deckPalette
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -38,6 +46,7 @@ import java.security.SecureRandom
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 enum class WebTransferDirection { Upload, Download }
 
@@ -168,6 +177,10 @@ class WebManagerServer(
         private const val HTTP_TX_WINDOW_MS = 2_000L
         private const val PROGRESS_SAMPLE_MS = 200L
         private const val RANGE_MERGE_WINDOW_MS = 4_000L
+        private const val AUTO_SCRAPE_WORKERS = 2
+        private const val AUTO_SCRAPE_QUEUE_CAPACITY = 256
+        private const val MAX_SSE_CONNECTIONS = 6
+        private const val SSE_PING_INTERVAL_MS = 15_000L
     }
 
     private class SessionRecord(
@@ -293,13 +306,116 @@ class WebManagerServer(
             return "http://${lan.ipAddress}:$port"
         }
 
+    private data class SseEvent(
+        val event: String,
+        val data: String,
+    )
+
+    private data class AutoScrapeJob(
+        val gameId: String,
+        val forceRefresh: Boolean,
+    )
+
+    private val sseEvents = MutableSharedFlow<SseEvent>(extraBufferCapacity = 64)
+    private val activeSseCount = AtomicInteger(0)
+    private var serverScope: CoroutineScope? = null
+    private var scrapeQueue: Channel<AutoScrapeJob>? = null
+    private val pendingScrapeIds = ConcurrentHashMap.newKeySet<String>()
+
     fun updateTheme(appTheme: AppTheme, accent: ThemeAccent, systemDark: Boolean) {
         val isDark = when (appTheme) {
             AppTheme.System -> systemDark
             AppTheme.Light -> false
             AppTheme.Dark -> true
         }
-        themeConfig = WebThemeConfig(isDark = isDark, accent = accent)
+        val next = WebThemeConfig(isDark = isDark, accent = accent)
+        val changed = next != themeConfig
+        themeConfig = next
+        if (changed && isRunning) {
+            emitSse("theme", JSONObject().put("theme", next.toJson()).toString())
+        }
+    }
+
+    private fun emitSse(event: String, data: String) {
+        sseEvents.tryEmit(SseEvent(event, data))
+    }
+
+    private fun isSessionValid(token: String): Boolean {
+        val rec = sessions[token] ?: return false
+        if (System.currentTimeMillis() > rec.expiresAtMs) {
+            sessions.remove(token)
+            publishClients()
+            return false
+        }
+        return true
+    }
+
+    private fun buildStatePayload(): JSONObject = JSONObject()
+        .put("theme", themeConfig.toJson())
+        .put("online", NetworkStatus.isOnline(context))
+        .put("filesRevision", repo.filesRevision.value)
+        .put("activeTaskCount", repo.fileTasks.value.size)
+
+    private fun enqueueAutoScrape(gameId: String, forceRefresh: Boolean) {
+        if (gameId.isBlank() || gameId.startsWith(GameLauncher.APK_PREFIX)) return
+        val q = scrapeQueue ?: return
+        if (!pendingScrapeIds.add(gameId)) return
+        val sent = q.trySend(AutoScrapeJob(gameId, forceRefresh)).isSuccess
+        if (!sent) {
+            pendingScrapeIds.remove(gameId)
+        }
+    }
+
+    private suspend fun processAutoScrape(job: AutoScrapeJob) {
+        try {
+            if (!NetworkStatus.isOnline(context)) return
+            val lib = repo.fullLibrary.value
+            val g = lib?.byId?.get(job.gameId) ?: return
+            if (g.id.startsWith(GameLauncher.APK_PREFIX)) return
+            val plat = lib.platform(g.platformId) ?: PlatformCatalog.forFolder(g.platformId)
+            var changed = false
+            if (job.forceRefresh) {
+                if (metadataRepo.refreshGame(g, plat)) changed = true
+                val off = metadataRepo.officialNames.value[g.id]
+                val coverUpdated = covers.fetchWebCoverNow(g.copy(customCover = null), plat, off)
+                if (coverUpdated) {
+                    changed = true
+                    if (!g.customCover.isNullOrBlank()) {
+                        val dir = File(context.filesDir, "custom_covers")
+                        val prevCover = repo.user.value?.covers?.get(g.id)
+                        if (prevCover != null && prevCover.startsWith(dir.absolutePath)) {
+                            runCatching { File(prevCover).delete() }
+                        }
+                        val existingName = repo.user.value?.renames?.get(g.id)
+                        repo.saveGameEdits(g.id, existingName, null)
+                        withTimeoutOrNull(500L) {
+                            repo.fullLibrary.first { it?.byId?.get(g.id)?.customCover == null }
+                        }
+                    }
+                }
+            } else {
+                metadataRepo.ensureGameMetadata(g, plat)
+                changed = true
+                val off = metadataRepo.officialNames.value[g.id]
+                if (!covers.hasLocalOrCachedCover(g)) {
+                    covers.fetchWebCoverNow(g, plat, off)
+                }
+            }
+            if (changed && isRunning) {
+                val latest = repo.fullLibrary.value?.byId?.get(g.id) ?: g
+                emitSse(
+                    "game_updated",
+                    JSONObject()
+                        .put("game", gameToJson(latest))
+                        .put("stats", buildGamesStatsJson())
+                        .toString(),
+                )
+            }
+        } catch (_: Throwable) {
+            // 后台自动刮削异常隔离，不影响其它任务或服务端稳定
+        } finally {
+            pendingScrapeIds.remove(job.gameId)
+        }
     }
 
     fun start(lan: LanInterface, preferredPort: Int = DEFAULT_PORT): Int {
@@ -313,6 +429,32 @@ class WebManagerServer(
             globalFailures.clear()
             globalLockoutUntilMs = 0L
         }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val queue = Channel<AutoScrapeJob>(capacity = AUTO_SCRAPE_QUEUE_CAPACITY)
+        serverScope = scope
+        scrapeQueue = queue
+        pendingScrapeIds.clear()
+
+        // 限制并发的后台自动刮削队列（最多 2 路并发，避免批量拖入卡死掌机）
+        repeat(AUTO_SCRAPE_WORKERS) {
+            scope.launch {
+                for (job in queue) {
+                    processAutoScrape(job)
+                }
+            }
+        }
+        // 监听文件变更与后台文件任务变化，主动通过 SSE 推送给 Web 端
+        scope.launch {
+            repo.filesRevision.drop(1).collect {
+                emitSse("state", buildStatePayload().toString())
+            }
+        }
+        scope.launch {
+            repo.fileTasks.drop(1).collect {
+                emitSse("state", buildStatePayload().toString())
+            }
+        }
+
         val server = HttpMiniServer(lan.address, preferredPort) { req, res ->
             handleRequest(req, res)
         }
@@ -323,6 +465,11 @@ class WebManagerServer(
     }
 
     fun stop() {
+        scrapeQueue?.close()
+        scrapeQueue = null
+        pendingScrapeIds.clear()
+        serverScope?.cancel()
+        serverScope = null
         httpServer?.stop()
         httpServer = null
         activeInterface = null
@@ -337,6 +484,7 @@ class WebManagerServer(
         val next = generatePassword()
         dynamicPassword = next
         sessions.clear()
+        emitSse("auth_check", "{}")
         httpServer?.closeAllSockets()
         publishClients()
         synchronized(authLock) {
@@ -358,6 +506,7 @@ class WebManagerServer(
                 removed = true
             }
         }
+        if (removed) emitSse("auth_check", "{}")
         httpServer?.closeSocketsByIp(ip)
         if (removed) publishClients()
     }
@@ -722,23 +871,6 @@ class WebManagerServer(
             return
         }
 
-        if (req.method == "GET" && req.path == "/api/theme") {
-            val now = System.currentTimeMillis()
-            val authed = req.cookies[SESSION_COOKIE]?.let { sessions[it]?.let { r -> now <= r.expiresAtMs } } == true
-            res.sendJson(
-                200,
-                JSONObject()
-                    .put("ok", true)
-                    .put("theme", themeConfig.toJson())
-                    .put("online", NetworkStatus.isOnline(context))
-                    .put("authed", authed)
-                    .put("filesRevision", repo.filesRevision.value)
-                    .put("activeTaskCount", repo.fileTasks.value.size)
-                    .toString(),
-            )
-            return
-        }
-
         if (req.method == "POST" && req.path == "/api/login") {
             handleLogin(req, res)
             return
@@ -746,7 +878,10 @@ class WebManagerServer(
 
         if (req.method == "POST" && req.path == "/api/logout") {
             val removed = req.cookies[SESSION_COOKIE]?.let { sessions.remove(it) } != null
-            if (removed) publishClients()
+            if (removed) {
+                emitSse("auth_check", "{}")
+                publishClients()
+            }
             res.sendJson(
                 200,
                 """{"ok":true}""",
@@ -761,6 +896,7 @@ class WebManagerServer(
         }
 
         when {
+            req.method == "GET" && req.path == "/api/events" -> handleEvents(req, res)
             req.method == "GET" && req.path == "/api/info" -> handleInfo(res)
             req.method == "GET" && req.path == "/api/games" -> handleGames(req, res)
             req.method == "GET" && req.path == "/api/games/item" -> handleGameItem(req, res)
@@ -1015,6 +1151,81 @@ class WebManagerServer(
             put("theme", themeConfig.toJson())
         }
         res.sendJson(200, obj.toString())
+    }
+
+    /**
+     * 鉴权后的 SSE 长连接（GET /api/events）：
+     * - 建连立即推送一次 state（主题、联网状态、文件版本、活跃任务数）
+     * - 实时推送 theme / state / game_updated 事件，以及每 15s 一次 ping 心跳
+     * - 每次事件与心跳都校验当前 sessionToken 是否仍有效；若被踢下线/改密/注销/过期，立即推送 auth_revoked 并断开
+     */
+    private suspend fun handleEvents(req: HttpRequest, res: HttpResponseWriter) {
+        val token = req.cookies[SESSION_COOKIE]
+        if (token.isNullOrBlank() || !isSessionValid(token)) {
+            res.sendJson(401, """{"ok":false,"error":"unauthorized"}""")
+            return
+        }
+        if (activeSseCount.incrementAndGet() > MAX_SSE_CONNECTIONS) {
+            activeSseCount.decrementAndGet()
+            res.sendJson(429, """{"ok":false,"error":"too_many_streams"}""")
+            return
+        }
+        val writeLock = Any()
+        fun sendEvent(event: String, data: String): Boolean = synchronized(writeLock) {
+            res.sendSseRaw("event: $event\ndata: $data\n\n")
+        }
+        try {
+            res.startEventStream()
+            if (!sendEvent("state", buildStatePayload().toString())) return
+
+            kotlinx.coroutines.coroutineScope {
+                val pingJob = launch {
+                    while (isActive) {
+                        delay(SSE_PING_INTERVAL_MS)
+                        if (!isRunning) {
+                            this@coroutineScope.cancel()
+                            return@launch
+                        }
+                        if (!isSessionValid(token)) {
+                            sendEvent("auth_revoked", "{}")
+                            this@coroutineScope.cancel()
+                            return@launch
+                        }
+                        val ok = sendEvent(
+                            "ping",
+                            JSONObject().put("online", NetworkStatus.isOnline(context)).toString(),
+                        )
+                        if (!ok) {
+                            this@coroutineScope.cancel()
+                            return@launch
+                        }
+                    }
+                }
+                try {
+                    sseEvents.collect { ev ->
+                        if (!isRunning) {
+                            this@coroutineScope.cancel()
+                            return@collect
+                        }
+                        if (!isSessionValid(token)) {
+                            sendEvent("auth_revoked", "{}")
+                            this@coroutineScope.cancel()
+                            return@collect
+                        }
+                        if (ev.event == "auth_check") return@collect
+                        if (!sendEvent(ev.event, ev.data)) {
+                            this@coroutineScope.cancel()
+                        }
+                    }
+                } finally {
+                    pingJob.cancel()
+                }
+            }
+        } catch (_: Throwable) {
+            // 对端断开或协程取消属正常生命周期
+        } finally {
+            activeSseCount.decrementAndGet()
+        }
     }
 
     private fun gameToJson(g: com.pocketdeck.launcher.data.model.Game): JSONObject {
@@ -1455,14 +1666,9 @@ class WebManagerServer(
                     res.sendJson(200, """{"ok":false,"error":"offline"}""")
                     return
                 }
-                val targets = validIds.filterNot { it.startsWith(GameLauncher.APK_PREFIX) }.take(50).mapNotNull { lib?.byId?.get(it) }
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    for (g in targets) {
-                        val plat = lib?.platform(g.platformId) ?: PlatformCatalog.forFolder(g.platformId)
-                        metadataRepo.refreshGame(g, plat)
-                        val off = metadataRepo.officialNames.value[g.id]
-                        covers.fetchWebCoverNow(g, plat, off)
-                    }
+                val targets = validIds.filterNot { it.startsWith(GameLauncher.APK_PREFIX) }.take(50)
+                for (gid in targets) {
+                    enqueueAutoScrape(gid, forceRefresh = true)
                 }
             }
             else -> {
@@ -1580,6 +1786,7 @@ class WebManagerServer(
         withTimeoutOrNull(4000L) {
             repo.fullLibrary.first { it?.byId?.containsKey(finalTarget.absolutePath) == true }
         }
+        enqueueAutoScrape(finalTarget.absolutePath, forceRefresh = false)
         res.sendJson(
             200,
             JSONObject()

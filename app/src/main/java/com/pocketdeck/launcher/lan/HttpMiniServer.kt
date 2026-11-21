@@ -381,6 +381,30 @@ class HttpResponseWriter(private val out: OutputStream) {
         }
     }
 
+    /** 启动 Server-Sent Events 长连接响应头。 */
+    fun startEventStream() {
+        val sb = StringBuilder()
+            .append("HTTP/1.1 200 OK\r\n")
+            .append("Content-Type: text/event-stream; charset=utf-8\r\n")
+            .append("Cache-Control: no-cache, no-transform\r\n")
+            .append("Connection: close\r\n")
+            .append("X-Accel-Buffering: no\r\n")
+        for ((k, v) in defaultHeaders) {
+            sb.append(k).append(": ").append(v).append("\r\n")
+        }
+        sb.append("\r\n")
+        out.write(sb.toString().toByteArray(StandardCharsets.ISO_8859_1))
+        out.flush()
+    }
+
+    /** 写入一条原始 SSE 文本块；若对端已断开返回 false。 */
+    fun sendSseRaw(chunk: String): Boolean = runCatching {
+        val bytes = chunk.toByteArray(StandardCharsets.UTF_8)
+        out.write(bytes)
+        out.flush()
+        true
+    }.getOrDefault(false)
+
     fun sendFile(
         file: File,
         contentType: String = "application/octet-stream",
