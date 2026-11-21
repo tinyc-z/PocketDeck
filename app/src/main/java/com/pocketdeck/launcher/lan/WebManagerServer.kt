@@ -1508,8 +1508,22 @@ class WebManagerServer(
         val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
         val metaUpdated = metadataRepo.refreshGame(game, plat)
         val officialName = metadataRepo.officialNames.value[game.id]
-        val coverUpdated = covers.fetchWebCoverNow(game, plat, officialName)
-        val freshGame = repo.fullLibrary.value?.byId?.get(id) ?: game
+        val coverUpdated = covers.fetchWebCoverNow(game.copy(customCover = null), plat, officialName)
+        if (coverUpdated && !game.customCover.isNullOrBlank()) {
+            val dir = File(context.filesDir, "custom_covers")
+            val prevCover = repo.user.value?.covers?.get(id)
+            if (prevCover != null && prevCover.startsWith(dir.absolutePath)) {
+                runCatching { File(prevCover).delete() }
+            }
+            val existingName = repo.user.value?.renames?.get(id)
+            repo.saveGameEdits(id, existingName, null)
+            withTimeoutOrNull(500L) {
+                repo.fullLibrary.first { it?.byId?.get(id)?.customCover == null }
+            }
+        }
+        val freshGame = (repo.fullLibrary.value?.byId?.get(id) ?: game).let {
+            if (coverUpdated) it.copy(customCover = null) else it
+        }
         res.sendJson(
             200,
             JSONObject().apply {
