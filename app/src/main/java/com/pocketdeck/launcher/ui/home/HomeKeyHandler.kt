@@ -51,15 +51,16 @@ internal fun handleHomePreviewKeyEvent(
 ): Boolean {
     val isGameScrollKey = when (state.viewMode) {
         ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> event.key == Key.DirectionLeft || event.key == Key.DirectionRight
-        ViewMode.List -> event.key == Key.DirectionUp || event.key == Key.DirectionDown
+        ViewMode.List, ViewMode.Wheel -> event.key == Key.DirectionUp || event.key == Key.DirectionDown
         ViewMode.Grid, ViewMode.Bubbles ->
             event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
                 event.key == Key.DirectionUp || event.key == Key.DirectionDown
     }
+    val isVerticalListMode = state.viewMode == ViewMode.List || state.viewMode == ViewMode.Wheel
     if (event.type == KeyEventType.KeyUp) {
         val isTabKey = GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings) ||
             GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) ||
-            (state.viewMode == ViewMode.List && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight))
+            (isVerticalListMode && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight))
         if (isTabKey && rapidTabSwitchFlow.value) {
             scrollCtrl.rapidTabJob?.cancel()
             scrollCtrl.rapidTabJob = scope.launch {
@@ -84,7 +85,7 @@ internal fun handleHomePreviewKeyEvent(
         (
             GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings) ||
                 GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings) ||
-                (state.viewMode == ViewMode.List && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight))
+                (isVerticalListMode && (event.key == Key.DirectionLeft || event.key == Key.DirectionRight))
             )
     if (isHomeTabSwitchKey) {
         // 仅按住连发（repeatCount > 0）时临时降级为无动画瞬切；所有短按与点按保持弹性动画（除非开启减少动态效果）
@@ -220,16 +221,16 @@ internal fun handleHomePreviewKeyEvent(
             true
         }
         event.key == Key.DirectionRight -> {
-            if (state.viewMode == ViewMode.List) vm.nextTab() else vm.moveFocus(1)
+            if (isVerticalListMode) vm.nextTab() else vm.moveFocus(1)
             true
         }
         event.key == Key.DirectionLeft -> {
-            if (state.viewMode == ViewMode.List) vm.prevTab() else vm.moveFocus(-1)
+            if (isVerticalListMode) vm.prevTab() else vm.moveFocus(-1)
             true
         }
         event.key == Key.DirectionDown -> {
             when (state.viewMode) {
-                ViewMode.List -> vm.moveFocus(1)
+                ViewMode.List, ViewMode.Wheel -> vm.moveFocus(1)
                 ViewMode.Grid -> vm.moveFocus(GRID_COLUMNS)
                 ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, 1))
                 ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> Unit
@@ -238,7 +239,7 @@ internal fun handleHomePreviewKeyEvent(
         }
         event.key == Key.DirectionUp -> {
             when (state.viewMode) {
-                ViewMode.List -> vm.moveFocus(-1)
+                ViewMode.List, ViewMode.Wheel -> vm.moveFocus(-1)
                 ViewMode.Grid -> vm.moveFocus(-GRID_COLUMNS)
                 ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, -1))
                 ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> Unit

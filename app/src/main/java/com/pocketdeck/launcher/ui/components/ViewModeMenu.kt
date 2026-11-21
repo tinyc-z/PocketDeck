@@ -46,6 +46,7 @@ fun viewModeLabel(mode: ViewMode): String = when (mode) {
     ViewMode.Bubbles -> stringResource(R.string.view_bubbles)
     ViewMode.CoverFlow -> stringResource(R.string.view_coverflow)
     ViewMode.Hero -> stringResource(R.string.view_hero)
+    ViewMode.Wheel -> stringResource(R.string.view_wheel)
 }
 
 /**
@@ -149,7 +150,20 @@ fun DrawScope.drawViewModeIcon(mode: ViewMode, color: Color) {
         ViewMode.Bubbles -> drawBubblesIcon(color)
         ViewMode.CoverFlow -> drawCoverFlowIcon(color)
         ViewMode.Hero -> drawHeroIcon(color)
+        ViewMode.Wheel -> drawWheelIcon(color)
     }
+}
+
+private fun DrawScope.drawWheelIcon(color: Color) {
+    val w = size.width
+    val h = size.height
+    val barH = h * 0.17f
+    val r = CornerRadius(barH / 2f)
+    // 三条沿弧线错开的胶囊横条 + 右侧小方封面
+    drawRoundRect(color.copy(alpha = 0.65f), Offset(w * 0.10f, h * 0.16f), Size(w * 0.34f, barH), r)
+    drawRoundRect(color, Offset(w * 0.18f, h * 0.415f), Size(w * 0.36f, barH), r)
+    drawRoundRect(color.copy(alpha = 0.65f), Offset(w * 0.10f, h * 0.67f), Size(w * 0.34f, barH), r)
+    drawRoundRect(color, Offset(w * 0.62f, h * 0.22f), Size(w * 0.28f, h * 0.56f), CornerRadius(2.dp.toPx()))
 }
 
 private fun DrawScope.drawHeroIcon(color: Color) {

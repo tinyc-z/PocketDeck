@@ -693,6 +693,7 @@
     <string name="view_bubbles">Bubbles</string>
     <string name="view_coverflow">CoverFlow</string>
     <string name="view_hero">Spotlight</string>
+    <string name="view_wheel">Arc Wheel</string>
     <string name="hero_play_cta">Play Now</string>
     <string name="hero_continue_cta">Continue</string>
     <string name="hero_play_count">Played %d×</string>

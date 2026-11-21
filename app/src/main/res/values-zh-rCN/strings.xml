@@ -692,6 +692,7 @@
     <string name="view_bubbles">气泡</string>
     <string name="view_coverflow">立体扇面</string>
     <string name="view_hero">沉浸海报</string>
+    <string name="view_wheel">弧形转盘</string>
     <string name="hero_play_cta">开始游玩</string>
     <string name="hero_continue_cta">继续游玩</string>
     <string name="hero_play_count">游玩 %d 次</string>
