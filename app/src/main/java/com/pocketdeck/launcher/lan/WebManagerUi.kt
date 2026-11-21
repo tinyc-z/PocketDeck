@@ -570,11 +570,23 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   }
   .plat-chk.checked { border-color:var(--brand-mid); background:var(--accent-soft); color:var(--accent); font-weight:700; }
 
-  textarea.code {
+  textarea.code, textarea.editor {
     width:100%; min-height:360px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     font-size:13px; line-height:1.5; background:var(--surf-alt); color:var(--text);
     border:1px solid var(--line); border-radius:12px; padding:12px; outline:none;
   }
+  .dir-pick-list { display:flex; flex-direction:column; gap:6px; max-height:48vh; overflow:auto; padding:2px 0; }
+  .dir-pick {
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:9px 13px; border-radius:11px; border:1px solid var(--line);
+    background:var(--surf-alt); color:var(--text); font-size:13.5px; font-weight:600;
+    cursor:pointer; transition:border-color .15s, background .15s;
+  }
+  .dir-pick:hover { border-color:var(--brand-mid); background:var(--accent-soft); }
+  .dir-pick .dp-main { display:flex; align-items:center; gap:9px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dir-pick .dp-arrow { color:var(--muted); font-size:16px; line-height:1; flex-shrink:0; }
+  .dir-pick.is-up { background:transparent; border-style:dashed; color:var(--muted); }
+  .dir-pick.is-up:hover { color:var(--text); border-style:solid; border-color:var(--brand-mid); background:var(--accent-soft); }
   .img-view { max-width:100%; max-height:66vh; display:block; margin:0 auto; border-radius:12px; }
   .cand-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(108px, 1fr)); gap:10px; margin-top:12px; }
   .cand-item { border:1px solid var(--line); border-radius:12px; overflow:hidden; cursor:pointer; background:var(--surf-alt); text-align:center; padding-bottom:6px; }
@@ -3970,14 +3982,14 @@ async function renderTransferBrowser(dir) {
   const data = await r.json();
   const pathSet = new Set(transferPaths);
   const dirs = (data.entries || []).filter(e => e.isDir && !pathSet.has(e.path));
-  const upHtml = data.dir ? '<div class="dir-pick" onclick="renderTransferBrowser(\'' + escJs(data.parent || '') + '\')"><span>' + esc(tr('files_up')) + '</span><span class="sub">..</span></div>' : '';
-  const listHtml = dirs.map(d => '<div class="dir-pick" onclick="renderTransferBrowser(\'' + escJs(d.path) + '\')"><span>' + esc(d.name) + '</span><span>›</span></div>').join('');
+  const upHtml = data.dir ? '<div class="dir-pick is-up" onclick="renderTransferBrowser(\'' + escJs(data.parent || '') + '\')"><span class="dp-main">' + esc(tr('files_up')) + '</span><span class="sub">..</span></div>' : '';
+  const listHtml = dirs.map(d => '<div class="dir-pick" onclick="renderTransferBrowser(\'' + escJs(d.path) + '\')"><span class="dp-main">' + svgIco('folder', 16) + '<span>' + esc(d.name) + '</span></span><span class="dp-arrow">›</span></div>').join('');
   const newFolderBtn = data.dir ? '<button class="btn sm" onclick="mkdirInTransfer()">' + esc(tr('tx_mkdir_here')) + '</button>' : '';
   el('mBody').innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap;">' +
-      '<div class="sub">' + esc(tr('tx_target_dir')) + esc(data.dir || tr('tx_pick_root')) + '</div>' + newFolderBtn +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap;">' +
+      '<div class="sub" style="word-break:break-all;">' + esc(tr('tx_target_dir')) + esc(data.dir || tr('tx_pick_root')) + '</div>' + newFolderBtn +
     '</div>' +
-    upHtml + (listHtml || '<div class="sub">' + esc(tr('tx_no_subdirs')) + '</div>');
+    '<div class="dir-pick-list">' + upHtml + (listHtml || '<div class="sub" style="padding:14px 4px;">' + esc(tr('tx_no_subdirs')) + '</div>') + '</div>';
   el('mFoot').innerHTML = '<button class="btn" onclick="closeModal()">' + esc(tr('btn_cancel')) + '</button>' +
     (data.dir ? '<button class="btn primary" id="confirmTxBtn">' + esc(tr(transferMode === 'copy' ? 'tx_copy_here' : 'tx_move_here')) + '</button>' : '');
   const btn = el('confirmTxBtn');
