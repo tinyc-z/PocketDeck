@@ -80,27 +80,92 @@ object TitleNormalizer {
         return sb.toString()
     }
 
+    private fun hasBracketChars(s: String): Boolean {
+        for (i in s.indices) {
+            when (s[i]) {
+                '(', '[', '{', '（', '【' -> return true
+            }
+        }
+        return false
+    }
+
+    private fun mayHaveCjkOrPackSuffix(s: String): Boolean {
+        for (i in s.indices) {
+            if (s[i].code >= 0x80) return true
+        }
+        val last = s.lastOrNull()?.lowercaseChar() ?: return false
+        return last.isDigit() ||
+            s.endsWith("chs", ignoreCase = true) ||
+            s.endsWith("cht", ignoreCase = true) ||
+            s.endsWith("hack", ignoreCase = true) ||
+            s.contains("rev", ignoreCase = true)
+    }
+
+    private fun isWordChar(c: Char): Boolean {
+        val code = c.code
+        return (code in 'a'.code..'z'.code) ||
+            (code in '0'.code..'9'.code) ||
+            (code in 0x3040..0x30FF) ||
+            (code in 0x3400..0x4DBF) ||
+            (code in 0x4E00..0x9FFF) ||
+            (code in 0xAC00..0xD7AF)
+    }
+
+    /** 零正则单遍扫描：把非词字符折叠为单个空格并 trim，避免大批量建索引时产生海量 Regex/Matcher 垃圾对象。 */
+    private fun collapseNonWordSpaced(lowered: String): String {
+        val sb = StringBuilder(lowered.length)
+        var prevSpace = true
+        for (i in lowered.indices) {
+            val ch = lowered[i]
+            if (isWordChar(ch)) {
+                sb.append(ch)
+                prevSpace = false
+            } else if (!prevSpace) {
+                sb.append(' ')
+                prevSpace = true
+            }
+        }
+        if (sb.isNotEmpty() && sb[sb.length - 1] == ' ') {
+            sb.setLength(sb.length - 1)
+        }
+        return sb.toString()
+    }
+
     /**
      * 剥离 ROM 括号标签、前导编号与常见汉化包后缀，并把 `, The` 冠词归位。
      * 用于展示名与 API 搜索词。
      */
     fun stripRomTags(raw: String): String {
         var s = raw.replace('_', ' ').trim()
-        s = LEADING_INDEX.replace(s, "")
-        s = BRACKET_TAGS.replace(s, " ")
-        s = CJK_PACK_TAGS.replace(s, "")
-        s = WHITESPACE.replace(s, " ").trim()
-        ARTICLE_SUFFIX.matchEntire(s)?.let { m ->
-            s = "${m.groupValues[2]} ${m.groupValues[1]}${m.groupValues[3]}"
-            s = WHITESPACE.replace(s, " ").trim()
+        if (s.isEmpty()) return s
+        val first = s[0]
+        if (first.isDigit() || first == 'N' || first == 'n') {
+            s = LEADING_INDEX.replace(s, "")
+        }
+        if (hasBracketChars(s)) {
+            s = BRACKET_TAGS.replace(s, " ")
+        }
+        if (mayHaveCjkOrPackSuffix(s)) {
+            s = CJK_PACK_TAGS.replace(s, "")
+        }
+        if (s.contains("  ")) {
+            s = WHITESPACE.replace(s, " ")
+        }
+        s = s.trim()
+        if (s.contains(", ")) {
+            ARTICLE_SUFFIX.matchEntire(s)?.let { m ->
+                s = "${m.groupValues[2]} ${m.groupValues[1]}${m.groupValues[3]}"
+                if (s.contains("  ")) s = WHITESPACE.replace(s, " ")
+                s = s.trim()
+            }
         }
         return s.ifEmpty { raw.replace('_', ' ').trim() }
     }
 
     /** 用于保留区域标签的精确匹配键（含括号内信息，仅统一空白与去音标）。 */
     fun exactKey(raw: String): String {
-        val folded = foldDiacritics(raw).lowercase().replace('_', ' ')
-        return NON_WORD_SPACED.replace(folded, " ").trim()
+        val folded = foldDiacritics(raw).lowercase()
+        return collapseNonWordSpaced(folded)
     }
 
     /** 用于标题级匹配的规范化空格分词键（已剥离括号/编号/冠词/音标，罗马数字统一转阿拉伯数字）。 */
@@ -108,16 +173,33 @@ object TitleNormalizer {
         var clean = stripRomTags(raw)
         clean = foldDiacritics(clean)
         clean = romanToArabic(clean)
-        return NON_WORD_SPACED.replace(clean.lowercase(), " ").trim()
+        return collapseNonWordSpaced(clean.lowercase())
+    }
+
+    /** 从已计算好的 [normalizedTitle] 直接生成紧凑无空格键（零正则、避免重复计算）。 */
+    fun compactFromNorm(norm: String): String {
+        if (!norm.contains(' ')) return norm
+        val sb = StringBuilder(norm.length)
+        for (i in norm.indices) {
+            val ch = norm[i]
+            if (ch != ' ') sb.append(ch)
+        }
+        return sb.toString()
     }
 
     /** 紧凑无空格匹配键（同样已做去音标、冠词归位与罗马数字统一）。 */
-    fun compactKey(raw: String): String {
-        val norm = normalizedTitle(raw)
-        return NON_WORD_COMPACT.replace(norm, "")
-    }
+    fun compactKey(raw: String): String = compactFromNorm(normalizedTitle(raw))
 
     fun romanToArabic(s: String): String {
+        var hasRoman = false
+        for (i in s.indices) {
+            val c = s[i]
+            if (c == 'I' || c == 'V' || c == 'X') {
+                hasRoman = true
+                break
+            }
+        }
+        if (!hasRoman) return s
         var cur = s
         for ((re, num) in ROMAN_TO_ARABIC) {
             cur = re.replace(cur, num)

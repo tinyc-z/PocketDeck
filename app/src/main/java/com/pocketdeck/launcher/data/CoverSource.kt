@@ -1695,11 +1695,11 @@ class CoverSource(
         for (fileName in names) {
             val noExt = if (fileName.endsWith(".png", ignoreCase = true)) fileName.dropLast(4) else fileName
             byExact.putIfAbsent(TitleNormalizer.exactKey(noExt), fileName)
-            val compact = TitleNormalizer.compactKey(noExt)
+            val norm = TitleNormalizer.normalizedTitle(noExt)
+            val compact = TitleNormalizer.compactFromNorm(norm)
             if (compact.isNotEmpty()) {
                 grouped.getOrPut(compact) { ArrayList(2) }.add(fileName)
             }
-            val norm = TitleNormalizer.normalizedTitle(noExt)
             for (tok in TitleNormalizer.tokenize(norm)) {
                 byToken.getOrPut(tok) { ArrayList(4) }.add(fileName)
             }

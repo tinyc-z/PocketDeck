@@ -196,7 +196,20 @@ class MetadataRepository(
             serial: String?,
         ): TableHit? {
             if (!crc.isNullOrBlank()) {
-                byCrc[crc.uppercase()]?.let { return TableHit(it, MetaMatchMode.Crc32Hash) }
+                byCrc[crc.uppercase()]?.let { hit ->
+                    val enriched = if (hit.meta.isEmpty && hit.officialName.isNotBlank()) {
+                        val extra = byExact[TitleNormalizer.exactKey(hit.officialName)]
+                            ?: byTitle[TitleNormalizer.normalizedTitle(hit.officialName)]
+                        if (extra != null && !extra.meta.isEmpty) {
+                            ResolvedRow(hit.officialName, extra.meta)
+                        } else {
+                            hit
+                        }
+                    } else {
+                        hit
+                    }
+                    return TableHit(enriched, MetaMatchMode.Crc32Hash)
+                }
             }
             if (!serial.isNullOrBlank()) {
                 val up = serial.uppercase()
@@ -1190,7 +1203,7 @@ class MetadataRepository(
                 if (prev == null || fieldCount(meta) > fieldCount(prev.meta)) {
                     byTitle[normKey] = row
                 }
-                val comp = TitleNormalizer.compactKey(name)
+                val comp = TitleNormalizer.compactFromNorm(normKey)
                 if (comp.isNotEmpty()) {
                     val prevC = byCompact[comp]
                     if (prevC == null || fieldCount(meta) > fieldCount(prevC.meta)) {
@@ -1203,18 +1216,10 @@ class MetadataRepository(
             }
         }
 
-        // 2. CRC32 -> 标准名（与元数据 O(1) 关联，无元数据时零正则开销）
-        val hasAnyMeta = offline.metaByRawName.isNotEmpty() || offline.metaByExactName.isNotEmpty()
+        // 2. CRC32 -> 标准名（仅 O(1) 直查 metaByRawName，零正则开销；未直命中的元数据在单次 find() 时按需补查）
         val emptyMeta = GameMetadata()
         for ((crc, canonicalName) in offline.hashToName) {
-            val meta = if (!hasAnyMeta) {
-                emptyMeta
-            } else {
-                offline.metaByRawName[canonicalName]
-                    ?: offline.metaByExactName[TitleNormalizer.exactKey(canonicalName)]
-                    ?: offline.metaByNormTitle[TitleNormalizer.normalizedTitle(canonicalName)]
-                    ?: emptyMeta
-            }
+            val meta = offline.metaByRawName[canonicalName] ?: emptyMeta
             byCrc.putIfAbsent(crc, ResolvedRow(canonicalName, meta))
         }
         return SystemTable(byCrc, emptyMap(), byExact, byTitle, byCompact, byToken)
