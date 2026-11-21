@@ -4123,22 +4123,71 @@ function escJs(s) {
     syncBatchUi();
   }, true);
 
+  const PLAT_EXTS = {
+    gba: ['gba', 'zip', '7z'],
+    snes: ['sfc', 'smc', 'fig', 'swc', 'bs', 'zip', '7z'],
+    nes: ['nes', 'fds', 'unf', 'unif', 'zip', '7z'],
+    nds: ['nds', 'dsi', 'ids', 'zip', '7z'],
+    psp: ['iso', 'cso', 'chd', 'pbp', 'elf'],
+    psx: ['chd', 'cue', 'bin', 'img', 'iso', 'pbp', 'm3u', 'ccd', 'zip', '7z'],
+    ps2: ['iso', 'chd', 'bin', 'gz', 'cso', 'm3u'],
+    n64: ['z64', 'n64', 'v64', 'ndd', 'zip', '7z'],
+    gb: ['gb', 'sgb', 'zip', '7z'],
+    gbc: ['gbc', 'gb', 'zip', '7z'],
+    megadrive: ['md', 'gen', 'smd', 'bin', 'sg', 'zip', '7z'],
+    arcade: ['zip', '7z', 'chd', 'neo'],
+    switch: ['nsp', 'xci', 'nsz', 'xcz', 'nro'],
+    '3ds': ['3ds', 'cia', 'cxi', 'cci', '3dsx', 'zip', '7z'],
+    gamecube: ['iso', 'rvz', 'gcm', 'gcz', 'ciso', 'wbfs', 'm3u'],
+  };
+
+  function syncPlatAccept() {
+    const plat = el('platUploadSel').value || 'gba';
+    const exts = PLAT_EXTS[plat];
+    if (pin) pin.accept = exts ? exts.map(e => '.' + e).join(',') : '';
+  }
+
   async function uploadToPlatform(fileList) {
-    const plat = el('platUploadSel').value || 'misc';
+    const zh = (curLang || 'zh-CN').startsWith('zh');
+    const plat = el('platUploadSel').value || 'gba';
+    const allowed = PLAT_EXTS[plat] || null;
     const files = [...fileList];
     if (!files.length) return;
-    let okCount = 0;
+    const valid = [];
+    const rejected = [];
     for (const f of files) {
+      const idx = f.name.lastIndexOf('.');
+      const ext = idx >= 0 ? f.name.slice(idx + 1).toLowerCase() : '';
+      if (allowed && (!ext || !allowed.includes(ext))) {
+        rejected.push(f.name);
+      } else {
+        valid.push(f);
+      }
+    }
+    if (rejected.length) {
+      const allowStr = allowed ? allowed.map(e => '.' + e).join(' / ') : '';
+      toast(zh
+        ? ('格式不匹配已拦截：' + rejected[0] + (rejected.length > 1 ? ' 等 ' + rejected.length + ' 个' : '') + '（' + plat + ' 仅支持 ' + allowStr + '）')
+        : ('Unsupported format for ' + plat + ': ' + rejected[0] + ' (allowed: ' + allowStr + ')'));
+    }
+    if (!valid.length) return;
+    let okCount = 0;
+    for (const f of valid) {
       const url = '/api/upload?platform=' + encodeURIComponent(plat) + '&name=' + encodeURIComponent(f.name);
       const resp = await fetch(url, { method: 'POST', body: f });
       if (resp.ok) okCount++;
     }
-    toast('Uploaded ' + okCount + '/' + files.length + ' ROM(s) to ' + plat);
-    if (typeof loadGames === 'function') loadGames(true);
+    toast(zh
+      ? ('已上传 ' + okCount + '/' + valid.length + ' 个 ROM 到 ' + plat)
+      : ('Uploaded ' + okCount + '/' + valid.length + ' ROM(s) to ' + plat));
+    if (okCount > 0 && typeof loadGames === 'function') await loadGames(true);
   }
 
   const pdz = el('platDropZone');
   const pin = el('platUploadInput');
+  const psel = el('platUploadSel');
+  if (psel) psel.addEventListener('change', syncPlatAccept);
+  syncPlatAccept();
   pdz.onclick = (e) => { if (e.target.tagName !== 'SELECT') pin.click(); };
   pin.onchange = () => { uploadToPlatform(pin.files); pin.value = ''; };
   [pdz, gamesContainer].forEach(target => {

@@ -136,6 +136,23 @@ class WebManagerServer(
     private val metadataRepo: MetadataRepository,
 ) {
     companion object {
+        private val PLATFORM_ALLOWED_EXTS: Map<String, Set<String>> = mapOf(
+            "gba" to setOf("gba", "zip", "7z"),
+            "snes" to setOf("sfc", "smc", "fig", "swc", "bs", "zip", "7z"),
+            "nes" to setOf("nes", "fds", "unf", "unif", "zip", "7z"),
+            "nds" to setOf("nds", "dsi", "ids", "zip", "7z"),
+            "psp" to setOf("iso", "cso", "chd", "pbp", "elf"),
+            "psx" to setOf("chd", "cue", "bin", "img", "iso", "pbp", "m3u", "ccd", "zip", "7z"),
+            "ps2" to setOf("iso", "chd", "bin", "gz", "cso", "m3u"),
+            "n64" to setOf("z64", "n64", "v64", "ndd", "zip", "7z"),
+            "gb" to setOf("gb", "sgb", "zip", "7z"),
+            "gbc" to setOf("gbc", "gb", "zip", "7z"),
+            "megadrive" to setOf("md", "gen", "smd", "bin", "sg", "zip", "7z"),
+            "arcade" to setOf("zip", "7z", "chd", "neo"),
+            "switch" to setOf("nsp", "xci", "nsz", "xcz", "nro"),
+            "3ds" to setOf("3ds", "cia", "cxi", "cci", "3dsx", "zip", "7z"),
+            "gamecube" to setOf("iso", "rvz", "gcm", "gcz", "ciso", "wbfs", "m3u"),
+        )
         const val DEFAULT_PORT = 8686
         private const val SESSION_COOKIE = "pd_session"
         private const val SESSION_TTL_MS = 12 * 60 * 60 * 1000L
@@ -1476,6 +1493,21 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"invalid_file_name"}""")
             return
         }
+        val allowedExts = PLATFORM_ALLOWED_EXTS[platformId]
+        if (allowedExts != null) {
+            val ext = cleanName.substringAfterLast('.', "").lowercase()
+            if (ext.isEmpty() || ext !in allowedExts) {
+                res.sendJson(
+                    400,
+                    JSONObject()
+                        .put("ok", false)
+                        .put("error", "invalid_extension")
+                        .put("allowed", JSONArray(allowedExts.toList()))
+                        .toString(),
+                )
+                return
+            }
+        }
         val roots = repo.configuredRoots()
         val primaryRoot = roots.firstOrNull { it.isDirectory } ?: roots.firstOrNull()
         if (primaryRoot == null) {
@@ -1543,7 +1575,11 @@ class WebManagerServer(
             res.sendJson(500, """{"ok":false,"error":"upload_failed"}""")
             return
         }
+        repo.notifyFilesChanged()
         repo.refresh()
+        withTimeoutOrNull(4000L) {
+            repo.fullLibrary.first { it?.byId?.containsKey(finalTarget.absolutePath) == true }
+        }
         res.sendJson(
             200,
             JSONObject()
@@ -2529,6 +2565,9 @@ class WebManagerServer(
         }
         val result = repo.deleteFile(file, source = FileTaskSource.Web, clientIp = req.remoteIp)
         if (result.isSuccess) {
+            withTimeoutOrNull(4000L) {
+                repo.fullLibrary.first { it?.byId?.containsKey(file.absolutePath) != true }
+            }
             res.sendJson(200, """{"ok":true}""")
         } else {
             res.sendJson(400, JSONObject().put("ok", false).put("error", result.exceptionOrNull()?.message ?: "delete_failed").toString())
