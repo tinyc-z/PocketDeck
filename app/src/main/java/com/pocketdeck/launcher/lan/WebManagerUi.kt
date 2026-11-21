@@ -2599,6 +2599,7 @@ function _webCompact(s) {
 }
 function _webRegionScore(name) {
   let sc = name.includes('(USA)') ? 10 : name.includes('(World)') ? 15 : name.includes('(USA, Europe)') ? 20 : name.includes('(Europe)') ? 30 : name.includes('(Japan)') ? 40 : 50;
+  if (/\((Namcot Collection|Namco Museum|Virtual Console|Switch Online|Evercade|Arcade Archives|Classic Mini|Retro-Bit|Collector's Edition|Anniversary Collection|Legacy Collection|Cowabunga Collection)/i.test(name)) sc += 60;
   if (/\[(b|h|tr|p)/i.test(name)) sc += 100;
   return sc;
 }
@@ -2674,6 +2675,16 @@ async function _ensureWebLibretroIndex(system, statusEl) {
       }
     } catch (e) {}
   }
+  if (!names.length) {
+    if (statusEl) statusEl.textContent = '正在从掌机缓存读取 ' + system + ' 封面目录…';
+    try {
+      const r = await api('/api/cover-index?system=' + encodeURIComponent(system));
+      if (r.ok) {
+        const txt = await r.text();
+        names = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      }
+    } catch (e) {}
+  }
   if (!names.length) return null;
   const byCompact = new Map();
   for (const fn of names) {
@@ -2743,14 +2754,14 @@ function scrapeCoverCandidates(id) {
       '<div style="display:flex;gap:8px;align-items:center;">' +
         '<input id="webCoverKw" class="input" style="flex:1;" value="' + esc(initKw) + '" placeholder="输入英文或中文游戏名搜索封面…" ' +
           'oninput="renderWebCoverSuggest(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')" ' +
-          'onkeydown="if(event.key===\'Enter\')runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')"/>' +
-        '<button class="btn sm primary" onclick="runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' +
+          'onkeydown="if(event.key===\'Enter\')runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\',false)"/>' +
+        '<button class="btn sm primary" onclick="runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\',false)">' + esc(tr('btn_pick_cover_short')) + '</button>' +
       '</div>' +
       '<div id="webCoverSugs" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>' +
       '<div id="webCoverStatus" class="sub" style="margin-top:8px;"></div>' +
       '<div id="webCoverGrid" class="cand-grid" style="margin-top:8px;"></div>' +
     '</div>';
-  runWebCoverSearch(id, sys);
+  runWebCoverSearch(id, sys, true);
 }
 
 function renderWebCoverSuggest(id, sys) {
@@ -2768,10 +2779,10 @@ function pickWebCoverSuggest(id, sys, sug) {
   if (inp) inp.value = sug;
   const box = el('webCoverSugs');
   if (box) box.innerHTML = '';
-  runWebCoverSearch(id, sys);
+  runWebCoverSearch(id, sys, false);
 }
 
-async function runWebCoverSearch(id, sys) {
+async function runWebCoverSearch(id, sys, includeHash) {
   const inp = el('webCoverKw');
   const statusEl = el('webCoverStatus');
   const grid = el('webCoverGrid');
@@ -2779,10 +2790,12 @@ async function runWebCoverSearch(id, sys) {
   const kw = inp.value.trim();
   if (!kw) return;
   grid.innerHTML = '';
-  const hashPromise = api('/api/games/hash-covers?id=' + encodeURIComponent(id))
-    .then(r => r.ok ? r.json() : null)
-    .then(d => (d && d.ok && Array.isArray(d.candidates)) ? d.candidates : [])
-    .catch(() => []);
+  const hashPromise = includeHash
+    ? api('/api/games/hash-covers?id=' + encodeURIComponent(id))
+        .then(r => r.ok ? r.json() : null)
+        .then(d => (d && d.ok && Array.isArray(d.candidates)) ? d.candidates : [])
+        .catch(() => [])
+    : Promise.resolve([]);
   const idx = await _ensureWebLibretroIndex(sys, statusEl);
   const libItems = idx ? _searchWebLibretro(idx, kw, 16) : [];
   const hashRaw = await hashPromise;

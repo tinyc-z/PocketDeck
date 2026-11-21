@@ -749,6 +749,7 @@ class WebManagerServer(
             req.method == "GET" && req.path == "/api/games/item" -> handleGameItem(req, res)
             req.method == "GET" && req.path == "/api/games/hash-covers" -> handleGameHashCovers(req, res)
             req.method == "GET" && req.path == "/api/cover" -> handleCover(req, res)
+            req.method == "GET" && req.path == "/api/cover-index" -> handleCoverIndex(req, res)
             req.method == "GET" && req.path == "/api/cover-candidate" -> handleCoverCandidate(req, res)
             req.method == "POST" && req.path == "/api/games/rename" -> handleGameRename(req, res)
             req.method == "POST" && req.path == "/api/games/hide" -> handleGameHide(req, res)
@@ -1249,6 +1250,25 @@ class WebManagerServer(
             bytes,
             resolved.first,
             extraHeaders = cacheHeaders,
+        )
+    }
+
+    private suspend fun handleCoverIndex(req: HttpRequest, res: HttpResponseWriter) {
+        val system = req.query["system"]?.trim().orEmpty()
+        if (system.isEmpty() || system.length > 120) {
+            res.sendText(400, "Invalid system")
+            return
+        }
+        val text = covers.readSystemIndexText(system)
+        if (text.isNullOrBlank()) {
+            res.sendText(404, "Unavailable")
+            return
+        }
+        res.sendBytes(
+            200,
+            text.toByteArray(StandardCharsets.UTF_8),
+            "text/plain; charset=utf-8",
+            extraHeaders = mapOf("Cache-Control" to "private, max-age=86400"),
         )
     }
 

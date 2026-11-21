@@ -591,6 +591,21 @@ class CoverSource(
         }
     }
 
+    /** 读取指定平台的本地缓存封面文件名列表（供 Web 端在 jsDelivr/GitHub 超限或限流时兜底）。 */
+    suspend fun readSystemIndexText(system: String): String? = withContext(Dispatchers.IO) {
+        val clean = system.trim()
+        if (clean.isEmpty()) return@withContext null
+        val cacheFile = File(indexDir, "${sanitizeFileName(clean)}.txt")
+        if (!cacheFile.isFile || cacheFile.length() <= 0L) {
+            loadSystemIndex(clean)
+        }
+        if (cacheFile.isFile && cacheFile.length() > 0L) {
+            runCatching { cacheFile.readText() }.getOrNull()
+        } else {
+            null
+        }
+    }
+
     /**
      * 快速滚动期间使用的纯内存 O(1) 候选封面查询：仅返回 custom / 已缓存命中的 URL / local，
      * 不做任何正则表达式、索引查找或联网候选拼装，确保主线程零卡顿。
@@ -1556,6 +1571,11 @@ class CoverSource(
         fun sanitize(name: String) = name.replace(ILLEGAL, "_")
         fun sanitizeFileName(name: String) = name.replace(SAFE_FILE_REGEX, "_")
 
+        val COMPILATION_REISSUE_REGEX = Regex(
+            """\((Namcot Collection|Namco Museum|Virtual Console|Switch Online|Evercade|Arcade Archives|Classic Mini|Retro-Bit|Collector's Edition|Anniversary Collection|Legacy Collection|Cowabunga Collection)""",
+            RegexOption.IGNORE_CASE,
+        )
+
         fun candidateScore(name: String): Int {
             var score = when {
                 "(USA)" in name -> 10
@@ -1565,6 +1585,7 @@ class CoverSource(
                 "(Japan)" in name -> 40
                 else -> 50
             }
+            if (COMPILATION_REISSUE_REGEX.containsMatchIn(name)) score += 60
             if ("[b" in name || "[h" in name || "[tr" in name || "[p" in name) score += 100
             return score
         }
