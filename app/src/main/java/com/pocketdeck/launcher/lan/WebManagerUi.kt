@@ -705,7 +705,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
         </div>
         <div class="search-box">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oninput="onGameSearchInput()" onkeydown="onGameSearchKeyDown(event)"/>
+          <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oncompositionstart="onGameSearchCompStart()" oncompositionend="onGameSearchCompEnd()" oninput="onGameSearchInput()" onkeydown="onGameSearchKeyDown(event)"/>
           <button id="gSearchClear" type="button" onclick="clearGameSearch()" style="display:none;border:none;background:var(--surface2,rgba(0,0,0,0.08));color:var(--muted,#666);width:20px;height:20px;border-radius:999px;cursor:pointer;font-size:13px;line-height:20px;padding:0;flex-shrink:0;text-align:center;" title="Clear">×</button>
           <span id="gSearchKbd" class="kbd">/</span>
         </div>
@@ -2010,20 +2010,50 @@ function syncGameSearchClearBtn() {
   if (kbd) kbd.style.display = hasVal ? 'none' : '';
 }
 
+let gSearchComposing = false;
+function onGameSearchCompStart() {
+  gSearchComposing = true;
+  if (gSearchTimer) { clearTimeout(gSearchTimer); gSearchTimer = null; }
+}
+
+function onGameSearchCompEnd() {
+  gSearchComposing = false;
+  scheduleGameSearchDebounce();
+}
+
+function scheduleGameSearchDebounce() {
+  if (gSearchTimer) { clearTimeout(gSearchTimer); gSearchTimer = null; }
+  const q = (el('gSearch')?.value || '').trim();
+  if (!q) {
+    if (gLastSearchedQuery) {
+      gLastSearchedQuery = '';
+      loadGames(true);
+    }
+    return;
+  }
+  if (q === gLastSearchedQuery) return;
+  gSearchTimer = setTimeout(() => {
+    gSearchTimer = null;
+    if (gSearchComposing) return;
+    const cur = (el('gSearch')?.value || '').trim();
+    if (cur === gLastSearchedQuery) return;
+    gLastSearchedQuery = cur;
+    loadGames(true);
+  }, 1000);
+}
+
 function onGameSearchInput() {
   syncGameSearchClearBtn();
-  const q = (el('gSearch')?.value || '').trim();
-  // 输入期间不发请求（避免中文拼音输入高频请求掌机）；仅在手动删空已搜索词时恢复完整列表
-  if (!q && gLastSearchedQuery) {
-    gLastSearchedQuery = '';
-    loadGames(true);
-  }
+  if (gSearchComposing) return;
+  scheduleGameSearchDebounce();
 }
 
 function onGameSearchKeyDown(e) {
-  if (e.key === 'Enter' && !e.isComposing) {
+  if (e.key === 'Enter' && !e.isComposing && !gSearchComposing) {
     e.preventDefault();
-    gLastSearchedQuery = (el('gSearch')?.value || '').trim();
+    if (gSearchTimer) { clearTimeout(gSearchTimer); gSearchTimer = null; }
+    const q = (el('gSearch')?.value || '').trim();
+    gLastSearchedQuery = q;
     loadGames(true);
   } else if (e.key === 'Escape') {
     clearGameSearch();
@@ -2031,6 +2061,8 @@ function onGameSearchKeyDown(e) {
 }
 
 function clearGameSearch() {
+  if (gSearchTimer) { clearTimeout(gSearchTimer); gSearchTimer = null; }
+  gSearchComposing = false;
   const inp = el('gSearch');
   if (inp) inp.value = '';
   syncGameSearchClearBtn();
