@@ -897,7 +897,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 <script>
 const I18N = {
   'zh-CN': {
-    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_other: '未分类', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '内部存储', vol_external: 'TF 卡', logs_live: '● 实时', btn_find_cover: '自动刮削', btn_pick_cover_short: '在线选图', btn_upload_short: '上传图片', connecting: '连接中…', loaded_games_fmt: '已加载 {loaded} / 共 {total} 款游戏', loaded_all_games_fmt: '已显示全部 {total} 款游戏', loading_more: '正在加载更多…', btn_load_more: '加载更多', loaded_files_fmt: '已加载 {loaded} / 共 {total} 项',
+    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_now: '最近', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_other: '未分类', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '内部存储', vol_external: 'TF 卡', logs_live: '● 实时', btn_find_cover: '自动刮削', btn_pick_cover_short: '在线选图', btn_upload_short: '上传图片', connecting: '连接中…', loaded_games_fmt: '已加载 {loaded} / 共 {total} 款游戏', loaded_all_games_fmt: '已显示全部 {total} 款游戏', loading_more: '正在加载更多…', btn_load_more: '加载更多', loaded_files_fmt: '已加载 {loaded} / 共 {total} 项',
     tab_games: '游戏库',
     tab_categories: '标签分类',
     tab_files: '文件管理',
@@ -1135,7 +1135,7 @@ const I18N = {
     logs_f_err: '仅报错',
   },
   'zh-TW': {
-    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_other: '未分類', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '內部儲存', vol_external: 'TF 卡', logs_live: '● 即時', btn_find_cover: '自動刮削', btn_pick_cover_short: '線上選圖', btn_upload_short: '上傳圖片', connecting: '連線中…', loaded_games_fmt: '已載入 {loaded} / 共 {total} 款遊戲', loaded_all_games_fmt: '已顯示全部 {total} 款遊戲', loading_more: '正在載入更多…', btn_load_more: '載入更多', loaded_files_fmt: '已載入 {loaded} / 共 {total} 項',
+    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_now: '最近', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_other: '未分類', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '內部儲存', vol_external: 'TF 卡', logs_live: '● 即時', btn_find_cover: '自動刮削', btn_pick_cover_short: '線上選圖', btn_upload_short: '上傳圖片', connecting: '連線中…', loaded_games_fmt: '已載入 {loaded} / 共 {total} 款遊戲', loaded_all_games_fmt: '已顯示全部 {total} 款遊戲', loading_more: '正在載入更多…', btn_load_more: '載入更多', loaded_files_fmt: '已載入 {loaded} / 共 {total} 項',
     tab_games: '遊戲庫',
     tab_categories: '標籤分類',
     tab_files: '檔案管理',
@@ -1373,7 +1373,7 @@ const I18N = {
     logs_f_err: '僅報錯',
   },
   en: {
-    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_other: 'Other', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', vol_internal: 'Internal', vol_external: 'SD / TF Card', logs_live: '● LIVE', btn_find_cover: 'Auto Scrape', btn_pick_cover_short: 'Pick Art', btn_upload_short: 'Upload', connecting: 'Connecting…', loaded_games_fmt: 'Showing {loaded} of {total} games', loaded_all_games_fmt: 'All {total} games loaded', loading_more: 'Loading more…', btn_load_more: 'Load more', loaded_files_fmt: 'Showing {loaded} of {total} items',
+    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_now: 'Recent', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_other: 'Other', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', vol_internal: 'Internal', vol_external: 'SD / TF Card', logs_live: '● LIVE', btn_find_cover: 'Auto Scrape', btn_pick_cover_short: 'Pick Art', btn_upload_short: 'Upload', connecting: 'Connecting…', loaded_games_fmt: 'Showing {loaded} of {total} games', loaded_all_games_fmt: 'All {total} games loaded', loading_more: 'Loading more…', btn_load_more: 'Load more', loaded_files_fmt: 'Showing {loaded} of {total} items',
     tab_games: 'Library',
     tab_categories: 'Tabs & Tags',
     tab_files: 'Files',
@@ -2376,7 +2376,7 @@ function renderFilterChips() {
   const visibleTabs = (catTabs || []).filter(t => !t.hidden);
   visibleTabs.forEach(t => {
     if (t.type === 'Now') {
-      const label = t.followSystemLanguage ? tr('cat_type_now') : (t.name || tr('cat_type_now'));
+      const label = t.followSystemLanguage ? tr('filter_now') : (t.name || tr('filter_now'));
       const on = activeFilterMode === 'now' && !activeFilterCat;
       chips.push('<button class="fchip' + (on ? ' on' : '') + '" onclick="setFilterChip(\'now\',\'\')">' + esc(label) + '</button>');
     } else if (t.type === 'Favs') {
