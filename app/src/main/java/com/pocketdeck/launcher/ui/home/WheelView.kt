@@ -41,6 +41,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -68,7 +69,6 @@ import com.pocketdeck.launcher.ui.theme.cardSurface
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
-import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -151,27 +151,27 @@ fun WheelView(
                 .fillMaxHeight()
                 .clipToBounds()
                 .drawBehind {
-                    // 绘制柔和左弧轨与当前进度弧段
+                    // 绘制与胶囊左缘同心的 C 形弧轨与当前进度弧段
                     val trackW = size.width * 0.44f
-                    val arcRect = Size(trackW, size.height * 0.84f)
-                    val topLeft = Offset(-trackW * 0.66f, size.height * 0.08f)
+                    val arcRect = Size(trackW, size.height * 0.82f)
+                    val topLeft = Offset(-trackW * 0.64f, size.height * 0.09f)
                     val trackColor = if (palette.isDark) {
                         Color.White.copy(alpha = 0.14f)
                     } else {
-                        Color.White.copy(alpha = 0.58f)
+                        Color.White.copy(alpha = 0.62f)
                     }
                     drawArc(
                         color = trackColor,
-                        startAngle = -54f,
-                        sweepAngle = 108f,
+                        startAngle = -56f,
+                        sweepAngle = 112f,
                         useCenter = false,
                         topLeft = topLeft,
                         size = arcRect,
                         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
                     )
                     val ratio = if (games.size <= 1) 0.5f else (animatedFocus.value / games.lastIndex.toFloat()).coerceIn(0f, 1f)
-                    val thumbSweep = 22f
-                    val thumbStart = -54f + (108f - thumbSweep) * ratio
+                    val thumbSweep = 24f
+                    val thumbStart = -56f + (112f - thumbSweep) * ratio
                     drawArc(
                         brush = Brush.verticalGradient(listOf(palette.brandStart, palette.brandMid, palette.brandEnd)),
                         startAngle = thumbStart,
@@ -179,7 +179,7 @@ fun WheelView(
                         useCenter = false,
                         topLeft = topLeft,
                         size = arcRect,
-                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+                        style = Stroke(width = 4.5.dp.toPx(), cap = StrokeCap.Round),
                     )
                 }
                 .pointerInput(Unit) {
@@ -222,9 +222,10 @@ fun WheelView(
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
-            val stepYPx = with(density) { (maxHeight * 0.205f).coerceIn(48.dp, 64.dp).toPx() }
-            val arcDepthPx = with(density) { 26.dp.toPx() }
-            val pillMaxW = (maxWidth - 62.dp).coerceIn(170.dp, 300.dp)
+            val stepYPx = with(density) { (maxHeight * 0.20f).coerceIn(48.dp, 62.dp).toPx() }
+            val arcDepthPx = with(density) { 44.dp.toPx() }
+            val baseLeftPx = with(density) { 26.dp.toPx() }
+            val pillMaxW = (maxWidth - 78.dp).coerceIn(168.dp, 282.dp)
             val focusBorderBrush = remember(palette.brandStart, palette.brandMid, palette.brandEnd) {
                 Brush.linearGradient(listOf(palette.brandStart, palette.brandMid, palette.brandEnd))
             }
@@ -246,10 +247,13 @@ fun WheelView(
                     val absD = abs(d)
                     val isSelected = idx == safeFocus
 
-                    val curveX = (cos((d * 0.48f).coerceIn(-1.45f, 1.45f)) * arcDepthPx) + with(density) { 30.dp.toPx() }
+                    // 使用左中锚点 + 二次弧度偏移，避免缩放抵消左缘弧线，还原明显 C 形转盘曲率
+                    val normD = (absD / 2.25f).coerceIn(0f, 1.15f)
+                    val bulge = (1f - normD * normD).coerceAtLeast(0f)
+                    val curveX = baseLeftPx + bulge * arcDepthPx
                     val transY = d * stepYPx
-                    val scale = (1f - absD * 0.085f).coerceAtLeast(0.76f)
-                    val itemAlpha = (1f - absD * 0.28f).coerceIn(0f, 1f)
+                    val scale = (1f - absD * 0.075f).coerceAtLeast(0.80f)
+                    val itemAlpha = (1f - absD * 0.24f).coerceIn(0.18f, 1f)
                     val z = 50f - absD * 10f
 
                     val pillShape = RoundedCornerShape(24.dp)
@@ -258,6 +262,7 @@ fun WheelView(
                             .zIndex(z)
                             .width(pillMaxW)
                             .graphicsLayer {
+                                transformOrigin = TransformOrigin(0f, 0.5f)
                                 translationX = curveX
                                 translationY = transY
                                 scaleX = scale
