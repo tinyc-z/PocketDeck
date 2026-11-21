@@ -1036,6 +1036,7 @@ class WebManagerServer(
             put("hasCover", covers.hasLocalOrCachedCover(g))
             put("hasCustomCover", !g.customCover.isNullOrBlank())
             put("coverUrl", covers.publicCoverUrlForWeb(g).orEmpty())
+            put("coverVersion", covers.coverVersionForWeb(g))
             put("categories", JSONArray(catIds))
             put(
                 "metadata",
@@ -1197,9 +1198,11 @@ class WebManagerServer(
         val bytes = resolved.second
         val crc = java.util.zip.CRC32().apply { update(bytes) }.value
         val etag = "\"${bytes.size}-${crc.toString(16)}\""
+        val versionParam = req.query["v"]?.trim().orEmpty()
+        val hasVersion = versionParam.isNotEmpty() && versionParam != "0"
         val cacheHeaders = mapOf(
             "ETag" to etag,
-            "Cache-Control" to "private, max-age=604800",
+            "Cache-Control" to if (hasVersion) "private, max-age=31536000, immutable" else "private, max-age=604800",
         )
         val ifNoneMatch = req.headers["if-none-match"]?.trim()
         if (ifNoneMatch != null && (ifNoneMatch == etag || ifNoneMatch == "*" || etag in ifNoneMatch)) {

@@ -1037,6 +1037,28 @@ class CoverSource(
     }
 
     /**
+     * 为 Web 端生成单游戏级封面版本号：
+     * 基于当前生效的封面文件 mtime/size（或在线 URL 哈希 / APK 更新时间），
+     * 保证掌机本地换图或 Web 端改图时仅该游戏缓存立即失效，其余未改动封面继续命中浏览器强缓存。
+     */
+    fun coverVersionForWeb(game: Game): String {
+        val custom = game.customCover?.let(::File)?.takeIf { it.isFile }
+        if (custom != null) return "c-${custom.lastModified()}-${custom.length()}"
+        val local = game.localCover?.let(::File)?.takeIf { it.isFile }
+        if (local != null) return "l-${local.lastModified()}-${local.length()}"
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) {
+            val pkg = game.id.removePrefix(GameLauncher.APK_PREFIX)
+            val updated = runCatching { appCtx.packageManager.getPackageInfo(pkg, 0).lastUpdateTime }.getOrDefault(0L)
+            return "a-$updated"
+        }
+        val url = cachedUrl(game.id)
+        val wf = webCacheFile(game.id)
+        val uPart = if (!url.isNullOrBlank()) url.hashCode().toUInt().toString(16) else "0"
+        val wPart = if (wf.isFile) "${wf.lastModified()}-${wf.length()}" else "0"
+        return if (uPart != "0" || wPart != "0") "u-$uPart-$wPart" else "0"
+    }
+
+    /**
      * 仅从掌机本地文件、应用图标、Coil 磁盘缓存或掌机本地 Web 缓存读取封面字节（不触发外部网络，Web 端绝不直连外网）。
      */
     suspend fun resolveWebCoverBytes(game: Game): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {

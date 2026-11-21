@@ -1646,7 +1646,6 @@ let parentDir = '';
 let curEntries = [];
 let selectedPaths = new Set();
 let gameViewMode = localStorage.getItem('pd_web_gview') || 'grid';
-let coverVer = 0;
 
 let catTabs = [];
 let catPlatforms = [];
@@ -2179,7 +2178,8 @@ function renderStats() {
 }
 
 function _buildWebCoverChain(g, safeId) {
-  const localUrl = '/api/cover?id=' + safeId + '&v=' + coverVer;
+  const ver = (g && g.coverVersion) ? String(g.coverVersion) : '0';
+  const localUrl = '/api/cover?id=' + safeId + '&v=' + encodeURIComponent(ver);
   const raw = (g && g.coverUrl) ? String(g.coverUrl).trim() : '';
   if (!raw || !/^https?:\/\//i.test(raw)) return [localUrl];
   const chain = [];
@@ -2499,7 +2499,6 @@ async function refreshGameMetaFromHandheld(id) {
     if (!d.ok && d.error === 'offline') {
       toast(tr('msg_offline'));
     } else if (d.ok) {
-      coverVer++;
       toast((d.coverUpdated || d.metaUpdated) ? tr('msg_meta_done') : tr('msg_meta_none'));
       if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
       openGameDetail(id);
@@ -2768,7 +2767,6 @@ async function applyWebDirectCover(id, primaryUrl, fallbackUrl, cardEl) {
   });
   if (r.ok) {
     const d = await r.json().catch(() => ({}));
-    coverVer++;
     toast(tr('msg_cover_applied'));
     if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
     openGameDetail(id);
@@ -2785,7 +2783,6 @@ async function uploadCustomCover(id, file) {
   });
   if (r.ok) {
     const d = await r.json().catch(() => ({}));
-    coverVer++;
     toast(tr('msg_cover_uploaded'));
     if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
     openGameDetail(id);
@@ -2801,7 +2798,6 @@ async function resetGameCover(id) {
   });
   if (r.ok) {
     const d = await r.json().catch(() => ({}));
-    coverVer++;
     toast(tr('msg_cover_reset'));
     if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
     openGameDetail(id);
