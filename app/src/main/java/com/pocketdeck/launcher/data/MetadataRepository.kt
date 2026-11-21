@@ -5,6 +5,7 @@ import android.net.Uri
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
+import com.pocketdeck.launcher.launch.GameLauncher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,6 +56,7 @@ data class ManualScrapeCandidate(
     val coverUrl: String? = null,
     val metadata: GameMetadata = GameMetadata(),
     val fallbackCoverUrls: List<String> = emptyList(),
+    val matchedByHash: Boolean = false,
 )
 
 /**
@@ -645,14 +647,33 @@ class MetadataRepository(
         )
         val lock = Any()
         val out = ArrayList<ManualScrapeCandidate>()
-        val seen = HashSet<String>()
+        val seen = HashMap<String, Int>()
+        val isRom = !game.id.startsWith(GameLauncher.APK_PREFIX)
 
         fun addCandidatesLocked(items: List<ManualScrapeCandidate>): Boolean {
             var added = false
             for (c in items) {
                 val key = "${c.title.lowercase()}|${c.coverUrl.orEmpty()}"
-                if (seen.add(key)) {
-                    out += c
+                val existingIdx = seen[key]
+                if (existingIdx == null) {
+                    if (c.matchedByHash) {
+                        val insertAt = out.indexOfFirst { !it.matchedByHash }.let { if (it < 0) out.size else it }
+                        out.add(insertAt, c)
+                        // 重建索引表以保持 O(1) 去重准确
+                        seen.clear()
+                        out.forEachIndexed { idx, item -> seen["${item.title.lowercase()}|${item.coverUrl.orEmpty()}"] = idx }
+                    } else {
+                        seen[key] = out.size
+                        out += c
+                    }
+                    added = true
+                } else if (c.matchedByHash && !out[existingIdx].matchedByHash) {
+                    val upgraded = out[existingIdx].copy(matchedByHash = true)
+                    out.removeAt(existingIdx)
+                    val insertAt = out.indexOfFirst { !it.matchedByHash }.let { if (it < 0) out.size else it }
+                    out.add(insertAt, upgraded)
+                    seen.clear()
+                    out.forEachIndexed { idx, item -> seen["${item.title.lowercase()}|${item.coverUrl.orEmpty()}"] = idx }
                     added = true
                 }
             }
@@ -681,16 +702,17 @@ class MetadataRepository(
             onPartialResults(snapshot())
         }
 
-        // 2) 在线 API 节点全并发查询，哪个源先返回就立刻增量刷新列表
+        // 2) 在线 API 节点 + ROM Hash 查询全并发执行，谁先返回就立刻增量刷新列表（Hash 命中自动置顶并标明）
         val cred = credentials
-        val apiProviders = listOf(
-            ScraperCatalog.MetaIds.GAMETDB,
-            ScraperCatalog.MetaIds.THEGAMESDB,
-            ScraperCatalog.MetaIds.SCREENSCRAPER,
-            ScraperCatalog.MetaIds.IGDB,
-            ScraperCatalog.MetaIds.WIKIDATA,
-            ScraperCatalog.CoverIds.STEAMGRIDDB,
-        ).filter { pid ->
+        val apiProviders = buildList {
+            if (isRom) add(ScraperCatalog.MetaIds.HASHEOUS)
+            add(ScraperCatalog.MetaIds.GAMETDB)
+            add(ScraperCatalog.MetaIds.THEGAMESDB)
+            add(ScraperCatalog.MetaIds.SCREENSCRAPER)
+            add(ScraperCatalog.MetaIds.IGDB)
+            add(ScraperCatalog.MetaIds.WIKIDATA)
+            add(ScraperCatalog.CoverIds.STEAMGRIDDB)
+        }.filter { pid ->
             if (pid == ScraperCatalog.MetaIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) {
                 return@filter false
             }
@@ -698,17 +720,72 @@ class MetadataRepository(
             ScraperCatalog.hasCredentials(desc?.credentialKind, cred)
         }
 
-        if (apiProviders.isNotEmpty()) {
-            val active = LinkedHashSet<String>(apiProviders)
+        val active = LinkedHashSet<String>(apiProviders)
+        if (isRom && table != null) active.add(ScraperCatalog.MetaIds.LIBRETRO_DB)
+        if (active.isNotEmpty()) {
             onActiveSourcesChanged(synchronized(lock) { active.toList() })
             coroutineScope {
+                // 2a) 离线 Libretro DB ROM Hash / Serial 反查官方名 → Libretro Boxarts 封面
+                if (isRom && table != null) {
+                    launch(Dispatchers.IO) {
+                        try {
+                            val romId = runCatching { client.extractIdentity(File(game.id), platform?.id) }.getOrNull()
+                            if (romId != null && (romId.crc32 != null || romId.serial != null)) {
+                                val hashHit = table.find("", "", crc = romId.crc32, serial = romId.serial)
+                                    ?.takeIf { it.mode == MetaMatchMode.Crc32Hash || it.mode == MetaMatchMode.SerialId }
+                                val official = hashHit?.row?.officialName?.takeIf { it.isNotBlank() }
+                                if (official != null) {
+                                    val hashBoxarts = runCatching {
+                                        covers.searchIndexCandidates(official, platform)
+                                    }.getOrDefault(emptyList())
+                                    val hashBatch = if (hashBoxarts.isNotEmpty()) {
+                                        hashBoxarts.take(3).map { match ->
+                                            ManualScrapeCandidate(
+                                                title = official,
+                                                providerId = ScraperCatalog.MetaIds.LIBRETRO_DB,
+                                                coverUrl = match.url,
+                                                metadata = hashHit.row.meta,
+                                                fallbackCoverUrls = match.fallbackUrls,
+                                                matchedByHash = true,
+                                            )
+                                        }
+                                    } else {
+                                        listOf(
+                                            ManualScrapeCandidate(
+                                                title = official,
+                                                providerId = ScraperCatalog.MetaIds.LIBRETRO_DB,
+                                                coverUrl = null,
+                                                metadata = hashHit.row.meta,
+                                                matchedByHash = true,
+                                            ),
+                                        )
+                                    }
+                                    val changed = synchronized(lock) { addCandidatesLocked(hashBatch) }
+                                    if (changed) onPartialResults(snapshot())
+                                }
+                            }
+                        } finally {
+                            val remaining = synchronized(lock) {
+                                active.remove(ScraperCatalog.MetaIds.LIBRETRO_DB)
+                                active.toList()
+                            }
+                            onActiveSourcesChanged(remaining)
+                        }
+                    }
+                }
+
+                // 2b) 各在线 API 节点并发查询（Hasheous / ScreenScraper 传入真实 ROM 以支持 Hash 命中）
                 for (pid in apiProviders) {
                     launch(Dispatchers.IO) {
                         try {
+                            val useRealRom = isRom && (
+                                pid == ScraperCatalog.MetaIds.HASHEOUS ||
+                                    pid == ScraperCatalog.MetaIds.SCREENSCRAPER
+                                )
                             val hit = runCatching {
                                 client.queryProvider(
                                     providerId = pid,
-                                    game = synthetic,
+                                    game = if (useRealRom) game else synthetic,
                                     platform = platform,
                                     cred = cred,
                                     forceRefresh = true,
@@ -716,13 +793,15 @@ class MetadataRepository(
                                 )
                             }.getOrNull()
                             if (hit != null && (!hit.isEmpty || hit.coverUrls.isNotEmpty())) {
+                                val isHashHit = pid == ScraperCatalog.MetaIds.HASHEOUS ||
+                                    (pid == ScraperCatalog.MetaIds.SCREENSCRAPER && useRealRom)
                                 val title = hit.officialName?.takeIf { it.isNotBlank() } ?: cleanKeyword
                                 val batch = if (hit.coverUrls.isNotEmpty()) {
                                     hit.coverUrls.take(3).map { url ->
-                                        ManualScrapeCandidate(title, pid, url, hit.meta)
+                                        ManualScrapeCandidate(title, pid, url, hit.meta, matchedByHash = isHashHit)
                                     }
                                 } else {
-                                    listOf(ManualScrapeCandidate(title, pid, null, hit.meta))
+                                    listOf(ManualScrapeCandidate(title, pid, null, hit.meta, matchedByHash = isHashHit))
                                 }
                                 val changed = synchronized(lock) { addCandidatesLocked(batch) }
                                 if (changed) {

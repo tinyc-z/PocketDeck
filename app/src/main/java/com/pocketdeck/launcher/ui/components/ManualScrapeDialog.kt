@@ -546,13 +546,31 @@ fun ManualScrapeDialog(
                                         cand.metadata.developer ?: cand.metadata.publisher,
                                         cand.metadata.genre,
                                     ).joinToString(" · ")
-                                    Text(
-                                        text = metaSummary,
-                                        style = DeckType.metaLabel,
-                                        color = DeckColors.TextSecondary,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    ) {
+                                        if (cand.matchedByHash) {
+                                            Text(
+                                                text = "Hash",
+                                                style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold),
+                                                color = DeckColors.Ruby,
+                                                maxLines = 1,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(DeckColors.Ruby.copy(alpha = 0.14f))
+                                                    .border(0.6.dp, DeckColors.Ruby.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                                            )
+                                        }
+                                        Text(
+                                            text = metaSummary,
+                                            style = DeckType.metaLabel,
+                                            color = DeckColors.TextSecondary,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
                                 Text(
                                     text = stringResource(R.string.manual_scrape_apply_btn),
