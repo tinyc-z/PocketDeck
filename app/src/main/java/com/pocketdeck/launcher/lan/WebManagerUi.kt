@@ -353,7 +353,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   .dev-store { font-size:11.5px; color:var(--label); font-weight:600; }
 
   .main-wrap { flex:1; min-width:0; }
-  .main { width:100%; max-width:1360px; margin:0 auto; padding:26px 32px 64px; }
+  .main { width:100%; margin:0; padding:26px 32px 64px; }
   .sticky-head {
     position:sticky; top:0; z-index:20;
     margin:-26px -32px 14px; padding:12px 32px 10px;
