@@ -97,6 +97,8 @@ class CoverSource(
     @Volatile
     private var githubIndexBlockedUntilMs: Long = 0L
     private val scrapingInFlight = ConcurrentHashMap<String, Boolean>()
+    private val webCacheFilesById = ConcurrentHashMap<String, File>()
+    private val thumbExistingNames = ConcurrentHashMap.newKeySet<String>()
 
     // 有界 LRU，避免上万游戏时候选来源映射无限增长
     private val candidateOrigins: MutableMap<String, Pair<String, CoverMatchMode>> =
@@ -1644,8 +1646,6 @@ class CoverSource(
         }
     }.getOrNull()
 
-    private val webCacheFilesById = ConcurrentHashMap<String, File>()
-
     private fun webCacheFile(gameId: String): File {
         val hash = MessageDigest.getInstance("SHA-256")
             .digest(gameId.toByteArray(Charsets.UTF_8))
@@ -1803,8 +1803,6 @@ class CoverSource(
      * 固定宽度 320px WebP 缩略图缓存 + 内存 LRU：
      * 命中则 O(1) 返回磁盘 WebP 缩略图；未命中则先返回原图并在 IO 线程异步生成 WebP 缩略图，避免阻塞主线程。
      */
-    private val thumbExistingNames = ConcurrentHashMap.newKeySet<String>()
-
     private fun preferredThumbOrOriginal(original: File): File {
         val key = original.path
         thumbPathLru.get(key)?.let { return it }

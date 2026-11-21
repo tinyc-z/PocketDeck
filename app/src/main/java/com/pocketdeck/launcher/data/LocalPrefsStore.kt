@@ -24,21 +24,54 @@ import java.util.concurrent.ConcurrentHashMap
  * - 首次启动时若新文件不存在且检测到旧版 DataStore `datastore/user.preferences_pb`，
  *   自动通过内置精简 Protobuf wire-format 解析器无损迁移全部 Boolean / String / Set<String> 键值。
  */
-internal class PrefsKey<T : Any>(val name: String)
+internal enum class PrefsValueKind { Boolean, String, StringSet, StringMap }
 
-internal fun booleanPrefsKey(name: String) = PrefsKey<Boolean>(name)
-internal fun stringPrefsKey(name: String) = PrefsKey<String>(name)
-internal fun stringSetPrefsKey(name: String) = PrefsKey<Set<String>>(name)
-internal fun stringMapPrefsKey(name: String) = PrefsKey<Map<String, String>>(name)
+internal class PrefsKey<T : Any>(
+    val name: String,
+    val kind: PrefsValueKind,
+)
+
+internal fun booleanPrefsKey(name: String) = PrefsKey<Boolean>(name, PrefsValueKind.Boolean)
+internal fun stringPrefsKey(name: String) = PrefsKey<String>(name, PrefsValueKind.String)
+internal fun stringSetPrefsKey(name: String) = PrefsKey<Set<String>>(name, PrefsValueKind.StringSet)
+internal fun stringMapPrefsKey(name: String) = PrefsKey<Map<String, String>>(name, PrefsValueKind.StringMap)
+
+@Suppress("UNCHECKED_CAST")
+internal fun <T : Any> readTypedPref(values: Map<String, Any>, key: PrefsKey<T>): T? {
+    val raw = values[key.name] ?: return null
+    val typed: Any? = when (key.kind) {
+        PrefsValueKind.Boolean -> raw as? Boolean
+        PrefsValueKind.String -> raw as? String
+        PrefsValueKind.StringSet -> if (raw is Set<*> && raw.all { it is String }) raw else null
+        PrefsValueKind.StringMap -> when (raw) {
+            is Map<*, *> -> raw
+            // 兼容旧版 DataStore / v0 JSON：历史上 Map 字段以 "k\u0000v" 的 StringSet 存放在 ss 中
+            is Set<*> -> decodeLegacyPairSet(raw)
+            else -> null
+        }
+    }
+    return typed as? T
+}
+
+private fun decodeLegacyPairSet(raw: Set<*>): Map<String, String> {
+    if (raw.isEmpty()) return emptyMap()
+    val out = LinkedHashMap<String, String>(raw.size * 2)
+    for (item in raw) {
+        val entry = item as? String ?: continue
+        val sep = entry.indexOf('\u0000')
+        if (sep > 0) {
+            out[entry.substring(0, sep)] = entry.substring(sep + 1)
+        }
+    }
+    return out
+}
 
 internal class PrefsSnapshot(private val values: Map<String, Any>) {
-    @Suppress("UNCHECKED_CAST")
-    operator fun <T : Any> get(key: PrefsKey<T>): T? = values[key.name] as? T
+    operator fun <T : Any> get(key: PrefsKey<T>): T? = readTypedPref(values, key)
 }
 
 internal class MutablePrefs(private val values: LinkedHashMap<String, Any>) {
-    @Suppress("UNCHECKED_CAST")
-    operator fun <T : Any> get(key: PrefsKey<T>): T? = values[key.name] as? T
+    operator fun <T : Any> get(key: PrefsKey<T>): T? = readTypedPref(values, key)
 
     operator fun <T : Any> set(key: PrefsKey<T>, value: T) {
         values[key.name] = value

@@ -122,4 +122,40 @@ class LocalPrefsStoreTest {
         val restored = LocalPrefsStore.decodeJson(json)
         assertEquals(original, restored)
     }
+
+    @Test
+    fun `stringMapPrefsKey reads legacy NUL-separated string sets without ClassCastException`() {
+        val legacyJson = """
+            {
+              "b": { "show_metadata": true },
+              "s": { "theme": "Dark" },
+              "ss": {
+                "renames": ["/roms/nes/mario.nes\u0000超级玛丽", "/roms/gba/zelda.gba\u0000塞尔达"],
+                "covers": [],
+                "favorites": ["/roms/nes/mario.nes"]
+              }
+            }
+        """.trimIndent()
+        val decoded = LocalPrefsStore.decodeJson(legacyJson)
+        val snap = PrefsSnapshot(decoded)
+        val renamesKey = stringMapPrefsKey("renames")
+        val coversKey = stringMapPrefsKey("covers")
+        val favsKey = stringSetPrefsKey("favorites")
+        val themeAsMapKey = stringMapPrefsKey("theme")
+
+        assertEquals(
+            mapOf("/roms/nes/mario.nes" to "超级玛丽", "/roms/gba/zelda.gba" to "塞尔达"),
+            snap[renamesKey],
+        )
+        assertEquals(emptyMap<String, String>(), snap[coversKey])
+        assertEquals(setOf("/roms/nes/mario.nes"), snap[favsKey])
+        assertEquals(null, snap[themeAsMapKey])
+
+        val mutable = MutablePrefs(LinkedHashMap(decoded))
+        assertEquals(
+            mapOf("/roms/nes/mario.nes" to "超级玛丽", "/roms/gba/zelda.gba" to "塞尔达"),
+            mutable[renamesKey],
+        )
+        assertEquals(null, mutable[themeAsMapKey])
+    }
 }
