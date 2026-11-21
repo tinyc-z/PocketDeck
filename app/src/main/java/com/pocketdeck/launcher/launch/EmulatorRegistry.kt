@@ -156,7 +156,7 @@ object EmulatorRegistry {
     val SKYEMU = EmulatorDef(
         displayName = "SkyEmu",
         id = "skyemu",
-        packages = listOf("com.skylersaleh.skyemu"),
+        packages = listOf("com.sky.SkyEmu", "com.skylersaleh.skyemu"),
         intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
     )
 
