@@ -2164,7 +2164,7 @@ function buildGamesQueryUrl(offset, limit) {
   if (q) params.set('q', q);
   if (activeFilterMode && activeFilterMode !== 'all') params.set('vis', activeFilterMode);
   if (activeFilterPlat) params.set('plat', activeFilterPlat);
-  const catFilter = el('gCat') ? el('gCat').value : '';
+  const catFilter = activeFilterCat || (el('gCat') ? el('gCat').value : '');
   if (catFilter) params.set('cat', catFilter);
   if (gameSortMode) params.set('sort', gameSortMode);
   return '/api/games?' + params.toString();
@@ -2354,12 +2354,15 @@ function svgIco(name, size) {
 
 let activeFilterMode = 'all';
 let activeFilterPlat = '';
+let activeFilterCat = '';
 
-function setFilterChip(mode, plat) {
+function setFilterChip(mode, catId) {
   activeFilterMode = mode || 'all';
-  activeFilterPlat = plat || '';
-  el('gVis').value = activeFilterMode;
-  el('gPlat').value = activeFilterPlat;
+  activeFilterPlat = '';
+  activeFilterCat = catId || '';
+  if (el('gVis')) el('gVis').value = activeFilterMode;
+  if (el('gPlat')) el('gPlat').value = '';
+  if (el('gCat')) el('gCat').value = activeFilterCat;
   renderFilterChips();
   loadGames(true);
 }
@@ -2367,21 +2370,28 @@ function setFilterChip(mode, plat) {
 function renderFilterChips() {
   const box = el('filterChips');
   if (!box) return;
-  const plats = gamesStats.platforms || [];
-  const hasHidden = !!gamesStats.hasHidden;
   const chips = [
-    '<button class="fchip' + (activeFilterMode === 'all' && !activeFilterPlat ? ' on' : '') + '" onclick="setFilterChip(\'all\',\'\')">' + esc(tr('filter_all')) + '</button>'
+    '<button class="fchip' + (activeFilterMode === 'all' && !activeFilterCat ? ' on' : '') + '" onclick="setFilterChip(\'all\',\'\')">' + esc(tr('filter_all')) + '</button>'
   ];
-  plats.forEach(p => {
-    const on = activeFilterMode === 'all' && activeFilterPlat === p;
-    chips.push('<button class="fchip' + (on ? ' on' : '') + '" onclick="setFilterChip(\'all\',\'' + escJs(p) + '\')">' + esc(p) + '</button>');
+  const visibleTabs = (catTabs || []).filter(t => !t.hidden);
+  visibleTabs.forEach(t => {
+    if (t.type === 'Now') {
+      const label = t.followSystemLanguage ? tr('cat_type_now') : (t.name || tr('cat_type_now'));
+      const on = activeFilterMode === 'now' && !activeFilterCat;
+      chips.push('<button class="fchip' + (on ? ' on' : '') + '" onclick="setFilterChip(\'now\',\'\')">' + esc(label) + '</button>');
+    } else if (t.type === 'Favs') {
+      const label = t.followSystemLanguage ? tr('filter_fav') : (t.name || tr('filter_fav'));
+      const on = activeFilterMode === 'fav' && !activeFilterCat;
+      chips.push('<button class="fchip' + (on ? ' on' : '') + '" onclick="setFilterChip(\'fav\',\'\')">' + esc(label) + '</button>');
+    } else if (t.type === 'Other') {
+      const label = t.followSystemLanguage ? tr('filter_other') : (t.name || tr('filter_other'));
+      const on = activeFilterMode === 'other' && !activeFilterCat;
+      chips.push('<button class="fchip' + (on ? ' on' : '') + '" onclick="setFilterChip(\'other\',\'\')">' + esc(label) + '</button>');
+    } else if (t.type === 'Custom') {
+      const on = activeFilterMode === 'all' && activeFilterCat === t.id;
+      chips.push('<button class="fchip' + (on ? ' on' : '') + '" onclick="setFilterChip(\'all\',\'' + escJs(t.id) + '\')">' + esc(t.name) + '</button>');
+    }
   });
-  chips.push('<button class="fchip' + (activeFilterMode === 'fav' ? ' on' : '') + '" onclick="setFilterChip(\'fav\',\'\')">' + esc(tr('filter_fav')) + '</button>');
-  chips.push('<button class="fchip' + (activeFilterMode === 'nocover' ? ' on' : '') + '" onclick="setFilterChip(\'nocover\',\'\')">' + esc(tr('filter_nocover')) + '</button>');
-  chips.push('<button class="fchip' + (activeFilterMode === 'other' ? ' on' : '') + '" onclick="setFilterChip(\'other\',\'\')">' + esc(tr('filter_other')) + '</button>');
-  if (hasHidden) {
-    chips.push('<button class="fchip' + (activeFilterMode === 'hidden' ? ' on' : '') + '" onclick="setFilterChip(\'hidden\',\'\')">' + esc(tr('filter_hidden')) + '</button>');
-  }
   box.innerHTML = chips.join('');
 }
 
@@ -2595,7 +2605,7 @@ function matchesCurrentGameFilter(g) {
   if (vis === 'nocover' && g.hasCover) return false;
   if (vis === 'other' && (g.hidden || (g.categories && g.categories.length > 0))) return false;
   if (activeFilterPlat && g.platformName !== activeFilterPlat) return false;
-  const catFilter = el('gCat') ? el('gCat').value : '';
+  const catFilter = activeFilterCat || (el('gCat') ? el('gCat').value : '');
   if (catFilter && !(g.categories || []).includes(catFilter)) return false;
   const q = (el('gSearch') ? el('gSearch').value : '').trim().toLowerCase();
   if (q) {

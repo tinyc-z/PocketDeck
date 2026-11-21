@@ -896,6 +896,13 @@ fun SettingsScreen(
                     return@onPreviewKeyEvent true
                 }
                 if (browsing) {
+                    if (browser.showAutoCreate) {
+                        if (GamepadKeys.isBack(event.key)) {
+                            browser.showAutoCreate = false
+                            return@onPreviewKeyEvent true
+                        }
+                        return@onPreviewKeyEvent false
+                    }
                     when {
                         event.key == Key.DirectionUp -> browser.move(-1)
                         event.key == Key.DirectionDown -> browser.move(1)

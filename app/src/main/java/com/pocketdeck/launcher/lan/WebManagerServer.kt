@@ -548,12 +548,15 @@ class WebManagerServer(
                 }
             }
             var prevSnaps = buildSnaps(repo.fullLibrary.value, repo.user.value)
-            var prevCats = repo.user.value?.categories
+            fun tabsSignature(u: UserData?): Any? = u?.let {
+                listOf(it.categories, it.tabOrder, it.hiddenTabs, it.nowTab, it.favsTab, it.systemTabs)
+            }
+            var prevTabSig = tabsSignature(repo.user.value)
             combine(repo.fullLibrary, repo.user) { lib, u -> lib to u }.drop(1).collect { (lib, u) ->
                 val curSnaps = buildSnaps(lib, u)
-                val curCats = u?.categories
+                val curTabSig = tabsSignature(u)
                 if (activeSseCount.get() > 0 && lib != null) {
-                    if (curCats != prevCats) {
+                    if (curTabSig != prevTabSig) {
                         emitSse("categories_changed", "{}")
                     }
                     val addedOrRemoved = curSnaps.keys != prevSnaps.keys
@@ -582,7 +585,7 @@ class WebManagerServer(
                     }
                 }
                 prevSnaps = curSnaps
-                prevCats = curCats
+                prevTabSig = curTabSig
             }
         }
         scope.launch {
@@ -1423,6 +1426,7 @@ class WebManagerServer(
         val u = repo.user.value
         val hidden = u?.hidden.orEmpty()
         val favs = u?.favorites.orEmpty()
+        val recents = u?.recents.orEmpty().toSet()
         val cats = u?.categories.orEmpty()
         val metaMap = metadataRepo.metadata.value
         val officialNames = metadataRepo.officialNames.value
@@ -1561,6 +1565,7 @@ class WebManagerServer(
         val u = repo.user.value
         val hidden = u?.hidden.orEmpty()
         val favs = u?.favorites.orEmpty()
+        val recents = u?.recents.orEmpty().toSet()
         val cats = u?.categories.orEmpty()
         val metaMap = metadataRepo.metadata.value
         val officialNames = metadataRepo.officialNames.value
@@ -1581,6 +1586,7 @@ class WebManagerServer(
             when (vis) {
                 "visible" -> if (g.id in hidden) return@filter false
                 "hidden" -> if (g.id !in hidden) return@filter false
+                "now" -> if (g.id in hidden || g.id !in recents) return@filter false
                 "fav" -> if (g.id !in favs) return@filter false
                 "nocover" -> if (covers.hasLocalOrCachedCover(g)) return@filter false
                 "other" -> if (g.id in hidden || g.platformId in categorizedPlatforms || g.id in categorizedGames) return@filter false

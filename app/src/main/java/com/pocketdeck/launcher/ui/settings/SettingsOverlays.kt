@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,9 +74,11 @@ import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
-import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.data.CredentialKind
+import com.pocketdeck.launcher.data.PlatformCatalog
+import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.data.ScraperCredentials
+import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.ButtonBadge
@@ -93,6 +97,8 @@ import com.pocketdeck.launcher.ui.theme.FontOption
 import com.pocketdeck.launcher.ui.theme.InterFamily
 import com.pocketdeck.launcher.ui.theme.SystemFonts
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -205,6 +211,7 @@ class DirBrowserState(private val appContext: Context? = null) {
     var rows by mutableStateOf<List<Row>>(emptyList())
         private set
     var index by mutableIntStateOf(0)
+    var showAutoCreate by mutableStateOf(false)
 
     private fun storageRoots(): List<File> {
         val seen = LinkedHashSet<String>()
@@ -239,6 +246,7 @@ class DirBrowserState(private val appContext: Context? = null) {
     fun reset() {
         current = null
         index = 0
+        showAutoCreate = false
         load()
     }
 
@@ -319,7 +327,7 @@ fun DirBrowser(
                     modifier = Modifier
                         .clip(DeckShapes.tabPill)
                         .background(DeckColors.Surface)
-                        .clickable { if (!state.up()) onDismiss() }
+                        .soundClickable { if (!state.up()) onDismiss() }
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -340,6 +348,23 @@ fun DirBrowser(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                Row(
+                    modifier = Modifier
+                        .clip(DeckShapes.tabPill)
+                        .brandBackground()
+                        .soundClickable { state.showAutoCreate = true }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    DeckIcon(DeckIcons.Folder, tint = Color.White, size = 14.dp)
+                    Text(
+                        stringResource(R.string.picker_auto_create_btn),
+                        style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
                 Text(
                     stringResource(R.string.picker_hint),
                     style = DeckType.settingsLabel,
@@ -374,7 +399,7 @@ fun DirBrowser(
                                     else -> Color.Transparent
                                 },
                             )
-                            .clickable {
+                            .soundClickable {
                                 state.index = idx
                                 state.confirm()?.let(onPick)
                             }
@@ -411,6 +436,423 @@ fun DirBrowser(
                     }
                 }
             }
+        }
+        if (state.showAutoCreate) {
+            val baseDir = state.current ?: Environment.getExternalStorageDirectory()
+            AutoCreateRomDirsOverlay(
+                baseDir = baseDir,
+                onCreated = { targetPath ->
+                    state.showAutoCreate = false
+                    onPick(targetPath)
+                },
+                onDismiss = { state.showAutoCreate = false },
+            )
+        }
+    }
+}
+
+private val COMMON_AUTO_CREATE_PLATFORM_IDS = listOf(
+    "nes", "snes", "gb", "gbc", "gba", "nds", "3ds",
+    "n64", "psx", "psp", "ps2", "megadrive", "arcade", "dreamcast",
+)
+
+private val EXCLUDED_AUTO_CREATE_IDS = setOf(
+    PlatformCatalog.ANDROID_ID,
+    "sfc",      // 与 snes 同义，避免重复建目录
+    "genesis",  // 与 megadrive 同义，避免重复建目录
+)
+
+@Composable
+private fun AutoCreateRomDirsOverlay(
+    baseDir: File,
+    onCreated: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val commonSet = remember { COMMON_AUTO_CREATE_PLATFORM_IDS.toSet() }
+    val allCandidates = remember {
+        PlatformCatalog.known.filter { it.id !in EXCLUDED_AUTO_CREATE_IDS }
+    }
+    val commonPlatforms = remember(allCandidates) {
+        val byId = allCandidates.associateBy { it.id }
+        COMMON_AUTO_CREATE_PLATFORM_IDS.mapNotNull { byId[it] }
+    }
+    val morePlatforms = remember(allCandidates) {
+        allCandidates.filter { it.id !in commonSet }
+    }
+
+    var parentName by remember(baseDir) { mutableStateOf("roms") }
+    var selected by remember { mutableStateOf(commonSet) }
+    var creating by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    val trimmedName = parentName.trim()
+    val isNameValid = trimmedName.isEmpty() ||
+        (!trimmedName.contains('/') && !trimmedName.contains('\\') && trimmedName != "." && trimmedName != ".." && !trimmedName.contains(".."))
+    val targetRoot = remember(baseDir, trimmedName, isNameValid) {
+        if (!isNameValid || trimmedName.isEmpty()) baseDir else File(baseDir, trimmedName)
+    }
+    val existingIds by produceState(initialValue = emptySet<String>(), targetRoot) {
+        value = withContext(Dispatchers.IO) {
+            if (!targetRoot.isDirectory) emptySet()
+            else targetRoot.listFiles { f -> f.isDirectory }.orEmpty().map { it.name.lowercase() }.toSet()
+        }
+    }
+
+    val invalidNameStr = stringResource(R.string.picker_auto_create_invalid_name)
+    val failedStr = stringResource(R.string.picker_auto_create_failed)
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(DeckColors.CardShadow)
+            .scrimTapDismiss { if (!creating) onDismiss() },
+        contentAlignment = Alignment.Center,
+    ) {
+        DialogPanelCard(
+            modifier = Modifier
+                .widthIn(min = 420.dp, max = 720.dp)
+                .fillMaxWidth(0.92f)
+                .heightIn(max = 580.dp)
+                .blockOverlayTouchThrough(),
+            onDismiss = { if (!creating) onDismiss() },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+            ) {
+                // 标题栏
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(R.string.picker_auto_create_title),
+                        style = DeckType.settingsSection.copy(fontWeight = FontWeight.Bold),
+                        color = DeckColors.TextPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(DeckShapes.tabPill)
+                            .background(DeckColors.Surface)
+                            .soundClickable(enabled = !creating) { onDismiss() }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                    ) {
+                        DeckIcon(DeckIcons.Close, tint = DeckColors.TextSecondary, size = 16.dp)
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                // 父文件夹名输入 + 目标路径预览
+                Text(
+                    stringResource(R.string.picker_auto_create_parent_label),
+                    style = DeckType.settingsLabel,
+                    color = DeckColors.TextSecondary,
+                )
+                Spacer(Modifier.height(4.dp))
+                TextField(
+                    value = parentName,
+                    onValueChange = { parentName = it; errorMsg = null },
+                    singleLine = true,
+                    placeholder = {
+                        Text(
+                            stringResource(R.string.picker_auto_create_parent_ph),
+                            style = DeckType.settingsValue,
+                            color = DeckColors.TextSecondary.copy(alpha = 0.6f),
+                        )
+                    },
+                    textStyle = DeckType.settingsValue.copy(color = DeckColors.TextPrimary),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = DeckColors.Surface,
+                        unfocusedContainerColor = DeckColors.Surface,
+                        focusedIndicatorColor = DeckColors.Ruby,
+                        unfocusedIndicatorColor = DeckColors.DialogBorder,
+                        cursorColor = DeckColors.Ruby,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(DeckShapes.settingsDropdown),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    stringResource(R.string.picker_auto_create_target, targetRoot.path),
+                    style = DeckType.settingsLabel,
+                    color = if (isNameValid) DeckColors.Ruby else Color(0xFFE53935),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                // 快捷选择栏
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    @Composable
+                    fun QuickChip(label: String, onClick: () -> Unit) {
+                        Box(
+                            modifier = Modifier
+                                .clip(DeckShapes.tabPill)
+                                .background(DeckColors.Surface)
+                                .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                                .soundClickable { onClick() }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        ) {
+                            Text(label, style = DeckType.settingsLabel, color = DeckColors.TextPrimary)
+                        }
+                    }
+                    QuickChip(stringResource(R.string.picker_auto_create_sel_common)) {
+                        selected = commonSet
+                    }
+                    QuickChip(stringResource(R.string.picker_auto_create_sel_all)) {
+                        selected = allCandidates.map { it.id }.toSet()
+                    }
+                    QuickChip(stringResource(R.string.picker_auto_create_sel_none)) {
+                        selected = emptySet()
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "${selected.size} / ${allCandidates.size}",
+                        style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Bold),
+                        color = DeckColors.Ruby,
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+
+                // 平台勾选网格（常用 + 更多）
+                val commonRows = remember(commonPlatforms) { commonPlatforms.chunked(3) }
+                val moreRows = remember(morePlatforms) { morePlatforms.chunked(3) }
+                val existsBadge = stringResource(R.string.picker_auto_create_exists)
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    item {
+                        Text(
+                            stringResource(R.string.picker_auto_create_common),
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Bold),
+                            color = DeckColors.Ruby,
+                            modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
+                        )
+                    }
+                    items(commonRows) { chunk ->
+                        PlatformCheckRow(
+                            platforms = chunk,
+                            selected = selected,
+                            existingIds = existingIds,
+                            existsBadge = existsBadge,
+                            onToggle = { id ->
+                                selected = if (id in selected) selected - id else selected + id
+                            },
+                        )
+                    }
+                    item {
+                        Text(
+                            stringResource(R.string.picker_auto_create_more),
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Bold),
+                            color = DeckColors.TextSecondary,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+                        )
+                    }
+                    items(moreRows) { chunk ->
+                        PlatformCheckRow(
+                            platforms = chunk,
+                            selected = selected,
+                            existingIds = existingIds,
+                            existsBadge = existsBadge,
+                            onToggle = { id ->
+                                selected = if (id in selected) selected - id else selected + id
+                            },
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
+                Spacer(Modifier.height(10.dp))
+
+                errorMsg?.let { err ->
+                    Text(
+                        err,
+                        style = DeckType.settingsLabel,
+                        color = Color(0xFFE53935),
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                }
+
+                // 底部按钮
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(DeckShapes.tabPill)
+                            .background(DeckColors.Surface)
+                            .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                            .soundClickable(enabled = !creating) { onDismiss() }
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.menu_cancel),
+                            style = DeckType.settingsValue,
+                            color = DeckColors.TextPrimary,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    val canSubmit = !creating && isNameValid && selected.isNotEmpty()
+                    Box(
+                        modifier = Modifier
+                            .clip(DeckShapes.tabPill)
+                            .then(
+                                if (canSubmit) Modifier.brandBackground()
+                                else Modifier.background(DeckColors.Surface),
+                            )
+                            .soundClickable(enabled = canSubmit) {
+                                if (!isNameValid) {
+                                    errorMsg = invalidNameStr
+                                    return@soundClickable
+                                }
+                                creating = true
+                                errorMsg = null
+                                val toCreate = selected.toList()
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            if (!targetRoot.exists() && !targetRoot.mkdirs()) {
+                                                error("root_mkdir_failed")
+                                            }
+                                            var createdCount = 0
+                                            var existedCount = 0
+                                            for (id in toCreate) {
+                                                val sub = File(targetRoot, id)
+                                                if (sub.isDirectory) {
+                                                    existedCount++
+                                                } else if (sub.mkdirs() || sub.isDirectory) {
+                                                    createdCount++
+                                                }
+                                            }
+                                            createdCount to existedCount
+                                        }
+                                    }
+                                    creating = false
+                                    result.onSuccess { (createdCount, existedCount) ->
+                                        val msg = if (existedCount > 0) {
+                                            context.getString(R.string.picker_auto_create_done, createdCount, existedCount)
+                                        } else {
+                                            context.getString(R.string.picker_auto_create_done_all_new, createdCount)
+                                        }
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        onCreated(targetRoot.path)
+                                    }.onFailure {
+                                        errorMsg = failedStr
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 18.dp, vertical = 9.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.picker_auto_create_submit, selected.size),
+                            style = DeckType.settingsValue.copy(fontWeight = FontWeight.Bold),
+                            color = if (canSubmit) Color.White else DeckColors.TextSecondary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlatformCheckRow(
+    platforms: List<Platform>,
+    selected: Set<String>,
+    existingIds: Set<String>,
+    existsBadge: String,
+    onToggle: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        for (plat in platforms) {
+            val checked = plat.id in selected
+            val exists = plat.id in existingIds
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(DeckShapes.settingsDropdown)
+                    .background(if (checked) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
+                    .border(
+                        width = 1.dp,
+                        color = if (checked) DeckColors.Ruby else DeckColors.DialogBorder,
+                        shape = DeckShapes.settingsDropdown,
+                    )
+                    .soundClickable { onToggle(plat.id) }
+                    .padding(horizontal = 9.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(16.dp)
+                        .height(16.dp)
+                        .clip(DeckShapes.settingsDropdown)
+                        .then(
+                            if (checked) Modifier.brandBackground()
+                            else Modifier.border(1.dp, DeckColors.TextSecondary.copy(alpha = 0.5f), DeckShapes.settingsDropdown),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (checked) {
+                        DeckIcon(DeckIcons.Check, tint = Color.White, size = 11.dp)
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            plat.id,
+                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Bold),
+                            color = if (checked) DeckColors.Ruby else DeckColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (exists) {
+                            Text(
+                                existsBadge,
+                                style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
+                                color = DeckColors.TextSecondary,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    Text(
+                        plat.shortName,
+                        style = DeckType.settingsLabel,
+                        color = DeckColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        repeat(3 - platforms.size) {
+            Spacer(Modifier.weight(1f))
         }
     }
 }
