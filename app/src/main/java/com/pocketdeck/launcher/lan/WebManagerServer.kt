@@ -1147,14 +1147,17 @@ class WebManagerServer(
         val metaMap = metadataRepo.metadata.value
         val officialNames = metadataRepo.officialNames.value
 
-        val allGames = lib?.games?.values?.flatten().orEmpty().sortedBy { it.title.lowercase() }
+        val allGames = lib?.games?.values?.flatten().orEmpty()
         val statsJson = buildGamesStatsJson(allGames)
 
         val q = req.query["q"].orEmpty().trim().lowercase()
         val vis = req.query["vis"].orEmpty().trim().ifBlank { "all" }
         val platFilter = req.query["plat"].orEmpty().trim()
         val catFilter = req.query["cat"].orEmpty().trim()
+        val sort = req.query["sort"].orEmpty().trim().ifBlank { "mtime_desc" }
         val catObj = if (catFilter.isNotEmpty()) cats.firstOrNull { it.id == catFilter } else null
+        val categorizedPlatforms = if (vis == "other") cats.flatMap { it.sources }.toSet() else emptySet()
+        val categorizedGames = if (vis == "other") cats.flatMap { it.games }.toSet() else emptySet()
 
         val filtered = allGames.filter { g ->
             when (vis) {
@@ -1162,6 +1165,7 @@ class WebManagerServer(
                 "hidden" -> if (g.id !in hidden) return@filter false
                 "fav" -> if (g.id !in favs) return@filter false
                 "nocover" -> if (covers.hasLocalOrCachedCover(g)) return@filter false
+                "other" -> if (g.id in hidden || g.platformId in categorizedPlatforms || g.id in categorizedGames) return@filter false
             }
             val pName = lib?.platform(g.platformId)?.shortName
                 ?: PlatformCatalog.forFolder(g.platformId).shortName
@@ -1186,7 +1190,15 @@ class WebManagerServer(
             true
         }
 
-        val total = filtered.size
+        val sorted = when (sort) {
+            "title_asc" -> filtered.sortedBy { it.title.lowercase() }
+            "title_desc" -> filtered.sortedByDescending { it.title.lowercase() }
+            "mtime_asc" -> filtered.sortedWith(compareBy<com.pocketdeck.launcher.data.model.Game> { it.lastModifiedMs }.thenBy { it.title.lowercase() })
+            "size_desc" -> filtered.sortedWith(compareByDescending<com.pocketdeck.launcher.data.model.Game> { it.fileSize }.thenBy { it.title.lowercase() })
+            else -> filtered.sortedWith(compareByDescending<com.pocketdeck.launcher.data.model.Game> { it.lastModifiedMs }.thenBy { it.title.lowercase() })
+        }
+
+        val total = sorted.size
         val paged = req.query.containsKey("limit") || req.query.containsKey("offset")
         val offset = req.query["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
         val limit = if (paged) {
@@ -1197,7 +1209,7 @@ class WebManagerServer(
         val slice = if (offset >= total) {
             emptyList()
         } else {
-            filtered.subList(offset, (offset + limit).coerceAtMost(total))
+            sorted.subList(offset, (offset + limit).coerceAtMost(total))
         }
         val hasMore = offset + slice.size < total
 

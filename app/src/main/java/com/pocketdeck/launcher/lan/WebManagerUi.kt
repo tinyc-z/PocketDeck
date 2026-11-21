@@ -723,9 +723,18 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 
       <div class="filter-bar">
         <div id="filterChips" style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;"></div>
-        <div class="seg">
-          <button id="vmGrid" class="active" onclick="setGameView('grid')" data-i18n="view_grid">Covers</button>
-          <button id="vmList" onclick="setGameView('list')" data-i18n="view_list">List</button>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-shrink:0;">
+          <select id="gSort" class="sel" style="height:34px;padding:0 12px;border-radius:999px;font-size:12.5px;border:1px solid var(--line);background:var(--surf);color:var(--text);font-weight:600;cursor:pointer;" onchange="onGameSortChange()">
+            <option value="mtime_desc">最新更新</option>
+            <option value="title_asc">名称 A→Z</option>
+            <option value="title_desc">名称 Z→A</option>
+            <option value="size_desc">文件大小</option>
+            <option value="mtime_asc">最早添加</option>
+          </select>
+          <div class="seg">
+            <button id="vmGrid" class="active" onclick="setGameView('grid')" data-i18n="view_grid">Covers</button>
+            <button id="vmList" onclick="setGameView('list')" data-i18n="view_list">List</button>
+          </div>
         </div>
       </div>
 
@@ -848,7 +857,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 <script>
 const I18N = {
   'zh-CN': {
-    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '内部存储', vol_external: 'TF 卡', logs_live: '● 实时', btn_find_cover: '自动刮削', btn_pick_cover_short: '在线选图', btn_upload_short: '上传图片', connecting: '连接中…', loaded_games_fmt: '已加载 {loaded} / 共 {total} 款游戏', loaded_all_games_fmt: '已显示全部 {total} 款游戏', loading_more: '正在加载更多…', btn_load_more: '加载更多', loaded_files_fmt: '已加载 {loaded} / 共 {total} 项',
+    console_sub: '网页控制台', nav_more: '更多', btn_upload_roms: '上传 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '无封面', filter_other: '未分类', filter_hidden: '已隐藏', summary_fmt: '{games} 款游戏 · {plats} 个平台 · {favs} 个收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '内部存储', vol_external: 'TF 卡', logs_live: '● 实时', btn_find_cover: '自动刮削', btn_pick_cover_short: '在线选图', btn_upload_short: '上传图片', connecting: '连接中…', loaded_games_fmt: '已加载 {loaded} / 共 {total} 款游戏', loaded_all_games_fmt: '已显示全部 {total} 款游戏', loading_more: '正在加载更多…', btn_load_more: '加载更多', loaded_files_fmt: '已加载 {loaded} / 共 {total} 项',
     tab_games: '游戏库',
     tab_categories: '标签分类',
     tab_files: '文件管理',
@@ -1086,7 +1095,7 @@ const I18N = {
     logs_f_err: '仅报错',
   },
   'zh-TW': {
-    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '內部儲存', vol_external: 'TF 卡', logs_live: '● 即時', btn_find_cover: '自動刮削', btn_pick_cover_short: '線上選圖', btn_upload_short: '上傳圖片', connecting: '連線中…', loaded_games_fmt: '已載入 {loaded} / 共 {total} 款遊戲', loaded_all_games_fmt: '已顯示全部 {total} 款遊戲', loading_more: '正在載入更多…', btn_load_more: '載入更多', loaded_files_fmt: '已載入 {loaded} / 共 {total} 項',
+    console_sub: '網頁主控台', nav_more: '更多', btn_upload_roms: '上傳 ROM', filter_all: '全部', filter_fav: '♥ 收藏', filter_nocover: '無封面', filter_other: '未分類', filter_hidden: '已隱藏', summary_fmt: '{games} 款遊戲 · {plats} 個平台 · {favs} 個收藏', free_of_fmt: '可用 {free} / 共 {total}', vol_internal: '內部儲存', vol_external: 'TF 卡', logs_live: '● 即時', btn_find_cover: '自動刮削', btn_pick_cover_short: '線上選圖', btn_upload_short: '上傳圖片', connecting: '連線中…', loaded_games_fmt: '已載入 {loaded} / 共 {total} 款遊戲', loaded_all_games_fmt: '已顯示全部 {total} 款遊戲', loading_more: '正在載入更多…', btn_load_more: '載入更多', loaded_files_fmt: '已載入 {loaded} / 共 {total} 項',
     tab_games: '遊戲庫',
     tab_categories: '標籤分類',
     tab_files: '檔案管理',
@@ -1324,7 +1333,7 @@ const I18N = {
     logs_f_err: '僅報錯',
   },
   en: {
-    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', vol_internal: 'Internal', vol_external: 'SD / TF Card', logs_live: '● LIVE', btn_find_cover: 'Auto Scrape', btn_pick_cover_short: 'Pick Art', btn_upload_short: 'Upload', connecting: 'Connecting…', loaded_games_fmt: 'Showing {loaded} of {total} games', loaded_all_games_fmt: 'All {total} games loaded', loading_more: 'Loading more…', btn_load_more: 'Load more', loaded_files_fmt: 'Showing {loaded} of {total} items',
+    console_sub: 'Web Console', nav_more: 'More', btn_upload_roms: 'Upload ROMs', filter_all: 'All', filter_fav: '♥ Favorites', filter_nocover: 'No cover', filter_other: 'Other', filter_hidden: 'Hidden', summary_fmt: '{games} games · {plats} platforms · {favs} favorites', free_of_fmt: '{free} free of {total}', vol_internal: 'Internal', vol_external: 'SD / TF Card', logs_live: '● LIVE', btn_find_cover: 'Auto Scrape', btn_pick_cover_short: 'Pick Art', btn_upload_short: 'Upload', connecting: 'Connecting…', loaded_games_fmt: 'Showing {loaded} of {total} games', loaded_all_games_fmt: 'All {total} games loaded', loading_more: 'Loading more…', btn_load_more: 'Load more', loaded_files_fmt: 'Showing {loaded} of {total} items',
     tab_games: 'Library',
     tab_categories: 'Tabs & Tags',
     tab_files: 'Files',
@@ -1647,6 +1656,17 @@ let parentDir = '';
 let curEntries = [];
 let selectedPaths = new Set();
 let gameViewMode = localStorage.getItem('pd_web_gview') || 'grid';
+let gameSortMode = localStorage.getItem('pd_web_gsort') || 'mtime_desc';
+(function initGameSortUi() {
+  const sel = document.getElementById('gSort');
+  if (sel) sel.value = gameSortMode;
+})();
+function onGameSortChange() {
+  const sel = el('gSort');
+  gameSortMode = sel ? sel.value : 'mtime_desc';
+  localStorage.setItem('pd_web_gsort', gameSortMode);
+  loadGames(true);
+}
 
 let catTabs = [];
 let catPlatforms = [];
@@ -1978,6 +1998,7 @@ function buildGamesQueryUrl(offset, limit) {
   if (activeFilterPlat) params.set('plat', activeFilterPlat);
   const catFilter = el('gCat') ? el('gCat').value : '';
   if (catFilter) params.set('cat', catFilter);
+  if (gameSortMode) params.set('sort', gameSortMode);
   return '/api/games?' + params.toString();
 }
 
@@ -2189,6 +2210,7 @@ function renderFilterChips() {
   });
   chips.push('<button class="fchip' + (activeFilterMode === 'fav' ? ' on' : '') + '" onclick="setFilterChip(\'fav\',\'\')">' + esc(tr('filter_fav')) + '</button>');
   chips.push('<button class="fchip' + (activeFilterMode === 'nocover' ? ' on' : '') + '" onclick="setFilterChip(\'nocover\',\'\')">' + esc(tr('filter_nocover')) + '</button>');
+  chips.push('<button class="fchip' + (activeFilterMode === 'other' ? ' on' : '') + '" onclick="setFilterChip(\'other\',\'\')">' + esc(tr('filter_other')) + '</button>');
   if (hasHidden) {
     chips.push('<button class="fchip' + (activeFilterMode === 'hidden' ? ' on' : '') + '" onclick="setFilterChip(\'hidden\',\'\')">' + esc(tr('filter_hidden')) + '</button>');
   }
@@ -2403,6 +2425,7 @@ function matchesCurrentGameFilter(g) {
   if (vis === 'hidden' && !g.hidden) return false;
   if (vis === 'fav' && !g.favorite) return false;
   if (vis === 'nocover' && g.hasCover) return false;
+  if (vis === 'other' && (g.hidden || (g.categories && g.categories.length > 0))) return false;
   if (activeFilterPlat && g.platformName !== activeFilterPlat) return false;
   const catFilter = el('gCat') ? el('gCat').value : '';
   if (catFilter && !(g.categories || []).includes(catFilter)) return false;
