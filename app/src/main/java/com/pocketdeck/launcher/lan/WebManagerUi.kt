@@ -2762,6 +2762,7 @@ async function refreshGameMetaFromHandheld(id) {
     if (!d.ok && d.error === 'offline') {
       toast(tr('msg_offline'));
     } else if (d.ok) {
+      delete _webHashCoverCache[id];
       toast((d.coverUpdated || d.metaUpdated) ? tr('msg_meta_done') : tr('msg_meta_none'));
       if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
       openGameDetail(id);
@@ -3088,7 +3089,8 @@ async function runWebCoverSearch(id, sys) {
       title: h.title || kw,
       primaryUrl: h.url,
       fallbackUrl: h.fallbackUrl || h.url,
-      matchedByHash: true,
+      matchedByHash: h.matchedByHash !== false,
+      providerId: h.providerId || '',
     });
   }
   for (const c of libItems) pushItem(c);
@@ -3100,7 +3102,9 @@ async function runWebCoverSearch(id, sys) {
   if (statusEl) statusEl.textContent = '点击应用候选封面（浏览器直连加载，选定后同步到掌机）';
   grid.innerHTML = merged.map(c =>
     '<div class="cand-item" style="position:relative;" onclick="applyWebDirectCover(\'' + escJs(id) + '\',\'' + escJs(c.primaryUrl) + '\',\'' + escJs(c.fallbackUrl) + '\',this)">' +
-      (c.matchedByHash ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:var(--brand);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">Hash</em>' : '') +
+      (c.matchedByHash
+        ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:var(--brand);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">Hash</em>'
+        : (c.providerId ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:rgba(15,23,42,.78);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">' + esc(c.providerId) + '</em>' : '')) +
       '<img loading="lazy" src="' + esc(c.primaryUrl) + '" data-fb="' + esc(c.fallbackUrl) + '" onerror="if(!this.dataset.tried&&this.dataset.fb&&this.dataset.fb!==this.src){this.dataset.tried=\'1\';this.src=this.dataset.fb;}"/>' +
       '<span title="' + esc(c.title) + '">' + esc(c.title) + '</span>' +
     '</div>'

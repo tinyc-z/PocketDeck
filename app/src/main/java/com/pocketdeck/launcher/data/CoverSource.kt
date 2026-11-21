@@ -1501,6 +1501,28 @@ class CoverSource(
         false
     }
 
+    /** 返回已缓存的非 Libretro 扩展封面（如 SteamGridDB/IGDB/Wikidata P18·P154），供 Web「在线选图」补充候选。 */
+    suspend fun cachedExtraCoversForWeb(gameId: String): List<Pair<String, String>> {
+        val out = ArrayList<Pair<String, String>>()
+        val seen = HashSet<String>()
+        val providers = listOf(
+            ScraperCatalog.CoverIds.STEAMGRIDDB,
+            ScraperCatalog.CoverIds.IGDB,
+            ScraperCatalog.CoverIds.THEGAMESDB,
+            ScraperCatalog.CoverIds.SCREENSCRAPER,
+            ScraperCatalog.MetaIds.WIKIDATA,
+        )
+        for (pid in providers) {
+            val hit = client.cachedHit(pid, gameId) ?: continue
+            for (u in hit.coverUrls) {
+                if (u.isNotBlank() && seen.add(u)) {
+                    out.add(pid to u)
+                }
+            }
+        }
+        return out
+    }
+
     suspend fun downloadImageBytes(urlStr: String): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
         val t0 = System.currentTimeMillis()
         var code: Int? = null

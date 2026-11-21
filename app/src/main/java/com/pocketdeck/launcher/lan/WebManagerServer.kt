@@ -1546,8 +1546,10 @@ class WebManagerServer(
         val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
         val hits = metadataRepo.searchByHashForWeb(game, plat, covers)
         val arr = JSONArray()
+        val seenUrls = HashSet<String>()
         for (h in hits) {
             val u = h.coverUrl?.takeIf { it.isNotBlank() } ?: continue
+            if (!seenUrls.add(u)) continue
             arr.put(
                 JSONObject().apply {
                     put("title", h.title)
@@ -1555,6 +1557,19 @@ class WebManagerServer(
                     put("url", u)
                     put("fallbackUrl", h.fallbackCoverUrls.firstOrNull().orEmpty())
                     put("matchedByHash", true)
+                },
+            )
+        }
+        val extraTitle = metadataRepo.officialNames.value[game.id]?.takeIf { it.isNotBlank() } ?: game.title
+        for ((providerId, u) in covers.cachedExtraCoversForWeb(game.id)) {
+            if (!seenUrls.add(u)) continue
+            arr.put(
+                JSONObject().apply {
+                    put("title", extraTitle)
+                    put("providerId", providerId)
+                    put("url", u)
+                    put("fallbackUrl", "")
+                    put("matchedByHash", false)
                 },
             )
         }
