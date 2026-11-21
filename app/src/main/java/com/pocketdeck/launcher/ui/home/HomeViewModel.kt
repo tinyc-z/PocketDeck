@@ -489,6 +489,7 @@ class HomeViewModel(
             metadataRepo.resolveFocusGame(focusGame, plat)
             covers.ensureGameScraped(focusGame, plat)
         }
+        covers.ensureWindowCoversScraped(games, focusIdx, platformResolver)
         metadataRepo.ensureLoaded(games, platformResolver)
     }
 

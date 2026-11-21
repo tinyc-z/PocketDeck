@@ -23,7 +23,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
@@ -514,12 +516,71 @@ class CoverSource(
         }
     }
 
+    private val windowScrapeSemaphore = Semaphore(permits = 2)
+    @Volatile
+    private var windowScrapeJob: Job? = null
+
+    /**
+     * 为当前可见窗口内的未聚焦游戏低并发预刮削封面（最多 2 路并发、以焦点为中心扩散最多 16 个游戏），
+     * 避免 Libretro 整表索引未命中或慢速时整屏长时间停留在占位图；切换分类或焦点窗口时自动取消旧批次。
+     */
+    fun ensureWindowCoversScraped(
+        games: List<Game>,
+        focusIdx: Int,
+        platformResolver: (Game) -> Platform,
+        windowSize: Int = 16,
+    ) {
+        if (games.isEmpty() || !NetworkStatus.isOnline(appCtx)) return
+        val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
+        if (enabledApiNodes.isEmpty()) return
+
+        val ordered = ArrayList<Pair<Game, Platform>>(windowSize.coerceAtMost(games.size))
+        val safeFocus = focusIdx.coerceIn(0, games.lastIndex)
+        var offset = 0
+        while (ordered.size < windowSize && (safeFocus + offset <= games.lastIndex || safeFocus - offset >= 0)) {
+            val indices = if (offset == 0) intArrayOf(safeFocus) else intArrayOf(safeFocus + offset, safeFocus - offset)
+            for (idx in indices) {
+                if (idx !in games.indices || ordered.size >= windowSize) continue
+                val g = games[idx]
+                if (g.id.startsWith(GameLauncher.APK_PREFIX)) continue
+                if (!g.customCover.isNullOrBlank() || !g.localCover.isNullOrBlank()) continue
+                if (hasLocalOrCachedCover(g)) continue
+                ordered += g to platformResolver(g)
+            }
+            offset++
+        }
+        if (ordered.isEmpty()) return
+
+        windowScrapeJob?.cancel()
+        windowScrapeJob = scope.launch {
+            coroutineScope {
+                for ((g, plat) in ordered) {
+                    launch {
+                        windowScrapeSemaphore.withPermit {
+                            scrapeGameApiNodesInternal(g, plat, officialName = null)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /** 为指定游戏异步触发 API / 索引型封面节点查询（GameTDB / Hasheous / ArcadeItalia / SteamGridDB / ScreenScraper / TGDB / IGDB）。 */
     fun ensureGameScraped(game: Game, platform: Platform?, officialName: String? = null) {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return
         // 本地优先：已有自定义封面或本地 ES-DE/Daijisho/同名封面时零网络直出
         if (!game.customCover.isNullOrBlank() || !game.localCover.isNullOrBlank()) return
         if (!NetworkStatus.isOnline(appCtx)) return
+        scope.launch {
+            scrapeGameApiNodesInternal(game, platform, officialName)
+        }
+    }
+
+    private suspend fun scrapeGameApiNodesInternal(
+        game: Game,
+        platform: Platform?,
+        officialName: String?,
+    ) {
         val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
         if (enabledApiNodes.isEmpty()) return
         val cred = credentials
@@ -534,36 +595,34 @@ class CoverSource(
         }
         if (needNodes.isEmpty()) return
 
-        scope.launch {
-            var gotCover = false
-            withContext(Dispatchers.IO) {
-                for (node in needNodes) {
-                    val key = "${node.id}::${game.id}"
-                    try {
-                        val existing = client.cachedHit(node.id, game.id)
-                        if (existing != null) {
-                            if (existing.coverUrls.isNotEmpty()) gotCover = true
-                            continue
-                        }
-                        val hit = client.queryProvider(
-                            providerId = node.id,
-                            game = game,
-                            platform = platform,
-                            cred = cred,
-                            officialNameHint = officialName,
-                        )
-                        if (hit != null && hit.coverUrls.isNotEmpty()) {
-                            gotCover = true
-                        }
-                    } finally {
-                        scrapingInFlight.remove(key)
+        var gotCover = false
+        withContext(Dispatchers.IO) {
+            for (node in needNodes) {
+                val key = "${node.id}::${game.id}"
+                try {
+                    val existing = client.cachedHit(node.id, game.id)
+                    if (existing != null) {
+                        if (existing.coverUrls.isNotEmpty()) gotCover = true
+                        continue
                     }
+                    val hit = client.queryProvider(
+                        providerId = node.id,
+                        game = game,
+                        platform = platform,
+                        cred = cred,
+                        officialNameHint = officialName,
+                    )
+                    if (hit != null && hit.coverUrls.isNotEmpty()) {
+                        gotCover = true
+                    }
+                } finally {
+                    scrapingInFlight.remove(key)
                 }
             }
-            if (gotCover) {
-                failedUntilMs.remove(game.id)
-                _indexVersion.value += 1
-            }
+        }
+        if (gotCover) {
+            failedUntilMs.remove(game.id)
+            _indexVersion.value += 1
         }
     }
 
