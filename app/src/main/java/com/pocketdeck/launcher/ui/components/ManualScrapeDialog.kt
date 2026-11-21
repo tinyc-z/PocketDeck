@@ -186,8 +186,21 @@ fun ManualScrapeDialog(
     }
 
     LaunchedEffect(selectedIdx, results.size) {
-        if (results.isNotEmpty() && selectedIdx in results.indices) {
-            listState.animateScrollToItem(selectedIdx)
+        if (results.isEmpty() || selectedIdx !in results.indices) return@LaunchedEffect
+        val info = listState.layoutInfo
+        val visible = info.visibleItemsInfo
+        val itemInfo = visible.firstOrNull { it.index == selectedIdx }
+        val fullyVisible = itemInfo != null &&
+            itemInfo.offset >= info.viewportStartOffset &&
+            (itemInfo.offset + itemInfo.size) <= info.viewportEndOffset
+        if (!fullyVisible) {
+            // 仅当目标行超出可视区时才滚动，避免列表内上下移动时每次都强行把焦点行顶到最上方造成跳动
+            val firstVis = visible.firstOrNull()?.index ?: 0
+            if (selectedIdx < firstVis) {
+                listState.animateScrollToItem(selectedIdx)
+            } else {
+                listState.animateScrollToItem((selectedIdx - 2).coerceAtLeast(0))
+            }
         }
     }
 
@@ -464,8 +477,7 @@ fun ManualScrapeDialog(
                             val activeUrl = allUrls.getOrNull(urlIdx)
                             val canRetry = allUrls.isNotEmpty() && activeUrl == null
                             val canPreview = !activeUrl.isNullOrBlank() && resolvedUrls[idx] != null
-                            val thumbW by animateDpAsState(targetValue = if (hl) 68.dp else 46.dp, label = "scrapeThumbW")
-                            val thumbH by animateDpAsState(targetValue = if (hl) 90.dp else 62.dp, label = "scrapeThumbH")
+                            // 固定每行缩略图尺寸与内边距，避免焦点切换时上一行缩小/下一行放大引发整列高度抖动
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -476,13 +488,13 @@ fun ManualScrapeDialog(
                                         selectedIdx = idx
                                         applyAt(idx)
                                     }
-                                    .padding(horizontal = if (hl) 12.dp else 10.dp, vertical = if (hl) 11.dp else 8.dp),
+                                    .padding(horizontal = 11.dp, vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 Box(
                                     Modifier
-                                        .size(width = thumbW, height = thumbH)
+                                        .size(width = 56.dp, height = 74.dp)
                                         .clip(RoundedCornerShape(7.dp))
                                         .background(DeckColors.DialogBg)
                                         .then(
