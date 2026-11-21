@@ -317,7 +317,7 @@ internal fun InstalledAppPickerDialog(
             resolved.mapNotNull { info ->
                 val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
                 if (pkg == context.packageName || !seen.add(pkg)) return@mapNotNull null
-                val label = info.loadLabel(pm)?.toString()?.trim().orEmpty().ifEmpty { pkg }
+                val label = info.loadLabel(pm).toString().trim().ifEmpty { pkg }
                 val bmp = runCatching { info.loadIcon(pm).toBitmap(96, 96).asImageBitmap() }.getOrNull()
                 PickableApp(pkg, label, bmp)
             }.sortedBy { it.label.lowercase() }

@@ -375,7 +375,7 @@ fun GameDetailDialog(
                                     .border(0.6.dp, if (focused) Color.Transparent else DeckColors.Line, shape)
                                     .soundClickable {
                                         discIdx = idx
-                                        onLaunchDisc?.invoke(path)
+                                        onLaunchDisc.invoke(path)
                                     }
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,

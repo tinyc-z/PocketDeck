@@ -992,7 +992,7 @@ class MetadataRepository(
                 if (isRom && table != null) {
                     launch(Dispatchers.IO) {
                         try {
-                            val romId = runCatching { client.extractIdentity(File(game.id), platform?.id) }.getOrNull()
+                            val romId = runCatching { client.extractIdentity(File(game.id), platform.id) }.getOrNull()
                             if (romId != null && (romId.crc32 != null || romId.serial != null)) {
                                 val hashHit = table.find("", "", crc = romId.crc32, serial = romId.serial)
                                     ?.takeIf { it.mode == MetaMatchMode.Crc32Hash || it.mode == MetaMatchMode.SerialId }

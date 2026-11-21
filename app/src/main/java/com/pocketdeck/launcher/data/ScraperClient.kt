@@ -870,7 +870,7 @@ class ScraperClient(context: Context) {
                 val elapsed = System.currentTimeMillis() - t0
                 val bodyText = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
-                    val isTransient = code == 429 || code == 430 || (code != null && code!! >= 500) || code == 408
+                    val isTransient = resp.code == 429 || resp.code == 430 || resp.code >= 500 || resp.code == 408
                     ScrapeLogStore.log(
                         "META",
                         ScrapeLogStore.nodeFromUrl(urlStr),
@@ -926,7 +926,7 @@ class ScraperClient(context: Context) {
                 val elapsed = System.currentTimeMillis() - t0
                 val bodyText = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
-                    val isTransient = code == 429 || (code != null && code!! >= 500) || code == 408
+                    val isTransient = resp.code == 429 || resp.code >= 500 || resp.code == 408
                     ScrapeLogStore.log(
                         "META",
                         ScrapeLogStore.nodeFromUrl(urlStr),

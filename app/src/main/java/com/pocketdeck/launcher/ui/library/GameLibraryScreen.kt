@@ -393,8 +393,10 @@ fun GameLibraryScreen(
         val dir = currentDir
         if (dir != null && !withContext(Dispatchers.IO) { dir.exists() }) {
             var ancestor = dir.parentFile
-            while (ancestor != null && !withContext(Dispatchers.IO) { ancestor!!.exists() }) {
-                ancestor = ancestor.parentFile
+            while (ancestor != null) {
+                val cur = ancestor
+                if (withContext(Dispatchers.IO) { cur.exists() }) break
+                ancestor = cur.parentFile
             }
             val topDirs = storageLocations.map { it.dir } + romRoots
             val fallback = ancestor?.takeIf { a ->

@@ -793,7 +793,7 @@ fun ManualScrapeDialog(
                                                     }
                                                 canPreview -> Modifier.soundClickable {
                                                     selectedIdx = idx
-                                                    previewPair = idx to (resolvedUrls[idx] ?: activeUrl!!)
+                                                    previewPair = idx to (resolvedUrls[idx] ?: activeUrl)
                                                 }
                                                 else -> Modifier
                                             },
@@ -952,9 +952,10 @@ fun ManualScrapeDialog(
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    if (!pCand?.title.isNullOrBlank()) {
+                    val previewTitle = pCand?.title?.takeIf { it.isNotBlank() }
+                    if (previewTitle != null) {
                         Text(
-                            text = pCand!!.title,
+                            text = previewTitle,
                             style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
                             color = DeckColors.TextPrimary,
                             maxLines = 2,

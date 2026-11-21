@@ -654,7 +654,7 @@ private fun SourceConfigRow(
                 ValuePill(
                     text = badge,
                     accent = !credConfigured,
-                    onClick = descriptor.credentialKind?.let { kind -> { onOpenCred(kind) } },
+                    onClick = { onOpenCred(descriptor.credentialKind) },
                 )
                 Spacer(Modifier.width(6.dp))
             }

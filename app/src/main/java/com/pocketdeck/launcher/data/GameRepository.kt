@@ -354,7 +354,7 @@ class GameRepository(
             val ai = info.activityInfo?.applicationInfo ?: return@mapNotNull null
             val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
             if (pkg == context.packageName || !seen.add(pkg)) return@mapNotNull null
-            val label = info.loadLabel(pm)?.toString()?.trim().orEmpty().ifEmpty { pkg }
+            val label = info.loadLabel(pm).toString().trim().ifEmpty { pkg }
             @Suppress("DEPRECATION")
             val isFlagGame = (ai.flags and ApplicationInfo.FLAG_IS_GAME) != 0
             val isCatGame = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&

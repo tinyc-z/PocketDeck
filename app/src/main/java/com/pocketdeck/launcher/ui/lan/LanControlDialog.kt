@@ -230,7 +230,7 @@ fun LanServiceControlDialog(
                 )
             val headerBadge = when {
                 state.incomingRequest != null -> stringResource(R.string.lan_badge_incoming)
-                txActive && txNow != null && txNow.totalBytes > 0L -> {
+                txActive && txNow.totalBytes > 0L -> {
                     val pct = ((txNow.bytesTransferred * 100L) / txNow.totalBytes).toInt().coerceIn(0, 100)
                     stringResource(R.string.lan_status_task_pct, pct)
                 }

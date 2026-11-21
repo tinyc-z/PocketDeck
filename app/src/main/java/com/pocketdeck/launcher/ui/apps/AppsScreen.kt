@@ -163,7 +163,7 @@ fun AppsScreen(
                 val ai = info.activityInfo?.applicationInfo
                 val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
                 if (pkg == context.packageName || !seen.add(pkg)) return@mapNotNull null
-                val label = info.loadLabel(pm)?.toString()?.trim().orEmpty().ifEmpty { pkg }
+                val label = info.loadLabel(pm).toString().trim().ifEmpty { pkg }
                 val cached = prevByPkg[pkg]
                 val bmp = if (cached != null && cached.label == label) {
                     cached.icon
