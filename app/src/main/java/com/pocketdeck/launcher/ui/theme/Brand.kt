@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -80,9 +81,10 @@ fun Modifier.brandBorder(
 }
 
 /**
- * 卡片表面：浅色模式为白卡 + 轻量化缓存柔影，深色模式为深紫卡。
- * 使用 [drawWithCache] 替代硬件 `Modifier.shadow()`，避免批量创建 OpenGL 阴影 RenderNode 引起切页卡顿；
- * 开启减少动态效果或 [elevation] 为 0 时仅绘制底色。
+ * 卡片表面：浅色模式为白卡 + 柔和阴影，深色模式为深紫卡。
+ * - 低海拔列表卡片（< 6.dp）：使用 [drawWithCache] 轻量化投影（限高柔化），避免批量创建 OpenGL RenderNode 引起切页卡顿；
+ * - 高海拔浮层/弹窗（>= 6.dp）：使用硬件 [Modifier.shadow] 获得自然高斯模糊阴影，避免无模糊色块在底部拖出厚边；
+ * - 开启减少动态效果或 [elevation] 为 0 时仅绘制底色。
  */
 @Composable
 fun Modifier.cardSurface(
@@ -92,26 +94,35 @@ fun Modifier.cardSurface(
     val p = LocalDeckColors.current
     val reduceMotion = LocalReduceMotion.current
     val base = if (elevation > 0.dp && !reduceMotion) {
-        val shadowColor = p.cardShadow
-        this.drawWithCache {
-            val dy = (elevation.toPx() * 0.65f).coerceAtLeast(1f)
-            val outline = shape.createOutline(size, layoutDirection, this)
-            onDrawBehind {
-                when (outline) {
-                    is androidx.compose.ui.graphics.Outline.Rounded -> {
-                        val rr = outline.roundRect
-                        drawRoundRect(
-                            color = shadowColor,
-                            topLeft = Offset(0f, dy),
-                            size = size,
-                            cornerRadius = CornerRadius(rr.topLeftCornerRadius.x, rr.topLeftCornerRadius.y),
-                        )
-                    }
-                    is androidx.compose.ui.graphics.Outline.Rectangle -> {
-                        drawRect(color = shadowColor, topLeft = Offset(0f, dy), size = size)
-                    }
-                    is androidx.compose.ui.graphics.Outline.Generic -> {
-                        drawPath(outline.path, color = shadowColor)
+        if (elevation >= 6.dp) {
+            this.shadow(
+                elevation = elevation,
+                shape = shape,
+                ambientColor = p.cardShadow,
+                spotColor = p.cardShadow,
+            )
+        } else {
+            val shadowColor = p.cardShadow.copy(alpha = (p.cardShadow.alpha * 0.55f).coerceAtMost(0.18f))
+            this.drawWithCache {
+                val dy = (elevation.toPx() * 0.45f).coerceIn(1f, 2.dp.toPx())
+                val outline = shape.createOutline(size, layoutDirection, this)
+                onDrawBehind {
+                    when (outline) {
+                        is androidx.compose.ui.graphics.Outline.Rounded -> {
+                            val rr = outline.roundRect
+                            drawRoundRect(
+                                color = shadowColor,
+                                topLeft = Offset(0f, dy),
+                                size = size,
+                                cornerRadius = CornerRadius(rr.topLeftCornerRadius.x, rr.topLeftCornerRadius.y),
+                            )
+                        }
+                        is androidx.compose.ui.graphics.Outline.Rectangle -> {
+                            drawRect(color = shadowColor, topLeft = Offset(0f, dy), size = size)
+                        }
+                        is androidx.compose.ui.graphics.Outline.Generic -> {
+                            drawPath(outline.path, color = shadowColor)
+                        }
                     }
                 }
             }
