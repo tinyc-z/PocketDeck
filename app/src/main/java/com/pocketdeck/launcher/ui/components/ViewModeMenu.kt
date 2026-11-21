@@ -45,6 +45,7 @@ fun viewModeLabel(mode: ViewMode): String = when (mode) {
     ViewMode.Grid -> stringResource(R.string.view_grid)
     ViewMode.Bubbles -> stringResource(R.string.view_bubbles)
     ViewMode.CoverFlow -> stringResource(R.string.view_coverflow)
+    ViewMode.Hero -> stringResource(R.string.view_hero)
 }
 
 /**
@@ -147,6 +148,28 @@ fun DrawScope.drawViewModeIcon(mode: ViewMode, color: Color) {
         ViewMode.Grid -> drawGridIcon(color)
         ViewMode.Bubbles -> drawBubblesIcon(color)
         ViewMode.CoverFlow -> drawCoverFlowIcon(color)
+        ViewMode.Hero -> drawHeroIcon(color)
+    }
+}
+
+private fun DrawScope.drawHeroIcon(color: Color) {
+    val pad = size.width * 0.12f
+    val w = size.width - pad * 2
+    val topH = size.height * 0.44f
+    val r = CornerRadius(2.dp.toPx())
+    drawRoundRect(color, Offset(pad, pad), Size(w, topH), r)
+    val gap = size.height * 0.10f
+    val botY = pad + topH + gap
+    val botH = size.height - botY - pad
+    val sqGap = size.width * 0.06f
+    val sqW = (w - sqGap * 2) / 3f
+    for (i in 0 until 3) {
+        drawRoundRect(
+            color.copy(alpha = if (i == 0) 1f else 0.65f),
+            Offset(pad + i * (sqW + sqGap), botY),
+            Size(sqW, botH),
+            CornerRadius(1.2.dp.toPx()),
+        )
     }
 }
 

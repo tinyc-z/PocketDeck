@@ -50,7 +50,7 @@ internal fun handleHomePreviewKeyEvent(
     openLanControlFromStatusBar: () -> Unit,
 ): Boolean {
     val isGameScrollKey = when (state.viewMode) {
-        ViewMode.Gallery, ViewMode.CoverFlow -> event.key == Key.DirectionLeft || event.key == Key.DirectionRight
+        ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> event.key == Key.DirectionLeft || event.key == Key.DirectionRight
         ViewMode.List -> event.key == Key.DirectionUp || event.key == Key.DirectionDown
         ViewMode.Grid, ViewMode.Bubbles ->
             event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
@@ -232,7 +232,7 @@ internal fun handleHomePreviewKeyEvent(
                 ViewMode.List -> vm.moveFocus(1)
                 ViewMode.Grid -> vm.moveFocus(GRID_COLUMNS)
                 ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, 1))
-                ViewMode.Gallery, ViewMode.CoverFlow -> Unit
+                ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> Unit
             }
             true
         }
@@ -241,7 +241,7 @@ internal fun handleHomePreviewKeyEvent(
                 ViewMode.List -> vm.moveFocus(-1)
                 ViewMode.Grid -> vm.moveFocus(-GRID_COLUMNS)
                 ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, -1))
-                ViewMode.Gallery, ViewMode.CoverFlow -> Unit
+                ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> Unit
             }
             true
         }

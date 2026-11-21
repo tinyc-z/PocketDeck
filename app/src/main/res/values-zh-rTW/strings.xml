@@ -691,6 +691,12 @@
     <string name="view_grid">網格</string>
     <string name="view_bubbles">氣泡</string>
     <string name="view_coverflow">立體扇面</string>
+    <string name="view_hero">沉浸海報</string>
+    <string name="hero_play_cta">開始遊玩</string>
+    <string name="hero_continue_cta">繼續遊玩</string>
+    <string name="hero_play_count">遊玩 %d 次</string>
+    <string name="hero_play_hours">累計 %.1f 小時</string>
+    <string name="hero_play_mins">累計 %d 分鐘</string>
     <string name="hint_view">視圖</string>
     <string name="settings_sec_library">遊戲庫</string>
     <string name="settings_sec_covers">封面與資訊</string>

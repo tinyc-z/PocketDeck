@@ -692,6 +692,12 @@
     <string name="view_grid">Grid</string>
     <string name="view_bubbles">Bubbles</string>
     <string name="view_coverflow">CoverFlow</string>
+    <string name="view_hero">Spotlight</string>
+    <string name="hero_play_cta">Play Now</string>
+    <string name="hero_continue_cta">Continue</string>
+    <string name="hero_play_count">Played %d×</string>
+    <string name="hero_play_hours">%.1f hrs</string>
+    <string name="hero_play_mins">%d min</string>
     <string name="hint_view">View</string>
     <string name="settings_sec_library">Library</string>
     <string name="settings_sec_covers">Covers</string>
