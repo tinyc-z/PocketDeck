@@ -426,15 +426,15 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
             try {
                 db.execSQL(
                     "UPDATE OR REPLACE cover_cache SET game_id = ? || substr(game_id, ?) WHERE game_id LIKE ? ESCAPE '\\'",
-                    arrayOf(newPrefix, prefixLenPlus1, likeArg),
+                    arrayOf<Any>(newPrefix, prefixLenPlus1, likeArg),
                 )
                 db.execSQL(
                     "UPDATE OR REPLACE scrape_cache SET game_id = ? || substr(game_id, ?) WHERE game_id LIKE ? ESCAPE '\\'",
-                    arrayOf(newPrefix, prefixLenPlus1, likeArg),
+                    arrayOf<Any>(newPrefix, prefixLenPlus1, likeArg),
                 )
                 db.execSQL(
                     "UPDATE OR REPLACE rom_identity SET path = ? || substr(path, ?) WHERE path LIKE ? ESCAPE '\\'",
-                    arrayOf(newPrefix, prefixLenPlus1, likeArg),
+                    arrayOf<Any>(newPrefix, prefixLenPlus1, likeArg),
                 )
                 db.setTransactionSuccessful()
             } finally {
