@@ -47,6 +47,7 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         NetworkStatus.init(this)
+        com.pocketdeck.launcher.data.CjkAliases.init(this)
         container = AppContainer(this)
         KeySound.warmup(this)
     }
