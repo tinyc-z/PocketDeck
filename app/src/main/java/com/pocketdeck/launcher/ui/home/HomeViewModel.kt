@@ -936,7 +936,19 @@ class HomeViewModel(
         )
 
     fun applyManualScrape(game: Game, candidate: com.pocketdeck.launcher.data.ManualScrapeCandidate) {
-        metadataRepo.applyManualScrape(game.id, candidate, covers)
+        val latest = latestGame(game)
+        metadataRepo.applyManualScrape(latest.id, candidate, covers)
+        // 若此前存在自定义封面，手动刮削应用新封面时清掉旧 customCover，避免旧图优先级更高而遮挡新图
+        if (!candidate.coverUrl.isNullOrBlank() && !latest.customCover.isNullOrBlank()) {
+            val prevCover = latest.customCover
+            val existingName = repo.user.value?.renames?.get(latest.id)
+            viewModelScope.launch {
+                if (prevCover.contains("/custom_covers/")) {
+                    runCatching { java.io.File(prevCover).delete() }
+                }
+                repo.saveGameEdits(latest.id, existingName, null)
+            }
+        }
         _state.value = _state.value.copy(manualScrapeGame = null)
     }
 
