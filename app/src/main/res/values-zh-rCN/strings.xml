@@ -781,7 +781,7 @@
     <string name="manual_scrape_searching_source">正在搜索 %1$s…</string>
     <string name="manual_scrape_suggestions_hint">试试这些关键词：</string>
     <string name="settings_ra_cores_saf_title">授权 RetroArch 核心目录（SAF）</string>
-    <string name="settings_ra_cores_saf_desc">授权一次 RetroArch 核心目录以精准扫描已安装的 .so 核心</string>
+    <string name="settings_ra_cores_saf_desc">用于精准扫描已安装 .so 核心；通常位于 %1$s 或 RetroArch/cores</string>
     <string name="settings_ra_cores_count_fmt">%1$d 个核心</string>
     <string name="settings_ra_cores_authorized">已授权</string>
     <string name="settings_ra_cores_pick">去授权</string>

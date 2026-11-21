@@ -97,6 +97,77 @@ object RetroArchCoreCatalog {
 
     private const val PREFS_NAME = "pocketdeck_retroarch_saf"
     private const val KEY_CORES_TREE_URI = "cores_tree_uri"
+    private val RETROARCH_PKGS = listOf("com.retroarch.aarch64", "com.retroarch", "com.retroarch.ra32")
+    private val LIBRETRO_DIR_REGEX = Regex("""^\s*libretro_directory\s*=\s*"?([^"\r\n]+)"?\s*$""")
+
+    /** 返回设备上已安装的 RetroArch 包名（优先 64 位版本）。 */
+    fun installedRetroArchPackage(context: Context): String? {
+        val pm = context.packageManager
+        return RETROARCH_PKGS.firstOrNull { pkg ->
+            runCatching { pm.getPackageInfo(pkg, 0) }.isSuccess
+        }
+    }
+
+    /** 供设置页显示的推荐核心目录路径（优先匹配实际已安装的 RetroArch 包名）。 */
+    fun suggestedCoreRelativePath(context: Context): String {
+        val pkg = installedRetroArchPackage(context) ?: "com.retroarch.aarch64"
+        return "Android/data/$pkg/files/cores"
+    }
+
+    /** 解析可读的 retroarch.cfg 中的 libretro_directory 配置。 */
+    private fun parseLibretroDirsFromCfg(sd: File?): List<File> {
+        if (sd == null) return emptyList()
+        val cfgFiles = buildList {
+            add(File(sd, "RetroArch/retroarch.cfg"))
+            for (pkg in RETROARCH_PKGS) {
+                add(File(sd, "Android/data/$pkg/files/retroarch.cfg"))
+            }
+        }
+        val out = ArrayList<File>()
+        for (cfg in cfgFiles) {
+            if (!cfg.isFile || !cfg.canRead()) continue
+            runCatching {
+                cfg.useLines { lines ->
+                    for (line in lines) {
+                        val m = LIBRETRO_DIR_REGEX.matchEntire(line) ?: continue
+                        val raw = m.groupValues[1].trim()
+                        if (raw.isEmpty() || raw.equals("default", ignoreCase = true)) continue
+                        val resolved = when {
+                            raw.startsWith("~/") -> File(sd, raw.removePrefix("~/"))
+                            raw.startsWith(":") -> File(sd, "RetroArch/" + raw.removePrefix(":").trimStart('/'))
+                            raw.startsWith("/") -> File(raw)
+                            else -> File(sd, raw)
+                        }
+                        if (resolved.isDirectory) out += resolved
+                        break
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /** 构造 SAF OpenDocumentTree 的建议初始目录 Uri，减少用户逐层翻找。 */
+    fun buildSuggestedInitialUri(context: Context): Uri? {
+        val sd = runCatching { Environment.getExternalStorageDirectory() }.getOrNull()
+        val sdPath = sd?.absolutePath?.trimEnd('/') ?: "/storage/emulated/0"
+        val relPath: String = run {
+            val cfgDir = parseLibretroDirsFromCfg(sd).firstOrNull {
+                it.absolutePath.startsWith("$sdPath/")
+            }
+            when {
+                cfgDir != null -> cfgDir.absolutePath.removePrefix("$sdPath/")
+                sd != null && File(sd, "RetroArch/cores").isDirectory -> "RetroArch/cores"
+                else -> suggestedCoreRelativePath(context)
+            }
+        }
+        return runCatching {
+            DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                "primary:$relPath",
+            )
+        }.getOrNull()
+    }
 
     fun saveSafCoresUri(context: Context, uri: Uri) {
         runCatching {
@@ -143,9 +214,10 @@ object RetroArchCoreCatalog {
             }
         }
 
-        // 2) 自动探测常见外部 RetroArch 核心目录
+        // 2) 自动探测 retroarch.cfg 自定义核心目录与常见外部 RetroArch 核心目录
         val sd = runCatching { Environment.getExternalStorageDirectory() }.getOrNull()
         val probeDirs = buildList {
+            addAll(parseLibretroDirsFromCfg(sd))
             if (sd != null) {
                 add(File(sd, "RetroArch/cores"))
                 add(File(sd, "RetroArch/downloads"))

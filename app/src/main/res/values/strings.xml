@@ -782,7 +782,7 @@
     <string name="manual_scrape_searching_source">Searching %1$s…</string>
     <string name="manual_scrape_suggestions_hint">Try these keywords:</string>
     <string name="settings_ra_cores_saf_title">RetroArch cores folder (SAF)</string>
-    <string name="settings_ra_cores_saf_desc">Grant access to RetroArch cores directory to list installed .so cores</string>
+    <string name="settings_ra_cores_saf_desc">Scan installed .so cores; usually in %1$s or RetroArch/cores</string>
     <string name="settings_ra_cores_count_fmt">%1$d cores</string>
     <string name="settings_ra_cores_authorized">Authorized</string>
     <string name="settings_ra_cores_pick">Authorize</string>

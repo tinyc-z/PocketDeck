@@ -696,9 +696,12 @@ internal fun EmulatorsSettingsSection(
             trailing = { DeckSwitch(showAllPlatforms) },
         )
         RowDivider()
+        val raSuggestedPath = remember {
+            com.pocketdeck.launcher.launch.RetroArchCoreCatalog.suggestedCoreRelativePath(context)
+        }
         SettingRow(
             label = stringResource(R.string.settings_ra_cores_saf_title),
-            description = stringResource(R.string.settings_ra_cores_saf_desc),
+            description = stringResource(R.string.settings_ra_cores_saf_desc, raSuggestedPath),
             highlighted = highlightIndex == 1,
             onClick = onAuthorizeRetroArchCores,
             trailing = {

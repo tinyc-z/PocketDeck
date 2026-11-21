@@ -1140,7 +1140,10 @@ fun SettingsScreen(
                                             platforms = cachedLauncherPlatforms,
                                             showAllPlatforms = showAllLauncherPlatforms,
                                             onToggleShowAllPlatforms = { showAllLauncherPlatforms = !showAllLauncherPlatforms; nav.contentItemIndex = 0 },
-                                            onAuthorizeRetroArchCores = { raSafPickerLauncher.launch(null) },
+                                            onAuthorizeRetroArchCores = {
+                                                val initial = com.pocketdeck.launcher.launch.RetroArchCoreCatalog.buildSuggestedInitialUri(context)
+                                                raSafPickerLauncher.launch(initial)
+                                            },
                                             retroArchCoreCount = raCoreCount,
                                             retroArchSafAuthorized = raSafAuthorized,
                                             selected = state.platformLaunchers,
