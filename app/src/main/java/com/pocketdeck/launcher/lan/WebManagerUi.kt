@@ -2738,7 +2738,7 @@ async function runWebCoverSearch(id, sys) {
     renderWebCoverSuggest(id, sys);
     return;
   }
-  if (statusEl) statusEl.textContent = tr('msg_pick_cand') + '（浏览器直连加载，点击后直接传给掌机）';
+  if (statusEl) statusEl.textContent = '点击应用候选封面（浏览器直连加载，选定后同步到掌机）';
   grid.innerHTML = items.map((c, i) =>
     '<div class="cand-item" onclick="applyWebDirectCover(\'' + escJs(id) + '\',\'' + escJs(c.primaryUrl) + '\',\'' + escJs(c.fallbackUrl) + '\',this)">' +
       '<img loading="lazy" src="' + esc(c.primaryUrl) + '" data-fb="' + esc(c.fallbackUrl) + '" onerror="if(!this.dataset.tried){this.dataset.tried=\'1\';this.src=this.dataset.fb;}"/>' +
@@ -2751,10 +2751,12 @@ async function applyWebDirectCover(id, primaryUrl, fallbackUrl, cardEl) {
   toast('浏览器正在下载封面并发送给掌机…');
   if (cardEl) cardEl.style.opacity = '0.55';
   let blob = null;
+  let usedUrl = primaryUrl || fallbackUrl || '';
   for (const url of [primaryUrl, fallbackUrl]) {
+    if (!url) continue;
     try {
       const resp = await fetch(url, { mode: 'cors' });
-      if (resp.ok) { blob = await resp.blob(); break; }
+      if (resp.ok) { blob = await resp.blob(); usedUrl = url; break; }
     } catch (e) {}
   }
   if (!blob || blob.size < 32) {
@@ -2762,7 +2764,8 @@ async function applyWebDirectCover(id, primaryUrl, fallbackUrl, cardEl) {
     toast(tr('msg_cover_fail'));
     return;
   }
-  const r = await api('/api/games/upload-cover?id=' + encodeURIComponent(id), {
+  const uploadUrl = '/api/games/upload-cover?id=' + encodeURIComponent(id) + (usedUrl ? ('&sourceUrl=' + encodeURIComponent(usedUrl)) : '');
+  const r = await api(uploadUrl, {
     method: 'POST', body: blob
   });
   if (r.ok) {

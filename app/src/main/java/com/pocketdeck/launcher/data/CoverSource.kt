@@ -1029,10 +1029,26 @@ class CoverSource(
         return webCacheFile(game.id).isFile
     }
 
-    /** 若当前游戏生效的是在线封面 URL（未被本地/自定义封面覆盖），返回该 URL 供 Web 端直连，减轻掌机流量压力。 */
+    /** 记录 Web 端「在线选图」同步到本地封面时的原始在线 URL，供下次 Web 列表继续优先直连外链。 */
+    fun recordWebPickerSourceUrl(gameId: String, sourceUrl: String) {
+        val url = sourceUrl.trim()
+        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return
+        resolvedUrls[gameId] = url
+        resolvedOrigins[gameId] = WEB_PICKER_PROVIDER to CoverMatchMode.ApiSearch
+        failedUntilMs.remove(gameId)
+        scope.launch(Dispatchers.IO) {
+            db.putCoverSuccess(gameId, url, WEB_PICKER_PROVIDER, CoverMatchMode.ApiSearch.name)
+        }
+    }
+
+    /** 若当前游戏生效的是在线封面 URL（或由 Web 在线选图保存的带源链接封面），返回该 URL 供 Web 端直连，减轻掌机流量压力。 */
     fun publicCoverUrlForWeb(game: Game): String? {
-        if (!game.customCover.isNullOrBlank() || !game.localCover.isNullOrBlank()) return null
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return null
+        if (!game.customCover.isNullOrBlank()) {
+            val origin = resolvedOrigins[game.id]?.first
+            return if (origin == WEB_PICKER_PROVIDER) cachedUrl(game.id) else null
+        }
+        if (!game.localCover.isNullOrBlank()) return null
         return cachedUrl(game.id)
     }
 
@@ -1517,6 +1533,7 @@ class CoverSource(
             .joinToString("") { "%02x".format(it) }
 
     private companion object {
+        private const val WEB_PICKER_PROVIDER = "web_picker"
         const val MATCHER_VERSION = 2
         const val THUMB_MAX_WIDTH_PX = 320
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"

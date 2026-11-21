@@ -26,6 +26,8 @@ import com.pocketdeck.launcher.ui.theme.deckPalette
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -1190,7 +1192,9 @@ class WebManagerServer(
             res.sendText(404, "No game")
             return
         }
-        val resolved = covers.resolveWebCoverBytes(game)
+        val latestCustom = repo.user.value?.covers?.get(id)
+        val effectiveGame = if (latestCustom != game.customCover) game.copy(customCover = latestCustom) else game
+        val resolved = covers.resolveWebCoverBytes(effectiveGame)
         if (resolved == null) {
             res.sendText(404, "No cover")
             return
@@ -1552,11 +1556,14 @@ class WebManagerServer(
             return
         }
         covers.forget(id)
+        covers.recordWebPickerSourceUrl(id, candidate.url)
         val existingName = repo.user.value?.renames?.get(id)
         repo.saveGameEdits(id, existingName, target.absolutePath)
-        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val fresh = withTimeoutOrNull(500L) {
+            repo.fullLibrary.first { it?.byId?.get(id)?.customCover == target.absolutePath }?.byId?.get(id)
+        } ?: (repo.fullLibrary.value?.byId?.get(id) ?: game).copy(customCover = target.absolutePath)
         val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
-        if (fresh != null) root.put("game", gameToJson(fresh))
+        root.put("game", gameToJson(fresh))
         res.sendJson(200, root.toString())
     }
 
@@ -1593,11 +1600,17 @@ class WebManagerServer(
             runCatching { File(prevCover).delete() }
         }
         covers.forget(id)
+        val sourceUrl = req.query["sourceUrl"]?.trim().orEmpty()
+        if (sourceUrl.startsWith("http://", ignoreCase = true) || sourceUrl.startsWith("https://", ignoreCase = true)) {
+            covers.recordWebPickerSourceUrl(id, sourceUrl)
+        }
         val existingName = repo.user.value?.renames?.get(id)
         repo.saveGameEdits(id, existingName, target.absolutePath)
-        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val fresh = withTimeoutOrNull(500L) {
+            repo.fullLibrary.first { it?.byId?.get(id)?.customCover == target.absolutePath }?.byId?.get(id)
+        } ?: (repo.fullLibrary.value?.byId?.get(id) ?: game).copy(customCover = target.absolutePath)
         val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
-        if (fresh != null) root.put("game", gameToJson(fresh))
+        root.put("game", gameToJson(fresh))
         res.sendJson(200, root.toString())
     }
 
@@ -1616,7 +1629,9 @@ class WebManagerServer(
         covers.forget(id)
         val existingName = repo.user.value?.renames?.get(id)
         repo.saveGameEdits(id, existingName, null)
-        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val fresh = withTimeoutOrNull(500L) {
+            repo.fullLibrary.first { it?.byId?.get(id)?.customCover == null }?.byId?.get(id)
+        } ?: repo.fullLibrary.value?.byId?.get(id)?.copy(customCover = null)
         val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
         if (fresh != null) root.put("game", gameToJson(fresh))
         res.sendJson(200, root.toString())
