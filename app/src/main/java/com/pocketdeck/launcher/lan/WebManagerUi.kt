@@ -4085,7 +4085,15 @@ async function openAutoCreatePlatformsModal() {
   if (!catPlatforms || !catPlatforms.length) {
     await loadCategories();
   }
-  const baseDir = curDir || (roots && roots[0]) || '/storage/emulated/0';
+  const vols = (deviceInfo && Array.isArray(deviceInfo.storageVolumes) && deviceInfo.storageVolumes.length)
+    ? deviceInfo.storageVolumes
+    : [{ kind: 'internal', label: tr('vol_internal'), path: '/storage/emulated/0' }];
+  let baseDir = curDir || (vols[0] && vols[0].path) || '/storage/emulated/0';
+  const isAlreadyRomRoot = !!curDir && (
+    (roots || []).some(r => r.replace(/\/+$/, '') === curDir.replace(/\/+$/, '')) ||
+    /\/roms$/i.test(curDir.replace(/\/+$/, ''))
+  );
+  const defaultParentName = isAlreadyRomRoot ? '' : 'roms';
   const allPlats = (catPlatforms || []).filter(p => p && p.id && !EXCLUDED_AUTO_PLATFORM_IDS.has(p.id));
   const byId = {};
   allPlats.forEach(p => { byId[p.id] = p; });
@@ -4094,6 +4102,7 @@ async function openAutoCreatePlatformsModal() {
   const morePlats = allPlats.filter(p => !commonSet.has(p.id));
   const selected = new Set(commonSet);
   const existingSubNames = new Set((curDir ? (curEntries || []) : []).filter(e => e.isDir).map(e => e.name.toLowerCase()));
+  const knownRootPaths = new Set((roots || []).map(r => r.replace(/\/+$/, '').toLowerCase()));
 
   el('mTitle').textContent = tr('ac_title');
   const renderPlatItem = (p) => {
@@ -4103,9 +4112,15 @@ async function openAutoCreatePlatformsModal() {
       '<input type="checkbox" class="ac-chk" value="' + esc(p.id) + '"' + (chk ? ' checked' : '') + ' style="margin:0;"/>' +
       '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(label) + '</span></label>';
   };
+  const volSelHtml = (!curDir && vols.length > 1)
+    ? '<select id="acVolSel" style="padding:6px 26px 6px 10px;font-size:13px;border-radius:10px;">' +
+        vols.map(v => '<option value="' + esc(v.path) + '">' + esc(v.kind === 'internal' ? tr('vol_internal') : (v.label || tr('vol_external'))) + '</option>').join('') +
+      '</select>'
+    : '';
   el('mBody').innerHTML =
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">' +
-      '<input id="acParentIn" type="text" value="roms" placeholder="' + esc(tr('ac_parent_ph')) + '" style="width:200px;max-width:100%;padding:6px 10px;font-size:13px;border-radius:10px;"/>' +
+      volSelHtml +
+      '<input id="acParentIn" type="text" value="' + esc(defaultParentName) + '" placeholder="' + esc(tr('ac_parent_ph')) + '" style="width:200px;max-width:100%;padding:6px 10px;font-size:13px;border-radius:10px;"/>' +
       '<div id="acTargetPreview" class="sub" style="flex:1;min-width:180px;word-break:break-all;color:var(--accent);font-weight:600;"></div>' +
     '</div>' +
     '<div id="acExistsWarn" style="display:none;margin-bottom:8px;padding:7px 10px;border-radius:10px;background:rgba(217,119,6,.12);border:1px solid rgba(217,119,6,.35);color:#b45309;font-size:12px;font-weight:600;">' + esc(tr('ac_exists_warn')) + '</div>' +
@@ -4129,11 +4144,13 @@ async function openAutoCreatePlatformsModal() {
     '<button class="btn primary" id="acSubmitBtn"></button>';
 
   function syncAcUi() {
+    const volSel = el('acVolSel');
+    if (volSel && volSel.value) baseDir = volSel.value;
     const raw = (el('acParentIn').value || '').trim();
     const cleanBase = baseDir.replace(/\/+$/, '');
     const target = raw ? (cleanBase + '/' + raw) : cleanBase;
     el('acTargetPreview').textContent = tr('ac_target') + target;
-    const warn = (!raw) || existingSubNames.has(raw.toLowerCase());
+    const warn = (!raw) || existingSubNames.has(raw.toLowerCase()) || knownRootPaths.has(target.toLowerCase());
     el('acExistsWarn').style.display = warn ? 'block' : 'none';
     el('acSelCnt').textContent = selected.size + ' / ' + allPlats.length;
     const btn = el('acSubmitBtn');
@@ -4158,6 +4175,7 @@ async function openAutoCreatePlatformsModal() {
     });
   });
   el('acParentIn').addEventListener('input', syncAcUi);
+  if (el('acVolSel')) el('acVolSel').addEventListener('change', syncAcUi);
   el('acBtnCommon').onclick = () => { selected.clear(); commonSet.forEach(id => selected.add(id)); applySelection(); };
   el('acBtnAll').onclick = () => { allPlats.forEach(p => selected.add(p.id)); applySelection(); };
   el('acBtnNone').onclick = () => { selected.clear(); applySelection(); };

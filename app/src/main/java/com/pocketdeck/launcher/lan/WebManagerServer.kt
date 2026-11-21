@@ -2894,10 +2894,24 @@ class WebManagerServer(
         val addAsRomRoot = body?.optBoolean("addAsRomRoot", true) ?: true
         val platArr = body?.optJSONArray("platforms")
         val roots = repo.configuredRoots()
+        val storageRoots = buildList {
+            addAll(roots)
+            runCatching { Environment.getExternalStorageDirectory() }.getOrNull()?.takeIf { it.isDirectory }?.let(::add)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching {
+                    val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
+                    sm?.storageVolumes?.forEach { vol ->
+                        if (!vol.isPrimary && vol.state == Environment.MEDIA_MOUNTED) {
+                            vol.directory?.takeIf { it.isDirectory }?.let(::add)
+                        }
+                    }
+                }
+            }
+        }
         val baseDir = if (dirPath.isNotEmpty()) {
-            resolveAllowedDir(dirPath, roots)
+            resolveAllowedDir(dirPath, storageRoots)
         } else {
-            resolveAllowedDir(Environment.getExternalStorageDirectory().absolutePath, roots)
+            runCatching { Environment.getExternalStorageDirectory() }.getOrNull()?.takeIf { it.isDirectory }
                 ?: roots.firstOrNull { it.isDirectory }
         }
         if (baseDir == null || platArr == null || platArr.length() == 0) {
