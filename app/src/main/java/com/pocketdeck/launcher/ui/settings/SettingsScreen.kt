@@ -175,7 +175,7 @@ class ManageCallbacks(
     val toggleMetadataSource: (String) -> Unit = {},
     val moveMetadataSource: (Int, Int) -> Unit = { _, _ -> },
     val saveCredentials: (ScraperCredentials) -> Unit = {},
-    val clearCoverCache: () -> Unit = {},
+    val clearCoverCache: suspend () -> Unit = {},
     val refreshAllMetadata: () -> Unit = {},
     val toggleMetaField: (MetaFieldKey) -> Unit = {},
     val unhideGame: (String) -> Unit = {},

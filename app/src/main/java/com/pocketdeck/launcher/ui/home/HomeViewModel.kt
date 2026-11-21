@@ -1119,8 +1119,17 @@ class HomeViewModel(
         repo.cancelFileTask(id)
     }
 
+    private var pendingRescrapeAfterSettings = false
+
     fun toggleSettings() {
-        _state.value = _state.value.copy(showSettings = !_state.value.showSettings)
+        val wasOpen = _state.value.showSettings
+        val nextOpen = !wasOpen
+        _state.value = _state.value.copy(showSettings = nextOpen)
+        if (wasOpen && !nextOpen && pendingRescrapeAfterSettings) {
+            pendingRescrapeAfterSettings = false
+            val s = _state.value
+            preloadAssets(s.games, _focusIndex.value, s::platformFor)
+        }
     }
 
     fun toggleClock12h() {
@@ -1322,14 +1331,17 @@ class HomeViewModel(
         viewModelScope.launch { repo.updatePrefs { it.copy(scraperCredentials = cred) } }
     }
 
-    fun clearCoverCache() {
-        covers.clearCoverCache()
-        metadataRepo.clearCache()
+    suspend fun clearCoverCache() {
+        focusResolveJob?.cancel()
+        covers.clearCoverCacheNow()
+        metadataRepo.clearCacheNow()
         val s = _state.value
-        s.games.getOrNull(_focusIndex.value)?.let {
-            metadataRepo.resolveFocusGame(it, s.platformFor(it))
+        if (s.showSettings) {
+            // 仍在设置页时不立刻回写缓存，等退出设置页回到主页后再触发重刮
+            pendingRescrapeAfterSettings = true
+        } else {
+            preloadAssets(s.games, _focusIndex.value, s::platformFor)
         }
-        covers.ensureWindowCoversScraped(s.games, _focusIndex.value, s::platformFor)
     }
 
     fun refreshAllMetadata() {

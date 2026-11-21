@@ -269,6 +269,11 @@ class MetadataRepository(
 
     /** 清空元数据缓存：内存瞬时生效，磁盘与数据库清理由 IO 线程执行，绝不阻塞主线程。 */
     fun clearCache() {
+        scope.launch { clearCacheNow() }
+    }
+
+    /** 彻底清理内存与磁盘上的元数据缓存，等待磁盘删除完成后再返回。 */
+    suspend fun clearCacheNow() {
         systemTables.clear()
         gameCache.clear()
         focusApiResolved.clear()
@@ -278,7 +283,7 @@ class MetadataRepository(
         _officialNames.value = emptyMap()
         _resolutionInfo.value = emptyMap()
 
-        scope.launch(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             client.clearApiCache()
             runCatching { cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
         }

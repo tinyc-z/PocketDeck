@@ -391,6 +391,12 @@ class CoverSource(
 
     /** 清空全部封面缓存：内存瞬时生效，磁盘/SQLite/Coil 缓存清理全异步在 IO 线程执行（绝不卡主线程）。 */
     fun clearCoverCache() {
+        scope.launch { clearCoverCacheNow() }
+    }
+
+    /** 彻底清理内存与磁盘上的封面、缩略图、索引及 API 缓存，等待磁盘删除全部完成后再返回。 */
+    suspend fun clearCoverCacheNow() {
+        windowScrapeQueue.scheduleReplace(emptyList(), debounceMs = 0L)
         resolvedUrls.clear()
         resolvedOrigins.clear()
         failedUntilMs.clear()
@@ -400,9 +406,8 @@ class CoverSource(
         clearPendingCoverInfo()
         _coverInfo.value = emptyMap()
         runCatching { SingletonImageLoader.get(appCtx).memoryCache?.clear() }
-        _indexVersion.value += 1
 
-        scope.launch(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             db.clearCovers()
             runCatching { webCacheDir.listFiles()?.forEach { it.deleteRecursively() } }
             runCatching { thumbDir.listFiles()?.forEach { it.deleteRecursively() } }
@@ -411,6 +416,7 @@ class CoverSource(
             runCatching { File(appCtx.cacheDir, "covers").listFiles()?.forEach { it.deleteRecursively() } }
             client.clearApiCache()
         }
+        _indexVersion.value += 1
     }
 
     /**
