@@ -2178,12 +2178,68 @@ function renderStats() {
   renderDevInfo(webConnected, deviceInfo.online);
 }
 
+function _buildWebCoverChain(g, safeId) {
+  const localUrl = '/api/cover?id=' + safeId + '&v=' + coverVer;
+  const raw = (g && g.coverUrl) ? String(g.coverUrl).trim() : '';
+  if (!raw || !/^https?:\/\//i.test(raw)) return [localUrl];
+  const chain = [];
+  const push = u => { if (u && !chain.includes(u)) chain.push(u); };
+  const m0 = raw.match(/^https:\/\/thumbnails\.libretro\.com\/([^/]+)\/(Named_[^/]+)\/(.+)$/);
+  const m1 = raw.match(/^https:\/\/cdn\.jsdelivr\.net\/gh\/libretro-thumbnails\/([^/@]+)@master\/(Named_[^/]+)\/(.+)$/);
+  const m2 = raw.match(/^https:\/\/raw\.githubusercontent\.com\/libretro-thumbnails\/([^/]+)\/master\/(Named_[^/]+)\/(.+)$/);
+  if (m0 || m1 || m2) {
+    const repo = m0 ? encodeURIComponent(decodeURIComponent(m0[1]).replace(/ /g, '_')) : (m1 ? m1[1] : m2[1]);
+    const kind = m0 ? m0[2] : (m1 ? m1[2] : m2[2]);
+    const file = m0 ? m0[3] : (m1 ? m1[3] : m2[3]);
+    push('https://cdn.jsdelivr.net/gh/libretro-thumbnails/' + repo + '@master/' + kind + '/' + file);
+    push('https://raw.githubusercontent.com/libretro-thumbnails/' + repo + '/master/' + kind + '/' + file);
+  } else {
+    push(raw);
+  }
+  // 外链失效/过期或电脑无外网时，自动回退向掌机请求本地缓存图片
+  push(localUrl);
+  return chain;
+}
+
+function _onWebCoverErr(img, hideNext, titleText) {
+  try {
+    const list = JSON.parse(img.dataset.fb || '[]');
+    const nextIdx = (parseInt(img.dataset.fbi || '0', 10) || 0) + 1;
+    if (nextIdx < list.length) {
+      img.dataset.fbi = String(nextIdx);
+      img.src = list[nextIdx];
+      return;
+    }
+  } catch (e) {}
+  if (hideNext) {
+    img.style.display = 'none';
+    if (img.nextElementSibling) img.nextElementSibling.style.display = 'flex';
+  } else if (titleText) {
+    img.outerHTML = '<span>' + esc(titleText) + '</span>';
+  } else {
+    img.style.display = 'none';
+  }
+}
+
+function _webCoverImgHtml(g, safeId, opts) {
+  const chain = _buildWebCoverChain(g, safeId);
+  const src = chain[0];
+  const fbAttr = esc(JSON.stringify(chain));
+  const idAttr = opts.id ? (' id="' + opts.id + '"') : '';
+  const clsAttr = opts.cls ? (' class="' + opts.cls + '"') : '';
+  const lazyAttr = opts.lazy ? ' loading="lazy"' : '';
+  const onErr = opts.hideNext
+    ? '_onWebCoverErr(this,true)'
+    : (opts.titleFallback ? ('_onWebCoverErr(this,false,\'' + escJs(g.title) + '\')') : '_onWebCoverErr(this,false)');
+  return '<img' + idAttr + clsAttr + lazyAttr + ' src="' + esc(src) + '" data-fb="' + fbAttr + '" data-fbi="0" onerror="' + onErr + '"/>';
+}
+
 function gameCardHtml(g) {
   const safeId = encodeURIComponent(g.id);
   const m = g.metadata || {};
   const metaLine = [m.publisher || m.developer || null, m.releaseDate || null].filter(Boolean).join(' · ') || (g.isRom ? fmtBytes(g.size) : (m.genre || '—'));
   const cov = g.hasCover
-    ? '<img loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/>'
+    ? _webCoverImgHtml(g, safeId, { lazy: true, hideNext: true })
     : '';
   const fbStyle = g.hasCover ? 'style="display:none"' : '';
   return '<div class="gcard' + (g.hidden ? ' is-hidden' : '') + '" data-gid="' + esc(g.id) + '" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' +
@@ -2203,7 +2259,7 @@ function gameRowHtml(g) {
   const m = g.metadata || {};
   const metaSummary = [m.releaseDate, m.developer, m.publisher].filter(Boolean).join(' · ');
   const cov = g.hasCover
-    ? '<img class="cover-sm" loading="lazy" src="/api/cover?id=' + safeId + '&v=' + coverVer + '"/>'
+    ? _webCoverImgHtml(g, safeId, { cls: 'cover-sm', lazy: true })
     : '<div class="cover-sm">' + esc(g.platformName) + '</div>';
   return '<div class="row" data-gid="' + esc(g.id) + '">' + cov +
     '<div class="meta" style="cursor:pointer" onclick="openGameDetail(\'' + escJs(g.id) + '\')">' +
@@ -2380,7 +2436,7 @@ async function openGameDetail(id) {
     '<div class="detail-hero">' +
       '<div class="drawer-cover">' +
         (g.hasCover
-          ? '<img id="detCoverImg" src="/api/cover?id=' + safeId + '&v=' + coverVer + '" onerror="this.outerHTML=\'<span>' + esc(g.title) + '</span>\'"/>'
+          ? _webCoverImgHtml(g, safeId, { id: 'detCoverImg', titleFallback: true })
           : '<span>' + esc(g.title) + '</span>') +
       '</div>' +
       '<div class="detail-info">' +

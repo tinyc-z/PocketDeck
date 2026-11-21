@@ -1035,6 +1035,7 @@ class WebManagerServer(
             put("lastModifiedMs", g.lastModifiedMs)
             put("hasCover", covers.hasLocalOrCachedCover(g))
             put("hasCustomCover", !g.customCover.isNullOrBlank())
+            put("coverUrl", covers.publicCoverUrlForWeb(g).orEmpty())
             put("categories", JSONArray(catIds))
             put(
                 "metadata",

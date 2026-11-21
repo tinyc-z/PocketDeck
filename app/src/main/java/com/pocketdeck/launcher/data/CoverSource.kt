@@ -1029,17 +1029,26 @@ class CoverSource(
         return webCacheFile(game.id).isFile
     }
 
+    /** 若当前游戏生效的是在线封面 URL（未被本地/自定义封面覆盖），返回该 URL 供 Web 端直连，减轻掌机流量压力。 */
+    fun publicCoverUrlForWeb(game: Game): String? {
+        if (!game.customCover.isNullOrBlank() || !game.localCover.isNullOrBlank()) return null
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return null
+        return cachedUrl(game.id)
+    }
+
     /**
      * 仅从掌机本地文件、应用图标、Coil 磁盘缓存或掌机本地 Web 缓存读取封面字节（不触发外部网络，Web 端绝不直连外网）。
      */
     suspend fun resolveWebCoverBytes(game: Game): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
         val custom = game.customCover?.let(::File)?.takeIf { it.isFile && it.canRead() }
         if (custom != null) {
-            return@withContext mimeForFile(custom) to custom.readBytes()
+            val f = preferredThumbOrOriginal(custom).takeIf { it.isFile && it.canRead() } ?: custom
+            return@withContext mimeForFile(f) to f.readBytes()
         }
         val local = game.localCover?.let(::File)?.takeIf { it.isFile && it.canRead() }
         if (local != null) {
-            return@withContext mimeForFile(local) to local.readBytes()
+            val f = preferredThumbOrOriginal(local).takeIf { it.isFile && it.canRead() } ?: local
+            return@withContext mimeForFile(f) to f.readBytes()
         }
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) {
             val pkg = game.id.removePrefix(GameLauncher.APK_PREFIX)
