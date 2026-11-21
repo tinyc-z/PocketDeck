@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -777,8 +778,8 @@ class WebManagerServer(
             pruneHttpTxLocked(q, now)
             shouldPublish = (now - lastHttpTxPublishMs) >= 180L
             if (shouldPublish) lastHttpTxPublishMs = now
-            if (httpTxDecayJob?.isActive != true) {
-                val targetScope = serverScope ?: CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default + safeCoroutineHandler("WebTxDecay"))
+            val targetScope = serverScope
+            if (targetScope != null && httpTxDecayJob?.isActive != true) {
                 httpTxDecayJob = targetScope.launch(kotlinx.coroutines.Dispatchers.Default) {
                     try {
                         while (true) {
@@ -1345,16 +1346,26 @@ class WebManagerServer(
             res.sendJson(429, """{"ok":false,"error":"too_many_streams"}""")
             return
         }
-        val writeLock = Any()
-        fun sendEvent(event: String, data: String): Boolean = synchronized(writeLock) {
-            res.sendSseRaw("event: $event\ndata: $data\n\n")
-        }
+        // 单写协程 + 有界缓冲 Channel：避免多线程/多协程在阻塞 Socket 写入上争抢 synchronized 锁导致 IO 线程滞留
+        val outChannel = Channel<String>(capacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        fun enqueueEvent(event: String, data: String): Boolean =
+            outChannel.trySend("event: $event\ndata: $data\n\n").isSuccess
         try {
             res.startEventStream()
-            if (!sendEvent("state", buildStatePayload().toString())) return
-            if (!sendEvent("tasks", buildFileTasksPayload().toString())) return
+            if (!res.sendSseRaw("event: state\ndata: ${buildStatePayload()}\n\n")) return
+            if (!res.sendSseRaw("event: tasks\ndata: ${buildFileTasksPayload()}\n\n")) return
 
             kotlinx.coroutines.coroutineScope {
+                val writerJob = launch(Dispatchers.IO) {
+                    for (payload in outChannel) {
+                        val ok = res.sendSseRaw(payload)
+                        if (!ok) {
+                            req.cancelConnection()
+                            this@coroutineScope.cancel()
+                            return@launch
+                        }
+                    }
+                }
                 val pingJob = launch {
                     while (isActive) {
                         delay(SSE_PING_INTERVAL_MS)
@@ -1363,15 +1374,12 @@ class WebManagerServer(
                             return@launch
                         }
                         if (!isSessionValid(token)) {
-                            sendEvent("auth_revoked", "{}")
+                            enqueueEvent("auth_revoked", "{}")
+                            delay(50L)
                             this@coroutineScope.cancel()
                             return@launch
                         }
-                        val ok = sendEvent(
-                            "ping",
-                            JSONObject().put("online", NetworkStatus.isOnline(context)).toString(),
-                        )
-                        if (!ok) {
+                        if (!enqueueEvent("ping", JSONObject().put("online", NetworkStatus.isOnline(context)).toString())) {
                             this@coroutineScope.cancel()
                             return@launch
                         }
@@ -1384,22 +1392,27 @@ class WebManagerServer(
                             return@collect
                         }
                         if (!isSessionValid(token)) {
-                            sendEvent("auth_revoked", "{}")
+                            enqueueEvent("auth_revoked", "{}")
+                            delay(50L)
                             this@coroutineScope.cancel()
                             return@collect
                         }
                         if (ev.event == "auth_check") return@collect
-                        if (!sendEvent(ev.event, ev.data)) {
+                        if (!enqueueEvent(ev.event, ev.data)) {
                             this@coroutineScope.cancel()
                         }
                     }
                 } finally {
                     pingJob.cancel()
+                    outChannel.close()
+                    writerJob.cancel()
                 }
             }
         } catch (_: Throwable) {
             // 对端断开或协程取消属正常生命周期
         } finally {
+            outChannel.close()
+            req.cancelConnection()
             activeSseCount.decrementAndGet()
         }
     }

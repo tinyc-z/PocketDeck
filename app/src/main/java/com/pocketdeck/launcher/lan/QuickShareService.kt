@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -1021,9 +1022,11 @@ class QuickShareService(
     // ───────────────────────── LocalSend v2 Protocol ─────────────────────────
 
     private fun startLocalSend(s: CoroutineScope, lan: LanInterface) {
+        // 证书生成较耗时（首次 RSA 密钥对生成），放在锁外避免阻塞并发 stopLocalSend()
+        val cert = runCatching { LocalSendCert.getOrCreate(context) }.getOrNull()
         synchronized(localSendLock) {
+            if (!localSendCompatEnabled || !s.isActive) return
             stopLocalSendLocked()
-            val cert = runCatching { LocalSendCert.getOrCreate(context) }.getOrNull()
             val server = runCatching {
                 HttpMiniServer(
                     bindAddress = lan.address,
@@ -1525,7 +1528,7 @@ class QuickShareService(
                         wrongPin = wrong,
                     )
                     val entered = try {
-                        deferred.await()
+                        withTimeoutOrNull(120_000L) { deferred.await() }
                     } finally {
                         if (pendingPinDeferred === deferred) pendingPinDeferred = null
                         if (_pinChallenge.value?.sessionId == tempSessionId) _pinChallenge.value = null

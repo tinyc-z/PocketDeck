@@ -5,6 +5,7 @@ import android.net.Uri
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -67,7 +68,7 @@ class ScraperClient(context: Context) {
     private val memHits = ConcurrentHashMap<String, CacheEntry>()
     private val inFlight = ConcurrentHashMap<String, Deferred<ScrapeHit?>>()
     private val hasheousHashCache = ConcurrentHashMap<String, QueryOutcome>()
-    private val hasheousHashLocks = ConcurrentHashMap<String, Mutex>()
+    private val hasheousHashLocks = Array(32) { Mutex() }
     private val rateLocks = ConcurrentHashMap<String, Mutex>()
     private val lastRequestMs = ConcurrentHashMap<String, Long>()
 
@@ -208,7 +209,10 @@ class ScraperClient(context: Context) {
 
             created.complete(null)
             return null
-        } catch (t: Throwable) {
+        } catch (e: CancellationException) {
+            created.complete(null)
+            throw e
+        } catch (_: Throwable) {
             created.complete(null)
             return null
         } finally {
@@ -307,7 +311,7 @@ class ScraperClient(context: Context) {
             else -> return QueryOutcome(ScrapeHit())
         }
         hasheousHashCache[hashKey]?.let { return it }
-        val lock = hasheousHashLocks.getOrPut(hashKey) { Mutex() }
+        val lock = hasheousHashLocks[(hashKey.hashCode() and Int.MAX_VALUE) % hasheousHashLocks.size]
         return lock.withLock {
             hasheousHashCache[hashKey]?.let { return@withLock it }
             throttle(ScraperCatalog.CoverIds.HASHEOUS, 250L)
