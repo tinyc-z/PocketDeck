@@ -1120,6 +1120,7 @@ class WebManagerServer(
             req.method == "POST" && req.path == "/api/files/upload" -> handleUpload(req, res)
             req.method == "POST" && req.path == "/api/upload" -> handlePlatformUpload(req, res)
             req.method == "POST" && req.path == "/api/files/mkdir" -> handleMkdir(req, res)
+            req.method == "POST" && req.path == "/api/files/auto-create-platforms" -> handleAutoCreatePlatforms(req, res)
             req.method == "POST" && req.path == "/api/files/rename" -> handleFileRename(req, res)
             req.method == "POST" && req.path == "/api/files/move" -> handleFileMove(req, res)
             req.method == "POST" && req.path == "/api/files/copy" -> handleFileCopy(req, res)
@@ -2883,6 +2884,90 @@ class WebManagerServer(
         }
         repo.notifyFilesChanged()
         res.sendJson(200, """{"ok":true}""")
+    }
+
+    /** 批量安全创建平台子目录（只增不删、不覆盖已有文件），并可选注册为游戏根目录。 */
+    private suspend fun handleAutoCreatePlatforms(req: HttpRequest, res: HttpResponseWriter) {
+        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
+        val dirPath = body?.optString("dir", "").orEmpty().trim()
+        val rawParent = body?.optString("parentName", "").orEmpty().trim()
+        val addAsRomRoot = body?.optBoolean("addAsRomRoot", true) ?: true
+        val platArr = body?.optJSONArray("platforms")
+        val roots = repo.configuredRoots()
+        val baseDir = if (dirPath.isNotEmpty()) {
+            resolveAllowedDir(dirPath, roots)
+        } else {
+            resolveAllowedDir(Environment.getExternalStorageDirectory().absolutePath, roots)
+                ?: roots.firstOrNull { it.isDirectory }
+        }
+        if (baseDir == null || platArr == null || platArr.length() == 0) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
+            return
+        }
+        val cleanParent = if (rawParent.isEmpty()) {
+            null
+        } else {
+            sanitizeFileName(rawParent) ?: run {
+                res.sendJson(400, """{"ok":false,"error":"invalid_parent_name"}""")
+                return
+            }
+        }
+        val knownIds = PlatformCatalog.known.asSequence()
+            .map { it.id }
+            .filter { it != PlatformCatalog.ANDROID_ID }
+            .toSet()
+        val requested = LinkedHashSet<String>()
+        for (i in 0 until platArr.length()) {
+            val id = platArr.optString(i, "").trim().lowercase()
+            if (id in knownIds) requested += id
+        }
+        if (requested.isEmpty()) {
+            res.sendJson(400, """{"ok":false,"error":"no_valid_platforms"}""")
+            return
+        }
+        val targetRoot = if (cleanParent == null) baseDir else File(baseDir, cleanParent)
+        if (targetRoot.exists() && !targetRoot.isDirectory) {
+            res.sendJson(409, """{"ok":false,"error":"target_is_file"}""")
+            return
+        }
+        val parentExisted = targetRoot.isDirectory
+        if (!parentExisted && !runCatching { targetRoot.mkdirs() }.getOrDefault(false)) {
+            res.sendJson(500, """{"ok":false,"error":"mkdir_failed"}""")
+            return
+        }
+        var created = 0
+        var existed = 0
+        for (id in requested) {
+            val sub = File(targetRoot, id)
+            if (sub.isDirectory) {
+                existed++
+            } else if (!sub.exists() && runCatching { sub.mkdirs() }.getOrDefault(false)) {
+                created++
+            }
+        }
+        if (addAsRomRoot) {
+            val targetPath = targetRoot.absolutePath
+            repo.updatePrefs { u ->
+                val base = if (u.romDirs.isEmpty()) {
+                    val auto = repo.autoRoot(u)
+                    if (File(auto).isDirectory) listOf(com.pocketdeck.launcher.data.RomDir(auto)) else emptyList()
+                } else u.romDirs
+                if (base.any { it.path == targetPath }) u.copy(romDirs = base)
+                else u.copy(romDirs = base + com.pocketdeck.launcher.data.RomDir(targetPath))
+            }
+        }
+        repo.notifyFilesChanged()
+        repo.refresh()
+        res.sendJson(
+            200,
+            JSONObject()
+                .put("ok", true)
+                .put("targetDir", targetRoot.absolutePath)
+                .put("parentExisted", parentExisted)
+                .put("created", created)
+                .put("existed", existed)
+                .toString(),
+        )
     }
 
     private suspend fun handleFileRename(req: HttpRequest, res: HttpResponseWriter) {

@@ -801,6 +801,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
             <div id="dirStorageInfo" class="page-sub"></div>
           </div>
           <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+            <button id="autoCreatePlatBtn" class="btn sm" onclick="openAutoCreatePlatformsModal()" data-i18n="files_auto_create">Auto-create folders</button>
             <button id="mkdirBtn" class="btn sm" onclick="mkdirPrompt()" disabled data-i18n="files_mkdir">New folder</button>
             <label class="btn sm" id="pickDirUploadLbl" style="display:none">
               <span data-i18n="files_upload_dir">Upload folder</span>
@@ -923,6 +924,8 @@ const I18N = {
     sort_type: '按类型',
     files_filter_ph: '过滤当前目录…',
     files_mkdir: '+ 新建文件夹',
+    files_auto_create: '一键建平台目录',
+    ac_title: '自动创建平台目录', ac_parent_ph: '父文件夹名（如 roms，留空则建在当前目录）', ac_target: '目标路径：', ac_exists_warn: '提示：目标目录已存在，仅补充缺少的平台目录，不会删除或覆盖原有文件', ac_add_root: '同时添加到游戏目录', ac_common: '常用推荐', ac_more: '更多平台', ac_sel_common: '仅常用', ac_sel_all: '全选', ac_sel_none: '清空', ac_submit: '创建目录 ({n})', ac_done: '已创建 {created} 个平台目录（跳过 {existed} 个已存在）', ac_done_new: '已创建 {created} 个平台目录', ac_fail: '创建失败：',
     files_upload: '上传文件',
     files_upload_dir: '上传文件夹',
     dropzone_txt: '将 ROM 文件或整个平台文件夹拖放到此处，直接高速流式上传到当前目录',
@@ -1161,6 +1164,8 @@ const I18N = {
     sort_type: '依類型',
     files_filter_ph: '過濾目前目錄…',
     files_mkdir: '+ 新建資料夾',
+    files_auto_create: '一鍵建平台目錄',
+    ac_title: '自動建立平台目錄', ac_parent_ph: '父資料夾名稱（如 roms，留空則建在目前目錄）', ac_target: '目標路徑：', ac_exists_warn: '提示：目標目錄已存在，僅補充缺少的平台目錄，不會刪除或覆蓋原有檔案', ac_add_root: '同時新增到遊戲目錄', ac_common: '常用推薦', ac_more: '更多平台', ac_sel_common: '僅常用', ac_sel_all: '全選', ac_sel_none: '清空', ac_submit: '建立目錄 ({n})', ac_done: '已建立 {created} 個平台目錄（跳過 {existed} 個已存在）', ac_done_new: '已建立 {created} 個平台目錄', ac_fail: '建立失敗：',
     files_upload: '上傳檔案',
     files_upload_dir: '上傳資料夾',
     dropzone_txt: '將 ROM 檔案或整個平台資料夾拖放至此，直接高速串流上傳到目前目錄',
@@ -1399,6 +1404,8 @@ const I18N = {
     sort_type: 'Type',
     files_filter_ph: 'Filter current folder…',
     files_mkdir: 'New folder',
+    files_auto_create: 'Auto-create folders',
+    ac_title: 'Auto-create platform folders', ac_parent_ph: 'Parent folder (e.g. roms, blank = current)', ac_target: 'Target: ', ac_exists_warn: 'Note: Target folder already exists. Only missing subfolders will be added; existing files are untouched.', ac_add_root: 'Also add as ROM root', ac_common: 'Common platforms', ac_more: 'More platforms', ac_sel_common: 'Common', ac_sel_all: 'All', ac_sel_none: 'Clear', ac_submit: 'Create ({n})', ac_done: 'Created {created} folders ({existed} already existed)', ac_done_new: 'Created {created} platform folders', ac_fail: 'Create failed: ',
     files_upload: 'Upload Files',
     files_upload_dir: 'Upload Folder',
     dropzone_txt: 'Drag & drop ROM files or platform folders here to stream directly to this directory',
@@ -4069,6 +4076,124 @@ async function mkdirInTransfer() {
   if (!name || !name.trim()) return;
   const r = await api('/api/files/mkdir', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({dir:transferBrowseDir, name:name.trim()}) });
   if (r.ok) renderTransferBrowser(transferBrowseDir); else toast(tr('msg_mkdir_fail'));
+}
+
+const COMMON_PLATFORM_IDS = ['nes','snes','gb','gbc','gba','nds','3ds','n64','psx','psp','ps2','megadrive','arcade','dreamcast'];
+const EXCLUDED_AUTO_PLATFORM_IDS = new Set(['android','sfc','genesis']);
+
+async function openAutoCreatePlatformsModal() {
+  if (!catPlatforms || !catPlatforms.length) {
+    await loadCategories();
+  }
+  const baseDir = curDir || (roots && roots[0]) || '/storage/emulated/0';
+  const allPlats = (catPlatforms || []).filter(p => p && p.id && !EXCLUDED_AUTO_PLATFORM_IDS.has(p.id));
+  const byId = {};
+  allPlats.forEach(p => { byId[p.id] = p; });
+  const commonPlats = COMMON_PLATFORM_IDS.map(id => byId[id]).filter(Boolean);
+  const commonSet = new Set(commonPlats.map(p => p.id));
+  const morePlats = allPlats.filter(p => !commonSet.has(p.id));
+  const selected = new Set(commonSet);
+  const existingSubNames = new Set((curDir ? (curEntries || []) : []).filter(e => e.isDir).map(e => e.name.toLowerCase()));
+
+  el('mTitle').textContent = tr('ac_title');
+  const renderPlatItem = (p) => {
+    const chk = selected.has(p.id);
+    const label = (p.shortName && p.shortName.toLowerCase() !== p.id) ? (p.id + ' (' + p.shortName + ')') : p.id;
+    return '<label class="plat-chk' + (chk ? ' checked' : '') + '" data-pid="' + esc(p.id) + '" style="padding:5px 8px;font-size:12px;">' +
+      '<input type="checkbox" class="ac-chk" value="' + esc(p.id) + '"' + (chk ? ' checked' : '') + ' style="margin:0;"/>' +
+      '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(label) + '</span></label>';
+  };
+  el('mBody').innerHTML =
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">' +
+      '<input id="acParentIn" type="text" value="roms" placeholder="' + esc(tr('ac_parent_ph')) + '" style="width:200px;max-width:100%;padding:6px 10px;font-size:13px;border-radius:10px;"/>' +
+      '<div id="acTargetPreview" class="sub" style="flex:1;min-width:180px;word-break:break-all;color:var(--accent);font-weight:600;"></div>' +
+    '</div>' +
+    '<div id="acExistsWarn" style="display:none;margin-bottom:8px;padding:7px 10px;border-radius:10px;background:rgba(217,119,6,.12);border:1px solid rgba(217,119,6,.35);color:#b45309;font-size:12px;font-weight:600;">' + esc(tr('ac_exists_warn')) + '</div>' +
+    '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;">' +
+      '<button type="button" class="btn sm" id="acBtnCommon">' + esc(tr('ac_sel_common')) + '</button>' +
+      '<button type="button" class="btn sm" id="acBtnAll">' + esc(tr('ac_sel_all')) + '</button>' +
+      '<button type="button" class="btn sm" id="acBtnNone">' + esc(tr('ac_sel_none')) + '</button>' +
+      '<label style="display:inline-flex;align-items:center;gap:5px;margin-left:8px;font-size:12.5px;font-weight:600;cursor:pointer;">' +
+        '<input type="checkbox" id="acAddRootChk" checked/><span>' + esc(tr('ac_add_root')) + '</span></label>' +
+      '<span id="acSelCnt" style="margin-left:auto;font-size:12.5px;font-weight:700;color:var(--accent);"></span>' +
+    '</div>' +
+    '<div style="max-height:44vh;overflow:auto;padding-right:2px;">' +
+      '<div style="font-size:11.5px;font-weight:700;color:var(--accent);margin:2px 0 5px;">' + esc(tr('ac_common')) + '</div>' +
+      '<div class="plat-grid" style="max-height:none;overflow:visible;margin-bottom:10px;">' + commonPlats.map(renderPlatItem).join('') + '</div>' +
+      '<div style="font-size:11.5px;font-weight:700;color:var(--muted);margin:4px 0 5px;">' + esc(tr('ac_more')) + '</div>' +
+      '<div class="plat-grid" style="max-height:none;overflow:visible;">' + morePlats.map(renderPlatItem).join('') + '</div>' +
+    '</div>';
+
+  el('mFoot').innerHTML =
+    '<button class="btn" onclick="closeModal()">' + esc(tr('btn_cancel')) + '</button>' +
+    '<button class="btn primary" id="acSubmitBtn"></button>';
+
+  function syncAcUi() {
+    const raw = (el('acParentIn').value || '').trim();
+    const cleanBase = baseDir.replace(/\/+$/, '');
+    const target = raw ? (cleanBase + '/' + raw) : cleanBase;
+    el('acTargetPreview').textContent = tr('ac_target') + target;
+    const warn = (!raw) || existingSubNames.has(raw.toLowerCase());
+    el('acExistsWarn').style.display = warn ? 'block' : 'none';
+    el('acSelCnt').textContent = selected.size + ' / ' + allPlats.length;
+    const btn = el('acSubmitBtn');
+    btn.textContent = tr('ac_submit', { n: selected.size });
+    btn.disabled = selected.size === 0;
+  }
+
+  function applySelection() {
+    document.querySelectorAll('#mBody .ac-chk').forEach(chk => {
+      const on = selected.has(chk.value);
+      chk.checked = on;
+      chk.closest('.plat-chk').classList.toggle('checked', on);
+    });
+    syncAcUi();
+  }
+
+  document.querySelectorAll('#mBody .ac-chk').forEach(chk => {
+    chk.addEventListener('change', () => {
+      if (chk.checked) selected.add(chk.value); else selected.delete(chk.value);
+      chk.closest('.plat-chk').classList.toggle('checked', chk.checked);
+      syncAcUi();
+    });
+  });
+  el('acParentIn').addEventListener('input', syncAcUi);
+  el('acBtnCommon').onclick = () => { selected.clear(); commonSet.forEach(id => selected.add(id)); applySelection(); };
+  el('acBtnAll').onclick = () => { allPlats.forEach(p => selected.add(p.id)); applySelection(); };
+  el('acBtnNone').onclick = () => { selected.clear(); applySelection(); };
+
+  el('acSubmitBtn').onclick = async () => {
+    const btn = el('acSubmitBtn');
+    btn.disabled = true;
+    try {
+      const r = await api('/api/files/auto-create-platforms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dir: baseDir,
+          parentName: (el('acParentIn').value || '').trim(),
+          platforms: [...selected],
+          addAsRomRoot: !!el('acAddRootChk').checked,
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.ok) {
+        closeModal();
+        toast(j.existed > 0 ? tr('ac_done', { created: j.created, existed: j.existed }) : tr('ac_done_new', { created: j.created }));
+        if (curTab === 'files') loadFiles(j.targetDir || curDir, true);
+        loadGames();
+      } else {
+        toast(tr('ac_fail') + (j.error || r.status));
+        btn.disabled = false;
+      }
+    } catch (e) {
+      toast(tr('ac_fail') + e.message);
+      btn.disabled = false;
+    }
+  };
+
+  syncAcUi();
+  el('modalBg').classList.add('open');
 }
 
 async function rescan() {

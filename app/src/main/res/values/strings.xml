@@ -116,6 +116,7 @@
     <string name="picker_auto_create_parent_label">Parent folder name (leave blank to use current folder)</string>
     <string name="picker_auto_create_parent_ph">e.g. roms</string>
     <string name="picker_auto_create_target">Target: %s</string>
+    <string name="picker_auto_create_dir_exists_warn">Note: Folder already exists. Only missing subfolders will be added; existing files are untouched.</string>
     <string name="picker_auto_create_common">Common platforms</string>
     <string name="picker_auto_create_more">More platforms</string>
     <string name="picker_auto_create_sel_common">Common</string>
