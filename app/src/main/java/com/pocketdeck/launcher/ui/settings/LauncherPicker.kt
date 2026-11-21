@@ -513,10 +513,15 @@ private fun ColumnScope.CoresPage(
     val detected = remember { GameLauncher.detectedRetroArchCores(context) }
     val autoCore = remember(platform.id) { GameLauncher.autoRetroArchCore(context, platform) }
     val otherDetected = remember(candidates, detected) {
-        // 只保留不属于其他平台的未知核心（如 bsnes_hd_beta），避免在 SNES 下出现 FCEUmm 这类无关核心
+        // 已知平台只保留不属于其他平台的未知核心（避免在 SNES 下出现 FCEUmm）；
+        // 自定义/未知平台（candidates 为空，如 test）则直接展示全部已检测到的核心供一键点选。
         val lower = candidates.map { it.lowercase() }.toSet()
-        val known = GameLauncher.allKnownCores()
-        detected.filter { it !in lower && it !in known }.sorted()
+        if (candidates.isEmpty()) {
+            detected.sorted()
+        } else {
+            val known = GameLauncher.allKnownCores()
+            detected.filter { it !in lower && it !in known }.sorted()
+        }
     }
     val currentCore = CustomLauncherCodec.decodeRaCore(currentLauncherId)
     val listedCores = candidates.map { it.lowercase() }.toSet() + otherDetected
