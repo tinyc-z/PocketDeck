@@ -1144,7 +1144,7 @@ class CoverSource(
         null
     }
 
-    /** 由 Web 管理端触发掌机联网抓取并更新该游戏封面。 */
+    /** 由 Web 管理端触发掌机联网抓取并更新该游戏封面（直连下载首个命中项，避免全量候选验活 + 二次下载）。 */
     suspend fun fetchWebCoverNow(
         game: Game,
         platform: Platform?,
@@ -1152,14 +1152,80 @@ class CoverSource(
     ): Boolean = withContext(Dispatchers.IO) {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@withContext false
         if (!NetworkStatus.isOnline(appCtx)) return@withContext false
-        val picked = scrapeAllForPicker(game, platform, officialName, includeCachedFirst = false)
-        for (item in picked) {
-            val downloaded = downloadImageBytes(item.url) ?: continue
-            val cacheFile = webCacheFile(game.id)
-            runCatching { cacheFile.writeBytes(downloaded.second) }
-            rememberSuccess(game.id, item.url)
-            _indexVersion.value += 1
-            return@withContext true
+        val enabled = nodeConfigs.filter { it.enabled }
+        val cred = credentials
+        val system = platform?.libretroSystem
+        if (system != null) {
+            loadSystemIndex(system)
+        }
+        val index = system?.let { systemIndexes[it] }
+        val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, officialName)
+        val indexMatches = index?.findMatches(queries).orEmpty()
+            .ifEmpty { index?.findManualMatches(queries, limit = 4).orEmpty() }
+        val directNames = if (index == null) buildDirectNames(game, officialName) else emptyList()
+
+        suspend fun tryDownloadAndSave(url: String): Boolean {
+            downloadImageBytes(url)?.let { downloaded ->
+                runCatching { webCacheFile(game.id).writeBytes(downloaded.second) }
+                rememberSuccess(game.id, url)
+                _indexVersion.value += 1
+                return true
+            }
+            for ((mirrorIdx, altUrl) in libretroAlternativeMirrors(url)) {
+                downloadImageBytes(altUrl)?.let { downloaded ->
+                    activeLibretroMirror = mirrorIdx
+                    runCatching { webCacheFile(game.id).writeBytes(downloaded.second) }
+                    rememberSuccess(game.id, altUrl)
+                    _indexVersion.value += 1
+                    return true
+                }
+            }
+            return false
+        }
+
+        val tried = HashSet<String>()
+        for (node in enabled) {
+            when (node.id) {
+                ScraperCatalog.CoverIds.LIBRETRO_BOXARTS -> if (system != null) {
+                    val mirror = activeLibretroMirror
+                    val urls = buildList {
+                        indexMatches.take(3).forEach { add(buildLibretroBoxartUrl(system, it, mirror)) }
+                        if (indexMatches.isEmpty()) {
+                            directNames.take(2).forEach { add(buildLibretroBoxartUrl(system, "$it.png", mirror)) }
+                        }
+                    }
+                    for (u in urls) {
+                        if (tried.add(u) && tryDownloadAndSave(u)) return@withContext true
+                    }
+                }
+                ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (system != null) {
+                    val mirror = activeLibretroMirror
+                    for (fn in indexMatches.take(2)) {
+                        for (kind in listOf("Named_Titles", "Named_Snaps")) {
+                            val u = buildLibretroThumbUrl(system, kind, fn, mirror)
+                            if (tried.add(u) && tryDownloadAndSave(u)) return@withContext true
+                        }
+                    }
+                }
+                else -> if (node.id in API_COVER_NODES) {
+                    if (node.id == ScraperCatalog.CoverIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) {
+                        continue
+                    }
+                    val desc = ScraperCatalog.coverDescriptor(node.id)
+                    if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
+                    val hit = client.cachedHitInMemory(node.id, game.id)
+                        ?: client.queryProvider(
+                            providerId = node.id,
+                            game = game,
+                            platform = platform,
+                            cred = cred,
+                            officialNameHint = officialName,
+                        )
+                    for (u in hit?.coverUrls.orEmpty().take(3)) {
+                        if (tried.add(u) && tryDownloadAndSave(u)) return@withContext true
+                    }
+                }
+            }
         }
         false
     }

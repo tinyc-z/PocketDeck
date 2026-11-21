@@ -339,21 +339,6 @@ fun EditGameScreen(
                             )
                         }
 
-                        if (covers != null && !game.id.startsWith(GameLauncher.APK_PREFIX)) {
-                            OutlinedButton(
-                                onClick = { scrapingDialog = true },
-                                shape = CircleShape,
-                                border = BorderStroke(1.dp, DeckColors.Ruby.copy(alpha = 0.5f)),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(
-                                    stringResource(R.string.edit_scrape_boxart),
-                                    style = DeckType.bottomBar,
-                                    color = DeckColors.Ruby,
-                                )
-                            }
-                        }
-
                         if (onManualScrape != null) {
                             OutlinedButton(
                                 onClick = onManualScrape,
