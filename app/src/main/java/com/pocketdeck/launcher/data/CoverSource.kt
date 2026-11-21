@@ -230,22 +230,37 @@ class CoverSource(
         val byCompact: Map<String, List<String>>,
         private val rawNames: List<String>,
     ) {
-        /** 倒排分词索引仅在精确/紧凑键未命中时才懒构建，避免切 Tab 首次加载万级平台时白白建 5 万条词元索引。 */
-        val byToken: Map<String, List<String>> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-            val map = HashMap<String, MutableList<String>>(rawNames.size / 2 + 16)
-            for (fileName in rawNames) {
-                val noExt = if (fileName.endsWith(".png", ignoreCase = true)) fileName.dropLast(4) else fileName
-                val norm = TitleNormalizer.normalizedTitle(noExt)
-                for (tok in TitleNormalizer.tokenize(norm)) {
-                    map.getOrPut(tok) { ArrayList(4) }.add(fileName)
-                }
-            }
-            map
-        }
-        fun findMatches(queries: List<String>): List<String> =
-            findMatchesWithMode(queries).map { it.first }
+        @Volatile
+        private var _byToken: Map<String, List<String>>? = null
+        @Volatile
+        var tokenBuildScheduled: Boolean = false
 
-        fun findMatchesWithMode(queries: List<String>): List<Pair<String, CoverMatchMode>> {
+        fun isTokenIndexReady(): Boolean = _byToken != null
+
+        fun ensureTokenIndexBuilt(): Map<String, List<String>> {
+            _byToken?.let { return it }
+            synchronized(this) {
+                _byToken?.let { return it }
+                val map = HashMap<String, MutableList<String>>(rawNames.size / 2 + 16)
+                for (fileName in rawNames) {
+                    val noExt = if (fileName.endsWith(".png", ignoreCase = true)) fileName.dropLast(4) else fileName
+                    val norm = TitleNormalizer.normalizedTitle(noExt)
+                    for (tok in TitleNormalizer.tokenize(norm)) {
+                        map.getOrPut(tok) { ArrayList(4) }.add(fileName)
+                    }
+                }
+                _byToken = map
+                return map
+            }
+        }
+
+        fun findMatches(queries: List<String>, allowBuildTokenIndex: Boolean = true): List<String> =
+            findMatchesWithMode(queries, allowBuildTokenIndex).map { it.first }
+
+        fun findMatchesWithMode(
+            queries: List<String>,
+            allowBuildTokenIndex: Boolean = true,
+        ): List<Pair<String, CoverMatchMode>> {
             val out = LinkedHashMap<String, CoverMatchMode>()
             for (q in queries) {
                 if (q.isBlank()) continue
@@ -263,6 +278,12 @@ class CoverSource(
                 return out.entries.map { it.key to it.value }
             }
 
+            val tokenMap = _byToken ?: if (allowBuildTokenIndex) {
+                ensureTokenIndexBuilt()
+            } else {
+                return emptyList()
+            }
+
             // 精确与紧凑键均未命中时，使用倒排词索引 + Token Jaccard/编辑距离模糊匹配
             val scored = ArrayList<Pair<String, Double>>(4)
             val evaluated = HashSet<String>(64)
@@ -272,7 +293,7 @@ class CoverSource(
                 if (tokens.isEmpty()) continue
                 val counts = HashMap<String, Int>(32)
                 for (tok in tokens) {
-                    val bucket = byToken[tok] ?: continue
+                    val bucket = tokenMap[tok] ?: continue
                     if (bucket.size > 450) continue
                     for (fileName in bucket) {
                         counts[fileName] = (counts[fileName] ?: 0) + 1
@@ -885,7 +906,20 @@ class CoverSource(
         val system = platform?.libretroSystem
         val index = system?.let { systemIndexes[it] }
         val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, officialName)
-        val indexMatches = if (online) index?.findMatchesWithMode(queries).orEmpty() else emptyList()
+        // candidates() 在 Compose 主线程调用：绝不在主线程构建万级倒排分词索引，未就绪时转后台异步构建并在完成后刷新
+        val indexMatches = if (online && index != null) {
+            val hits = index.findMatchesWithMode(queries, allowBuildTokenIndex = false)
+            if (hits.isEmpty() && !index.isTokenIndexReady() && !index.tokenBuildScheduled) {
+                index.tokenBuildScheduled = true
+                scope.launch(Dispatchers.Default) {
+                    index.ensureTokenIndexBuilt()
+                    _indexVersion.value += 1
+                }
+            }
+            hits
+        } else {
+            emptyList()
+        }
 
         for (node in enabled) {
             when (node.id) {
