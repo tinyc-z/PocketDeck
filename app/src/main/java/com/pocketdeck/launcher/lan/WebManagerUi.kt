@@ -2448,8 +2448,8 @@ async function openGameDetail(id) {
           (g.hidden ? '<span class="chip warn">' + esc(tr('hidden_tag')) + '</span>' : '') +
         '</div>' +
         '<div class="drawer-acts">' +
-          '<button class="btn sm primary" id="btnRefreshMeta" onclick="refreshGameMetaFromHandheld(\'' + escJs(g.id) + '\')">' + esc(tr('btn_find_cover')) + '</button>' +
-          '<button class="btn sm" onclick="scrapeCoverCandidates(\'' + escJs(g.id) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' +
+          (g.isRom ? '<button class="btn sm primary" id="btnRefreshMeta" onclick="refreshGameMetaFromHandheld(\'' + escJs(g.id) + '\')">' + esc(tr('btn_find_cover')) + '</button>' : '') +
+          (g.isRom ? '<button class="btn sm" onclick="scrapeCoverCandidates(\'' + escJs(g.id) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' : '') +
           '<label class="btn sm" style="justify-content:center;">' + esc(tr('btn_upload_short')) + '<input type="file" accept="image/*" style="display:none" onchange="uploadCustomCover(\'' + escJs(g.id) + '\', this.files[0])"/></label>' +
         '</div>' +
         '<div class="meta-kv">' +
@@ -2489,7 +2489,7 @@ async function openGameDetail(id) {
   window._curDetailGameId = g.id;
   if (!window._webMetaFetchedIds) window._webMetaFetchedIds = new Set();
   const metaEmpty = !m.releaseDate && !m.genre && !m.developer && !m.publisher && !g.officialName;
-  if (metaEmpty && !window._webMetaFetchedIds.has(g.id)) {
+  if (g.isRom && metaEmpty && !window._webMetaFetchedIds.has(g.id)) {
     window._webMetaFetchedIds.add(g.id);
     api('/api/games/item?id=' + safeId + '&ensureMeta=1').then(r => r.ok ? r.json() : null).then(d => {
       if (!d || !d.ok || !d.game) return;

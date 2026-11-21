@@ -1099,7 +1099,7 @@ class WebManagerServer(
             res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
             return
         }
-        if (req.query["ensureMeta"] == "1") {
+        if (req.query["ensureMeta"] == "1" && !game.id.startsWith(GameLauncher.APK_PREFIX)) {
             val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
             metadataRepo.ensureGameMetadata(game, plat)
         }
@@ -1406,7 +1406,7 @@ class WebManagerServer(
                     res.sendJson(200, """{"ok":false,"error":"offline"}""")
                     return
                 }
-                val targets = validIds.take(50).mapNotNull { lib?.byId?.get(it) }
+                val targets = validIds.filterNot { it.startsWith(GameLauncher.APK_PREFIX) }.take(50).mapNotNull { lib?.byId?.get(it) }
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                     for (g in targets) {
                         val plat = lib?.platform(g.platformId) ?: PlatformCatalog.forFolder(g.platformId)
@@ -1530,6 +1530,10 @@ class WebManagerServer(
         val game = repo.fullLibrary.value?.byId?.get(id)
         if (game == null) {
             res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
+            return
+        }
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) {
+            res.sendJson(200, JSONObject().put("ok", true).put("metaUpdated", false).put("coverUpdated", false).put("game", gameToJson(game)).put("stats", buildGamesStatsJson()).toString())
             return
         }
         if (!NetworkStatus.isOnline(context)) {

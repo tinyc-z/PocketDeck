@@ -516,6 +516,7 @@ class CoverSource(
 
     /** 为指定游戏异步触发 API / 索引型封面节点查询（GameTDB / Hasheous / ArcadeItalia / SteamGridDB / ScreenScraper / TGDB / IGDB）。 */
     fun ensureGameScraped(game: Game, platform: Platform?, officialName: String? = null) {
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return
         // 本地优先：已有自定义封面或本地 ES-DE/Daijisho/同名封面时零网络直出
         if (!game.customCover.isNullOrBlank() || !game.localCover.isNullOrBlank()) return
         if (!NetworkStatus.isOnline(appCtx)) return
@@ -719,6 +720,7 @@ class CoverSource(
         platform: Platform?,
         officialName: String? = null,
     ): List<ScrapedCoverCandidate> = coroutineScope {
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@coroutineScope emptyList()
         if (!NetworkStatus.isOnline(appCtx)) return@coroutineScope emptyList()
         val enabled = nodeConfigs.filter { it.enabled }
         val cred = credentials
@@ -1132,6 +1134,7 @@ class CoverSource(
         platform: Platform?,
         officialName: String?,
     ): Boolean = withContext(Dispatchers.IO) {
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@withContext false
         if (!NetworkStatus.isOnline(appCtx)) return@withContext false
         val picked = scrapeAllForPicker(game, platform, officialName)
         for (item in picked) {

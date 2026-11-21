@@ -303,14 +303,15 @@ class MetadataRepository(
 
     /** 预加载指定平台下可见游戏的元数据（先使用 DAT / GameTDB 与已缓存 API 结果，再按需补齐）。 */
     fun ensureLoaded(games: List<Game>, platformResolver: (Game) -> Platform?) {
-        if (games.isEmpty()) return
+        val romGames = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
+        if (romGames.isEmpty()) return
         val enabled = providerConfigs.filter { it.enabled }
         if (enabled.isEmpty()) return
         val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
         val useArcadeItalia = enabled.any { it.id == ScraperCatalog.MetaIds.ARCADEITALIA }
 
         scope.launch {
-            val grouped = games.groupBy { platformResolver(it) }
+            val grouped = romGames.groupBy { platformResolver(it) }
             for ((platform, platGames) in grouped) {
                 val system = platform?.libretroSystem
                 if (useLibretroDb && !system.isNullOrBlank()) {
@@ -328,6 +329,7 @@ class MetadataRepository(
     /** 确保单个焦点游戏从全部已启用的服务商查询并合并元数据。 */
     fun resolveFocusGame(game: Game?, platform: Platform?) {
         val g = game ?: return
+        if (g.id.startsWith(GameLauncher.APK_PREFIX)) return
         if (focusApiResolved.containsKey(g.id)) return
         if (!inFlightFocus.add(g.id)) return
         val enabled = providerConfigs.filter { it.enabled }
@@ -358,6 +360,7 @@ class MetadataRepository(
      * 仅当远端/索引成功解析出至少一项有效元数据或官方名称时才覆盖本地数据，失败时保留原有本地数据。
      */
     suspend fun refreshGame(game: Game, platform: Platform?): Boolean = withContext(Dispatchers.IO) {
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@withContext false
         if (!NetworkStatus.isOnline(appCtx)) return@withContext false
         val enabled = providerConfigs.filter { it.enabled }
         if (enabled.isEmpty()) return@withContext false
@@ -389,6 +392,7 @@ class MetadataRepository(
 
     /** 按需补查单个游戏的元数据（优先复用本地索引与 SQLite 缓存，供 Web 详情页打开时静默触发）。 */
     suspend fun ensureGameMetadata(game: Game, platform: Platform?): Boolean = withContext(Dispatchers.IO) {
+        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@withContext false
         val existingMeta = gameCache[game.id]
         val existingName = _officialNames.value[game.id]
         if (focusApiResolved[game.id] == true && ((existingMeta != null && !existingMeta.isEmpty) || !existingName.isNullOrBlank())) {
@@ -607,7 +611,8 @@ class MetadataRepository(
         val nameUpdates = HashMap<String, String>()
         val infoUpdates = HashMap<String, MetadataResolutionInfo>()
 
-        val pending = if (queryApi) games else games.filter { !gameCache.containsKey(it.id) }
+        val romOnly = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
+        val pending = if (queryApi) romOnly else romOnly.filter { !gameCache.containsKey(it.id) }
         val trackProgress = pending.size > 1
         var doneCount = 0
         var failCount = 0

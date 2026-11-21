@@ -339,7 +339,7 @@ fun EditGameScreen(
                             )
                         }
 
-                        if (covers != null) {
+                        if (covers != null && !game.id.startsWith(GameLauncher.APK_PREFIX)) {
                             OutlinedButton(
                                 onClick = { scrapingDialog = true },
                                 shape = CircleShape,

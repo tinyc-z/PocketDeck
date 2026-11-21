@@ -101,7 +101,9 @@ internal fun HomeOverlays(
                     }
                 }
             } else null,
-            onManualScrape = { vm.openManualScrape(game) },
+            onManualScrape = if (!game.id.startsWith(GameLauncher.APK_PREFIX)) {
+                { vm.openManualScrape(game) }
+            } else null,
             onDetail = { vm.openDetail(game) },
         )
     }
@@ -145,7 +147,9 @@ internal fun HomeOverlays(
             } else null,
             onToggleFavorite = { vm.toggleFavorite(game.id) },
             onEdit = { vm.openEdit(game) },
-            onManualScrape = { vm.openManualScrape(game) },
+            onManualScrape = if (!game.id.startsWith(GameLauncher.APK_PREFIX)) {
+                { vm.openManualScrape(game) }
+            } else null,
             onProperties = {
                 vm.closeDetail()
                 vm.openProperties(game)
@@ -243,7 +247,9 @@ internal fun HomeOverlays(
                     )
                 }
             },
-            onManualScrape = { vm.openManualScrape(game) },
+            onManualScrape = if (!game.id.startsWith(GameLauncher.APK_PREFIX)) {
+                { vm.openManualScrape(game) }
+            } else null,
         )
     }
 
