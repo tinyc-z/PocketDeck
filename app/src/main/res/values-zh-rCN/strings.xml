@@ -690,6 +690,7 @@
     <string name="view_list">列表</string>
     <string name="view_grid">网格</string>
     <string name="view_bubbles">气泡</string>
+    <string name="view_coverflow">立体扇面</string>
     <string name="hint_view">视图</string>
     <string name="settings_sec_library">游戏库</string>
     <string name="settings_sec_covers">封面与信息</string>
@@ -776,4 +777,10 @@
     <string name="lan_share_peers_short">%1$d 台附近</string>
     <string name="lan_status_off">未开启</string>
     <string name="lan_badge_incoming">待接收</string>
+    <string name="lan_fgs_channel_name">局域网与快传服务</string>
+    <string name="lan_fgs_title">PocketDeck 局域网服务运行中</string>
+    <string name="lan_fgs_body_both">Web 管理端（%1$s）与游戏快传运行中</string>
+    <string name="lan_fgs_body_web">Web 管理端运行中：%1$s</string>
+    <string name="lan_fgs_body_share">游戏快传已就绪（%1$s）</string>
+    <string name="lan_fgs_stop">停止服务</string>
 </resources>

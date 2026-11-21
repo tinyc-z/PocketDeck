@@ -20,8 +20,13 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.pocketdeck.launcher.data.AppLocale
 import com.pocketdeck.launcher.ui.home.HomeScreen
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -61,8 +66,26 @@ class MainActivity : ComponentActivity() {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
-        // 保持屏幕常亮（桌面场景，用户随时操作）
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // 默认不限制熄屏；仅在刮削任务运行中或 Web 管理服务开启时保持屏幕常亮
+        lifecycleScope.launch {
+            val container = (application as PocketDeckApp).container
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(
+                    container.metadata.scrapeProgress,
+                    container.lanManager.state,
+                ) { scrape, lan ->
+                    scrape.running || lan.webRunning
+                }
+                    .distinctUntilChanged()
+                    .collect { keepOn ->
+                        if (keepOn) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                    }
+            }
+        }
 
         setContent {
             HomeScreen(

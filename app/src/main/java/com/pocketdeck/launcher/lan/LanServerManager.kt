@@ -256,6 +256,7 @@ class LanServerManager(
                 webPort = port,
                 lastError = null,
             ) }
+            syncForegroundService()
             true
         }.getOrElse { err ->
             _state.update { it.copy(lastError = err.message ?: "WEB_START_FAILED") }
@@ -277,6 +278,7 @@ class LanServerManager(
             webPassword = null,
             webPort = -1,
         ) }
+        syncForegroundService()
     }
 
     fun refreshWebPassword() {
@@ -315,6 +317,7 @@ class LanServerManager(
                 sharePort = port,
                 lastError = null,
             ) }
+            syncForegroundService()
             true
         }.getOrElse { err ->
             _state.update { it.copy(lastError = err.message ?: "SHARE_START_FAILED") }
@@ -338,6 +341,11 @@ class LanServerManager(
             incomingRequest = null,
             pinChallenge = null,
         ) }
+        syncForegroundService()
+    }
+
+    private fun syncForegroundService() {
+        LanForegroundService.sync(context, _state.value)
     }
 
     fun stopAll() {
