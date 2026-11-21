@@ -15,6 +15,7 @@ import com.pocketdeck.launcher.data.CategorySortOrder
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.GameRepository
 import com.pocketdeck.launcher.data.MetadataRepository
+import com.pocketdeck.launcher.data.OfflineGameDb
 import java.io.File
 import com.pocketdeck.launcher.data.PlatformCatalog
 import com.pocketdeck.launcher.data.ScraperCatalog
@@ -483,6 +484,8 @@ class HomeViewModel(
                 covers.ensureIndexLoaded(plat)
             }
         }
+        // 标记当前正在使用的平台集合：LRU 淘汰与 onTrimMemory 均保护这些平台不被释放
+        OfflineGameDb.activeSystems = seenSystems.toSet()
         val focusGame = games.getOrNull(focusIdx)
         if (focusGame != null) {
             val plat = platformResolver(focusGame)

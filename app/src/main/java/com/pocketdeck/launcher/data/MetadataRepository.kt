@@ -77,6 +77,7 @@ class MetadataRepository(
     private val appCtx = context.applicationContext
     private val cacheDir = File(appCtx.cacheDir, "metadata").apply { mkdirs() }
     private val systemTables = ConcurrentHashMap<String, SystemTable>()
+    private val systemTableLastUsedMs = ConcurrentHashMap<String, Long>()
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
     private val remoteMetaRefreshInFlight = ConcurrentHashMap<String, Boolean>()
     private val gameCache = ConcurrentHashMap<String, GameMetadata>()
@@ -269,6 +270,31 @@ class MetadataRepository(
     }
 
     /** 清空元数据缓存：内存瞬时生效，磁盘与数据库清理由 IO 线程执行，绝不阻塞主线程。 */
+    /**
+     * 系统内存吃紧时释放**非当前活跃平台**的元数据索引表，保留 [keepSystems] 正在使用的平台。
+     */
+    fun trimMemory(keepSystems: Set<String> = OfflineGameDb.activeSystems) {
+        val toRemove = systemTables.keys.filter { it !in keepSystems }
+        for (sys in toRemove) {
+            systemTables.remove(sys)
+            systemTableLastUsedMs.remove(sys)
+        }
+    }
+
+    private fun putSystemTable(system: String, table: SystemTable) {
+        systemTables[system] = table
+        systemTableLastUsedMs[system] = System.currentTimeMillis()
+        val keep = OfflineGameDb.activeSystems
+        while (systemTables.size > MAX_CACHED_SYSTEM_TABLES) {
+            val victim = systemTables.keys
+                .filter { it != system && it !in keep }
+                .minByOrNull { systemTableLastUsedMs[it] ?: 0L }
+                ?: break
+            systemTables.remove(victim)
+            systemTableLastUsedMs.remove(victim)
+        }
+    }
+
     fun clearCache() {
         scope.launch { clearCacheNow() }
     }
@@ -1111,7 +1137,7 @@ class MetadataRepository(
                 }
                 val initial = mergeSystemTables(bundled, cached)
                 if (initial != null) {
-                    systemTables[system] = initial
+                    putSystemTable(system, initial)
                     if (cached == null && NetworkStatus.isOnline(appCtx)) {
                         launchAsyncRemoteMetaMerge(system, cacheFile, bundled)
                     }
@@ -1123,7 +1149,7 @@ class MetadataRepository(
                     null
                 }
                 if (remote != null) {
-                    systemTables[system] = remote
+                    putSystemTable(system, remote)
                 }
                 remote
             }
@@ -1136,7 +1162,7 @@ class MetadataRepository(
             try {
                 val remote = fetchFromLibretroWithFailover(system, cacheFile) ?: return@launch
                 val merged = mergeSystemTables(bundled, remote) ?: return@launch
-                systemTables[system] = merged
+                putSystemTable(system, merged)
             } finally {
                 remoteMetaRefreshInFlight.remove(system)
             }
@@ -1489,6 +1515,7 @@ class MetadataRepository(
 
     private companion object {
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
+        const val MAX_CACHED_SYSTEM_TABLES = 6
         val CRC_REGEX = Regex("""\bcrc\s+([0-9A-Fa-f]{8})\b""")
         val SERIAL_REGEX = Regex("""\bserial\s+"([^"]+)"""")
         val MONTHS = arrayOf(

@@ -18,6 +18,7 @@ import com.pocketdeck.launcher.data.GameRepository
 import com.pocketdeck.launcher.data.HttpLogInterceptor
 import com.pocketdeck.launcher.data.MetadataRepository
 import com.pocketdeck.launcher.data.NetworkStatus
+import com.pocketdeck.launcher.data.OfflineGameDb
 import com.pocketdeck.launcher.data.ScraperClient
 import com.pocketdeck.launcher.data.UserStore
 import com.pocketdeck.launcher.input.KeySound
@@ -89,6 +90,13 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
         super.onTrimMemory(level)
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
+            // 只释放当前未在使用的平台索引与元数据表，保护正在浏览的活跃平台不被清掉
+            val keep = OfflineGameDb.activeSystems
+            OfflineGameDb.trimMemory(keep)
+            if (::container.isInitialized) {
+                container.covers.trimMemory(keep)
+                container.metadata.trimMemory(keep)
+            }
         }
     }
 }

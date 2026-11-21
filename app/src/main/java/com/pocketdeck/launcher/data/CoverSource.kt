@@ -90,6 +90,7 @@ class CoverSource(
     private val resolvedOrigins = ConcurrentHashMap<String, Pair<String, CoverMatchMode>>()
     private val failedUntilMs = ConcurrentHashMap<String, Long>()
     private val systemIndexes = ConcurrentHashMap<String, BoxartIndex>()
+    private val systemIndexLastUsedMs = ConcurrentHashMap<String, Long>()
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
     private val indexFailedUntilMs = ConcurrentHashMap<String, Long>()
     private val remoteIndexRefreshInFlight = ConcurrentHashMap<String, Boolean>()
@@ -394,6 +395,32 @@ class CoverSource(
     }
 
     /** 清空全部封面缓存：内存瞬时生效，磁盘/SQLite/Coil 缓存清理全异步在 IO 线程执行（绝不卡主线程）。 */
+    /**
+     * 系统内存吃紧时释放**非当前活跃平台**的封面索引缓存，保留 [keepSystems] 正在使用的平台。
+     */
+    fun trimMemory(keepSystems: Set<String> = OfflineGameDb.activeSystems) {
+        val toRemove = systemIndexes.keys.filter { it !in keepSystems }
+        for (sys in toRemove) {
+            systemIndexes.remove(sys)
+            systemIndexLastUsedMs.remove(sys)
+        }
+        thumbPathLru.trimToSize(128)
+    }
+
+    private fun putSystemIndex(system: String, index: BoxartIndex) {
+        systemIndexes[system] = index
+        systemIndexLastUsedMs[system] = System.currentTimeMillis()
+        val keep = OfflineGameDb.activeSystems
+        while (systemIndexes.size > MAX_CACHED_SYSTEM_INDEXES) {
+            val victim = systemIndexes.keys
+                .filter { it != system && it !in keep }
+                .minByOrNull { systemIndexLastUsedMs[it] ?: 0L }
+                ?: break
+            systemIndexes.remove(victim)
+            systemIndexLastUsedMs.remove(victim)
+        }
+    }
+
     fun clearCoverCache() {
         scope.launch { clearCoverCacheNow() }
     }
@@ -717,7 +744,7 @@ class CoverSource(
                 }
                 val initial = OfflineGameDb.mergeBoxartNames(bundled, cached)
                 if (initial.isNotEmpty()) {
-                    systemIndexes[system] = buildIndex(initial)
+                    putSystemIndex(system, buildIndex(initial))
                     indexFailedUntilMs.remove(system)
                     // 本地已就绪；若尚未拉过远端增量且联网，后台异步合并更新
                     if (cached.isEmpty() && NetworkStatus.isOnline(appCtx)) {
@@ -732,7 +759,7 @@ class CoverSource(
                 }
                 val remote = fetchOnlineBoxartList(system, cacheFile)
                 if (remote.isNotEmpty()) {
-                    systemIndexes[system] = buildIndex(remote)
+                    putSystemIndex(system, buildIndex(remote))
                     indexFailedUntilMs.remove(system)
                     true
                 } else {
@@ -754,7 +781,7 @@ class CoverSource(
                     val merged = OfflineGameDb.mergeBoxartNames(bundled, remote)
                     writeIndexCache(cacheFile, merged)
                     if (merged.size > bundled.size) {
-                        systemIndexes[system] = buildIndex(merged)
+                        putSystemIndex(system, buildIndex(merged))
                         failedUntilMs.clear()
                         _indexVersion.value += 1
                     }
@@ -1771,6 +1798,7 @@ class CoverSource(
         const val THUMB_MAX_WIDTH_PX = 320
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
         const val INDEX_FAIL_COOLDOWN_MS = 10L * 60 * 1000
+        const val MAX_CACHED_SYSTEM_INDEXES = 6
 
         val API_COVER_NODES = setOf(
             ScraperCatalog.CoverIds.GAMETDB,
