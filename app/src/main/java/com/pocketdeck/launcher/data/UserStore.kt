@@ -238,8 +238,8 @@ class UserStore(context: Context) {
     private object K {
         val favorites = stringSetPrefsKey("favorites")
         val recents = stringPrefsKey("recents")
-        val renames = stringSetPrefsKey("renames")
-        val covers = stringSetPrefsKey("covers")
+        val renames = stringMapPrefsKey("renames")
+        val covers = stringMapPrefsKey("covers")
         val hidden = stringSetPrefsKey("hidden")
         val viewMode = stringPrefsKey("view_mode")
         val background = stringPrefsKey("background_style")
@@ -258,7 +258,7 @@ class UserStore(context: Context) {
         val showHeadset = booleanPrefsKey("show_headset")
         val showAirplane = booleanPrefsKey("show_airplane")
         val showDnd = booleanPrefsKey("show_dnd")
-        val platformLaunchers = stringSetPrefsKey("platform_launchers")
+        val platformLaunchers = stringMapPrefsKey("platform_launchers")
         val galleryAlign = stringPrefsKey("gallery_align")
         val romDirs = stringPrefsKey("rom_dirs")
         val categories = stringPrefsKey("categories")
@@ -273,17 +273,17 @@ class UserStore(context: Context) {
         val metaShowDeveloper = booleanPrefsKey("meta_show_developer")
         val metaShowPublisher = booleanPrefsKey("meta_show_publisher")
         val metaShowFileSize = booleanPrefsKey("meta_show_file_size")
-        val gameLaunchers = stringSetPrefsKey("game_launchers")
+        val gameLaunchers = stringMapPrefsKey("game_launchers")
         val showAndroidGames = booleanPrefsKey("show_android_games")
         val androidGamePackages = stringSetPrefsKey("android_game_packages")
         val excludedAndroidPackages = stringSetPrefsKey("excluded_android_packages")
         val customBackground = stringPrefsKey("custom_background")
-        val keyBindings = stringSetPrefsKey("key_bindings")
+        val keyBindings = stringMapPrefsKey("key_bindings")
         val keySoundEnabled = booleanPrefsKey("key_sound_enabled")
         val reduceMotion = booleanPrefsKey("reduce_motion")
         val themeAccent = stringPrefsKey("theme_accent")
         val fontId = stringPrefsKey("font_id")
-        val platformAspects = stringSetPrefsKey("platform_aspects")
+        val platformAspects = stringMapPrefsKey("platform_aspects")
         val customLaunchers = stringPrefsKey("custom_launchers")
         val systemTabs = stringPrefsKey("system_tabs")
         val categoriesInitialized = booleanPrefsKey("categories_initialized")
@@ -296,15 +296,7 @@ class UserStore(context: Context) {
     }
 
     private companion object {
-        const val SEP = '\u0000'
         const val MAX_RECENTS = 30
-        fun decodeMap(set: Set<String>?): Map<String, String> =
-            set.orEmpty().mapNotNull { e ->
-                val i = e.indexOf(SEP)
-                if (i <= 0) null else e.substring(0, i) to e.substring(i + 1)
-            }.toMap()
-
-        fun encodeMap(map: Map<String, String>): Set<String> = map.map { "${it.key}$SEP${it.value}" }.toSet()
 
         fun decodeDirs(s: String?): List<RomDir> = s.orEmpty().split('\n').mapNotNull { line ->
             if (line.length < 3 || line[1] != '\t') null else RomDir(line.substring(2), line[0] == '1')
@@ -383,21 +375,21 @@ class UserStore(context: Context) {
             .put("sgdbKey", c.sgdbKey)
             .toString()
 
-        fun decodeKeyBindings(set: Set<String>?): Map<KeyAction, Int> =
-            decodeMap(set).mapNotNull { (k, v) ->
+        fun decodeKeyBindings(map: Map<String, String>?): Map<KeyAction, Int> =
+            map.orEmpty().mapNotNull { (k, v) ->
                 val action = runCatching { KeyAction.valueOf(k) }.getOrNull() ?: return@mapNotNull null
                 val code = v.toIntOrNull() ?: return@mapNotNull null
                 action to code
             }.toMap()
 
-        fun encodeKeyBindings(map: Map<KeyAction, Int>): Set<String> =
-            encodeMap(map.entries.associate { it.key.name to it.value.toString() })
+        fun encodeKeyBindings(map: Map<KeyAction, Int>): Map<String, String> =
+            map.entries.associate { it.key.name to it.value.toString() }
 
-        fun decodeFloatMap(set: Set<String>?): Map<String, Float> =
-            decodeMap(set).mapNotNull { (k, v) -> v.toFloatOrNull()?.let { k to it } }.toMap()
+        fun decodeFloatMap(map: Map<String, String>?): Map<String, Float> =
+            map.orEmpty().mapNotNull { (k, v) -> v.toFloatOrNull()?.let { k to it } }.toMap()
 
-        fun encodeFloatMap(map: Map<String, Float>): Set<String> =
-            encodeMap(map.mapValues { it.value.toString() })
+        fun encodeFloatMap(map: Map<String, Float>): Map<String, String> =
+            map.mapValues { it.value.toString() }
 
         fun decodeCustomLaunchers(s: String?): List<CustomLauncherPreset> = runCatching {
             if (s.isNullOrBlank()) return emptyList()
@@ -466,8 +458,8 @@ class UserStore(context: Context) {
         return UserData(
             favorites = this[K.favorites].orEmpty(),
             recents = this[K.recents]?.split('\n')?.filter { it.isNotEmpty() }.orEmpty(),
-            renames = decodeMap(this[K.renames]),
-            covers = decodeMap(this[K.covers]),
+            renames = this[K.renames].orEmpty(),
+            covers = this[K.covers].orEmpty(),
             hidden = this[K.hidden].orEmpty(),
             viewMode = enumOf(this[K.viewMode], ViewMode.Gallery),
             backgroundStyle = BackgroundStyle.fromName(this[K.background]),
@@ -486,7 +478,7 @@ class UserStore(context: Context) {
             showHeadset = this[K.showHeadset] ?: true,
             showAirplane = this[K.showAirplane] ?: true,
             showDnd = this[K.showDnd] ?: true,
-            platformLaunchers = decodeMap(this[K.platformLaunchers]),
+            platformLaunchers = this[K.platformLaunchers].orEmpty(),
             galleryAlign = enumOf(this[K.galleryAlign], GalleryAlign.Top),
             romDirs = decodeDirs(this[K.romDirs]),
             categories = effectiveCategories,
@@ -503,7 +495,7 @@ class UserStore(context: Context) {
                 publisher = this[K.metaShowPublisher] ?: true,
                 fileSize = this[K.metaShowFileSize] ?: false,
             ),
-            gameLaunchers = decodeMap(this[K.gameLaunchers]),
+            gameLaunchers = this[K.gameLaunchers].orEmpty(),
             showAndroidGames = this[K.showAndroidGames] ?: true,
             androidGamePackages = this[K.androidGamePackages].orEmpty(),
             excludedAndroidPackages = this[K.excludedAndroidPackages].orEmpty(),
@@ -557,12 +549,12 @@ class UserStore(context: Context) {
     }
 
     suspend fun saveGameEdits(id: String, name: String?, cover: String?) = store.edit { p ->
-        val renames = decodeMap(p[K.renames]).toMutableMap()
+        val renames = p[K.renames].orEmpty().toMutableMap()
         if (name.isNullOrBlank()) renames.remove(id) else renames[id] = name.trim()
-        p[K.renames] = encodeMap(renames)
-        val covers = decodeMap(p[K.covers]).toMutableMap()
+        p[K.renames] = renames
+        val covers = p[K.covers].orEmpty().toMutableMap()
         if (cover == null) covers.remove(id) else covers[id] = cover
-        p[K.covers] = encodeMap(covers)
+        p[K.covers] = covers
     }
 
     suspend fun hide(id: String) = store.edit { p ->
@@ -666,8 +658,8 @@ class UserStore(context: Context) {
         p[K.viewMode] = new.viewMode.name
         p[K.favorites] = new.favorites
         p[K.recents] = new.recents.joinToString("\n")
-        p[K.renames] = encodeMap(new.renames)
-        p[K.covers] = encodeMap(new.covers)
+        p[K.renames] = new.renames
+        p[K.covers] = new.covers
         p[K.hidden] = new.hidden
         p[K.background] = new.backgroundStyle.name
         p[K.showMetadata] = new.showMetadata
@@ -685,7 +677,7 @@ class UserStore(context: Context) {
         p[K.showHeadset] = new.showHeadset
         p[K.showAirplane] = new.showAirplane
         p[K.showDnd] = new.showDnd
-        p[K.platformLaunchers] = encodeMap(new.platformLaunchers)
+        p[K.platformLaunchers] = new.platformLaunchers
         p[K.galleryAlign] = new.galleryAlign.name
         p[K.romDirs] = encodeDirs(new.romDirs)
         p[K.categories] = encodeCategories(new.categories)
@@ -700,7 +692,7 @@ class UserStore(context: Context) {
         p[K.metaShowDeveloper] = new.metaDisplay.developer
         p[K.metaShowPublisher] = new.metaDisplay.publisher
         p[K.metaShowFileSize] = new.metaDisplay.fileSize
-        p[K.gameLaunchers] = encodeMap(new.gameLaunchers)
+        p[K.gameLaunchers] = new.gameLaunchers
         p[K.showAndroidGames] = new.showAndroidGames
         p[K.androidGamePackages] = new.androidGamePackages
         p[K.excludedAndroidPackages] = new.excludedAndroidPackages

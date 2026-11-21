@@ -164,6 +164,8 @@ object ArchiveManager {
         onProgress: (count: Int, entryName: String, bytesDone: Long) -> Unit = { _, _, _ -> },
         isCancelled: () -> Boolean = { false },
         onBytesProgress: (entryName: String, bytesDone: Long, totalBytes: Long) -> Unit = { _, _, _ -> },
+        overwriteExisting: Boolean = true,
+        skipHiddenEntries: Boolean = false,
     ): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
             if (!destDir.exists()) check(destDir.mkdirs()) { "Cannot create directory ${destDir.path}" }
@@ -184,7 +186,13 @@ object ArchiveManager {
                 }
             }
 
+            fun isHiddenEntry(entryName: String): Boolean =
+                entryName.replace('\\', '/').split('/').any { seg ->
+                    seg.isNotEmpty() && seg != "." && seg != ".." && seg.startsWith(".")
+                }
+
             fun resolveSafeTarget(entryName: String): File {
+                require('\u0000' !in entryName) { "Unsafe archive path: $entryName" }
                 val normalized = entryName.replace('\\', '/').trimStart('/')
                 val target = File(destDir, normalized)
                 val targetCanon = target.canonicalPath
@@ -194,8 +202,20 @@ object ArchiveManager {
                 return target
             }
 
-            fun copyStreamChecked(input: InputStream, target: File, entryName: String) {
+            fun resolveOutputTarget(rawTarget: File): File {
+                if (overwriteExisting || !rawTarget.exists()) return rawTarget
+                val parent = rawTarget.parentFile ?: destDir
+                val nonClobber = uniqueFile(parent, rawTarget.name)
+                val canon = nonClobber.canonicalPath
+                require(canon == destCanon || canon.startsWith("$destCanon${File.separator}")) {
+                    "Unsafe archive target: ${nonClobber.name}"
+                }
+                return nonClobber
+            }
+
+            fun copyStreamChecked(input: InputStream, rawTarget: File, entryName: String) {
                 require(count <= MAX_EXTRACT_FILES) { "Too many archive entries (limit $MAX_EXTRACT_FILES)" }
+                val target = resolveOutputTarget(rawTarget)
                 target.parentFile?.mkdirs()
                 val buf = ByteArray(64 * 1024)
                 target.outputStream().use { out ->
@@ -220,6 +240,7 @@ object ArchiveManager {
                             if (isCancelled()) error("Cancelled")
                             val e = en.nextElement()
                             val target = resolveSafeTarget(e.name)
+                            if (skipHiddenEntries && isHiddenEntry(e.name)) continue
                             if (e.isDirectory) {
                                 target.mkdirs()
                             } else {
@@ -236,13 +257,15 @@ object ArchiveManager {
                         while (true) {
                             if (isCancelled()) error("Cancelled")
                             val e = sz.nextEntry ?: break
-                            val target = resolveSafeTarget(e.name)
+                            val safeTarget = resolveSafeTarget(e.name)
+                            if (skipHiddenEntries && isHiddenEntry(e.name)) continue
                             if (e.isDirectory) {
-                                target.mkdirs()
+                                safeTarget.mkdirs()
                             } else {
                                 count++
                                 require(count <= MAX_EXTRACT_FILES) { "Too many archive entries" }
                                 reportProgress(e.name, force = true)
+                                val target = resolveOutputTarget(safeTarget)
                                 target.parentFile?.mkdirs()
                                 target.outputStream().use { out ->
                                     val buf = ByteArray(64 * 1024)
@@ -267,9 +290,10 @@ object ArchiveManager {
                             if (isCancelled()) error("Cancelled")
                             val fh = rar.nextFileHeader() ?: break
                             val cleanName = fh.fileName.replace('\\', '/')
-                            val target = resolveSafeTarget(cleanName)
+                            val safeTarget = resolveSafeTarget(cleanName)
+                            if (skipHiddenEntries && isHiddenEntry(cleanName)) continue
                             if (fh.isDirectory) {
-                                target.mkdirs()
+                                safeTarget.mkdirs()
                             } else {
                                 count++
                                 require(count <= MAX_EXTRACT_FILES) { "Too many archive entries" }
@@ -277,6 +301,7 @@ object ArchiveManager {
                                     "Extracted archive exceeds safety size limit"
                                 }
                                 reportProgress(cleanName, force = true)
+                                val target = resolveOutputTarget(safeTarget)
                                 target.parentFile?.mkdirs()
                                 try {
                                     target.outputStream().use { rawOut ->
@@ -311,6 +336,7 @@ object ArchiveManager {
                             val e = tis.nextEntry ?: break
                             if (e.isSymbolicLink || e.isLink) continue
                             val target = resolveSafeTarget(e.name)
+                            if (skipHiddenEntries && isHiddenEntry(e.name)) continue
                             if (e.isDirectory) {
                                 target.mkdirs()
                             } else {
@@ -324,20 +350,22 @@ object ArchiveManager {
                 lower.endsWith(".gz") || lower.endsWith(".bz2") || lower.endsWith(".xz") -> {
                     val outName = file.nameWithoutExtension.ifBlank { "${file.name}.out" }
                     val target = resolveSafeTarget(outName)
-                    count = 1
-                    reportProgress(outName, force = true)
-                    val base = BufferedInputStream(FileInputStream(file), 64 * 1024)
-                    val comp: InputStream = try {
-                        when {
-                            lower.endsWith(".gz") -> GzipCompressorInputStream(base)
-                            lower.endsWith(".bz2") -> BZip2CompressorInputStream(base)
-                            else -> XZCompressorInputStream(base)
+                    if (!skipHiddenEntries || !isHiddenEntry(outName)) {
+                        count = 1
+                        reportProgress(outName, force = true)
+                        val base = BufferedInputStream(FileInputStream(file), 64 * 1024)
+                        val comp: InputStream = try {
+                            when {
+                                lower.endsWith(".gz") -> GzipCompressorInputStream(base)
+                                lower.endsWith(".bz2") -> BZip2CompressorInputStream(base)
+                                else -> XZCompressorInputStream(base)
+                            }
+                        } catch (t: Throwable) {
+                            runCatching { base.close() }
+                            throw t
                         }
-                    } catch (t: Throwable) {
-                        runCatching { base.close() }
-                        throw t
+                        comp.use { copyStreamChecked(it, target, outName) }
                     }
-                    comp.use { copyStreamChecked(it, target, outName) }
                 }
                 else -> error("Unsupported archive format")
             }

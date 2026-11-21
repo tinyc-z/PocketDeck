@@ -28,6 +28,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okio.Path.Companion.toOkioPath
 
 /** 防止 SupervisorJob 根协程内未捕获异常沿线程 UncaughtExceptionHandler 击穿进程。 */
@@ -41,10 +42,17 @@ class AppContainer(app: Application) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + safeCoroutineHandler("PocketDeckApp"))
     val userStore = UserStore(app)
     val scraperClient = ScraperClient(app)
-    val repository = GameRepository(app, userStore, appScope)
+    val repository = GameRepository(app, userStore, appScope, scraperClient.database)
     val covers = CoverSource(app, appScope, scraperClient)
     val metadata = MetadataRepository(app, appScope, scraperClient)
     val lanManager = LanServerManager(app, userStore, repository, covers, metadata, appScope)
+
+    init {
+        appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.delay(5_000L)
+            scraperClient.database.pruneExpired()
+        }
+    }
 }
 
 class PocketDeckApp : Application(), SingletonImageLoader.Factory {

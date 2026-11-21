@@ -71,6 +71,7 @@ class GameRepository(
     private val context: Context,
     private val userStore: UserStore,
     private val scope: CoroutineScope,
+    private val scrapeDb: ScrapeDatabase? = null,
 ) {
     private val scanned = MutableStateFlow<Library?>(null)
     private val _scanning = MutableStateFlow(false)
@@ -488,8 +489,10 @@ class GameRepository(
             }
             if (wasDir) {
                 userStore.migratePathPrefix(file.path, target.path)
+                scrapeDb?.migratePathPrefix(file.path, target.path)
             } else {
                 userStore.migrateGameId(file.path, target.path)
+                scrapeDb?.migrateGameId(file.path, target.path)
             }
             target
         }.also {
@@ -626,8 +629,10 @@ class GameRepository(
         }
         if (wasDir) {
             userStore.migratePathPrefix(entry.path, target.path)
+            scrapeDb?.migratePathPrefix(entry.path, target.path)
         } else {
             userStore.migrateGameId(entry.path, target.path)
+            scrapeDb?.migrateGameId(entry.path, target.path)
         }
         return target
     }
@@ -892,6 +897,8 @@ class GameRepository(
         clientIp: String = "",
         onProgress: (count: Int, entryName: String, bytesDone: Long) -> Unit = { _, _, _ -> },
         isCancelled: () -> Boolean = { false },
+        overwriteExisting: Boolean = true,
+        skipHiddenEntries: Boolean = false,
     ): Result<Int> {
         val task = beginFileTask(
             kind = FileTaskKind.Extract,
@@ -910,6 +917,8 @@ class GameRepository(
                 onBytesProgress = { entryName, bytesDone, totalBytes ->
                     updateFileTask(task.id, detail = entryName, bytesDone = bytesDone, totalBytes = totalBytes)
                 },
+                overwriteExisting = overwriteExisting,
+                skipHiddenEntries = skipHiddenEntries,
             )
             if (res.isSuccess) {
                 notifyFilesChanged()
@@ -997,9 +1006,11 @@ class GameRepository(
         if (wasDir) {
             check(entry.deleteRecursively()) { "Failed to delete folder" }
             userStore.removePathPrefix(entry.path)
+            scrapeDb?.deletePathPrefix(entry.path)
         } else {
             check(entry.delete()) { "Failed to delete file" }
             userStore.removeGameData(entry.path)
+            scrapeDb?.deleteGameData(entry.path)
         }
     }
 }

@@ -8,14 +8,16 @@ private val CONTROL_CHARS_REGEX = Regex("""[\u0000-\u001F\u007F]""")
 /** 将平台名/缓存键规范为仅含 `[a-zA-Z0-9._-]` 的安全文件名。 */
 internal fun sanitizeFileKey(name: String): String = name.replace(SAFE_KEY_REGEX, "_")
 
-/** 校验并清洗外部传入的单段文件名（拦截 `.`、`..`、路径分隔符与空字符）。 */
+/** 校验并清洗外部传入的单段文件名（拦截 `.`、`..`、路径分隔符、控制字符及可选隐藏 `.` 前缀）。 */
 internal fun sanitizeUploadFileName(
     raw: String,
     stripControlChars: Boolean = false,
     maxLength: Int = Int.MAX_VALUE,
+    allowDotPrefix: Boolean = true,
 ): String? {
     val cleaned = (if (stripControlChars) raw.replace(CONTROL_CHARS_REGEX, "") else raw).trim()
     if (cleaned.isEmpty() || cleaned.length > maxLength || cleaned == "." || cleaned == "..") return null
+    if (!allowDotPrefix && cleaned.startsWith(".")) return null
     if ('/' in cleaned || '\\' in cleaned || '\u0000' in cleaned) return null
     return cleaned
 }

@@ -29,6 +29,7 @@ internal class PrefsKey<T : Any>(val name: String)
 internal fun booleanPrefsKey(name: String) = PrefsKey<Boolean>(name)
 internal fun stringPrefsKey(name: String) = PrefsKey<String>(name)
 internal fun stringSetPrefsKey(name: String) = PrefsKey<Set<String>>(name)
+internal fun stringMapPrefsKey(name: String) = PrefsKey<Map<String, String>>(name)
 
 internal class PrefsSnapshot(private val values: Map<String, Any>) {
     @Suppress("UNCHECKED_CAST")
@@ -136,6 +137,7 @@ internal class LocalPrefsStore(
     }
 
     companion object {
+        internal const val SCHEMA_VERSION = 1
         private val instances = ConcurrentHashMap<String, LocalPrefsStore>()
 
         fun forUserPrefs(context: Context): LocalPrefsStore {
@@ -151,6 +153,7 @@ internal class LocalPrefsStore(
             val booleans = JSONObject()
             val strings = JSONObject()
             val stringSets = JSONObject()
+            val stringMaps = JSONObject()
             for ((k, v) in map) {
                 when (v) {
                     is Boolean -> booleans.put(k, v)
@@ -162,12 +165,21 @@ internal class LocalPrefsStore(
                         }
                         stringSets.put(k, arr)
                     }
+                    is Map<*, *> -> {
+                        val obj = JSONObject()
+                        for ((mk, mv) in v) {
+                            if (mk is String && mv is String) obj.put(mk, mv)
+                        }
+                        stringMaps.put(k, obj)
+                    }
                 }
             }
             return JSONObject()
+                .put("v", SCHEMA_VERSION)
                 .put("b", booleans)
                 .put("s", strings)
                 .put("ss", stringSets)
+                .put("m", stringMaps)
                 .toString()
         }
 
@@ -199,6 +211,20 @@ internal class LocalPrefsStore(
                         set.add(arr.getString(i))
                     }
                     out[k] = set
+                }
+            }
+            root.optJSONObject("m")?.let { obj ->
+                val it = obj.keys()
+                while (it.hasNext()) {
+                    val k = it.next()
+                    val sub = obj.optJSONObject(k) ?: continue
+                    val m = LinkedHashMap<String, String>(sub.length() * 2)
+                    val mkIt = sub.keys()
+                    while (mkIt.hasNext()) {
+                        val mk = mkIt.next()
+                        m[mk] = sub.getString(mk)
+                    }
+                    out[k] = m
                 }
             }
             return out

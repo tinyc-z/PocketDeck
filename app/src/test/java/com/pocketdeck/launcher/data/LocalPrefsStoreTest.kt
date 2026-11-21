@@ -107,17 +107,18 @@ class LocalPrefsStoreTest {
     }
 
     @Test
-    fun `json codec round-trips booleans strings nul-separated maps and sets`() {
+    fun `json codec round-trips booleans strings maps and sets with schema version`() {
         val original: Map<String, Any> = linkedMapOf(
             "show_metadata" to true,
             "reduce_motion" to false,
             "theme" to "Dark",
             "empty" to "",
             "rom_dirs" to "1\t/storage/emulated/0/ROMs\n0\t/storage/sdcard/Games",
-            "renames" to setOf("/roms/gba/a.gba\u0000口袋妖怪", "/roms/nes/b.nes\u0000魂斗罗"),
-            "favorites" to emptySet<String>(),
+            "renames" to linkedMapOf("/roms/gba/a.gba" to "口袋妖怪", "/roms/nes/b.nes" to "魂斗罗"),
+            "favorites" to setOf("/roms/gba/a.gba", "/roms/nes/b.nes"),
         )
         val json = LocalPrefsStore.encodeJson(original)
+        assertTrue(json.contains("\"v\":1"))
         val restored = LocalPrefsStore.decodeJson(json)
         assertEquals(original, restored)
     }

@@ -21,7 +21,6 @@ import com.pocketdeck.launcher.data.ThemeAccent
 import com.pocketdeck.launcher.data.UserData
 import com.pocketdeck.launcher.data.detectImageFormat
 import com.pocketdeck.launcher.data.listExternalStorageVolumes
-import com.pocketdeck.launcher.data.sanitizeUploadFileName
 import com.pocketdeck.launcher.data.uniqueFile
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.safeCoroutineHandler
@@ -1886,7 +1885,7 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"invalid_platform"}""")
             return
         }
-        val cleanName = sanitizeUploadFileName(rawName)
+        val cleanName = WebFileSecurity.sanitizeWebFileName(rawName)
         if (cleanName == null) {
             res.sendJson(400, """{"ok":false,"error":"invalid_file_name"}""")
             return
@@ -2557,6 +2556,10 @@ class WebManagerServer(
             res.sendJson(404, """{"ok":false,"error":"not_found"}""")
             return
         }
+        if (!WebFileSecurity.isEditableWebTextFile(file, content)) {
+            res.sendJson(403, """{"ok":false,"error":"forbidden_file_type"}""")
+            return
+        }
         val ok = runCatching { file.writeText(content, StandardCharsets.UTF_8) }.isSuccess
         if (ok) {
             repo.notifyFilesChanged()
@@ -2615,11 +2618,19 @@ class WebManagerServer(
             }
             candidate
         }
+        val overwriteExisting = mode != "here"
         val clientIp = req.remoteIp
         val isAsync = req.query["async"] == "1"
         if (isAsync) {
             repo.launchFileTask {
-                repo.extractArchive(file, destDir, source = FileTaskSource.Web, clientIp = clientIp)
+                repo.extractArchive(
+                    file = file,
+                    destDir = destDir,
+                    source = FileTaskSource.Web,
+                    clientIp = clientIp,
+                    overwriteExisting = overwriteExisting,
+                    skipHiddenEntries = true,
+                )
             }
             res.sendJson(
                 202,
@@ -2631,7 +2642,14 @@ class WebManagerServer(
             )
             return
         }
-        val result = repo.extractArchive(file, destDir, source = FileTaskSource.Web, clientIp = clientIp)
+        val result = repo.extractArchive(
+            file = file,
+            destDir = destDir,
+            source = FileTaskSource.Web,
+            clientIp = clientIp,
+            overwriteExisting = overwriteExisting,
+            skipHiddenEntries = true,
+        )
         if (result.isSuccess) {
             res.sendJson(
                 200,
@@ -2656,7 +2674,7 @@ class WebManagerServer(
         val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
         val pathsArr = body?.optJSONArray("paths")
         val targetDirPath = body?.optString("targetDir", "").orEmpty()
-        val rawZipName = sanitizeUploadFileName(body?.optString("zipName", "").orEmpty())
+        val rawZipName = WebFileSecurity.sanitizeWebFileName(body?.optString("zipName", "").orEmpty())
         val roots = repo.configuredRoots()
         val targetDir = resolveAllowedDir(targetDirPath, roots)
         if (pathsArr == null || targetDir == null || rawZipName == null) {
@@ -2710,14 +2728,14 @@ class WebManagerServer(
             res.sendJson(403, """{"ok":false,"error":"invalid_dir"}""")
             return
         }
-        val cleanName = sanitizeUploadFileName(rawName)
+        val cleanName = WebFileSecurity.sanitizeWebFileName(rawName)
         if (cleanName == null) {
             res.sendJson(400, """{"ok":false,"error":"invalid_file_name"}""")
             return
         }
         val targetDir = if (rawSubpath.isNotEmpty()) {
             val segments = rawSubpath.replace('\\', '/').split('/').filter { it.isNotEmpty() }
-            if (segments.size > 16 || segments.any { sanitizeUploadFileName(it) == null }) {
+            if (segments.size > 16 || segments.any { WebFileSecurity.sanitizeWebFileName(it) == null }) {
                 res.sendJson(400, """{"ok":false,"error":"invalid_subpath"}""")
                 return
             }
@@ -2815,7 +2833,7 @@ class WebManagerServer(
     private suspend fun handleMkdir(req: HttpRequest, res: HttpResponseWriter) {
         val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
         val dirPath = body?.optString("dir", "").orEmpty()
-        val name = sanitizeUploadFileName(body?.optString("name", "").orEmpty())
+        val name = WebFileSecurity.sanitizeWebFileName(body?.optString("name", "").orEmpty())
         val roots = repo.configuredRoots()
         val parent = resolveAllowedDir(dirPath, roots)
         if (parent == null || name == null) {
@@ -2836,36 +2854,34 @@ class WebManagerServer(
         res.sendJson(200, """{"ok":true}""")
     }
 
-    /** 批量安全创建平台子目录（只增不删、不覆盖已有文件），并可选注册为游戏根目录。 */
+    /** 批量安全创建平台子目录（只增不删、不覆盖已有文件），并可选注册为游戏根目录（禁止越权注册存储卷根目录或敏感系统目录）。 */
     private suspend fun handleAutoCreatePlatforms(req: HttpRequest, res: HttpResponseWriter) {
         val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
         val dirPath = body?.optString("dir", "").orEmpty().trim()
         val rawParent = body?.optString("parentName", "").orEmpty().trim()
         val addAsRomRoot = body?.optBoolean("addAsRomRoot", true) ?: true
         val platArr = body?.optJSONArray("platforms")
-        val roots = repo.configuredRoots()
-        val storageRoots = buildList {
-            addAll(roots)
-            runCatching { Environment.getExternalStorageDirectory() }.getOrNull()?.takeIf { it.isDirectory }?.let(::add)
-            listExternalStorageVolumes(context, includeExternalFilesDirs = false).forEach { add(it.dir) }
-        }
-        val baseDir = if (dirPath.isNotEmpty()) {
-            resolveAllowedDir(dirPath, storageRoots)
-        } else {
-            runCatching { Environment.getExternalStorageDirectory() }.getOrNull()?.takeIf { it.isDirectory }
-                ?: roots.firstOrNull { it.isDirectory }
-        }
-        if (baseDir == null || platArr == null || platArr.length() == 0) {
+        if (platArr == null || platArr.length() == 0) {
             res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
             return
         }
-        val cleanParent = if (rawParent.isEmpty()) {
-            null
-        } else {
-            sanitizeUploadFileName(rawParent) ?: run {
-                res.sendJson(400, """{"ok":false,"error":"invalid_parent_name"}""")
+        val roots = repo.configuredRoots()
+        val volumeRoots = buildList {
+            runCatching { Environment.getExternalStorageDirectory() }.getOrNull()?.takeIf { it.isDirectory }?.let(::add)
+            listExternalStorageVolumes(context, includeExternalFilesDirs = false).forEach { add(it.dir) }
+        }
+        val targetDecision = WebFileSecurity.resolveAutoCreateTarget(
+            dirPath = dirPath,
+            parentName = rawParent,
+            romRoots = roots,
+            volumeRoots = volumeRoots,
+        )
+        val (targetRoot, allowAddAsRomRoot) = when (targetDecision) {
+            is WebFileSecurity.AutoCreateTargetResult.Error -> {
+                res.sendJson(targetDecision.httpStatus, """{"ok":false,"error":"${targetDecision.code}"}""")
                 return
             }
+            is WebFileSecurity.AutoCreateTargetResult.Ok -> targetDecision.targetRoot to targetDecision.allowAddAsRomRoot
         }
         val knownIds = PlatformCatalog.known.asSequence()
             .map { it.id }
@@ -2880,7 +2896,6 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"no_valid_platforms"}""")
             return
         }
-        val targetRoot = if (cleanParent == null) baseDir else File(baseDir, cleanParent)
         if (targetRoot.exists() && !targetRoot.isDirectory) {
             res.sendJson(409, """{"ok":false,"error":"target_is_file"}""")
             return
@@ -2900,7 +2915,7 @@ class WebManagerServer(
                 created++
             }
         }
-        if (addAsRomRoot) {
+        if (addAsRomRoot && allowAddAsRomRoot) {
             val targetPath = targetRoot.absolutePath
             repo.updatePrefs { u ->
                 val base = if (u.romDirs.isEmpty()) {
@@ -2928,7 +2943,7 @@ class WebManagerServer(
     private suspend fun handleFileRename(req: HttpRequest, res: HttpResponseWriter) {
         val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
         val path = body?.optString("path", "").orEmpty()
-        val newName = sanitizeUploadFileName(body?.optString("newName", "").orEmpty())
+        val newName = WebFileSecurity.sanitizeWebFileName(body?.optString("newName", "").orEmpty())
         val roots = repo.configuredRoots()
         val file = resolveAllowedFile(path, roots)
         if (file == null || newName == null || !file.exists()) {

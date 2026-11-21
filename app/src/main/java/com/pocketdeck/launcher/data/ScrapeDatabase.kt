@@ -4,14 +4,22 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.util.Log
 import com.pocketdeck.launcher.data.model.GameMetadata
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
- * 统一的 WAL SQLite 刮削缓存库，取代：
- * - `cover_index_v3` SharedPreferences（消除每加载一张封面都全量重写 XML 的写放大）
- * - `scraper_api/` 下数万个小 JSON 文件（消除文件系统 inode 与遍历开销）
- * - 每次冷启动重复计算 ROM CRC32/SHA1/Serial 的 I/O
+ * 统一的 WAL SQLite 刮削缓存库：
+ * - `cover_cache`：封面 URL 与命中来源缓存（支持 `extra_json` 扩展列）
+ * - `scrape_cache`：第三方 API 刮削结果缓存（核心字段独立列 + `extra_json` 扩展列，含 `matchedBySerial` 等）
+ * - `rom_identity`：ROM 文件 CRC32 / SHA1 / Serial 指纹缓存（带 `updated_at_ms` 审计/清理时间戳）
+ *
+ * 升级与容错设计：
+ * - 库名不带版本号（`scrape_cache.db`），通过 [DB_VERSION] + 渐进式 [onUpgrade] 演进；
+ * - 覆写 [onDowngrade]，降级安装时作为纯缓存库安全清表重建，不崩溃；
+ * - 路径迁移/删除 API 与 `UserStore` 同步，避免 ROM 移动/删库残留孤儿行；
+ * - 异常写入 `Log.w` 留审计线索，不静默吞错。
  */
 class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     context.applicationContext,
@@ -61,7 +69,8 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                 provider TEXT,
                 match_mode TEXT,
                 failed_until_ms INTEGER NOT NULL DEFAULT 0,
-                updated_at_ms INTEGER NOT NULL DEFAULT 0
+                updated_at_ms INTEGER NOT NULL DEFAULT 0,
+                extra_json TEXT
             )
             """.trimIndent(),
         )
@@ -76,6 +85,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                 developer TEXT,
                 publisher TEXT,
                 cover_urls TEXT,
+                extra_json TEXT,
                 status INTEGER NOT NULL,
                 expires_at_ms INTEGER NOT NULL,
                 updated_at_ms INTEGER NOT NULL,
@@ -83,9 +93,8 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
             )
             """.trimIndent(),
         )
-        db.execSQL(
-            "CREATE INDEX IF NOT EXISTS idx_scrape_cache_game ON scrape_cache(game_id)",
-        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_scrape_cache_game ON scrape_cache(game_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_scrape_cache_expires ON scrape_cache(expires_at_ms)")
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS rom_identity (
@@ -94,19 +103,51 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                 mtime INTEGER NOT NULL,
                 crc32 TEXT,
                 sha1 TEXT,
-                serial TEXT
+                serial TEXT,
+                updated_at_ms INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
         )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // 后续版本在此按序追加渐进式 ALTER TABLE 迁移：
+        // if (oldVersion < 2) { ... }
+        Log.i(TAG, "Upgrading scrape_cache.db from v$oldVersion to v$newVersion")
+        runCatching {
+            onCreate(db)
+        }.onFailure { err ->
+            Log.w(TAG, "Upgrade failed (v$oldVersion -> v$newVersion), rebuilding cache tables", err)
+            rebuildAllTables(db)
+        }
+    }
+
+    override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        Log.w(TAG, "Downgrading scrape_cache.db from v$oldVersion to v$newVersion, rebuilding cache tables")
+        rebuildAllTables(db)
+    }
+
+    private fun rebuildAllTables(db: SQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS cover_cache")
+        db.execSQL("DROP TABLE IF EXISTS scrape_cache")
+        db.execSQL("DROP TABLE IF EXISTS rom_identity")
         onCreate(db)
+    }
+
+    private inline fun <T> safeDb(op: String, fallback: T, block: () -> T): T =
+        runCatching(block).onFailure { err ->
+            Log.w(TAG, "SQLite $op failed: ${err.message}")
+        }.getOrDefault(fallback)
+
+    private inline fun safeDbUnit(op: String, block: () -> Unit) {
+        runCatching(block).onFailure { err ->
+            Log.w(TAG, "SQLite $op failed: ${err.message}")
+        }
     }
 
     // ───────────────────────── cover_cache ─────────────────────────
 
-    fun loadAllCovers(): List<CoverRow> = runCatching {
+    fun loadAllCovers(): List<CoverRow> = safeDb("loadAllCovers", emptyList()) {
         val db = readableDatabase
         val out = ArrayList<CoverRow>(512)
         db.rawQuery(
@@ -125,10 +166,10 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
             }
         }
         out
-    }.getOrDefault(emptyList())
+    }
 
     fun putCoverSuccess(gameId: String, url: String, provider: String?, matchMode: String?) {
-        runCatching {
+        safeDbUnit("putCoverSuccess") {
             val cv = ContentValues(6).apply {
                 put("game_id", gameId)
                 put("url", url)
@@ -142,7 +183,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun putCoverFailure(gameId: String, failedUntilMs: Long) {
-        runCatching {
+        safeDbUnit("putCoverFailure") {
             val cv = ContentValues(6).apply {
                 put("game_id", gameId)
                 putNull("url")
@@ -156,14 +197,14 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun deleteCover(gameId: String) {
-        runCatching {
+        safeDbUnit("deleteCover") {
             writableDatabase.delete("cover_cache", "game_id = ?", arrayOf(gameId))
         }
     }
 
     fun clearCoverFailures(gameIds: Collection<String>) {
         if (gameIds.isEmpty()) return
-        runCatching {
+        safeDbUnit("clearCoverFailures") {
             val db = writableDatabase
             db.beginTransaction()
             try {
@@ -181,16 +222,20 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun clearAllCoverFailures() {
-        runCatching { writableDatabase.delete("cover_cache", "url IS NULL", null) }
+        safeDbUnit("clearAllCoverFailures") {
+            writableDatabase.delete("cover_cache", "url IS NULL", null)
+        }
     }
 
     fun clearCovers() {
-        runCatching { writableDatabase.delete("cover_cache", null, null) }
+        safeDbUnit("clearCovers") {
+            writableDatabase.delete("cover_cache", null, null)
+        }
     }
 
     fun bulkImportLegacyCovers(rows: List<CoverRow>) {
         if (rows.isEmpty()) return
-        runCatching {
+        safeDbUnit("bulkImportLegacyCovers") {
             val db = writableDatabase
             db.beginTransaction()
             try {
@@ -215,18 +260,18 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     // ───────────────────────── scrape_cache ─────────────────────────
 
     fun getScrapeHit(providerId: String, gameId: String, nowMs: Long = System.currentTimeMillis()): ScrapeCacheRow? =
-        runCatching {
+        safeDb("getScrapeHit", null) {
             readableDatabase.rawQuery(
                 """
-                SELECT official_name, release_date, genre, developer, publisher, cover_urls, status, expires_at_ms
+                SELECT official_name, release_date, genre, developer, publisher, cover_urls, extra_json, status, expires_at_ms
                 FROM scrape_cache
                 WHERE provider_id = ? AND game_id = ?
                 """.trimIndent(),
                 arrayOf(providerId, gameId),
             ).use { c ->
-                if (!c.moveToFirst()) return@runCatching null
-                val expires = c.getLong(7)
-                if (expires > 0L && expires < nowMs) return@runCatching null
+                if (!c.moveToFirst()) return@safeDb null
+                val expires = c.getLong(8)
+                if (expires > 0L && expires < nowMs) return@safeDb null
                 val urlsRaw = if (c.isNull(5)) null else c.getString(5)
                 val urls = ArrayList<String>()
                 if (!urlsRaw.isNullOrBlank()) {
@@ -236,6 +281,10 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                         if (u.isNotBlank()) urls += u
                     }
                 }
+                val extraRaw = if (c.isNull(6)) null else c.getString(6)
+                val matchedBySerial = if (!extraRaw.isNullOrBlank()) {
+                    runCatching { JSONObject(extraRaw).optBoolean("matchedBySerial", false) }.getOrDefault(false)
+                } else false
                 val hit = ScrapeHit(
                     officialName = if (c.isNull(0)) null else c.getString(0).takeIf { it.isNotBlank() },
                     meta = GameMetadata(
@@ -245,10 +294,11 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                         publisher = if (c.isNull(4)) null else c.getString(4).takeIf { it.isNotBlank() },
                     ),
                     coverUrls = urls,
+                    matchedBySerial = matchedBySerial,
                 )
-                ScrapeCacheRow(hit = hit, status = c.getInt(6), expiresAtMs = expires)
+                ScrapeCacheRow(hit = hit, status = c.getInt(7), expiresAtMs = expires)
             }
-        }.getOrNull()
+        }
 
     fun putScrapeHit(
         providerId: String,
@@ -257,8 +307,13 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         status: Int,
         expiresAtMs: Long,
     ) {
-        runCatching {
-            val cv = ContentValues(11).apply {
+        safeDbUnit("putScrapeHit") {
+            val extraJson = if (hit.matchedBySerial) {
+                JSONObject().put("matchedBySerial", true).toString()
+            } else {
+                null
+            }
+            val cv = ContentValues(12).apply {
                 put("provider_id", providerId)
                 put("game_id", gameId)
                 put("official_name", hit.officialName)
@@ -267,6 +322,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                 put("developer", hit.meta.developer)
                 put("publisher", hit.meta.publisher)
                 put("cover_urls", if (hit.coverUrls.isEmpty()) "" else JSONArray(hit.coverUrls).toString())
+                if (extraJson != null) put("extra_json", extraJson) else putNull("extra_json")
                 put("status", status)
                 put("expires_at_ms", expiresAtMs)
                 put("updated_at_ms", System.currentTimeMillis())
@@ -276,46 +332,151 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     fun clearScrapeCache() {
-        runCatching { writableDatabase.delete("scrape_cache", null, null) }
+        safeDbUnit("clearScrapeCache") {
+            writableDatabase.delete("scrape_cache", null, null)
+        }
     }
 
     // ───────────────────────── rom_identity ─────────────────────────
 
-    fun getRomIdentity(path: String, size: Long, mtime: Long): RomIdentityRow? = runCatching {
+    fun getRomIdentity(path: String, size: Long, mtime: Long): RomIdentityRow? = safeDb("getRomIdentity", null) {
         readableDatabase.rawQuery(
             "SELECT size, mtime, crc32, sha1, serial FROM rom_identity WHERE path = ?",
             arrayOf(path),
         ).use { c ->
-            if (!c.moveToFirst()) return@runCatching null
-            if (c.getLong(0) != size || c.getLong(1) != mtime) return@runCatching null
+            if (!c.moveToFirst()) return@safeDb null
+            if (c.getLong(0) != size || c.getLong(1) != mtime) return@safeDb null
             RomIdentityRow(
                 crc32 = if (c.isNull(2)) null else c.getString(2),
                 sha1 = if (c.isNull(3)) null else c.getString(3),
                 serial = if (c.isNull(4)) null else c.getString(4),
             )
         }
-    }.getOrNull()
+    }
 
     fun putRomIdentity(path: String, size: Long, mtime: Long, row: RomIdentityRow) {
-        runCatching {
-            val cv = ContentValues(6).apply {
+        safeDbUnit("putRomIdentity") {
+            val cv = ContentValues(7).apply {
                 put("path", path)
                 put("size", size)
                 put("mtime", mtime)
                 put("crc32", row.crc32)
                 put("sha1", row.sha1)
                 put("serial", row.serial)
+                put("updated_at_ms", System.currentTimeMillis())
             }
             writableDatabase.insertWithOnConflict("rom_identity", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
         }
     }
 
     fun clearRomIdentities() {
-        runCatching { writableDatabase.delete("rom_identity", null, null) }
+        safeDbUnit("clearRomIdentities") {
+            writableDatabase.delete("rom_identity", null, null)
+        }
     }
 
+    // ───────────────────────── 路径迁移与过期清理 ─────────────────────────
+
+    /** 单个 ROM 文件重命名或移动后，同步迁移 3 张表中的主键路径，避免残留孤儿行或重算哈希。 */
+    fun migrateGameId(oldId: String, newId: String) {
+        if (oldId == newId) return
+        safeDbUnit("migrateGameId") {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                db.execSQL("DELETE FROM cover_cache WHERE game_id = ?", arrayOf(newId))
+                db.execSQL("UPDATE cover_cache SET game_id = ? WHERE game_id = ?", arrayOf(newId, oldId))
+                db.execSQL("DELETE FROM scrape_cache WHERE game_id = ?", arrayOf(newId))
+                db.execSQL("UPDATE scrape_cache SET game_id = ? WHERE game_id = ?", arrayOf(newId, oldId))
+                db.execSQL("DELETE FROM rom_identity WHERE path = ?", arrayOf(newId))
+                db.execSQL("UPDATE rom_identity SET path = ? WHERE path = ?", arrayOf(newId, oldId))
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
+    /** 单个 ROM 文件被永久删除后，清理 3 张表中的关联缓存行。 */
+    fun deleteGameData(gameId: String) {
+        safeDbUnit("deleteGameData") {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                db.delete("cover_cache", "game_id = ?", arrayOf(gameId))
+                db.delete("scrape_cache", "game_id = ?", arrayOf(gameId))
+                db.delete("rom_identity", "path = ?", arrayOf(gameId))
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
+    /** 文件夹重命名或移动后，批量迁移前缀匹配的缓存路径。 */
+    fun migratePathPrefix(oldDir: String, newDir: String) {
+        val oldPrefix = if (oldDir.endsWith("/")) oldDir else "$oldDir/"
+        val newPrefix = if (newDir.endsWith("/")) newDir else "$newDir/"
+        if (oldPrefix == newPrefix) return
+        val prefixLenPlus1 = oldPrefix.length + 1
+        val likeArg = escapeLike(oldPrefix) + "%"
+        safeDbUnit("migratePathPrefix") {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                db.execSQL(
+                    "UPDATE OR REPLACE cover_cache SET game_id = ? || substr(game_id, ?) WHERE game_id LIKE ? ESCAPE '\\'",
+                    arrayOf(newPrefix, prefixLenPlus1, likeArg),
+                )
+                db.execSQL(
+                    "UPDATE OR REPLACE scrape_cache SET game_id = ? || substr(game_id, ?) WHERE game_id LIKE ? ESCAPE '\\'",
+                    arrayOf(newPrefix, prefixLenPlus1, likeArg),
+                )
+                db.execSQL(
+                    "UPDATE OR REPLACE rom_identity SET path = ? || substr(path, ?) WHERE path LIKE ? ESCAPE '\\'",
+                    arrayOf(newPrefix, prefixLenPlus1, likeArg),
+                )
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
+    /** 文件夹被删除后，批量清理前缀匹配的缓存行。 */
+    fun deletePathPrefix(dirPath: String) {
+        val prefix = if (dirPath.endsWith("/")) dirPath else "$dirPath/"
+        val likeArg = escapeLike(prefix) + "%"
+        safeDbUnit("deletePathPrefix") {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                db.execSQL("DELETE FROM cover_cache WHERE game_id LIKE ? ESCAPE '\\'", arrayOf(likeArg))
+                db.execSQL("DELETE FROM scrape_cache WHERE game_id LIKE ? ESCAPE '\\'", arrayOf(likeArg))
+                db.execSQL("DELETE FROM rom_identity WHERE path LIKE ? ESCAPE '\\'", arrayOf(likeArg))
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
+    /** 定期清理已过期的 `scrape_cache` 行与长期未更新的 `rom_identity` 孤儿行。 */
+    fun pruneExpired(nowMs: Long = System.currentTimeMillis()) {
+        safeDbUnit("pruneExpired") {
+            val db = writableDatabase
+            db.delete("scrape_cache", "expires_at_ms > 0 AND expires_at_ms < ?", arrayOf(nowMs.toString()))
+            val staleBefore = nowMs - TTL_ROM_IDENTITY_MS
+            db.delete("rom_identity", "updated_at_ms > 0 AND updated_at_ms < ?", arrayOf(staleBefore.toString()))
+        }
+    }
+
+    private fun escapeLike(raw: String): String =
+        raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
     companion object {
-        private const val DB_NAME = "scrape_cache_v1.db"
+        private const val TAG = "ScrapeDatabase"
+        private const val DB_NAME = "scrape_cache.db"
         private const val DB_VERSION = 1
 
         const val STATUS_HIT = 1
@@ -325,5 +486,6 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         const val TTL_HIT_MS = 30L * 24 * 60 * 60 * 1000L
         const val TTL_MISS_MS = 7L * 24 * 60 * 60 * 1000L
         const val TTL_ERROR_MS = 15L * 60 * 1000L
+        const val TTL_ROM_IDENTITY_MS = 90L * 24 * 60 * 60 * 1000L
     }
 }
