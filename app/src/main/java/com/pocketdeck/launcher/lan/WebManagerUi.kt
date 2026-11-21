@@ -1954,14 +1954,17 @@ function syncOpenDetailModal(g) {
   const nm = g.metadata || {};
   const nInfo = g.metaInfo || {};
   const setT = (eid, val) => { const n = el(eid); if (n) n.textContent = val; };
+  setT('mTitle', g.title);
   setT('detKvRelease', nm.releaseDate || '—');
   setT('detKvGenre', nm.genre || '—');
   setT('detKvDev', nm.developer || '—');
   setT('detKvPub', nm.publisher || '—');
   setT('detPath', (nInfo.crc32 ? 'CRC32 ' + nInfo.crc32 + ' · ' : '') + g.id);
   const coverBox = document.querySelector('#mBody .drawer-cover');
-  if (coverBox && g.hasCover) {
-    coverBox.innerHTML = _webCoverImgHtml(g, encodeURIComponent(g.id), { id: 'detCoverImg', titleFallback: true });
+  if (coverBox) {
+    coverBox.innerHTML = g.hasCover
+      ? _webCoverImgHtml(g, encodeURIComponent(g.id), { id: 'detCoverImg', titleFallback: true })
+      : '<span>' + esc(g.title) + '</span>';
   }
 }
 
@@ -2070,6 +2073,14 @@ function connectEventsSse() {
         syncOpenDetailModal(d.game);
       }
     } catch (_) {}
+  });
+  es.addEventListener('library_changed', () => {
+    lastAliveAt = Date.now();
+    loadGames();
+  });
+  es.addEventListener('categories_changed', () => {
+    lastAliveAt = Date.now();
+    loadCategories();
   });
   es.addEventListener('scrape_log', (e) => {
     lastAliveAt = Date.now();
@@ -2621,6 +2632,8 @@ function patchSingleGame(updatedGame, stats) {
       if (domNode) domNode.remove();
       if (!games.length) renderGames(); else renderGamesFooter();
     }
+  } else if (stillMatches) {
+    loadGames();
   }
 }
 

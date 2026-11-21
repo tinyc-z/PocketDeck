@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -524,6 +525,123 @@ class WebManagerServer(
                 if (activeSseCount.get() > 0) {
                     emitSse("scrape_log_cleared", "{}")
                 }
+            }
+        }
+        // 监听掌机端游戏库 / 封面 / 元数据 / 收藏 / 隐藏 / 重命名 / 分类变化，实时通过 SSE 同步到 Web 端
+        scope.launch {
+            data class GameSnap(
+                val title: String,
+                val customCover: String?,
+                val customCoverMod: Long,
+                val favorite: Boolean,
+                val hidden: Boolean,
+            )
+            fun buildSnaps(lib: com.pocketdeck.launcher.data.model.Library?, u: UserData?): Map<String, GameSnap> {
+                val games = lib?.byId?.values.orEmpty()
+                val favs = u?.favorites.orEmpty()
+                val hid = u?.hidden.orEmpty()
+                return HashMap<String, GameSnap>(games.size).apply {
+                    for (g in games) {
+                        val mod = g.customCover?.let { runCatching { File(it).lastModified() }.getOrDefault(0L) } ?: 0L
+                        put(g.id, GameSnap(g.title, g.customCover, mod, g.id in favs, g.id in hid))
+                    }
+                }
+            }
+            var prevSnaps = buildSnaps(repo.fullLibrary.value, repo.user.value)
+            var prevCats = repo.user.value?.categories
+            combine(repo.fullLibrary, repo.user) { lib, u -> lib to u }.drop(1).collect { (lib, u) ->
+                val curSnaps = buildSnaps(lib, u)
+                val curCats = u?.categories
+                if (activeSseCount.get() > 0 && lib != null) {
+                    if (curCats != prevCats) {
+                        emitSse("categories_changed", "{}")
+                    }
+                    val addedOrRemoved = curSnaps.keys != prevSnaps.keys
+                    if (addedOrRemoved) {
+                        emitSse("library_changed", "{}")
+                    } else {
+                        val changedIds = ArrayList<String>()
+                        for ((id, snap) in curSnaps) {
+                            if (prevSnaps[id] != snap) changedIds += id
+                        }
+                        if (changedIds.size > 16) {
+                            emitSse("library_changed", "{}")
+                        } else if (changedIds.isNotEmpty()) {
+                            val statsJson = buildGamesStatsJson()
+                            for (id in changedIds) {
+                                val g = lib.byId[id] ?: continue
+                                emitSse(
+                                    "game_updated",
+                                    JSONObject()
+                                        .put("game", gameToJson(g))
+                                        .put("stats", statsJson)
+                                        .toString(),
+                                )
+                            }
+                        }
+                    }
+                }
+                prevSnaps = curSnaps
+                prevCats = curCats
+            }
+        }
+        scope.launch {
+            var prev = covers.coverInfo.value
+            covers.coverInfo.drop(1).collect { cur ->
+                if (activeSseCount.get() > 0) {
+                    val lib = repo.fullLibrary.value
+                    val changed = ArrayList<String>()
+                    for ((id, info) in cur) {
+                        if (prev[id] != info) changed += id
+                    }
+                    for (id in prev.keys) {
+                        if (id !in cur) changed += id
+                    }
+                    if (changed.size > 16) {
+                        emitSse("library_changed", "{}")
+                    } else if (changed.isNotEmpty() && lib != null) {
+                        val statsJson = buildGamesStatsJson()
+                        for (id in changed) {
+                            val g = lib.byId[id] ?: continue
+                            emitSse(
+                                "game_updated",
+                                JSONObject()
+                                    .put("game", gameToJson(g))
+                                    .put("stats", statsJson)
+                                    .toString(),
+                            )
+                        }
+                    }
+                }
+                prev = cur
+            }
+        }
+        scope.launch {
+            var prev = metadataRepo.metadata.value
+            metadataRepo.metadata.drop(1).collect { cur ->
+                if (activeSseCount.get() > 0) {
+                    val lib = repo.fullLibrary.value
+                    val changed = ArrayList<String>()
+                    for ((id, meta) in cur) {
+                        if (prev[id] != meta) changed += id
+                    }
+                    if (changed.size > 16) {
+                        emitSse("library_changed", "{}")
+                    } else if (changed.isNotEmpty() && lib != null) {
+                        val statsJson = buildGamesStatsJson()
+                        for (id in changed) {
+                            val g = lib.byId[id] ?: continue
+                            emitSse(
+                                "game_updated",
+                                JSONObject()
+                                    .put("game", gameToJson(g))
+                                    .put("stats", statsJson)
+                                    .toString(),
+                            )
+                        }
+                    }
+                }
+                prev = cur
             }
         }
 
