@@ -1236,6 +1236,12 @@ class WebManagerServer(
         res.sendBytes(200, downloaded.second, downloaded.first)
     }
 
+    private suspend fun awaitUserSync(predicate: (UserData) -> Boolean) {
+        withTimeoutOrNull(500L) {
+            repo.user.first { u -> u != null && predicate(u) }
+        }
+    }
+
     private suspend fun handleGameRename(req: HttpRequest, res: HttpResponseWriter) {
         val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
         val id = body?.optString("id", "").orEmpty()
@@ -1245,8 +1251,15 @@ class WebManagerServer(
             return
         }
         val existingCover = repo.user.value?.covers?.get(id)
-        repo.saveGameEdits(id, title.ifBlank { null }, existingCover)
-        val fresh = repo.fullLibrary.value?.byId?.get(id)
+        val targetName = title.ifBlank { null }
+        repo.saveGameEdits(id, targetName, existingCover)
+        awaitUserSync { it.renames[id] == targetName }
+        val fresh = withTimeoutOrNull(500L) {
+            repo.fullLibrary.first { lib ->
+                val g = lib?.byId?.get(id) ?: return@first false
+                targetName == null || g.title == targetName
+            }?.byId?.get(id)
+        } ?: repo.fullLibrary.value?.byId?.get(id)
         val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
         if (fresh != null) root.put("game", gameToJson(fresh))
         res.sendJson(200, root.toString())
@@ -1261,6 +1274,7 @@ class WebManagerServer(
             return
         }
         if (hidden) repo.hide(id) else repo.unhide(id)
+        awaitUserSync { (id in it.hidden) == hidden }
         val fresh = repo.fullLibrary.value?.byId?.get(id)
         val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
         if (fresh != null) root.put("game", gameToJson(fresh))
@@ -1276,13 +1290,15 @@ class WebManagerServer(
         }
         val wantFav = if (body?.has("favorite") == true) body.optBoolean("favorite", true) else null
         val currentlyFav = id in repo.user.value?.favorites.orEmpty()
+        val targetFav = wantFav ?: !currentlyFav
         if (wantFav == null || wantFav != currentlyFav) {
             repo.toggleFavorite(id)
+            awaitUserSync { (id in it.favorites) == targetFav }
         }
         val fresh = repo.fullLibrary.value?.byId?.get(id)
         val root = JSONObject()
             .put("ok", true)
-            .put("favorite", wantFav ?: !currentlyFav)
+            .put("favorite", targetFav)
             .put("stats", buildGamesStatsJson())
         if (fresh != null) root.put("game", gameToJson(fresh))
         res.sendJson(200, root.toString())
@@ -1313,6 +1329,7 @@ class WebManagerServer(
                 },
             )
         }
+        awaitUserSync { u -> u.categories.all { c -> (id in c.games) == (c.id in wantedIds) } }
         val fresh = repo.fullLibrary.value?.byId?.get(id)
         val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
         if (fresh != null) root.put("game", gameToJson(fresh))
@@ -1333,8 +1350,14 @@ class WebManagerServer(
             return
         }
         when (parsed.action) {
-            "hide" -> repo.updatePrefs { u -> u.copy(hidden = u.hidden + validIds) }
-            "unhide" -> repo.updatePrefs { u -> u.copy(hidden = u.hidden - validIds.toSet()) }
+            "hide" -> {
+                repo.updatePrefs { u -> u.copy(hidden = u.hidden + validIds) }
+                awaitUserSync { u -> validIds.all { it in u.hidden } }
+            }
+            "unhide" -> {
+                repo.updatePrefs { u -> u.copy(hidden = u.hidden - validIds.toSet()) }
+                awaitUserSync { u -> validIds.none { it in u.hidden } }
+            }
             "setCategories" -> {
                 val wanted = parsed.categoryIds.toSet()
                 val idSet = validIds.toSet()
@@ -1345,6 +1368,7 @@ class WebManagerServer(
                         },
                     )
                 }
+                awaitUserSync { u -> u.categories.filter { it.id in wanted }.all { c -> idSet.all { it in c.games } } }
             }
             "rescrape" -> {
                 if (!NetworkStatus.isOnline(context)) {
