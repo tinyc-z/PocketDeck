@@ -112,6 +112,54 @@ import java.util.Locale
 /**
  * 顶栏：L1 徽标 | 可滚动标签行 | R1 徽标 | 时间 · 飞行模式 耳机 蓝牙 Wi-Fi 电池
  */
+/**
+ * 桌面状态栏与设置页头部共用的「后台刮削进度」胶囊：旋转图标 + 实时百分比，点击进入任务管理弹窗。
+ */
+@Composable
+fun ScrapeStatusPill(
+    percent: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val reduceMotion = LocalReduceMotion.current
+    val spinAngle = if (!reduceMotion) {
+        val inf = rememberInfiniteTransition(label = "scrape_spin")
+        val angle by inf.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1100, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "scrape_spin_angle",
+        )
+        angle
+    } else 0f
+    val accent = DeckColors.Ruby
+    Row(
+        modifier
+            .clip(DeckShapes.tabPill)
+            .background(DeckColors.AccentSoft)
+            .soundClickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        DeckIcon(
+            icon = DeckIcons.Refresh,
+            size = 12.dp,
+            tint = accent,
+            modifier = Modifier.graphicsLayer { rotationZ = spinAngle },
+        )
+        Text(
+            text = "$percent%",
+            style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold, fontSize = 10.5.sp),
+            color = accent,
+            maxLines = 1,
+        )
+    }
+}
+
 @Composable
 fun TopBar(
     tabs: List<String>,
@@ -496,43 +544,10 @@ fun TopBar(
         ) {
             // 后台刮削任务旋转图标 + 进度百分比胶囊（点击打开任务管理弹窗）
             if (scrapeRunning) {
-                val spinAngle = if (!reduceMotion) {
-                    val inf = rememberInfiniteTransition(label = "scrape_spin")
-                    val angle by inf.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 360f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(durationMillis = 1100, easing = LinearEasing),
-                            repeatMode = RepeatMode.Restart,
-                        ),
-                        label = "scrape_spin_angle",
-                    )
-                    angle
-                } else 0f
-                val scrapeAccent = DeckColors.Ruby
-                val scrapeBg = DeckColors.AccentSoft
-                Row(
-                    Modifier
-                        .clip(DeckShapes.tabPill)
-                        .background(scrapeBg)
-                        .soundClickable(onClick = onScrapeBadgeClick)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    DeckIcon(
-                        icon = DeckIcons.Refresh,
-                        size = 12.dp,
-                        tint = scrapeAccent,
-                        modifier = Modifier.graphicsLayer { rotationZ = spinAngle },
-                    )
-                    Text(
-                        text = "$scrapePercent%",
-                        style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold, fontSize = 10.5.sp),
-                        color = scrapeAccent,
-                        maxLines = 1,
-                    )
-                }
+                ScrapeStatusPill(
+                    percent = scrapePercent,
+                    onClick = onScrapeBadgeClick,
+                )
             }
 
             // 局域网快传 / Web 管理与任务进度提醒（无边框扁平风格；常态中性轻量底色，有待确认/等待/活跃进度时呈现语义主题色）

@@ -84,6 +84,9 @@ internal fun SettingsHeader(
     switchHint: String,
     prevKey: String,
     nextKey: String,
+    scrapeRunning: Boolean = false,
+    scrapePercent: Int = 0,
+    onScrapeBadgeClick: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     Row(
@@ -110,6 +113,13 @@ internal fun SettingsHeader(
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
+        if (scrapeRunning) {
+            com.pocketdeck.launcher.ui.components.ScrapeStatusPill(
+                percent = scrapePercent,
+                onClick = onScrapeBadgeClick,
+            )
+            Spacer(Modifier.width(12.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             ButtonBadge(prevKey)
             Spacer(Modifier.width(5.dp))

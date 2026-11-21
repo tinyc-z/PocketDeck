@@ -17,7 +17,6 @@ import com.pocketdeck.launcher.lan.LanServerManager
 import com.pocketdeck.launcher.lan.LanServerState
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.apps.AppsScreen
-import com.pocketdeck.launcher.ui.components.GameMenu
 import com.pocketdeck.launcher.ui.components.GamePropertiesDialog
 import com.pocketdeck.launcher.ui.components.ViewModeMenu
 import com.pocketdeck.launcher.ui.edit.EditGameScreen
@@ -55,56 +54,6 @@ internal fun HomeOverlays(
             highlightedIndex = state.viewMenuIndex,
             onSelect = { vm.setViewMode(it) },
             onDismiss = { vm.closeViewMenu() },
-        )
-    }
-
-    // 游戏长按 / X 键菜单
-    state.menuGame?.let { game ->
-        GameMenu(
-            game = game,
-            isFavorite = game.id in state.favorites,
-            swapAbxy = state.swapAbxy,
-            keyBindings = state.keyBindings,
-            onDismiss = { vm.hideMenu() },
-            onFavorite = { vm.toggleFavorite(game.id) },
-            onEdit = { vm.openEdit(game) },
-            onProperties = { vm.openProperties(game) },
-            onLaunch = {
-                vm.hideMenu()
-                launchGame(game)
-            },
-            onLaunchDisc = if (game.discFiles.size > 1) {
-                { discPath ->
-                    vm.hideMenu()
-                    val discFile = File(discPath)
-                    val discGame = game.copy(id = discPath, fileName = discFile.name, baseName = discFile.nameWithoutExtension)
-                    val platform = state.platformFor(game)
-                    val preferredEmulator = state.effectiveLauncherFor(game)
-                    val result = GameLauncher.launch(context, discGame, platform, preferredEmulator)
-                    when (result) {
-                        is GameLauncher.Result.Ok -> vm.addRecent(game.id)
-                        is GameLauncher.Result.Error ->
-                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } else null,
-            onGenerateM3u = if (game.discFiles.size > 1 && !game.fileName.endsWith(".m3u", ignoreCase = true)) {
-                {
-                    vm.hideMenu()
-                    scope.launch {
-                        val res = vm.generateM3uForGame(game)
-                        val msg = res.fold(
-                            onSuccess = { f -> context.getString(R.string.m3u_generated_ok, f.name) },
-                            onFailure = { e -> context.getString(R.string.m3u_generated_fail, e.message.orEmpty()) },
-                        )
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } else null,
-            onManualScrape = if (!game.id.startsWith(GameLauncher.APK_PREFIX)) {
-                { vm.openManualScrape(game) }
-            } else null,
-            onDetail = { vm.openDetail(game) },
         )
     }
 
@@ -153,29 +102,6 @@ internal fun HomeOverlays(
             onProperties = { vm.openProperties(game) },
             onDismiss = { vm.closeDetail() },
             isTopmost = state.propertiesGame == null && state.manualScrapeGame == null && state.editingGame == null,
-        )
-    }
-
-    // 后台刮削任务管理弹窗（点击状态栏旋转进度徽章进入）
-    if (state.showScrapeTaskDialog) {
-        com.pocketdeck.launcher.ui.components.ScrapeTaskDialog(
-            progress = scrapeProgress,
-            swapAbxy = state.swapAbxy,
-            keyBindings = state.keyBindings,
-            onCancel = {
-                vm.cancelScrapeMissing()
-                Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
-            },
-            onRestart = {
-                val queued = vm.scrapeMissingAll()
-                val msg = if (queued > 0) {
-                    context.getString(R.string.scraping_missing_started_toast, queued)
-                } else {
-                    context.getString(R.string.scraping_missing_none_toast)
-                }
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-            },
-            onDismiss = { vm.closeScrapeTaskDialog() },
         )
     }
 
@@ -426,8 +352,8 @@ internal fun HomeOverlays(
                 clearCoverCache = vm::clearCoverCache,
                 scrapeMissing = vm::scrapeMissingAll,
                 cancelScrape = vm::cancelScrapeMissing,
+                openScrapeTask = vm::openScrapeTaskDialog,
                 dismissScrapeProgress = vm::dismissScrapeProgress,
-                refreshAllMetadata = vm::refreshAllMetadata,
                 toggleMetaField = vm::toggleMetaField,
                 unhideGame = vm::unhideGame,
                 toggleShowAndroidGames = vm::toggleShowAndroidGames,
@@ -546,6 +472,29 @@ internal fun HomeOverlays(
             onDismissTransferBanner = lanManager::dismissTransferBanner,
             onStopAll = lanManager::stopAll,
             onDismiss = { onShowLanControlFromStatusBarChange(false) },
+        )
+    }
+
+    // 后台刮削任务管理弹窗（置于最顶层，从桌面状态栏或设置页头部点击旋转进度徽章均可直达）
+    if (state.showScrapeTaskDialog) {
+        com.pocketdeck.launcher.ui.components.ScrapeTaskDialog(
+            progress = scrapeProgress,
+            swapAbxy = state.swapAbxy,
+            keyBindings = state.keyBindings,
+            onCancel = {
+                vm.cancelScrapeMissing()
+                Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
+            },
+            onRestart = {
+                val queued = vm.scrapeMissingAll()
+                val msg = if (queued > 0) {
+                    context.getString(R.string.scraping_missing_started_toast, queued)
+                } else {
+                    context.getString(R.string.scraping_missing_none_toast)
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { vm.closeScrapeTaskDialog() },
         )
     }
 }

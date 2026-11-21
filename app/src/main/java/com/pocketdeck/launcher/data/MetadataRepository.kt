@@ -343,24 +343,6 @@ class MetadataRepository(
         }
     }
 
-    fun refreshAll(games: List<Game>, platformResolver: (Game) -> Platform?) {
-        cancelScrapeMissing()
-        if (!NetworkStatus.isOnline(appCtx)) {
-            ensureLoaded(games, platformResolver)
-            return
-        }
-        gameCache.clear()
-        focusApiResolved.clear()
-        clearPendingBatch()
-        _metadata.value = emptyMap()
-        _officialNames.value = emptyMap()
-        _resolutionInfo.value = emptyMap()
-        scope.launch(Dispatchers.IO) {
-            client.clearApiCache()
-            ensureLoaded(games, platformResolver)
-        }
-    }
-
     /**
      * 增量后台刮削所有缺少封面或元数据的游戏（不清空已有缓存，支持随时 [cancelScrapeMissing] 终止）。
      * @return 本次进入队列的缺失游戏数量；若已有任务运行中，返回当前任务总数。

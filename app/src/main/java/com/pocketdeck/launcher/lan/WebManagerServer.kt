@@ -173,7 +173,6 @@ class WebManagerServer(
         private const val MAX_GLOBAL_FAILURES = 15
         private const val GLOBAL_LOCKOUT_MS = 120_000L
         private const val MAX_COVER_UPLOAD_BYTES = 8 * 1024 * 1024L
-        private const val MAX_CANDIDATE_TOKENS = 200
         private const val MAX_WEB_HISTORY_ITEMS = 100
         private const val STALL_ZERO_MS = 1_500L
         private const val HTTP_TX_WINDOW_MS = 2_000L
@@ -254,17 +253,10 @@ class WebManagerServer(
         var lockedUntilMs: Long = 0L
     }
 
-    private data class CoverCandidateToken(
-        val url: String,
-        val nodeId: String,
-        val createdMs: Long,
-    )
-
     private val random = SecureRandom()
     private var httpServer: HttpMiniServer? = null
     private val sessions = ConcurrentHashMap<String, SessionRecord>()
     private val activeTransferMap = ConcurrentHashMap<String, ActiveTransferTracker>()
-    private val candidateTokens = ConcurrentHashMap<String, CoverCandidateToken>()
     private val authLock = Any()
     private val ipAuthStates = HashMap<String, IpAuthState>()
     private val globalFailures = ArrayDeque<Long>()
@@ -465,7 +457,6 @@ class WebManagerServer(
         stop()
         dynamicPassword = generatePassword()
         sessions.clear()
-        candidateTokens.clear()
         publishClients()
         synchronized(authLock) {
             ipAuthStates.clear()
@@ -669,7 +660,6 @@ class WebManagerServer(
         activeInterface = null
         sessions.clear()
         activeTransferMap.clear()
-        candidateTokens.clear()
         publishClients()
     }
 
@@ -1127,7 +1117,6 @@ class WebManagerServer(
             req.method == "GET" && req.path == "/api/games/hash-covers" -> handleGameHashCovers(req, res)
             req.method == "GET" && req.path == "/api/cover" -> handleCover(req, res)
             req.method == "GET" && req.path == "/api/cover-index" -> handleCoverIndex(req, res)
-            req.method == "GET" && req.path == "/api/cover-candidate" -> handleCoverCandidate(req, res)
             req.method == "POST" && req.path == "/api/games/rename" -> handleGameRename(req, res)
             req.method == "POST" && req.path == "/api/games/hide" -> handleGameHide(req, res)
             req.method == "POST" && req.path == "/api/games/favorite" -> handleGameFavorite(req, res)
@@ -1135,8 +1124,6 @@ class WebManagerServer(
             req.method == "POST" && req.path == "/api/games/batch" -> handleGamesBatch(req, res)
             req.method == "POST" && req.path == "/api/games/refresh-meta" -> handleGameRefreshMeta(req, res)
             req.method == "POST" && req.path == "/api/scrape/missing" -> handleScrapeMissing(res)
-            req.method == "POST" && req.path == "/api/games/scrape-covers" -> handleGameScrapeCovers(req, res)
-            req.method == "POST" && req.path == "/api/games/set-cover" -> handleGameSetCover(req, res)
             req.method == "POST" && req.path == "/api/games/upload-cover" -> handleGameUploadCover(req, res)
             req.method == "POST" && req.path == "/api/games/reset-cover" -> handleGameResetCover(req, res)
             req.method == "GET" && req.path == "/api/categories" -> handleGetCategories(res)
@@ -1756,21 +1743,6 @@ class WebManagerServer(
         )
     }
 
-    private suspend fun handleCoverCandidate(req: HttpRequest, res: HttpResponseWriter) {
-        val token = req.query["token"].orEmpty()
-        val entry = candidateTokens[token]
-        if (entry == null) {
-            res.sendText(404, "Expired")
-            return
-        }
-        val downloaded = covers.downloadImageBytes(entry.url)
-        if (downloaded == null) {
-            res.sendText(404, "Unavailable")
-            return
-        }
-        res.sendBytes(200, downloaded.second, downloaded.first)
-    }
-
     private suspend fun awaitUserSync(predicate: (UserData) -> Boolean) {
         withTimeoutOrNull(500L) {
             repo.user.first { u -> u != null && predicate(u) }
@@ -2107,75 +2079,6 @@ class WebManagerServer(
                 put("stats", buildGamesStatsJson())
             }.toString(),
         )
-    }
-
-    private suspend fun handleGameScrapeCovers(req: HttpRequest, res: HttpResponseWriter) {
-        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
-        val id = body?.optString("id", "").orEmpty()
-        val game = repo.fullLibrary.value?.byId?.get(id)
-        if (game == null) {
-            res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
-            return
-        }
-        if (!NetworkStatus.isOnline(context)) {
-            res.sendJson(200, JSONObject().put("ok", false).put("error", "offline").put("candidates", JSONArray()).toString())
-            return
-        }
-        val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
-        val officialName = metadataRepo.officialNames.value[game.id]
-        val list = covers.scrapeAllForPicker(game, plat, officialName).take(18)
-
-        if (candidateTokens.size > MAX_CANDIDATE_TOKENS) {
-            val cutoff = System.currentTimeMillis() - 10 * 60_000L
-            candidateTokens.entries.removeIf { it.value.createdMs < cutoff }
-        }
-        val arr = JSONArray()
-        val now = System.currentTimeMillis()
-        for (item in list) {
-            val token = UUID.randomUUID().toString().replace("-", "").take(16)
-            candidateTokens[token] = CoverCandidateToken(item.url, item.nodeId, now)
-            arr.put(JSONObject().put("token", token).put("nodeId", item.nodeId))
-        }
-        res.sendJson(200, JSONObject().put("ok", true).put("candidates", arr).toString())
-    }
-
-    private suspend fun handleGameSetCover(req: HttpRequest, res: HttpResponseWriter) {
-        val body = runCatching { JSONObject(req.readBodyUtf8()) }.getOrNull()
-        val id = body?.optString("id", "").orEmpty()
-        val token = body?.optString("token", "").orEmpty()
-        val game = repo.fullLibrary.value?.byId?.get(id)
-        val candidate = candidateTokens[token]
-        if (game == null || candidate == null) {
-            res.sendJson(400, """{"ok":false,"error":"invalid_params"}""")
-            return
-        }
-        val downloaded = covers.downloadImageBytes(candidate.url)
-        if (downloaded == null) {
-            res.sendJson(500, """{"ok":false,"error":"download_failed"}""")
-            return
-        }
-        val ext = when {
-            "png" in downloaded.first -> "png"
-            "webp" in downloaded.first -> "webp"
-            else -> "jpg"
-        }
-        val dir = File(context.filesDir, "custom_covers").apply { mkdirs() }
-        val target = File(dir, "web_${System.currentTimeMillis()}.$ext")
-        val saved = runCatching { target.writeBytes(downloaded.second); true }.getOrDefault(false)
-        if (!saved) {
-            res.sendJson(500, """{"ok":false,"error":"save_failed"}""")
-            return
-        }
-        covers.forget(id)
-        covers.recordWebPickerSourceUrl(id, candidate.url)
-        val existingName = repo.user.value?.renames?.get(id)
-        repo.saveGameEdits(id, existingName, target.absolutePath)
-        val fresh = withTimeoutOrNull(500L) {
-            repo.fullLibrary.first { it?.byId?.get(id)?.customCover == target.absolutePath }?.byId?.get(id)
-        } ?: (repo.fullLibrary.value?.byId?.get(id) ?: game).copy(customCover = target.absolutePath)
-        val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
-        root.put("game", gameToJson(fresh))
-        res.sendJson(200, root.toString())
     }
 
     private suspend fun handleGameUploadCover(req: HttpRequest, res: HttpResponseWriter) {

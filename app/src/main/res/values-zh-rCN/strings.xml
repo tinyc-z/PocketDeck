@@ -152,11 +152,10 @@
     <string name="scraping_cache_cleared_toast">已释放 %1$s</string>
     <string name="scraping_missing">刮削缺失数据</string>
     <string name="scraping_missing_desc">仅补全缺封面或信息的游戏，保留已有数据，后台运行可随时终止</string>
-    <string name="scraping_missing_running_fmt">正在刮削缺失数据 · %1$d%%（%2$d / %3$d）· 点击终止</string>
+    <string name="scraping_missing_running_fmt">正在刮削缺失数据 · %1$d%%（%2$d / %3$d）· 查看任务</string>
     <string name="scraping_missing_started_toast">已开始后台刮削 %1$d 款缺失游戏</string>
     <string name="scraping_missing_none_toast">全部游戏封面与信息均已完整</string>
     <string name="scraping_missing_stopped_toast">已终止刮削任务，已获取的数据已保留</string>
-    <string name="scraping_refresh_meta">刷新全部信息</string>
     <string name="scraping_view_logs">请求日志</string>
     <string name="scrape_logs_title">刮削请求日志</string>
     <string name="scrape_logs_empty">暂无请求日志记录。</string>
@@ -715,7 +714,6 @@
     <string name="m3u_generated_fail">生成 .m3u 失败：%1$s</string>
     <string name="disc_label_fmt">光盘</string>
     <!-- Wave 3: Scrape Progress, Manual Search & RetroArch SAF Cores -->
-    <string name="scrape_progress_fmt">正在刮削 %1$d / %2$d</string>
     <string name="scrape_progress_pct_fmt">刮削中 %1$d%%（%2$d / %3$d）</string>
     <string name="scrape_progress_updated_fmt">已更新 %1$d</string>
     <string name="scrape_task_stop">终止</string>

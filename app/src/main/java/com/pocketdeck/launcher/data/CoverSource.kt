@@ -712,17 +712,6 @@ class CoverSource(
         }
     }
 
-    /** 为指定游戏异步触发 API / 索引型封面节点查询（GameTDB / Hasheous / ArcadeItalia / SteamGridDB / ScreenScraper / TGDB / IGDB）。 */
-    fun ensureGameScraped(game: Game, platform: Platform?, officialName: String? = null) {
-        if (game.id.startsWith(GameLauncher.APK_PREFIX)) return
-        // 本地优先：已有自定义封面或本地 ES-DE/Daijisho/同名封面时零网络直出
-        if (!game.customCover.isNullOrBlank() || !game.localCover.isNullOrBlank()) return
-        if (!NetworkStatus.isOnline(appCtx)) return
-        scope.launch {
-            scrapeGameApiNodesInternal(game, platform, officialName)
-        }
-    }
-
     private suspend fun scrapeGameApiNodesInternal(
         game: Game,
         platform: Platform?,
@@ -1741,40 +1730,6 @@ class CoverSource(
             writeIndexCache(cacheFile, githubNames)
         }
         return githubNames
-    }
-
-    private fun fetchLibretroHtmlListing(system: String, url: String): List<String>? {
-        val t0 = System.currentTimeMillis()
-        var code: Int? = null
-        return try {
-            val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
-            client.http.newCall(req).execute().use { resp ->
-                code = resp.code
-                if (!resp.isSuccessful) {
-                    ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "HTTP $code")
-                    return null
-                }
-                val body = resp.body ?: return null
-                val names = LinkedHashSet<String>(4096)
-                body.charStream().buffered().useLines { lines ->
-                    for (line in lines) {
-                        val m = HREF_PNG_REGEX.find(line) ?: continue
-                        val encodedHref = m.groupValues[1]
-                        val decoded = runCatching {
-                            URLDecoder.decode(encodedHref.replace("+", "%2B"), "UTF-8")
-                        }.getOrDefault(encodedHref)
-                        if (decoded.endsWith(".png", ignoreCase = true) && !decoded.startsWith("/")) {
-                            names += decoded
-                        }
-                    }
-                }
-                ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${names.size} entries")
-                names.toList()
-            }
-        } catch (t: Throwable) {
-            ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
-            null
-        }
     }
 
     private fun fetchGitHubBoxartList(system: String, url: String): List<String> {

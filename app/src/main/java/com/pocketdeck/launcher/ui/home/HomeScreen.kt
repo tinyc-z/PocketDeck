@@ -147,7 +147,7 @@ fun HomeScreen(
     }
 
     LaunchedEffect(
-        state.menuGame,
+        state.detailGame,
         state.propertiesGame,
         state.editingGame,
         state.showLibraryManager,
@@ -155,7 +155,7 @@ fun HomeScreen(
         state.showSettings,
         showLanControlFromStatusBar,
     ) {
-        if (state.menuGame == null && state.propertiesGame == null && state.editingGame == null &&
+        if (state.detailGame == null && state.propertiesGame == null && state.editingGame == null &&
             !state.showLibraryManager && !state.showApps && !state.showSettings &&
             !showLanControlFromStatusBar
         ) {
@@ -200,8 +200,7 @@ fun HomeScreen(
         }
     }
 
-    val hasChildFocusOverlay = state.menuGame != null ||
-        state.detailGame != null ||
+    val hasChildFocusOverlay = state.detailGame != null ||
         state.propertiesGame != null ||
         state.editingGame != null ||
         state.manualScrapeGame != null ||
@@ -226,7 +225,6 @@ fun HomeScreen(
             state.detailGame != null -> vm.closeDetail()
             state.propertiesGame != null -> vm.closeProperties()
             state.editingGame != null -> vm.closeEdit()
-            state.menuGame != null -> vm.hideMenu()
             state.showApps -> vm.closeApps()
             state.showSettings -> vm.toggleSettings()
             state.showViewMenu -> vm.closeViewMenu()

@@ -58,7 +58,6 @@ data class HomeUiState(
     val searching: Boolean = false,
     val searchQuery: String = "",
     val searchAllCategories: Boolean = true,
-    val menuGame: Game? = null,
     val detailGame: Game? = null,
     val propertiesGame: Game? = null,
     val editingGame: Game? = null,
@@ -431,7 +430,6 @@ class HomeViewModel(
             uncategorizedCount = uncategorizedGames.size,
             metadataMap = metaMap,
             officialNames = officialNames,
-            menuGame = current.menuGame?.let { lib.byId[it.id] ?: it },
             detailGame = current.detailGame?.let { lib.byId[it.id] ?: it },
             propertiesGame = current.propertiesGame?.let { lib.byId[it.id] ?: it },
             editingGame = current.editingGame?.let { lib.byId[it.id] ?: it },
@@ -839,11 +837,10 @@ class HomeViewModel(
     private fun latestGame(game: Game): Game =
         repo.fullLibrary.value?.byId?.get(game.id) ?: game
 
-    fun showMenu(game: Game) { _state.value = _state.value.copy(menuGame = null, detailGame = latestGame(game)) }
-    fun hideMenu() { _state.value = _state.value.copy(menuGame = null, detailGame = null) }
+    fun showMenu(game: Game) { _state.value = _state.value.copy(detailGame = latestGame(game)) }
 
     fun openProperties(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, propertiesGame = latestGame(game))
+        _state.value = _state.value.copy(propertiesGame = latestGame(game))
     }
 
     fun closeProperties() {
@@ -853,7 +850,7 @@ class HomeViewModel(
     suspend fun computeCrc32(path: String): String? = metadataRepo.computeCrc32(path)
 
     fun openEdit(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, detailGame = null, editingGame = latestGame(game))
+        _state.value = _state.value.copy(detailGame = null, editingGame = latestGame(game))
     }
 
     fun closeEdit() {
@@ -861,7 +858,7 @@ class HomeViewModel(
     }
 
     fun openDetail(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, detailGame = latestGame(game))
+        _state.value = _state.value.copy(detailGame = latestGame(game))
     }
 
     fun closeDetail() {
@@ -911,7 +908,7 @@ class HomeViewModel(
     }
 
     fun openManualScrape(game: Game) {
-        _state.value = _state.value.copy(menuGame = null, manualScrapeGame = latestGame(game))
+        _state.value = _state.value.copy(manualScrapeGame = latestGame(game))
     }
 
     fun closeManualScrape() {
@@ -956,7 +953,7 @@ class HomeViewModel(
     fun saveGameEdits(id: String, name: String?, coverPath: String?) {
         covers.forget(id)
         viewModelScope.launch { repo.saveGameEdits(id, name, coverPath) }
-        _state.value = _state.value.copy(editingGame = null, menuGame = null)
+        _state.value = _state.value.copy(editingGame = null)
     }
 
     fun toggleFavorite(id: String) {
@@ -965,7 +962,7 @@ class HomeViewModel(
 
     fun hideGame(id: String) {
         viewModelScope.launch { repo.hide(id) }
-        _state.value = _state.value.copy(menuGame = null, editingGame = null, propertiesGame = null)
+        _state.value = _state.value.copy(editingGame = null, propertiesGame = null)
     }
 
     fun addRecent(id: String) {
@@ -1054,7 +1051,7 @@ class HomeViewModel(
             libraryManagerInitialFocusFile = null,
             showViewMenu = false,
             showQuickHud = false,
-            menuGame = null,
+            showScrapeTaskDialog = false,
             detailGame = null,
             propertiesGame = null,
             editingGame = null,
@@ -1107,7 +1104,7 @@ class HomeViewModel(
     suspend fun deleteFile(file: File): Result<Unit> {
         val res = repo.deleteFile(file)
         if (res.isSuccess) {
-            _state.value = _state.value.copy(menuGame = null, editingGame = null, propertiesGame = null)
+            _state.value = _state.value.copy(editingGame = null, propertiesGame = null)
         }
         return res
     }
@@ -1115,7 +1112,7 @@ class HomeViewModel(
     suspend fun deleteEntries(entries: List<File>): Result<Int> {
         val res = repo.deleteEntries(entries)
         if (res.isSuccess) {
-            _state.value = _state.value.copy(menuGame = null, editingGame = null, propertiesGame = null)
+            _state.value = _state.value.copy(editingGame = null, propertiesGame = null)
         }
         return res
     }
@@ -1255,10 +1252,6 @@ class HomeViewModel(
         }
     }
 
-    fun setTheme(theme: AppTheme) {
-        viewModelScope.launch { repo.updatePrefs { it.copy(theme = theme) } }
-    }
-
     fun cycleTheme() {
         viewModelScope.launch {
             repo.updatePrefs {
@@ -1381,14 +1374,6 @@ class HomeViewModel(
     fun cancelScrapeMissing() = metadataRepo.cancelScrapeMissing()
 
     fun dismissScrapeProgress() = metadataRepo.dismissScrapeProgress()
-
-    fun refreshAllMetadata() {
-        val lib = repo.library.value ?: return
-        val allGames = lib.platforms.flatMap { lib.games[it.id].orEmpty() }
-        val s = _state.value
-        metadataRepo.refreshAll(allGames, s::platformFor)
-        s.games.getOrNull(_focusIndex.value)?.let { metadataRepo.resolveFocusGame(it, s.platformFor(it)) }
-    }
 
     fun refresh() = repo.refresh()
 
@@ -1623,13 +1608,6 @@ class HomeViewModel(
                 hiddenTabs = u.hiddenTabs - srcId,
             )
         }
-    }
-
-    fun toggleGameInCategory(catId: String, gameId: String) = updateTabs { u ->
-        u.copy(categories = u.categories.map { c ->
-            if (c.id != catId) c
-            else c.copy(games = if (gameId in c.games) c.games - gameId else c.games + gameId)
-        })
     }
 
     companion object {

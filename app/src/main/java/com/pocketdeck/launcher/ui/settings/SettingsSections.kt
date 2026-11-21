@@ -531,22 +531,11 @@ internal fun CoversSettingsSection(
     onOpenCred: (CredentialKind) -> Unit,
     onRowClick: (Int) -> Unit,
     onScrapeMissing: () -> Unit = {},
-    onCancelScrape: () -> Unit = {},
-    onDismissScrapeProgress: () -> Unit = {},
-    onRefreshMetadata: () -> Unit,
     onClearCoverCache: () -> Unit,
     onViewLogs: () -> Unit,
     scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
     highlightIndex: Int,
 ) {
-    if (scrapeProgress.total > 0 && (scrapeProgress.running || scrapeProgress.finishedAtMs > 0L)) {
-        com.pocketdeck.launcher.ui.components.ScrapeProgressBanner(
-            progress = scrapeProgress,
-            onCancel = onCancelScrape,
-            onDismiss = onDismissScrapeProgress,
-            modifier = Modifier.padding(bottom = 10.dp),
-        )
-    }
     GroupHeader(stringResource(R.string.scraping_cover_title))
     GroupCard {
         DragReorderColumn(

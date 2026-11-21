@@ -153,11 +153,10 @@
     <string name="scraping_cache_cleared_toast">Freed %1$s</string>
     <string name="scraping_missing">Scrape missing data</string>
     <string name="scraping_missing_desc">Only fill games missing cover or info; keeps existing data and can be stopped anytime</string>
-    <string name="scraping_missing_running_fmt">Scraping missing · %1$d%% (%2$d / %3$d) · Tap to stop</string>
+    <string name="scraping_missing_running_fmt">Scraping missing · %1$d%% (%2$d / %3$d) · View task</string>
     <string name="scraping_missing_started_toast">Started scraping %1$d games in background</string>
     <string name="scraping_missing_none_toast">All games already have covers and info</string>
     <string name="scraping_missing_stopped_toast">Scraping stopped; fetched data was kept</string>
-    <string name="scraping_refresh_meta">Refresh all info</string>
     <string name="scraping_view_logs">Logs</string>
     <string name="scrape_logs_title">Cover &amp; Metadata Request Logs</string>
     <string name="scrape_logs_empty">No request logs recorded yet.</string>
@@ -716,7 +715,6 @@
     <string name="m3u_generated_fail">Failed to generate .m3u: %1$s</string>
     <string name="disc_label_fmt">Disc</string>
     <!-- Wave 3: Scrape Progress, Manual Search & RetroArch SAF Cores -->
-    <string name="scrape_progress_fmt">Scraping %1$d / %2$d</string>
     <string name="scrape_progress_pct_fmt">Scraping %1$d%% (%2$d / %3$d)</string>
     <string name="scrape_progress_updated_fmt">Updated %1$d</string>
     <string name="scrape_task_stop">Stop</string>

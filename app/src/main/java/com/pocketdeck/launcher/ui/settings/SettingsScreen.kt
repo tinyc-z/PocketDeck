@@ -178,8 +178,8 @@ class ManageCallbacks(
     val clearCoverCache: suspend () -> Unit = {},
     val scrapeMissing: () -> Int = { 0 },
     val cancelScrape: () -> Unit = {},
+    val openScrapeTask: () -> Unit = {},
     val dismissScrapeProgress: () -> Unit = {},
-    val refreshAllMetadata: () -> Unit = {},
     val toggleMetaField: (MetaFieldKey) -> Unit = {},
     val unhideGame: (String) -> Unit = {},
     val toggleShowAndroidGames: () -> Unit = {},
@@ -724,16 +724,14 @@ fun SettingsScreen(
                     }
                     idx == actionsStart -> {
                         if (state.scrapeProgress.running) {
-                            manage.cancelScrape()
-                            Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
+                            manage.openScrapeTask()
                         } else {
                             val queued = manage.scrapeMissing()
-                            val msg = if (queued > 0) {
-                                context.getString(R.string.scraping_missing_started_toast, queued)
+                            if (queued > 0) {
+                                manage.openScrapeTask()
                             } else {
-                                context.getString(R.string.scraping_missing_none_toast)
+                                Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
                             }
-                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                         }
                     }
                     idx == actionsStart + 1 -> clearScrapeCacheWithFeedback()
@@ -1045,6 +1043,9 @@ fun SettingsScreen(
                 switchHint = stringResource(R.string.settings_switch_section),
                 prevKey = prevKeyBadge,
                 nextKey = nextKeyBadge,
+                scrapeRunning = state.scrapeProgress.running,
+                scrapePercent = state.scrapeProgress.percent,
+                onScrapeBadgeClick = manage.openScrapeTask,
                 onBack = onDismiss,
             )
 
@@ -1136,27 +1137,15 @@ fun SettingsScreen(
                                             onRowClick = { idx -> nav.focusOnMenu = false; nav.contentItemIndex = idx; triggerItem(SettingsSection.Covers, idx) },
                                             onScrapeMissing = {
                                                 if (state.scrapeProgress.running) {
-                                                    manage.cancelScrape()
-                                                    Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
+                                                    manage.openScrapeTask()
                                                 } else {
                                                     val queued = manage.scrapeMissing()
-                                                    val msg = if (queued > 0) {
-                                                        context.getString(R.string.scraping_missing_started_toast, queued)
+                                                    if (queued > 0) {
+                                                        manage.openScrapeTask()
                                                     } else {
-                                                        context.getString(R.string.scraping_missing_none_toast)
+                                                        Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
                                                     }
-                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                                 }
-                                            },
-                                            onCancelScrape = {
-                                                manage.cancelScrape()
-                                                Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
-                                            },
-                                            onDismissScrapeProgress = manage.dismissScrapeProgress,
-                                            onRefreshMetadata = {
-                                                if (!NetworkStatus.isOnline(context)) {
-                                                    Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
-                                                } else manage.refreshAllMetadata()
                                             },
                                             onClearCoverCache = ::clearScrapeCacheWithFeedback,
                                             onViewLogs = { showScrapeLogs = true },
