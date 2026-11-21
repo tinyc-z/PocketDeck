@@ -47,6 +47,7 @@ fun viewModeLabel(mode: ViewMode): String = when (mode) {
     ViewMode.CoverFlow -> stringResource(R.string.view_coverflow)
     ViewMode.Hero -> stringResource(R.string.view_hero)
     ViewMode.Wheel -> stringResource(R.string.view_wheel)
+    ViewMode.Shelf -> stringResource(R.string.view_shelf)
 }
 
 /**
@@ -151,7 +152,31 @@ fun DrawScope.drawViewModeIcon(mode: ViewMode, color: Color) {
         ViewMode.CoverFlow -> drawCoverFlowIcon(color)
         ViewMode.Hero -> drawHeroIcon(color)
         ViewMode.Wheel -> drawWheelIcon(color)
+        ViewMode.Shelf -> drawShelfIcon(color)
     }
+}
+
+private fun DrawScope.drawShelfIcon(color: Color) {
+    val w = size.width
+    val h = size.height
+    val pad = w * 0.12f
+    val shelfW = w - pad * 2
+    val shelfH = h * 0.09f
+    val boxW = shelfW * 0.24f
+    val boxH = h * 0.26f
+    val gap = (shelfW - boxW * 3) / 2f
+    // 上层 3 盒 + 上层板
+    val topBoxY = h * 0.12f
+    for (i in 0 until 3) {
+        drawRoundRect(color, Offset(pad + i * (boxW + gap), topBoxY), Size(boxW, boxH), CornerRadius(1.dp.toPx()))
+    }
+    drawRoundRect(color.copy(alpha = 0.75f), Offset(pad, topBoxY + boxH + h * 0.03f), Size(shelfW, shelfH), CornerRadius(1.dp.toPx()))
+    // 下层 3 盒 + 下层板
+    val botBoxY = h * 0.56f
+    for (i in 0 until 3) {
+        drawRoundRect(color, Offset(pad + i * (boxW + gap), botBoxY), Size(boxW, boxH), CornerRadius(1.dp.toPx()))
+    }
+    drawRoundRect(color.copy(alpha = 0.75f), Offset(pad, botBoxY + boxH + h * 0.03f), Size(shelfW, shelfH), CornerRadius(1.dp.toPx()))
 }
 
 private fun DrawScope.drawWheelIcon(color: Color) {

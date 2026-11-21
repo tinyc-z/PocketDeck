@@ -922,6 +922,22 @@ private fun HomeContentSlot(
             metaDisplay = metaDisplay,
             modifier = Modifier.fillMaxSize(),
         )
+        ViewMode.Shelf -> ShelfView(
+            games = games,
+            platformOf = platformOf,
+            focusIndex = focusIndex,
+            covers = covers,
+            metadataMap = metadataMap,
+            officialNames = officialNames,
+            favorites = favorites,
+            onFocusChange = onFocusChange,
+            onLaunch = onLaunch,
+            onLongPress = onLongPress,
+            fastScrolling = isFastScrolling,
+            showMetadata = showMetadata,
+            metaDisplay = metaDisplay,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 

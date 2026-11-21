@@ -44,7 +44,7 @@ data class Category(
     val sortOrder: CategorySortOrder = CategorySortOrder.TitleAsc,
 )
 
-enum class ViewMode { Gallery, List, Grid, Bubbles, CoverFlow, Hero, Wheel }
+enum class ViewMode { Gallery, List, Grid, Bubbles, CoverFlow, Hero, Wheel, Shelf }
 /** Gallery 模式下小卡相对焦点卡的垂直对齐 */
 enum class GalleryAlign { Top, Center, Bottom }
 

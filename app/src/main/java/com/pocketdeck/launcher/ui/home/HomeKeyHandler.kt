@@ -52,7 +52,7 @@ internal fun handleHomePreviewKeyEvent(
     val isGameScrollKey = when (state.viewMode) {
         ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> event.key == Key.DirectionLeft || event.key == Key.DirectionRight
         ViewMode.List, ViewMode.Wheel -> event.key == Key.DirectionUp || event.key == Key.DirectionDown
-        ViewMode.Grid, ViewMode.Bubbles ->
+        ViewMode.Grid, ViewMode.Bubbles, ViewMode.Shelf ->
             event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
                 event.key == Key.DirectionUp || event.key == Key.DirectionDown
     }
@@ -232,6 +232,7 @@ internal fun handleHomePreviewKeyEvent(
             when (state.viewMode) {
                 ViewMode.List, ViewMode.Wheel -> vm.moveFocus(1)
                 ViewMode.Grid -> vm.moveFocus(GRID_COLUMNS)
+                ViewMode.Shelf -> vm.moveFocus(SHELF_COLUMNS)
                 ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, 1))
                 ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> Unit
             }
@@ -241,6 +242,7 @@ internal fun handleHomePreviewKeyEvent(
             when (state.viewMode) {
                 ViewMode.List, ViewMode.Wheel -> vm.moveFocus(-1)
                 ViewMode.Grid -> vm.moveFocus(-GRID_COLUMNS)
+                ViewMode.Shelf -> vm.moveFocus(-SHELF_COLUMNS)
                 ViewMode.Bubbles -> vm.setFocus(bubblesMoveVertical(vm.focusIndex.value, state.games.size, -1))
                 ViewMode.Gallery, ViewMode.CoverFlow, ViewMode.Hero -> Unit
             }
