@@ -1173,6 +1173,8 @@ class MetadataRepository(
         if (remoteMetaRefreshInFlight.putIfAbsent(system, true) != null) return
         scope.launch(Dispatchers.IO) {
             try {
+                // 内置离线底座已立即可用：延迟 3 秒再做低优先级远端 .dat 合并，避免切 Tab 瞬间与首屏封面抢 CPU 和触发 GC
+                delay(3_000L)
                 val remote = fetchFromLibretroWithFailover(system, cacheFile) ?: return@launch
                 val merged = mergeSystemTables(bundled, remote) ?: return@launch
                 putSystemTable(system, merged)

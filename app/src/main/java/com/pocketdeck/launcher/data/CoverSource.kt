@@ -809,6 +809,8 @@ class CoverSource(
         if (remoteIndexRefreshInFlight.putIfAbsent(system, true) != null) return
         scope.launch(Dispatchers.IO) {
             try {
+                // 内置离线索引已立即可用：延迟 3 秒再做低优先级远端增量合并，避免切 Tab 瞬间抢占首屏封面资源
+                delay(3_000L)
                 val remote = fetchOnlineBoxartList(system, cacheFile)
                 if (remote.isNotEmpty()) {
                     val merged = OfflineGameDb.mergeBoxartNames(bundled, remote)
