@@ -1057,9 +1057,20 @@ class WebManagerServer(
 
         if (req.method == "GET" && req.path == "/") {
             if (isAuthenticated(req)) {
-                res.sendText(200, WebManagerUi.renderAppHtml(themeConfig), "text/html; charset=utf-8")
+                res.sendText(200, WebManagerUi.renderAppHtml(context, themeConfig), "text/html; charset=utf-8")
             } else {
-                res.sendText(200, WebManagerUi.renderLoginHtml(themeConfig), "text/html; charset=utf-8")
+                res.sendText(200, WebManagerUi.renderLoginHtml(context, themeConfig), "text/html; charset=utf-8")
+            }
+            return
+        }
+
+        if (req.method == "GET" && req.path.startsWith("/web/")) {
+            val name = req.path.removePrefix("/web/")
+            val asset = WebManagerUi.loadStaticAsset(context, name)
+            if (asset != null) {
+                res.sendText(200, asset.first, asset.second, mapOf("Cache-Control" to "no-cache"))
+            } else {
+                res.sendJson(404, """{"ok":false,"error":"not_found"}""")
             }
             return
         }

@@ -1,0 +1,56 @@
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    min-height:100vh; display:grid; place-items:center;
+    background:
+      radial-gradient(circle at 12% 10%, var(--flow-a) 0%, transparent 46%),
+      radial-gradient(circle at 90% 35%, var(--flow-b) 0%, transparent 48%),
+      radial-gradient(circle at 45% 105%, var(--flow-c) 0%, transparent 50%),
+      var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+    padding:20px;
+    transition:background .25s ease, color .25s ease;
+  }
+  .deck-card {
+    width:100%; max-width:396px;
+    background:var(--surf);
+    border:1px solid var(--line);
+    border-radius:24px;
+    padding:28px 26px 26px;
+    box-shadow:var(--shadow);
+  }
+  .logo-row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .logo-sq { width:44px; height:44px; border-radius:12px; overflow:hidden; flex-shrink:0; box-shadow:0 8px 20px color-mix(in srgb, var(--brand-end) 28%, transparent); }
+  .brand-title { font-size:20px; font-weight:800; letter-spacing:-.3px; }
+  .brand-sub { font-size:12px; color:var(--label); font-weight:600; margin-top:1px; }
+  p { margin:0 0 18px; color:var(--muted); font-size:13.5px; line-height:1.5; }
+  input {
+    width:100%; padding:14px 16px; border-radius:14px;
+    border:1.5px solid var(--line); background:var(--surf-alt); color:var(--text);
+    font-size:24px; font-weight:800; letter-spacing:10px; text-align:center; outline:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  input:focus {
+    border-color:var(--brand-mid);
+    background:var(--input-bg);
+    box-shadow:0 0 0 3px var(--accent-soft);
+  }
+  button {
+    width:100%; margin-top:14px; padding:13px; border:0; border-radius:14px;
+    background:var(--brand);
+    color:#fff; font-weight:700; font-size:15px; cursor:pointer;
+    box-shadow:0 8px 20px color-mix(in srgb, var(--brand-end) 32%, transparent);
+    transition:transform .12s, opacity .15s;
+  }
+  button:hover { transform:translateY(-1px); }
+  button:active { transform:translateY(0); }
+  button:disabled { opacity:.6; cursor:default; transform:none; }
+  .err { margin-top:12px; color:var(--danger); font-size:13px; text-align:center; min-height:18px; font-weight:600; }
+  .lang-sel {
+    margin-left:auto; appearance:none; -webkit-appearance:none;
+    border:1px solid var(--line); background-color:var(--surf-alt); color:var(--text);
+    border-radius:999px; padding:6px 26px 6px 12px; font-size:12px; font-weight:600; cursor:pointer; outline:none;
+    background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 14px) 52%,calc(100% - 9px) 52%;
+    background-size:5px 5px; background-repeat:no-repeat;
+  }

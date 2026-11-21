@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en" data-dark="{{DARK_ATTR}}">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PocketDeck</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='18%2018%2072%2072'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='0'%20x2='1'%20y2='1'%3E%3Cstop%20offset='0'%20stop-color='%23FFB547'/%3E%3Cstop%20offset='0.5'%20stop-color='%23FF5A5F'/%3E%3Cstop%20offset='1'%20stop-color='%23E9327A'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20x='18'%20y='18'%20width='72'%20height='72'%20rx='18'%20fill='url(%23g)'/%3E%3Cpath%20fill='%23FFF'%20d='M38,27H70A5,5,0,0,1,75,32V70A12,12,0,0,1,63,82H38A5,5,0,0,1,33,77V32A5,5,0,0,1,38,27Z'/%3E%3Crect%20x='39'%20y='32'%20width='30'%20height='23'%20rx='2.5'%20fill='%233B1D5E'/%3E%3Cpath%20fill='%233B1D5E'%20d='M43,60h3.6v4.2h4.2v3.6h-4.2v4.2h-3.6v-4.2h-4.2v-3.6h4.2Z'/%3E%3Ccircle%20cx='66'%20cy='62.6'%20r='3'%20fill='%23FF4F7B'/%3E%3Ccircle%20cx='60'%20cy='67.4'%20r='3'%20fill='%23FFB547'/%3E%3C/svg%3E"/>
+<style>:root { {{THEME_VARS}} }</style>
+<link rel="stylesheet" href="/web/style.css"/>
+</head>
+<body>
+<div class="bg-flow"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+<div class="shell">
+  <aside class="side">
+    <div class="brand-wrap">
+      <div class="logo-sq"><svg width="40" height="40" viewBox="18 18 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="pdsg" x1="10" y1="4" x2="98" y2="104" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFB547"/><stop offset="0.48" stop-color="#FF5A5F"/><stop offset="1" stop-color="#E9327A"/></linearGradient><radialGradient id="pdhl" cx="30" cy="20" r="60" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFF" stop-opacity="0.3"/><stop offset="1" stop-color="#FFF" stop-opacity="0"/></radialGradient><linearGradient id="pdscr" x1="40" y1="33" x2="68" y2="54" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#5B2A86"/><stop offset="1" stop-color="#341A5C"/></linearGradient></defs><rect x="18" y="18" width="72" height="72" rx="18" fill="url(#pdsg)"/><rect x="18" y="18" width="72" height="72" rx="18" fill="url(#pdhl)"/><path fill="#9E1F4F" fill-opacity="0.22" d="M38,30 H70 A5,5 0 0 1 75,35 V73 A12,12 0 0 1 63,85 H38 A5,5 0 0 1 33,80 V35 A5,5 0 0 1 38,30 Z"/><path fill="#FFF" d="M38,27 H70 A5,5 0 0 1 75,32 V70 A12,12 0 0 1 63,82 H38 A5,5 0 0 1 33,77 V32 A5,5 0 0 1 38,27 Z"/><path fill="url(#pdscr)" d="M41,32 H67 A2.5,2.5 0 0 1 69.5,34.5 V52.5 A2.5,2.5 0 0 1 67,55 H41 A2.5,2.5 0 0 1 38.5,52.5 V34.5 A2.5,2.5 0 0 1 41,32 Z"/><path fill="#FFD84D" d="M48.4,37.1 h1.6 v1.6 h-1.6 Z M58,37.1 h1.6 v1.6 h-1.6 Z M50,38.7 h1.6 v1.6 h-1.6 Z M56.4,38.7 h1.6 v1.6 h-1.6 Z M48.4,40.3 h11.2 v1.6 h-11.2 Z M46.8,41.9 h3.2 v1.6 h-3.2 Z M51.6,41.9 h4.8 v1.6 h-4.8 Z M58,41.9 h3.2 v1.6 h-3.2 Z M45.2,43.5 h17.6 v1.6 h-17.6 Z M45.2,45.1 h1.6 v1.6 h-1.6 Z M48.4,45.1 h11.2 v1.6 h-11.2 Z M61.2,45.1 h1.6 v1.6 h-1.6 Z M45.2,46.7 h1.6 v1.6 h-1.6 Z M48.4,46.7 h1.6 v1.6 h-1.6 Z M58,46.7 h1.6 v1.6 h-1.6 Z M61.2,46.7 h1.6 v1.6 h-1.6 Z M50,48.3 h3.2 v1.6 h-3.2 Z M54.8,48.3 h3.2 v1.6 h-3.2 Z"/><path fill="#3B1D5E" d="M43,60 h3.6 v4.2 h4.2 v3.6 h-4.2 v4.2 h-3.6 v-4.2 h-4.2 v-3.6 h4.2 Z"/><circle cx="66" cy="62.6" r="3" fill="#FF4F7B"/><circle cx="60" cy="67.4" r="3" fill="#FFB547"/><rect x="46" y="75" width="5" height="2" rx="1" fill="#C9B8D8"/><rect x="53.5" y="75" width="5" height="2" rx="1" fill="#C9B8D8"/></svg></div>
+      <div>
+        <div class="brand">PocketDeck</div>
+        <div class="brand-sub" data-i18n="console_sub">Web Console</div>
+      </div>
+    </div>
+
+    <button class="nav-item active" data-tab="games">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10a5 5 0 0 1 4.8 6.4l-1 3.4a2.8 2.8 0 0 1-4.9.9L14.5 16h-5l-1.4 1.7a2.8 2.8 0 0 1-4.9-.9l-1-3.4A5 5 0 0 1 7 7z"/></svg>
+      <span data-i18n="tab_games">Library</span>
+      <span id="navGamesCnt" class="nav-cnt"></span>
+    </button>
+    <button class="nav-item" data-tab="categories">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.4"/></svg>
+      <span data-i18n="tab_categories">Tabs &amp; Tags</span>
+      <span id="navCatsCnt" class="nav-cnt"></span>
+    </button>
+    <button class="nav-item" data-tab="files">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2.5h6.5A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>
+      <span data-i18n="tab_files">Files</span>
+    </button>
+
+    <div class="side-spacer"></div>
+
+    <div class="more-wrap">
+      <button class="nav-item" onclick="toggleMoreMenu(event)">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>
+        <span data-i18n="nav_more">More</span>
+      </button>
+      <div id="morePop" class="more-pop">
+        <div style="padding:4px 6px;">
+          <select id="langSel" onchange="setWebLang(this.value)" style="width:100%;font-size:12.5px;padding:6px 28px 6px 10px;">
+            <option value="en">English</option>
+            <option value="zh-CN">简体中文</option>
+            <option value="zh-TW">繁體中文</option>
+          </select>
+        </div>
+        <button class="more-row" onclick="closeMoreMenu();openScrapeLogsModal()">
+          <span data-i18n="btn_logs">Logs</span>
+        </button>
+        <button class="more-row" onclick="closeMoreMenu();rescan()">
+          <span data-i18n="btn_rescan">Rescan</span>
+        </button>
+        <button class="more-row danger" onclick="closeMoreMenu();logout()">
+          <span data-i18n="btn_logout">Log out</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="dev-card">
+      <div id="devName" class="dev-name">PocketDeck</div>
+      <div id="devInfo" class="dev-status" data-i18n="connecting">Connecting…</div>
+      <div id="devStorageList">
+        <div class="dev-bar"><i id="devStorageBar"></i></div>
+        <div id="devStorageTxt" class="dev-store">—</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-wrap">
+  <main class="main">
+    <section id="tab-games">
+      <div id="gamesStickyHead" class="sticky-head">
+        <div class="page-top">
+          <div class="title-inline">
+            <h1 data-i18n="tab_games">Library</h1>
+            <div id="statsGrid" class="page-sub"></div>
+          </div>
+          <div class="search-box">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oncompositionstart="onGameSearchCompStart()" oncompositionend="onGameSearchCompEnd()" oninput="onGameSearchInput()" onkeydown="onGameSearchKeyDown(event)"/>
+            <button id="gSearchClear" type="button" onclick="clearGameSearch()" style="display:none;border:none;background:var(--surface2,rgba(0,0,0,0.08));color:var(--muted,#666);width:20px;height:20px;border-radius:999px;cursor:pointer;font-size:13px;line-height:20px;padding:0;flex-shrink:0;text-align:center;" title="Clear">×</button>
+            <span id="gSearchKbd" class="kbd">/</span>
+          </div>
+          <button class="btn primary pbtn" onclick="goUploadRoms()">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            <span data-i18n="btn_upload_roms">Upload ROMs</span>
+          </button>
+        </div>
+
+        <div class="filter-bar">
+          <div id="filterChips" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-shrink:0;">
+            <select id="gSort" class="sel" style="height:30px;padding:0 26px 0 11px;border-radius:999px;font-size:12px;border:1px solid var(--line);background-color:var(--surf);color:var(--text);font-weight:600;cursor:pointer;" onchange="onGameSortChange()">
+              <option value="mtime_desc">最新更新</option>
+              <option value="title_asc">名称 A→Z</option>
+              <option value="title_desc">名称 Z→A</option>
+              <option value="size_desc">文件大小</option>
+              <option value="mtime_asc">最早添加</option>
+            </select>
+            <div class="seg">
+              <button id="vmGrid" class="active" onclick="setGameView('grid')" data-i18n="view_grid">Covers</button>
+              <button id="vmList" onclick="setGameView('list')" data-i18n="view_list">List</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:none">
+        <select id="gVis" onchange="loadGames(true)"><option value="all"></option><option value="visible"></option><option value="fav"></option><option value="nocover"></option><option value="hidden"></option></select>
+        <select id="gPlat" onchange="loadGames(true)"><option value=""></option></select>
+        <select id="gCat" onchange="loadGames(true)"><option value=""></option></select>
+      </div>
+
+      <div id="gamesContainer"></div>
+      <div id="gamesFooter" class="list-footer"></div>
+      <div id="gamesSentinel" style="height:1px;"></div>
+    </section>
+
+    <section id="tab-categories" style="display:none">
+      <div class="page-top">
+        <div>
+          <h1 data-i18n="cat_mgr_title">Home tabs</h1>
+          <div class="page-sub" data-i18n="cat_mgr_desc">Drag to reorder. Changes sync instantly.</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;">
+          <button class="btn" onclick="loadCategories()" data-i18n="cat_refresh">Refresh</button>
+          <button class="btn primary" onclick="openNewCategoryModal()" data-i18n="cat_new">New category</button>
+        </div>
+      </div>
+      <div id="catList" class="list"></div>
+    </section>
+
+    <section id="tab-files" style="display:none">
+      <div id="filesStickyHead" class="sticky-head">
+        <div class="page-top">
+          <div class="title-inline">
+            <h1 data-i18n="tab_files">Files</h1>
+            <div id="dirStorageInfo" class="page-sub"></div>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+            <button id="autoCreatePlatBtn" class="btn sm" onclick="openAutoCreatePlatformsModal()" data-i18n="files_auto_create">Auto-create folders</button>
+            <button id="mkdirBtn" class="btn sm" onclick="mkdirPrompt()" disabled data-i18n="files_mkdir">New folder</button>
+            <label class="btn sm" id="pickDirUploadLbl" style="display:none">
+              <span data-i18n="files_upload_dir">Upload folder</span>
+              <input id="dirInput" type="file" webkitdirectory multiple style="display:none" onchange="uploadFolderFiles(this.files)"/>
+            </label>
+            <label class="btn sm primary" id="pickUploadLbl" style="display:none">
+              <span data-i18n="files_upload">Upload files</span>
+              <input id="fileInput" type="file" multiple style="display:none" onchange="uploadFiles(this.files)"/>
+            </label>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button id="upBtn" class="btn sm" onclick="goParent()" disabled data-i18n="files_up">Up</button>
+          <div id="crumbsBar" class="crumbs"></div>
+          <select id="fileSort" style="padding:5px 28px 5px 10px;font-size:12.5px;border-radius:10px;" onchange="renderFiles()">
+            <option value="name" data-i18n="sort_name">Name</option>
+            <option value="size" data-i18n="sort_size">Size</option>
+            <option value="modified" data-i18n="sort_modified">Modified</option>
+            <option value="type" data-i18n="sort_type">Type</option>
+          </select>
+          <input id="fileFilter" class="search" style="width:190px;max-width:100%;padding:5px 10px;font-size:12.5px;border-radius:10px;" data-i18n-ph="files_filter_ph" placeholder="Filter folder…" oninput="onFileFilterInput()"/>
+        </div>
+        <div class="files-row3">
+          <div id="filesHeaderBar" style="display:none;align-items:center;gap:8px;flex-shrink:0;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;">
+              <input type="checkbox" id="chkAllFiles" onchange="toggleSelectAllFiles(this.checked)"/> <span data-i18n="files_select_all">Select all</span>
+            </label>
+          </div>
+          <div id="dropzone" class="dropzone" style="display:none">
+            <span data-i18n="dropzone_txt">Drop files or folders to upload</span>
+            <div id="progWrap" class="prog"><div id="progBar"></div></div>
+            <div id="progText" class="sub" style="margin-top:4px;"></div>
+            <div id="progCancel" style="display:none;margin-top:6px;">
+              <button class="btn sm danger" onclick="cancelWebUpload()" data-i18n="cancel_upload">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="filesList" class="list"></div>
+      <div id="filesFooter" class="list-footer"></div>
+      <div id="filesSentinel" style="height:1px;"></div>
+      <div id="batchBar" class="batch-bar">
+        <strong id="batchCountText">0 selected</strong>
+        <button class="btn sm" onclick="openBatchTransfer('move')" data-i18n="batch_move">Move…</button>
+        <button class="btn sm" onclick="openBatchTransfer('copy')" data-i18n="batch_copy">Copy…</button>
+        <button class="btn sm primary" onclick="compressSelected()" data-i18n="batch_zip">Zip</button>
+        <button class="btn sm danger" onclick="batchDeleteSelected()" data-i18n="batch_del">Delete</button>
+        <button class="btn sm" style="margin-left:auto;" onclick="clearFileSelection()" data-i18n="batch_clear">Deselect</button>
+      </div>
+    </section>
+  </main>
+  </div>
+</div>
+
+<div id="floatDock" class="float-dock">
+  <div id="toast" class="toast"></div>
+  <div id="fileTaskBar" class="task-bar"></div>
+</div>
+
+<div id="modalBg" class="modal-bg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-hd"><span id="mTitle" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span><button class="btn sm" onclick="closeModal()" aria-label="Close">✕</button></div>
+    <div id="mBody" class="modal-bd"></div>
+    <div id="mFoot" class="modal-ft"></div>
+  </div>
+</div>
+
+<div id="logWin" class="log-win">
+  <div id="logWinHd" class="log-win-hd">
+    <span id="logWinTitle" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+    <span id="logLiveDot" style="color:#3fb950;font-size:11.5px;font-weight:700;" data-i18n="logs_live">● LIVE</span>
+    <button id="logMinBtn" class="log-win-btn" onclick="toggleLogWinMin()">—</button>
+    <button id="logCloseBtn" class="log-win-btn" onclick="closeScrapeLogsWin()">✕</button>
+  </div>
+  <div class="log-win-bd">
+    <div class="log-win-bar">
+      <button class="log-win-btn on log-f-btn" data-k="all" onclick="setLogFilter('all')" id="logFAll"></button>
+      <button class="log-win-btn log-f-btn" data-k="cover" onclick="setLogFilter('cover')" id="logFCover"></button>
+      <button class="log-win-btn log-f-btn" data-k="meta" onclick="setLogFilter('meta')" id="logFMeta"></button>
+      <button class="log-win-btn log-f-btn" data-k="err" onclick="setLogFilter('err')" id="logFErr"></button>
+      <input id="logFilterIn" class="log-win-in" type="text" oninput="renderScrapeLogsBody()"/>
+      <button class="log-win-btn" id="logPauseBtn" onclick="toggleLogPause()"></button>
+      <button class="log-win-btn" id="logDownloadBtn" onclick="downloadScrapeLogs()"></button>
+      <button class="log-win-btn err" id="logClearBtn" onclick="clearScrapeLogs()"></button>
+    </div>
+    <div id="logViewerBox" style="flex:1;min-height:0;overflow:auto;background:#0D0914;border:1px solid #2A2038;border-radius:10px;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5;color:#DDD2EA;"></div>
+    <div class="log-win-ft">
+      <span id="logPathTxt" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">cache/logs/scrape.log</span>
+      <span id="logCountTxt" style="color:#9E8FB2;flex-shrink:0;">0</span>
+    </div>
+  </div>
+</div>
+
+<script src="/web/app.js"></script>
+</body>
+</html>
