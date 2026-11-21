@@ -704,8 +704,9 @@ document.getElementById('f').addEventListener('submit', async (e) => {
         </div>
         <div class="search-box">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oninput="onGameSearchInput()"/>
-          <span class="kbd">/</span>
+          <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oninput="onGameSearchInput()" onkeydown="onGameSearchKeyDown(event)"/>
+          <button id="gSearchClear" type="button" onclick="clearGameSearch()" style="display:none;border:none;background:var(--surface2,rgba(0,0,0,0.08));color:var(--muted,#666);width:20px;height:20px;border-radius:999px;cursor:pointer;font-size:13px;line-height:20px;padding:0;flex-shrink:0;text-align:center;" title="Clear">×</button>
+          <span id="gSearchKbd" class="kbd">/</span>
         </div>
         <button class="btn primary pbtn" onclick="goUploadRoms()">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -1998,9 +1999,46 @@ function applyGamesStats(stats) {
   }
 }
 
+let gLastSearchedQuery = '';
+
+function syncGameSearchClearBtn() {
+  const inp = el('gSearch');
+  const clr = el('gSearchClear');
+  const kbd = el('gSearchKbd');
+  const hasVal = !!(inp && inp.value.length > 0);
+  if (clr) clr.style.display = hasVal ? 'inline-block' : 'none';
+  if (kbd) kbd.style.display = hasVal ? 'none' : '';
+}
+
 function onGameSearchInput() {
-  clearTimeout(gSearchTimer);
-  gSearchTimer = setTimeout(() => loadGames(true), 180);
+  syncGameSearchClearBtn();
+  const q = (el('gSearch')?.value || '').trim();
+  // 输入期间不发请求（避免中文拼音输入高频请求掌机）；仅在手动删空已搜索词时恢复完整列表
+  if (!q && gLastSearchedQuery) {
+    gLastSearchedQuery = '';
+    loadGames(true);
+  }
+}
+
+function onGameSearchKeyDown(e) {
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault();
+    gLastSearchedQuery = (el('gSearch')?.value || '').trim();
+    loadGames(true);
+  } else if (e.key === 'Escape') {
+    clearGameSearch();
+  }
+}
+
+function clearGameSearch() {
+  const inp = el('gSearch');
+  if (inp) inp.value = '';
+  syncGameSearchClearBtn();
+  if (gLastSearchedQuery) {
+    gLastSearchedQuery = '';
+    loadGames(true);
+  }
+  if (inp) inp.focus();
 }
 
 function ensureGamesObserver() {
@@ -2583,11 +2621,11 @@ function _searchWebLibretro(idx, kw, limit) {
 }
 
 function scrapeCoverCandidates(id) {
-  const g = state.games.find(x => x.id === id) || state.gameCache[id];
+  const g = gamesById[id];
   if (!g) return;
   const area = el('candArea');
   if (!area) return;
-  const sys = g.libretroSystem || (state.platforms.find(p => p.id === g.platformId) || {}).libretroSystem || '';
+  const sys = g.libretroSystem || (Array.isArray(catPlatforms) ? (catPlatforms.find(p => p.id === g.platformId) || {}).libretroSystem : '') || '';
   if (!sys) {
     area.innerHTML = '<div class="sub" style="margin-top:12px;">' + esc(tr('msg_no_cands')) + '</div>';
     return;
@@ -3777,20 +3815,21 @@ function escJs(s) {
   const bar = document.createElement('div');
   bar.id = 'batchOpsBar';
   bar.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 12px 0;padding:10px 14px;border-radius:14px;background:var(--surface,#fff);border:1px solid var(--line,rgba(0,0,0,0.08));';
+  const isZh = (curLang || 'zh-CN').startsWith('zh');
   bar.innerHTML =
-    '<button id="btnBatchToggle" class="btn-outline" style="padding:6px 12px;font-size:12px;">☑ Batch Select</button>' +
+    '<button id="btnBatchToggle" class="btn sm">' + (isZh ? '☑ 批量选择' : '☑ Batch Select') + '</button>' +
     '<span id="batchControls" style="display:none;flex-wrap:wrap;align-items:center;gap:6px;flex:1;">' +
-      '<span id="batchCountLbl" style="font-size:12px;font-weight:600;color:var(--accent,#E9327A);">0 selected</span>' +
-      '<button id="btnBatchAll" class="btn-outline" style="padding:5px 10px;font-size:12px;">Select All</button>' +
-      '<button id="btnBatchHide" class="btn-outline" style="padding:5px 10px;font-size:12px;">Hide</button>' +
-      '<button id="btnBatchUnhide" class="btn-outline" style="padding:5px 10px;font-size:12px;">Unhide</button>' +
-      '<button id="btnBatchRescrape" class="btn-outline" style="padding:5px 10px;font-size:12px;">Rescrape</button>' +
-      '<select id="batchCatSel" style="padding:5px 8px;font-size:12px;border-radius:8px;border:1px solid var(--line,#ddd);background:var(--bg,#fff);color:var(--text,#222);"></select>' +
-      '<button id="btnBatchCat" class="btn-outline" style="padding:5px 10px;font-size:12px;">+ Category</button>' +
+      '<span id="batchCountLbl" style="font-size:12px;font-weight:700;color:var(--accent,#E9327A);padding:0 4px;">' + (isZh ? '已选 0 项' : '0 selected') + '</span>' +
+      '<button id="btnBatchAll" class="btn sm">' + (isZh ? '全选' : 'Select All') + '</button>' +
+      '<button id="btnBatchHide" class="btn sm">' + (isZh ? '隐藏' : 'Hide') + '</button>' +
+      '<button id="btnBatchUnhide" class="btn sm">' + (isZh ? '取消隐藏' : 'Unhide') + '</button>' +
+      '<button id="btnBatchRescrape" class="btn sm">' + (isZh ? '重新刮削' : 'Rescrape') + '</button>' +
+      '<select id="batchCatSel" style="padding:5px 10px;font-size:12px;border-radius:999px;border:1px solid var(--line,#ddd);background:var(--surface,#fff);color:var(--text,#222);min-width:88px;"></select>' +
+      '<button id="btnBatchCat" class="btn sm primary">' + (isZh ? '+ 加入分类' : '+ Category') + '</button>' +
     '</span>' +
     '<div id="platDropZone" style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:10px;border:1px dashed var(--accent,#E9327A);font-size:12px;cursor:pointer;">' +
-      '<span>Drop ROMs →</span>' +
-      '<select id="platUploadSel" style="padding:3px 6px;font-size:12px;border-radius:6px;border:1px solid var(--line,#ddd);background:var(--bg,#fff);color:var(--text,#222);">' +
+      '<span>' + (isZh ? '拖入 ROM →' : 'Drop ROMs →') + '</span>' +
+      '<select id="platUploadSel" style="padding:3px 8px;font-size:12px;border-radius:999px;border:1px solid var(--line,#ddd);background:var(--surface,#fff);color:var(--text,#222);">' +
         '<option value="gba">gba</option><option value="snes">snes</option><option value="nes">nes</option><option value="nds">nds</option><option value="psp">psp</option><option value="psx">psx</option><option value="ps2">ps2</option><option value="n64">n64</option><option value="gb">gb</option><option value="gbc">gbc</option><option value="megadrive">megadrive</option><option value="arcade">arcade</option><option value="switch">switch</option><option value="3ds">3ds</option><option value="gamecube">gamecube</option>' +
       '</select>' +
       '<input id="platUploadInput" type="file" multiple style="display:none"/>' +
@@ -3798,14 +3837,20 @@ function escJs(s) {
   tabGames.insertBefore(bar, gamesContainer);
 
   function syncBatchUi() {
+    const zh = (curLang || 'zh-CN').startsWith('zh');
     el('batchControls').style.display = batchMode ? 'flex' : 'none';
-    el('btnBatchToggle').textContent = batchMode ? '✕ Exit Batch' : '☑ Batch Select';
-    el('batchCountLbl').textContent = selectedIds.size + ' selected';
+    const tog = el('btnBatchToggle');
+    tog.textContent = batchMode ? (zh ? '✕ 退出批量' : '✕ Exit Batch') : (zh ? '☑ 批量选择' : '☑ Batch Select');
+    tog.className = batchMode ? 'btn sm primary' : 'btn sm';
+    el('batchCountLbl').textContent = zh ? ('已选 ' + selectedIds.size + ' 项') : (selectedIds.size + ' selected');
     const sel = el('batchCatSel');
-    if (sel && typeof categories !== 'undefined' && Array.isArray(categories)) {
+    if (sel && typeof catTabs !== 'undefined' && Array.isArray(catTabs)) {
+      const customCats = catTabs.filter(c => c.type === 'Custom');
       const prev = sel.value;
-      sel.innerHTML = categories.map(c => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
-      if (prev) sel.value = prev;
+      sel.innerHTML = customCats.length
+        ? customCats.map(c => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('')
+        : '<option value="">' + (zh ? '暂无分类' : 'No categories') + '</option>';
+      if (prev && customCats.some(c => c.id === prev)) sel.value = prev;
     }
     gamesContainer.querySelectorAll('[data-gid]').forEach(node => {
       const gid = node.getAttribute('data-gid');
