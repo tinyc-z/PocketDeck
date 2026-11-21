@@ -18,6 +18,8 @@ internal object WebManagerUi {
     private fun readAsset(context: Context, name: String): String =
         context.assets.open("web/$name").bufferedReader(Charsets.UTF_8).use { it.readText() }
 
+    fun staticAssetMime(name: String): String? = STATIC_ASSET_MIMES[name]
+
     fun loadStaticAsset(context: Context, name: String): Pair<String, String>? {
         val mime = STATIC_ASSET_MIMES[name] ?: return null
         val content = runCatching { readAsset(context, name) }.getOrNull() ?: return null

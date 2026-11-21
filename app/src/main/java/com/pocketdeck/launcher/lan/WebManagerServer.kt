@@ -6,6 +6,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.os.storage.StorageManager
 import com.pocketdeck.launcher.data.AppTheme
+import com.pocketdeck.launcher.BuildConfig
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.data.CategorySortOrder
 import com.pocketdeck.launcher.data.CoverSource
@@ -1066,9 +1067,28 @@ class WebManagerServer(
 
         if (req.method == "GET" && req.path.startsWith("/web/")) {
             val name = req.path.removePrefix("/web/")
+            val mime = WebManagerUi.staticAssetMime(name)
+            if (mime == null) {
+                res.sendJson(404, """{"ok":false,"error":"not_found"}""")
+                return
+            }
+            val etag = "\"v${BuildConfig.VERSION_NAME}-b${BuildConfig.VERSION_CODE}-$name\""
+            val inm = req.headers["if-none-match"].orEmpty()
+            val matched = inm.split(',').any { token ->
+                val t = token.trim().removePrefix("W/")
+                t == etag || t == "*"
+            }
+            val headers = mapOf(
+                "Cache-Control" to "no-cache",
+                "ETag" to etag,
+            )
+            if (matched) {
+                res.sendBytes(304, ByteArray(0), mime, headers)
+                return
+            }
             val asset = WebManagerUi.loadStaticAsset(context, name)
             if (asset != null) {
-                res.sendText(200, asset.first, asset.second, mapOf("Cache-Control" to "no-cache"))
+                res.sendText(200, asset.first, asset.second, headers)
             } else {
                 res.sendJson(404, """{"ok":false,"error":"not_found"}""")
             }
