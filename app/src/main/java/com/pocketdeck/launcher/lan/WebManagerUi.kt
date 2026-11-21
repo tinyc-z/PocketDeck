@@ -354,6 +354,33 @@ document.getElementById('f').addEventListener('submit', async (e) => {
 
   .main-wrap { flex:1; min-width:0; }
   .main { width:100%; max-width:1360px; margin:0 auto; padding:26px 32px 64px; }
+  .sticky-head {
+    position:sticky; top:0; z-index:20;
+    margin:-26px -32px 14px; padding:12px 32px 10px;
+    background:color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border-bottom:1px solid color-mix(in srgb, var(--line) 75%, transparent);
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .sticky-head .page-top { margin-bottom:0; gap:10px; }
+  .sticky-head .page-top h1 { font-size:21px; line-height:1.2; }
+  .sticky-head .title-inline { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .sticky-head .page-sub { margin-top:0; font-size:12.5px; }
+  .sticky-head .search-box { height:36px; width:260px; padding:0 11px; border-radius:10px; }
+  .sticky-head .pbtn { height:36px; padding:0 14px; border-radius:10px; font-size:13px; }
+  .sticky-head .filter-bar { margin-bottom:0; gap:6px; }
+  .sticky-head .fchip { height:30px; padding:0 11px; font-size:12.5px; }
+  .sticky-head .seg { padding:2px; border-radius:10px; }
+  .sticky-head .seg button { padding:4px 10px; font-size:12.5px; border-radius:8px; }
+  .sticky-head .toolbar { margin-bottom:0; gap:6px; }
+  .sticky-head .crumbs { margin-bottom:0; gap:5px; flex:1; min-width:160px; }
+  .sticky-head .crumb { padding:4px 10px; font-size:12px; }
+  .sticky-head .files-row3 { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .sticky-head .dropzone {
+    flex:1; min-width:220px; padding:6px 12px; border-radius:10px;
+    margin-bottom:0; font-size:12px; line-height:1.35;
+  }
+  .sticky-head .dropzone .prog { margin-top:6px; height:5px; }
   .page-top { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
   .page-top h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-.4px; }
   .page-sub { font-size:13.5px; color:var(--label); font-weight:600; margin-top:4px; }
@@ -634,6 +661,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     .more-wrap { margin:0 0 0 auto; }
     .more-pop { left:auto; right:0; width:190px; top:42px; bottom:auto; }
     .main { padding:18px 16px 64px; }
+    .sticky-head { position:static; margin:-18px -16px 12px; padding:12px 16px 10px; }
   }
 </style>
 </head>
@@ -704,44 +732,46 @@ document.getElementById('f').addEventListener('submit', async (e) => {
   <div class="main-wrap">
   <main class="main">
     <section id="tab-games">
-      <div class="page-top">
-        <div>
-          <h1 data-i18n="tab_games">Library</h1>
-          <div id="statsGrid" class="page-sub"></div>
+      <div id="gamesStickyHead" class="sticky-head">
+        <div class="page-top">
+          <div class="title-inline">
+            <h1 data-i18n="tab_games">Library</h1>
+            <div id="statsGrid" class="page-sub"></div>
+          </div>
+          <div class="search-box">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oncompositionstart="onGameSearchCompStart()" oncompositionend="onGameSearchCompEnd()" oninput="onGameSearchInput()" onkeydown="onGameSearchKeyDown(event)"/>
+            <button id="gSearchClear" type="button" onclick="clearGameSearch()" style="display:none;border:none;background:var(--surface2,rgba(0,0,0,0.08));color:var(--muted,#666);width:20px;height:20px;border-radius:999px;cursor:pointer;font-size:13px;line-height:20px;padding:0;flex-shrink:0;text-align:center;" title="Clear">×</button>
+            <span id="gSearchKbd" class="kbd">/</span>
+          </div>
+          <button class="btn primary pbtn" onclick="goUploadRoms()">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            <span data-i18n="btn_upload_roms">Upload ROMs</span>
+          </button>
         </div>
-        <div class="search-box">
-          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <input id="gSearch" data-i18n-ph="search_games_ph" placeholder="Search games" oncompositionstart="onGameSearchCompStart()" oncompositionend="onGameSearchCompEnd()" oninput="onGameSearchInput()" onkeydown="onGameSearchKeyDown(event)"/>
-          <button id="gSearchClear" type="button" onclick="clearGameSearch()" style="display:none;border:none;background:var(--surface2,rgba(0,0,0,0.08));color:var(--muted,#666);width:20px;height:20px;border-radius:999px;cursor:pointer;font-size:13px;line-height:20px;padding:0;flex-shrink:0;text-align:center;" title="Clear">×</button>
-          <span id="gSearchKbd" class="kbd">/</span>
+
+        <div class="filter-bar">
+          <div id="filterChips" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-shrink:0;">
+            <select id="gSort" class="sel" style="height:30px;padding:0 26px 0 11px;border-radius:999px;font-size:12px;border:1px solid var(--line);background-color:var(--surf);color:var(--text);font-weight:600;cursor:pointer;" onchange="onGameSortChange()">
+              <option value="mtime_desc">最新更新</option>
+              <option value="title_asc">名称 A→Z</option>
+              <option value="title_desc">名称 Z→A</option>
+              <option value="size_desc">文件大小</option>
+              <option value="mtime_asc">最早添加</option>
+            </select>
+            <div class="seg">
+              <button id="vmGrid" class="active" onclick="setGameView('grid')" data-i18n="view_grid">Covers</button>
+              <button id="vmList" onclick="setGameView('list')" data-i18n="view_list">List</button>
+            </div>
+          </div>
         </div>
-        <button class="btn primary pbtn" onclick="goUploadRoms()">
-          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-          <span data-i18n="btn_upload_roms">Upload ROMs</span>
-        </button>
       </div>
 
       <div style="display:none">
         <select id="gVis" onchange="loadGames(true)"><option value="all"></option><option value="visible"></option><option value="fav"></option><option value="nocover"></option><option value="hidden"></option></select>
         <select id="gPlat" onchange="loadGames(true)"><option value=""></option></select>
         <select id="gCat" onchange="loadGames(true)"><option value=""></option></select>
-      </div>
-
-      <div class="filter-bar">
-        <div id="filterChips" style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;"></div>
-        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-shrink:0;">
-          <select id="gSort" class="sel" style="height:34px;padding:0 12px;border-radius:999px;font-size:12.5px;border:1px solid var(--line);background:var(--surf);color:var(--text);font-weight:600;cursor:pointer;" onchange="onGameSortChange()">
-            <option value="mtime_desc">最新更新</option>
-            <option value="title_asc">名称 A→Z</option>
-            <option value="title_desc">名称 Z→A</option>
-            <option value="size_desc">文件大小</option>
-            <option value="mtime_asc">最早添加</option>
-          </select>
-          <div class="seg">
-            <button id="vmGrid" class="active" onclick="setGameView('grid')" data-i18n="view_grid">Covers</button>
-            <button id="vmList" onclick="setGameView('list')" data-i18n="view_list">List</button>
-          </div>
-        </div>
       </div>
 
       <div id="gamesContainer"></div>
@@ -764,46 +794,50 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     </section>
 
     <section id="tab-files" style="display:none">
-      <div class="page-top">
-        <div>
-          <h1 data-i18n="tab_files">Files</h1>
-          <div id="dirStorageInfo" class="page-sub"></div>
+      <div id="filesStickyHead" class="sticky-head">
+        <div class="page-top">
+          <div class="title-inline">
+            <h1 data-i18n="tab_files">Files</h1>
+            <div id="dirStorageInfo" class="page-sub"></div>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+            <button id="mkdirBtn" class="btn sm" onclick="mkdirPrompt()" disabled data-i18n="files_mkdir">New folder</button>
+            <label class="btn sm" id="pickDirUploadLbl" style="display:none">
+              <span data-i18n="files_upload_dir">Upload folder</span>
+              <input id="dirInput" type="file" webkitdirectory multiple style="display:none" onchange="uploadFolderFiles(this.files)"/>
+            </label>
+            <label class="btn sm primary" id="pickUploadLbl" style="display:none">
+              <span data-i18n="files_upload">Upload files</span>
+              <input id="fileInput" type="file" multiple style="display:none" onchange="uploadFiles(this.files)"/>
+            </label>
+          </div>
         </div>
-        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="mkdirBtn" class="btn" onclick="mkdirPrompt()" disabled data-i18n="files_mkdir">New folder</button>
-          <label class="btn" id="pickDirUploadLbl" style="display:none">
-            <span data-i18n="files_upload_dir">Upload folder</span>
-            <input id="dirInput" type="file" webkitdirectory multiple style="display:none" onchange="uploadFolderFiles(this.files)"/>
-          </label>
-          <label class="btn primary" id="pickUploadLbl" style="display:none">
-            <span data-i18n="files_upload">Upload files</span>
-            <input id="fileInput" type="file" multiple style="display:none" onchange="uploadFiles(this.files)"/>
-          </label>
+        <div class="toolbar">
+          <button id="upBtn" class="btn sm" onclick="goParent()" disabled data-i18n="files_up">Up</button>
+          <div id="crumbsBar" class="crumbs"></div>
+          <select id="fileSort" style="padding:5px 28px 5px 10px;font-size:12.5px;border-radius:10px;" onchange="renderFiles()">
+            <option value="name" data-i18n="sort_name">Name</option>
+            <option value="size" data-i18n="sort_size">Size</option>
+            <option value="modified" data-i18n="sort_modified">Modified</option>
+            <option value="type" data-i18n="sort_type">Type</option>
+          </select>
+          <input id="fileFilter" class="search" style="width:190px;max-width:100%;padding:5px 10px;font-size:12.5px;border-radius:10px;" data-i18n-ph="files_filter_ph" placeholder="Filter folder…" oninput="onFileFilterInput()"/>
         </div>
-      </div>
-      <div class="toolbar">
-        <button id="upBtn" class="btn" onclick="goParent()" disabled data-i18n="files_up">Up</button>
-        <select id="fileSort" onchange="renderFiles()">
-          <option value="name" data-i18n="sort_name">Name</option>
-          <option value="size" data-i18n="sort_size">Size</option>
-          <option value="modified" data-i18n="sort_modified">Modified</option>
-          <option value="type" data-i18n="sort_type">Type</option>
-        </select>
-        <input id="fileFilter" class="search" style="min-width:160px;" data-i18n-ph="files_filter_ph" placeholder="Filter folder…" oninput="onFileFilterInput()"/>
-      </div>
-      <div id="crumbsBar" class="crumbs"></div>
-      <div id="dropzone" class="dropzone" style="display:none">
-        <span data-i18n="dropzone_txt">Drop files or folders to upload</span>
-        <div id="progWrap" class="prog"><div id="progBar"></div></div>
-        <div id="progText" class="sub" style="margin-top:6px;"></div>
-        <div id="progCancel" style="display:none;margin-top:8px;">
-          <button class="btn sm danger" onclick="cancelWebUpload()" data-i18n="cancel_upload">Cancel</button>
+        <div class="files-row3">
+          <div id="filesHeaderBar" style="display:none;align-items:center;gap:8px;flex-shrink:0;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;">
+              <input type="checkbox" id="chkAllFiles" onchange="toggleSelectAllFiles(this.checked)"/> <span data-i18n="files_select_all">Select all</span>
+            </label>
+          </div>
+          <div id="dropzone" class="dropzone" style="display:none">
+            <span data-i18n="dropzone_txt">Drop files or folders to upload</span>
+            <div id="progWrap" class="prog"><div id="progBar"></div></div>
+            <div id="progText" class="sub" style="margin-top:4px;"></div>
+            <div id="progCancel" style="display:none;margin-top:6px;">
+              <button class="btn sm danger" onclick="cancelWebUpload()" data-i18n="cancel_upload">Cancel</button>
+            </div>
+          </div>
         </div>
-      </div>
-      <div id="filesHeaderBar" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;">
-          <input type="checkbox" id="chkAllFiles" onchange="toggleSelectAllFiles(this.checked)"/> <span data-i18n="files_select_all">Select all</span>
-        </label>
       </div>
       <div id="filesList" class="list"></div>
       <div id="filesFooter" class="list-footer"></div>
@@ -4151,27 +4185,28 @@ function escJs(s) {
 
   const bar = document.createElement('div');
   bar.id = 'batchOpsBar';
-  bar.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 12px 0;padding:10px 14px;border-radius:14px;background:var(--surface,#fff);border:1px solid var(--line,rgba(0,0,0,0.08));';
+  bar.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;padding:5px 10px;border-radius:11px;background:color-mix(in srgb, var(--surf,#fff) 86%, transparent);border:1px solid var(--line,rgba(0,0,0,0.08));';
   const isZh = (curLang || 'zh-CN').startsWith('zh');
   bar.innerHTML =
-    '<button id="btnBatchToggle" class="btn sm">' + (isZh ? '☑ 批量选择' : '☑ Batch Select') + '</button>' +
+    '<button id="btnBatchToggle" class="btn sm" style="padding:4px 10px;font-size:12px;">' + (isZh ? '☑ 批量选择' : '☑ Batch Select') + '</button>' +
     '<span id="batchControls" style="display:none;flex-wrap:wrap;align-items:center;gap:6px;flex:1;">' +
       '<span id="batchCountLbl" style="font-size:12px;font-weight:700;color:var(--accent,#E9327A);padding:0 4px;">' + (isZh ? '已选 0 项' : '0 selected') + '</span>' +
-      '<button id="btnBatchAll" class="btn sm">' + (isZh ? '全选' : 'Select All') + '</button>' +
-      '<button id="btnBatchHide" class="btn sm">' + (isZh ? '隐藏' : 'Hide') + '</button>' +
-      '<button id="btnBatchUnhide" class="btn sm">' + (isZh ? '取消隐藏' : 'Unhide') + '</button>' +
-      '<button id="btnBatchRescrape" class="btn sm">' + (isZh ? '重新刮削' : 'Rescrape') + '</button>' +
-      '<select id="batchCatSel" style="padding:5px 10px;font-size:12px;border-radius:999px;border:1px solid var(--line,#ddd);background:var(--surface,#fff);color:var(--text,#222);min-width:88px;"></select>' +
-      '<button id="btnBatchCat" class="btn sm primary">' + (isZh ? '+ 加入分类' : '+ Category') + '</button>' +
+      '<button id="btnBatchAll" class="btn sm" style="padding:4px 9px;font-size:12px;">' + (isZh ? '全选' : 'Select All') + '</button>' +
+      '<button id="btnBatchHide" class="btn sm" style="padding:4px 9px;font-size:12px;">' + (isZh ? '隐藏' : 'Hide') + '</button>' +
+      '<button id="btnBatchUnhide" class="btn sm" style="padding:4px 9px;font-size:12px;">' + (isZh ? '取消隐藏' : 'Unhide') + '</button>' +
+      '<button id="btnBatchRescrape" class="btn sm" style="padding:4px 9px;font-size:12px;">' + (isZh ? '重新刮削' : 'Rescrape') + '</button>' +
+      '<select id="batchCatSel" style="padding:4px 26px 4px 10px;font-size:12px;border-radius:999px;border:1px solid var(--line,#ddd);background-color:var(--surf,#fff);color:var(--text,#222);min-width:88px;"></select>' +
+      '<button id="btnBatchCat" class="btn sm primary" style="padding:4px 10px;font-size:12px;">' + (isZh ? '+ 加入分类' : '+ Category') + '</button>' +
     '</span>' +
-    '<div id="platDropZone" style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:10px;border:1px dashed var(--accent,#E9327A);font-size:12px;cursor:pointer;">' +
+    '<div id="platDropZone" style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:9px;border:1px dashed var(--accent,#E9327A);font-size:12px;cursor:pointer;">' +
       '<span>' + (isZh ? '拖入 ROM →' : 'Drop ROMs →') + '</span>' +
-      '<select id="platUploadSel" style="padding:3px 8px;font-size:12px;border-radius:999px;border:1px solid var(--line,#ddd);background:var(--surface,#fff);color:var(--text,#222);">' +
+      '<select id="platUploadSel" style="padding:2px 24px 2px 8px;font-size:12px;border-radius:999px;border:1px solid var(--line,#ddd);background-color:var(--surf,#fff);color:var(--text,#222);">' +
         '<option value="gba">gba</option><option value="snes">snes</option><option value="nes">nes</option><option value="nds">nds</option><option value="psp">psp</option><option value="psx">psx</option><option value="ps2">ps2</option><option value="n64">n64</option><option value="gb">gb</option><option value="gbc">gbc</option><option value="megadrive">megadrive</option><option value="arcade">arcade</option><option value="switch">switch</option><option value="3ds">3ds</option><option value="gamecube">gamecube</option>' +
       '</select>' +
       '<input id="platUploadInput" type="file" multiple style="display:none"/>' +
     '</div>';
-  tabGames.insertBefore(bar, gamesContainer);
+  const stickyHost = el('gamesStickyHead');
+  if (stickyHost) stickyHost.appendChild(bar); else tabGames.insertBefore(bar, gamesContainer);
 
   function syncBatchUi() {
     const zh = (curLang || 'zh-CN').startsWith('zh');
