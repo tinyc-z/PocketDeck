@@ -618,16 +618,9 @@ internal fun CoversSettingsSection(
         )
         RowDivider()
         SettingRow(
-            label = stringResource(R.string.scraping_refresh_meta),
-            highlighted = highlightIndex == actionsStart + 1,
-            onClick = onRefreshMetadata,
-            leading = { DeckIcon(DeckIcons.Refresh, size = 16.dp, tint = DeckColors.TextSecondary) },
-        )
-        RowDivider()
-        SettingRow(
             label = stringResource(R.string.scraping_clear_cache),
             description = stringResource(R.string.scraping_clear_cache_desc),
-            highlighted = highlightIndex == actionsStart + 2,
+            highlighted = highlightIndex == actionsStart + 1,
             onClick = onClearCoverCache,
             leading = { DeckIcon(DeckIcons.Trash, size = 16.dp, tint = DeckColors.TextSecondary) },
             trailing = { ValuePill(cacheSizeLabel) },
@@ -635,7 +628,7 @@ internal fun CoversSettingsSection(
         RowDivider()
         SettingRow(
             label = stringResource(R.string.scraping_view_logs),
-            highlighted = highlightIndex == actionsStart + 3,
+            highlighted = highlightIndex == actionsStart + 2,
             onClick = onViewLogs,
             leading = { DeckIcon(DeckIcons.FileText, size = 16.dp, tint = DeckColors.TextSecondary) },
             trailing = { ValueChevron(null) },

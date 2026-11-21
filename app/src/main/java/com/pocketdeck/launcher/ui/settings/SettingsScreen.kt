@@ -249,7 +249,7 @@ private fun itemCountForSection(
         ViewMode.entries.size + align + 2 + metaFields + tabsTotal
     }
     SettingsSection.Library -> state.romDirs.size + 4
-    SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 4
+    SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 3
     SettingsSection.Emulators -> 2 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
     SettingsSection.Controls -> 1 + KeyAction.entries.size + 1
     // Language(0), 12h(1), UI sounds(2), LAN & Share(3), StatusBar x8(4..11), Experimental(12), About x5(13..17)
@@ -736,12 +736,7 @@ fun SettingsScreen(
                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                         }
                     }
-                    idx == actionsStart + 1 -> {
-                        if (!NetworkStatus.isOnline(context)) {
-                            Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
-                        } else manage.refreshAllMetadata()
-                    }
-                    idx == actionsStart + 2 -> clearScrapeCacheWithFeedback()
+                    idx == actionsStart + 1 -> clearScrapeCacheWithFeedback()
                     else -> showScrapeLogs = true
                 }
             }
