@@ -190,16 +190,19 @@ fun ManualScrapeDialog(
         val info = listState.layoutInfo
         val visible = info.visibleItemsInfo
         val itemInfo = visible.firstOrNull { it.index == selectedIdx }
+        val viewportH = (info.viewportEndOffset - info.viewportStartOffset).coerceAtLeast(1)
         val fullyVisible = itemInfo != null &&
             itemInfo.offset >= info.viewportStartOffset &&
             (itemInfo.offset + itemInfo.size) <= info.viewportEndOffset
         if (!fullyVisible) {
-            // 仅当目标行超出可视区时才滚动，避免列表内上下移动时每次都强行把焦点行顶到最上方造成跳动
             val firstVis = visible.firstOrNull()?.index ?: 0
-            if (selectedIdx < firstVis) {
-                listState.animateScrollToItem(selectedIdx)
+            if (selectedIdx <= firstVis || (itemInfo != null && itemInfo.offset < info.viewportStartOffset)) {
+                listState.animateScrollToItem(selectedIdx, scrollOffset = 0)
             } else {
-                listState.animateScrollToItem((selectedIdx - 2).coerceAtLeast(0))
+                // 向下滚出底边：按当前可视区高度与实际行高，把选中行底边精确对齐到可视区底部
+                val estItemH = itemInfo?.size ?: visible.firstOrNull()?.size ?: 180
+                val bottomAlignedOffset = -(viewportH - estItemH).coerceAtLeast(0)
+                listState.animateScrollToItem(selectedIdx, scrollOffset = bottomAlignedOffset)
             }
         }
     }
