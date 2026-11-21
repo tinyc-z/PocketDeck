@@ -1313,7 +1313,7 @@ class CoverSource(
     }
 
     private fun fetchOnlineBoxartList(system: String, cacheFile: File): List<String> {
-        // 三级镜像容灾：1. thumbnails.libretro.com HTML → 2. jsDelivr flat API → 3. GitHub Trees API
+        // 两级镜像容灾：1. thumbnails.libretro.com HTML → 2. GitHub Trees API（跳过超过 50MB 必 403 的 jsDelivr flat）
         val primaryUrl = "https://thumbnails.libretro.com/${Uri.encode(system)}/Named_Boxarts/"
         val primaryNames = fetchLibretroHtmlListing(system, primaryUrl)
         if (!primaryNames.isNullOrEmpty()) {
@@ -1322,17 +1322,11 @@ class CoverSource(
             return primaryNames
         }
         val repo = Uri.encode(system.replace(' ', '_'))
-        val jsDelivrUrl = "https://data.jsdelivr.com/v1/package/gh/libretro-thumbnails/$repo@master/flat"
-        val jsDelivrNames = fetchJsDelivrBoxartList(system, jsDelivrUrl)
-        if (jsDelivrNames.isNotEmpty()) {
-            activeLibretroMirror = 1
-            writeIndexCache(cacheFile, jsDelivrNames)
-            return jsDelivrNames
-        }
         val githubUrl = "https://api.github.com/repos/libretro-thumbnails/$repo/git/trees/master?recursive=1"
         val githubNames = fetchGitHubBoxartList(system, githubUrl)
         if (githubNames.isNotEmpty()) {
-            activeLibretroMirror = 2
+            // 单张图片依然优先走 cdn.jsdelivr.net CDN（单图直连不受 50MB 限制）
+            activeLibretroMirror = 1
             writeIndexCache(cacheFile, githubNames)
         }
         return githubNames
@@ -1369,36 +1363,6 @@ class CoverSource(
         } catch (t: Throwable) {
             ScrapeLogStore.log("COVER", "libretro_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
             null
-        }
-    }
-
-    private fun fetchJsDelivrBoxartList(system: String, url: String): List<String> {
-        val t0 = System.currentTimeMillis()
-        var code: Int? = null
-        return try {
-            val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
-            client.http.newCall(req).execute().use { resp ->
-                code = resp.code
-                if (!resp.isSuccessful) {
-                    ScrapeLogStore.log("COVER", "jsdelivr_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "HTTP $code")
-                    return emptyList()
-                }
-                val text = resp.body?.string().orEmpty()
-                val files = org.json.JSONObject(text).optJSONArray("files") ?: return emptyList()
-                val names = LinkedHashSet<String>(4096)
-                val prefix = "/Named_Boxarts/"
-                for (i in 0 until files.length()) {
-                    val path = files.optJSONObject(i)?.optString("name") ?: continue
-                    if (path.startsWith(prefix) && path.endsWith(".png", ignoreCase = true)) {
-                        names += path.removePrefix(prefix)
-                    }
-                }
-                ScrapeLogStore.log("COVER", "jsdelivr_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${names.size} entries (failover)")
-                names.toList()
-            }
-        } catch (t: Throwable) {
-            ScrapeLogStore.log("COVER", "jsdelivr_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
-            emptyList()
         }
     }
 

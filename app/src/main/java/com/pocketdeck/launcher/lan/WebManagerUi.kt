@@ -2707,12 +2707,12 @@ async function _ensureWebLibretroIndex(system, statusEl) {
   let names = await _webIdxIdbGet(system) || [];
   let fromCache = names.length > 0;
   if (!names.length) {
-    if (statusEl) statusEl.textContent = '正在从 jsDelivr 拉取 ' + system + ' 封面目录…';
+    if (statusEl) statusEl.textContent = '正在从掌机缓存读取 ' + system + ' 封面目录…';
     try {
-      const r = await fetch('https://data.jsdelivr.com/v1/package/gh/libretro-thumbnails/' + repo + '@master/flat');
+      const r = await api('/api/cover-index?system=' + encodeURIComponent(system));
       if (r.ok) {
-        const d = await r.json();
-        names = (d.files || []).map(f => f.name || '').filter(p => p.startsWith('/Named_Boxarts/') && /\.png$/i.test(p)).map(p => p.slice('/Named_Boxarts/'.length));
+        const txt = await r.text();
+        names = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       }
     } catch (e) {}
   }
@@ -2723,16 +2723,6 @@ async function _ensureWebLibretroIndex(system, statusEl) {
       if (r.ok) {
         const d = await r.json();
         names = (d.tree || []).map(t => t.path || '').filter(p => p.startsWith('Named_Boxarts/') && /\.png$/i.test(p)).map(p => p.slice('Named_Boxarts/'.length));
-      }
-    } catch (e) {}
-  }
-  if (!names.length) {
-    if (statusEl) statusEl.textContent = '正在从掌机缓存读取 ' + system + ' 封面目录…';
-    try {
-      const r = await api('/api/cover-index?system=' + encodeURIComponent(system));
-      if (r.ok) {
-        const txt = await r.text();
-        names = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       }
     } catch (e) {}
   }
