@@ -1,6 +1,7 @@
 package com.pocketdeck.launcher
 
 import com.pocketdeck.launcher.data.ScraperClient
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,5 +36,13 @@ class WikidataFilterTest {
         assertFalse(ScraperClient.isWikidataFallbackCandidate("", 0.85))
         assertFalse(ScraperClient.isWikidataFallbackCandidate("1992 American animated film", 1.0))
         assertFalse(ScraperClient.isWikidataFallbackCandidate("video game series", 1.0))
+    }
+
+    @Test
+    fun `builds Wikimedia Commons Special FilePath url from P18 or P154 filename`() {
+        assertEquals(
+            "https://commons.wikimedia.org/wiki/Special:FilePath/Super_Tilt_Bro.png?width=600",
+            ScraperClient.wikimediaCommonsUrl("Super Tilt Bro.png"),
+        )
     }
 }

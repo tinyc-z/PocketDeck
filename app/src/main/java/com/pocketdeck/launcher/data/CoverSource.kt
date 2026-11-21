@@ -984,6 +984,11 @@ class CoverSource(
             }
         }
 
+        // 兜底：若已启用 Wikidata 且刮削结果带有 Wikimedia Commons 图片（P18/P154），作为低优先级候选封面
+        client.cachedHitInMemory(ScraperCatalog.MetaIds.WIKIDATA, game.id)?.coverUrls?.forEach {
+            addUrl(it, ScraperCatalog.MetaIds.WIKIDATA, CoverMatchMode.ApiSearch)
+        }
+
         game.localCover?.let { addCandidate(File(it), "local", CoverMatchMode.LocalFile) }
         return out
     }
@@ -1060,6 +1065,9 @@ class CoverSource(
                     apiResults[node.id].orEmpty().forEach { push(it, node.id) }
                 }
             }
+        }
+        client.cachedHitInMemory(ScraperCatalog.MetaIds.WIKIDATA, game.id)?.coverUrls?.forEach {
+            push(it, ScraperCatalog.MetaIds.WIKIDATA)
         }
         // 并行验证候选图片 URL 确实可访问；Libretro 主镜像失败时自动尝试其余两个镜像兜底
         out.map { item ->
@@ -1486,6 +1494,10 @@ class CoverSource(
                 }
             }
         }
+        val wikiHit = client.cachedHit(ScraperCatalog.MetaIds.WIKIDATA, game.id)
+        for (u in wikiHit?.coverUrls.orEmpty().take(2)) {
+            if (tried.add(u) && tryDownloadAndSave(u)) return@withContext true
+        }
         false
     }
 
@@ -1603,6 +1615,7 @@ class CoverSource(
             "screenscraper" in url -> ScraperCatalog.CoverIds.SCREENSCRAPER
             "thegamesdb" in url -> ScraperCatalog.CoverIds.THEGAMESDB
             "igdb.com" in url -> ScraperCatalog.CoverIds.IGDB
+            "wikimedia.org" in url -> ScraperCatalog.MetaIds.WIKIDATA
             else -> "custom"
         }
         val mode = when (prov) {
@@ -1611,7 +1624,8 @@ class CoverSource(
             ScraperCatalog.CoverIds.ARCADEITALIA,
             ScraperCatalog.CoverIds.STEAMGRIDDB,
             ScraperCatalog.CoverIds.THEGAMESDB,
-            ScraperCatalog.CoverIds.IGDB -> CoverMatchMode.ApiSearch
+            ScraperCatalog.CoverIds.IGDB,
+            ScraperCatalog.MetaIds.WIKIDATA -> CoverMatchMode.ApiSearch
             else -> CoverMatchMode.IndexExact
         }
         return prov to mode

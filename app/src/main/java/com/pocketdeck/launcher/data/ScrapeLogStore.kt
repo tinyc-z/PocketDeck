@@ -148,7 +148,7 @@ object ScrapeLogStore {
             "steamgriddb" in host -> "steamgriddb"
             "hasheous" in host -> "hasheous"
             "arcadeitalia" in host -> "arcadeitalia"
-            "wikidata" in host -> "wikidata"
+            "wikidata" in host || "wikimedia" in host -> "wikidata"
             "screenscraper" in host -> "screenscraper"
             "thegamesdb" in host -> "thegamesdb"
             "igdb" in host -> "igdb"

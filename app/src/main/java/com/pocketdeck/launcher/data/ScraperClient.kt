@@ -20,6 +20,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.URLEncoder
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
@@ -450,11 +451,16 @@ class ScraperClient(context: Context) {
             val pubId = firstClaimEntityId(claims, "P123")
             val genreId = firstClaimEntityId(claims, "P136")
             val release = firstClaimTime(claims, "P577")
+            val coverUrls = buildList {
+                firstClaimString(claims, "P18")?.let { add(wikimediaCommonsUrl(it)) }
+                firstClaimString(claims, "P154")?.let { add(wikimediaCommonsUrl(it)) }
+            }.distinct()
 
             val idsToResolve = listOfNotNull(devId, pubId, genreId).distinct()
             val labels = if (idsToResolve.isEmpty()) emptyMap() else resolveWikidataLabels(idsToResolve)
 
             ScrapeHit(
+                coverUrls = coverUrls,
                 officialName = chosenLabel,
                 meta = GameMetadata(
                     releaseDate = release,
@@ -1058,6 +1064,17 @@ class ScraperClient(context: Context) {
             if (similarity < 0.90) return false
             val d = desc.lowercase()
             return WIKIDATA_NON_GAME_DESC_KEYWORDS.none { it in d }
+        }
+
+        internal fun firstClaimString(claims: JSONObject, prop: String): String? =
+            claims.optJSONArray(prop)?.optJSONObject(0)?.optJSONObject("mainsnak")
+                ?.optJSONObject("datavalue")?.optString("value")
+                ?.takeIf { it.isNotBlank() }
+
+        internal fun wikimediaCommonsUrl(fileName: String): String {
+            val normalized = fileName.trim().replace(' ', '_')
+            val encoded = URLEncoder.encode(normalized, "UTF-8").replace("+", "%20")
+            return "https://commons.wikimedia.org/wiki/Special:FilePath/$encoded?width=600"
         }
 
         fun firstClaimEntityId(claims: JSONObject, prop: String): String? =
