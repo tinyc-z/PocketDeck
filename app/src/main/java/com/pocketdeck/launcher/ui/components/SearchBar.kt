@@ -23,15 +23,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.ui.components.icons.HomeIcons
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
+import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.cardSurface
 
 /**
@@ -46,6 +49,8 @@ fun SearchBar(
     onHideKeyboard: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    searchAllCategories: Boolean = false,
+    onToggleSearchAllCategories: () -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -96,6 +101,33 @@ fun SearchBar(
                 }
             },
         )
+
+        Spacer(Modifier.width(6.dp))
+        Box(
+            Modifier
+                .clip(CircleShape)
+                .then(
+                    if (searchAllCategories) {
+                        Modifier.brandBackground(CircleShape)
+                    } else {
+                        Modifier
+                            .background(DeckColors.SurfaceAlt)
+                            .border(0.7.dp, DeckColors.Line, CircleShape)
+                    },
+                )
+                .soundClickable(onClick = onToggleSearchAllCategories)
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = stringResource(R.string.search_all_categories),
+                style = DeckType.metaLabel.copy(
+                    fontWeight = if (searchAllCategories) FontWeight.Bold else FontWeight.Medium,
+                ),
+                color = if (searchAllCategories) Color.White else DeckColors.TextSecondary,
+                maxLines = 1,
+            )
+        }
 
         if (imeVisible) {
             Spacer(Modifier.width(6.dp))

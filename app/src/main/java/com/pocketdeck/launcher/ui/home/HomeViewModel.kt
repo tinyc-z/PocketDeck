@@ -56,6 +56,7 @@ data class HomeUiState(
     val swapAbxy: Boolean = false,
     val searching: Boolean = false,
     val searchQuery: String = "",
+    val searchAllCategories: Boolean = true,
     val menuGame: Game? = null,
     val detailGame: Game? = null,
     val propertiesGame: Game? = null,
@@ -346,8 +347,18 @@ class HomeViewModel(
         }
         val tab = tabs.getOrNull(tabIdx)
         val rawGames = getGamesForTab(tab, lib, user, metaMap)
+        val effectiveSearchAll = if (stateOverride != null) current.searchAllCategories else user.searchAllCategories
         val filteredGames = if (current.searching) {
-            if (current.searchQuery.isBlank()) emptyList() else applySearch(rawGames, current.searchQuery)
+            if (current.searchQuery.isBlank()) {
+                emptyList()
+            } else {
+                val searchPool = if (effectiveSearchAll) {
+                    lib.byId.values.filter { it.id !in user.hidden }.sortedBy { it.title.lowercase() }
+                } else {
+                    rawGames
+                }
+                applySearch(searchPool, current.searchQuery)
+            }
         } else {
             rawGames
         }
@@ -451,6 +462,7 @@ class HomeViewModel(
             reduceMotion = user.reduceMotion,
             playStats = user.playStats,
             quickHudEnabled = user.quickHudEnabled,
+            searchAllCategories = effectiveSearchAll,
         )
         _state.value = newState
         preloadAssets(filteredGames, focusIdx, newState::platformFor)
@@ -779,6 +791,21 @@ class HomeViewModel(
         if (nextSearching) _focusIndex.value = 0
         if (!recomputeFromRepo(nextState)) {
             _state.value = nextState
+        }
+    }
+
+    fun toggleSearchAllCategories() {
+        val nextVal = !_state.value.searchAllCategories
+        _focusIndex.value = 0
+        val nextState = _state.value.copy(
+            searchAllCategories = nextVal,
+            focusIndex = 0,
+        )
+        if (!recomputeFromRepo(nextState)) {
+            _state.value = nextState
+        }
+        viewModelScope.launch {
+            repo.updatePrefs { it.copy(searchAllCategories = nextVal) }
         }
     }
 

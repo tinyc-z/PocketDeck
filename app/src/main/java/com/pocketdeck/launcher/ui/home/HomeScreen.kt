@@ -434,6 +434,8 @@ fun HomeScreen(
                                 dismissSearchKeyboard()
                                 vm.toggleSearch()
                             },
+                            searchAllCategories = state.searchAllCategories,
+                            onToggleSearchAllCategories = { vm.toggleSearchAllCategories() },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 4.dp),
@@ -455,6 +457,8 @@ fun HomeScreen(
                                 dismissSearchKeyboard()
                                 vm.toggleSearch()
                             },
+                            searchAllCategories = state.searchAllCategories,
+                            onToggleSearchAllCategories = { vm.toggleSearchAllCategories() },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 4.dp),

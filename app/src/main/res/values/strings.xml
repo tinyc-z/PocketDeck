@@ -9,6 +9,7 @@
 
     <!-- Search -->
     <string name="search_hint">Search games…</string>
+    <string name="search_all_categories">All</string>
     <string name="search_empty">Type to search</string>
 
     <!-- Empty states -->

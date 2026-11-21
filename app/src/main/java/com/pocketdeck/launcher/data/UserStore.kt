@@ -233,6 +233,7 @@ data class UserData(
     val playStats: Map<String, PlayStats> = emptyMap(),
     /** 实验性功能：掌机快捷 HUD 浮层开关（默认关闭）。 */
     val quickHudEnabled: Boolean = false,
+    val searchAllCategories: Boolean = true,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "user")
@@ -297,6 +298,7 @@ class UserStore(private val context: Context) {
         val localSendCompat = booleanPreferencesKey("local_send_compat")
         val playStats = stringPreferencesKey("play_stats")
         val quickHudEnabled = booleanPreferencesKey("quick_hud_enabled")
+        val searchAllCategories = booleanPreferencesKey("search_all_categories")
     }
 
     private companion object {
@@ -526,6 +528,7 @@ class UserStore(private val context: Context) {
             localSendCompat = this[K.localSendCompat] ?: true,
             playStats = PlayStatsCodec.decodePlayStats(this[K.playStats]),
             quickHudEnabled = this[K.quickHudEnabled] ?: false,
+            searchAllCategories = this[K.searchAllCategories] ?: true,
         )
     }
 
@@ -722,6 +725,7 @@ class UserStore(private val context: Context) {
         p[K.localSendCompat] = new.localSendCompat
         p[K.playStats] = PlayStatsCodec.encodePlayStats(new.playStats)
         p[K.quickHudEnabled] = new.quickHudEnabled
+        p[K.searchAllCategories] = new.searchAllCategories
     }
 
     object PlayStatsCodec {

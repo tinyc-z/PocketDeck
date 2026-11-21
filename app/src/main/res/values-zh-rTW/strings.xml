@@ -8,6 +8,7 @@
 
     <!-- Search -->
     <string name="search_hint">搜尋遊戲…</string>
+    <string name="search_all_categories">全分類</string>
     <string name="search_empty">輸入關鍵字搜尋</string>
 
     <!-- Empty states -->
