@@ -684,31 +684,59 @@ class MetadataRepository(
         val seen = HashMap<String, Int>()
         val isRom = !game.id.startsWith(GameLauncher.APK_PREFIX)
 
+        fun dedupKey(c: ManualScrapeCandidate): String {
+            val u = c.coverUrl?.trim().orEmpty()
+            if (u.isEmpty()) return "meta|${c.title.lowercase()}|${c.providerId}"
+            val boxIdx = u.indexOf("/Named_")
+            return if (boxIdx >= 0) {
+                "libretro|" + Uri.decode(u.substring(boxIdx)).lowercase()
+            } else {
+                "url|" + u.lowercase()
+            }
+        }
+
+        fun mergeMeta(a: GameMetadata, b: GameMetadata): GameMetadata = GameMetadata(
+            releaseDate = a.releaseDate ?: b.releaseDate,
+            genre = a.genre ?: b.genre,
+            developer = a.developer ?: b.developer,
+            publisher = a.publisher ?: b.publisher,
+            description = a.description ?: b.description,
+        )
+
         fun addCandidatesLocked(items: List<ManualScrapeCandidate>): Boolean {
             var added = false
             for (c in items) {
-                val key = "${c.title.lowercase()}|${c.coverUrl.orEmpty()}"
+                val key = dedupKey(c)
                 val existingIdx = seen[key]
                 if (existingIdx == null) {
                     if (c.matchedByHash) {
                         val insertAt = out.indexOfFirst { !it.matchedByHash }.let { if (it < 0) out.size else it }
                         out.add(insertAt, c)
-                        // 重建索引表以保持 O(1) 去重准确
                         seen.clear()
-                        out.forEachIndexed { idx, item -> seen["${item.title.lowercase()}|${item.coverUrl.orEmpty()}"] = idx }
+                        out.forEachIndexed { idx, item -> seen[dedupKey(item)] = idx }
                     } else {
                         seen[key] = out.size
                         out += c
                     }
                     added = true
-                } else if (c.matchedByHash && !out[existingIdx].matchedByHash) {
-                    val upgraded = out[existingIdx].copy(matchedByHash = true)
-                    out.removeAt(existingIdx)
-                    val insertAt = out.indexOfFirst { !it.matchedByHash }.let { if (it < 0) out.size else it }
-                    out.add(insertAt, upgraded)
-                    seen.clear()
-                    out.forEachIndexed { idx, item -> seen["${item.title.lowercase()}|${item.coverUrl.orEmpty()}"] = idx }
-                    added = true
+                } else {
+                    val prev = out[existingIdx]
+                    val merged = prev.copy(
+                        metadata = mergeMeta(prev.metadata, c.metadata),
+                        matchedByHash = prev.matchedByHash || c.matchedByHash,
+                        fallbackCoverUrls = if (prev.fallbackCoverUrls.isNotEmpty()) prev.fallbackCoverUrls else c.fallbackCoverUrls,
+                    )
+                    if (merged != prev) {
+                        out[existingIdx] = merged
+                        if (merged.matchedByHash && !prev.matchedByHash) {
+                            out.removeAt(existingIdx)
+                            val insertAt = out.indexOfFirst { !it.matchedByHash }.let { if (it < 0) out.size else it }
+                            out.add(insertAt, merged)
+                            seen.clear()
+                            out.forEachIndexed { idx, item -> seen[dedupKey(item)] = idx }
+                        }
+                        added = true
+                    }
                 }
             }
             return added

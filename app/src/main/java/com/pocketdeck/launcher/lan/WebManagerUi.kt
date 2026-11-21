@@ -2756,7 +2756,14 @@ async function runWebCoverSearch(id, sys) {
   const hashRaw = await hashPromise;
   const merged = [];
   const seen = new Set();
-  const normKey = u => String(u || '').replace(/^https:\/\/(thumbnails\.libretro\.com|cdn\.jsdelivr\.net\/gh\/libretro-thumbnails|raw\.githubusercontent\.com\/libretro-thumbnails)\//, '');
+  const normKey = u => {
+    const s = String(u || '').trim();
+    const bi = s.indexOf('/Named_');
+    if (bi >= 0) {
+      try { return 'libretro|' + decodeURIComponent(s.slice(bi)).toLowerCase(); } catch (e) { return 'libretro|' + s.slice(bi).toLowerCase(); }
+    }
+    return s.toLowerCase();
+  };
   const pushItem = it => {
     const k = normKey(it.primaryUrl);
     if (!k || seen.has(k)) return;
@@ -2780,7 +2787,7 @@ async function runWebCoverSearch(id, sys) {
   if (statusEl) statusEl.textContent = '点击应用候选封面（浏览器直连加载，选定后同步到掌机）';
   grid.innerHTML = merged.map(c =>
     '<div class="cand-item" style="position:relative;" onclick="applyWebDirectCover(\'' + escJs(id) + '\',\'' + escJs(c.primaryUrl) + '\',\'' + escJs(c.fallbackUrl) + '\',this)">' +
-      (c.matchedByHash ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:var(--ruby);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">Hash</em>' : '') +
+      (c.matchedByHash ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:var(--brand);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">Hash</em>' : '') +
       '<img loading="lazy" src="' + esc(c.primaryUrl) + '" data-fb="' + esc(c.fallbackUrl) + '" onerror="if(!this.dataset.tried&&this.dataset.fb&&this.dataset.fb!==this.src){this.dataset.tried=\'1\';this.src=this.dataset.fb;}"/>' +
       '<span title="' + esc(c.title) + '">' + esc(c.title) + '</span>' +
     '</div>'
