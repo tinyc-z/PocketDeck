@@ -719,8 +719,6 @@ class CoverSource(
         val index = system?.let { systemIndexes[it] }
         val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, officialName)
         val indexMatches = if (online) index?.findMatchesWithMode(queries).orEmpty() else emptyList()
-        // 仅当该平台 BoxartIndex 尚未加载时才生成少量 DirectProbe，索引已加载时绝不盲猜 404
-        val directNames = if (online && index == null) buildDirectNames(game, officialName) else emptyList()
 
         for (node in enabled) {
             when (node.id) {
@@ -735,9 +733,6 @@ class CoverSource(
                     indexMatches.take(2).forEach { (fileName, mode) ->
                         addUrl(buildLibretroBoxartUrl(system, fileName, fallback1), node.id, mode)
                         addUrl(buildLibretroBoxartUrl(system, fileName, fallback2), node.id, mode)
-                    }
-                    directNames.take(6).forEach { n ->
-                        addUrl(buildLibretroBoxartUrl(system, "$n.png", primary), node.id, CoverMatchMode.DirectProbe)
                     }
                 }
                 ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (online && system != null) {

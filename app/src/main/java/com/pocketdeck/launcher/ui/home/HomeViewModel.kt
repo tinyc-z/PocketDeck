@@ -487,7 +487,6 @@ class HomeViewModel(
         if (focusGame != null) {
             val plat = platformResolver(focusGame)
             metadataRepo.resolveFocusGame(focusGame, plat)
-            covers.ensureGameScraped(focusGame, plat)
         }
         covers.ensureWindowCoversScraped(games, focusIdx, platformResolver)
         metadataRepo.ensureLoaded(games, platformResolver)
@@ -767,6 +766,8 @@ class HomeViewModel(
         }
         // 只更新独立 focusIndex 流，不拷贝 HomeUiState，避免主界面 1200 行全树重组
         _focusIndex.value = newIdx
+        // 滑动焦点时通过可替换低并发队列调度当前窗口 16 款封面（内置 180ms 防抖：保活在途、清空未开始的旧等待队列）
+        covers.ensureWindowCoversScraped(s.games, newIdx, s::platformFor)
         val focusGame = s.games.getOrNull(newIdx)
         focusResolveJob?.cancel()
         if (focusGame != null) {
@@ -774,7 +775,6 @@ class HomeViewModel(
             focusResolveJob = viewModelScope.launch {
                 delay(220)
                 metadataRepo.resolveFocusGame(focusGame, plat)
-                covers.ensureGameScraped(focusGame, plat)
             }
         }
     }
@@ -1327,7 +1327,6 @@ class HomeViewModel(
         metadataRepo.clearCache()
         val s = _state.value
         s.games.getOrNull(_focusIndex.value)?.let {
-            covers.ensureGameScraped(it, s.platformFor(it))
             metadataRepo.resolveFocusGame(it, s.platformFor(it))
         }
         covers.ensureWindowCoversScraped(s.games, _focusIndex.value, s::platformFor)
