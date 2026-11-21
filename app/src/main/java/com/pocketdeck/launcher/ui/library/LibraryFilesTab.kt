@@ -332,6 +332,25 @@ internal fun LibraryFilesTab(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (hasUp) {
+            Row(
+                modifier = Modifier
+                    .clip(DeckShapes.tabPill)
+                    .background(DeckColors.Ruby.copy(alpha = 0.12f))
+                    .soundClickable { onStepUpDir() }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.Ruby, size = 14.dp)
+                Text(
+                    stringResource(R.string.lib_files_up).removePrefix(".. ").trim(),
+                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                    color = DeckColors.Ruby,
+                    maxLines = 1,
+                )
+            }
+        }
         Text(
             pathDisplay,
             style = DeckType.settingsLabel.copy(
@@ -441,7 +460,7 @@ internal fun LibraryFilesTab(
         )
     }
 
-    if (!hasUp && fileEntries.isEmpty()) {
+    if (fileEntries.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 stringResource(
@@ -462,32 +481,8 @@ internal fun LibraryFilesTab(
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (hasUp) {
-                item(key = "__up__") {
-                    val hl = focusZone == LibraryZone.List && selectedIdx == 0
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (hl) DeckColors.AccentSoft else DeckColors.Surface)
-                            .brandBorder(active = hl, shape = RoundedCornerShape(10.dp), activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
-                            .soundClickable { onStepUpDir() }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        DeckIcon(PanelIcons.CornerLeftUp, tint = DeckColors.Ruby, size = 16.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            stringResource(R.string.lib_files_up),
-                            style = DeckType.settingsValue,
-                            color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary,
-                        )
-                    }
-                }
-            }
-
             itemsIndexed(fileEntries, key = { _, f -> f.path }) { fIdx, file ->
-                val rowIdx = if (hasUp) fIdx + 1 else fIdx
+                val rowIdx = fIdx
                 val hl = focusZone == LibraryZone.List && rowIdx == selectedIdx
                 val checked = file.path in selectedPaths
                 val rowMeta = fileMetaMap[file.path]

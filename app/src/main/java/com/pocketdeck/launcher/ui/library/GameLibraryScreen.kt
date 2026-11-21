@@ -536,7 +536,7 @@ fun GameLibraryScreen(
     val activeItemCount = if (mode == LibraryMode.Games) {
         filteredGames.size
     } else {
-        (if (hasUp) 1 else 0) + fileEntries.size
+        fileEntries.size
     }
 
     LaunchedEffect(selectedIdx, activeItemCount) {
@@ -1273,11 +1273,8 @@ fun GameLibraryScreen(
                             if (multiSelectMode && selectedPaths.isNotEmpty()) {
                                 openBatchMenu()
                             } else {
-                                val fIdx = if (hasUp) selectedIdx - 1 else selectedIdx
-                                if (fIdx >= 0) {
-                                    fileEntries.getOrNull(fIdx)?.let { f ->
-                                        if (f.isDirectory) openFolderMenu(f) else openFileMenu(f)
-                                    }
+                                fileEntries.getOrNull(selectedIdx)?.let { f ->
+                                    if (f.isDirectory) openFolderMenu(f) else openFileMenu(f)
                                 }
                             }
                         }
@@ -1292,24 +1289,19 @@ fun GameLibraryScreen(
                                 if (mode == LibraryMode.Games) {
                                     filteredGames.getOrNull(selectedIdx)?.let(::openGameMenu)
                                 } else {
-                                    if (hasUp && selectedIdx == 0) {
-                                        stepUpDir()
-                                    } else {
-                                        val fIdx = if (hasUp) selectedIdx - 1 else selectedIdx
-                                        fileEntries.getOrNull(fIdx)?.let { f ->
-                                            if (multiSelectMode) {
-                                                if (currentDir != null) {
-                                                    selectedPaths = if (f.path in selectedPaths) {
-                                                        selectedPaths - f.path
-                                                    } else {
-                                                        selectedPaths + f.path
-                                                    }
+                                    fileEntries.getOrNull(selectedIdx)?.let { f ->
+                                        if (multiSelectMode) {
+                                            if (currentDir != null) {
+                                                selectedPaths = if (f.path in selectedPaths) {
+                                                    selectedPaths - f.path
+                                                } else {
+                                                    selectedPaths + f.path
                                                 }
-                                            } else if (f.isDirectory) {
-                                                enterDir(f)
-                                            } else {
-                                                openFileMenu(f)
                                             }
+                                        } else if (f.isDirectory) {
+                                            enterDir(f)
+                                        } else {
+                                            openFileMenu(f)
                                         }
                                     }
                                 }
