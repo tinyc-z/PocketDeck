@@ -91,6 +91,9 @@ class CoverSource(
     private val failedUntilMs = ConcurrentHashMap<String, Long>()
     private val systemIndexes = ConcurrentHashMap<String, BoxartIndex>()
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
+    private val indexFailedUntilMs = ConcurrentHashMap<String, Long>()
+    @Volatile
+    private var githubIndexBlockedUntilMs: Long = 0L
     private val scrapingInFlight = ConcurrentHashMap<String, Boolean>()
 
     // 有界 LRU，避免上万游戏时候选来源映射无限增长
@@ -402,6 +405,7 @@ class CoverSource(
         failedUntilMs.clear()
         candidateOrigins.clear()
         systemIndexes.clear()
+        indexFailedUntilMs.clear()
         thumbPathLru.evictAll()
         clearPendingCoverInfo()
         _coverInfo.value = emptyMap()
@@ -651,9 +655,12 @@ class CoverSource(
 
     private suspend fun loadSystemIndex(system: String): Boolean {
         if (systemIndexes.containsKey(system)) return false
+        val now = System.currentTimeMillis()
+        if ((indexFailedUntilMs[system] ?: 0L) > now) return false
         val lock = systemLocks.getOrPut(system) { Mutex() }
         return lock.withLock {
             if (systemIndexes.containsKey(system)) return@withLock false
+            if ((indexFailedUntilMs[system] ?: 0L) > System.currentTimeMillis()) return@withLock false
             withContext(Dispatchers.IO) {
                 val cacheFile = File(indexDir, "${sanitizeFileName(system)}.txt")
                 val names = if (cacheFile.isFile && cacheFile.length() > 0) {
@@ -665,8 +672,10 @@ class CoverSource(
                 }
                 if (names.isNotEmpty()) {
                     systemIndexes[system] = buildIndex(names)
+                    indexFailedUntilMs.remove(system)
                     true
                 } else {
+                    indexFailedUntilMs[system] = System.currentTimeMillis() + INDEX_FAIL_COOLDOWN_MS
                     false
                 }
             }
@@ -1519,7 +1528,9 @@ class CoverSource(
     }
 
     private fun fetchGitHubBoxartList(system: String, url: String): List<String> {
-        val t0 = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        if (githubIndexBlockedUntilMs > now) return emptyList()
+        val t0 = now
         var code: Int? = null
         return try {
             val req = Request.Builder()
@@ -1530,6 +1541,15 @@ class CoverSource(
             client.http.newCall(req).execute().use { resp ->
                 code = resp.code
                 if (!resp.isSuccessful) {
+                    if (code == 403 || code == 429) {
+                        val resetMs = resp.header("X-RateLimit-Reset")?.toLongOrNull()?.times(1000L)
+                        val cur = System.currentTimeMillis()
+                        githubIndexBlockedUntilMs = if (resetMs != null && resetMs > cur) {
+                            resetMs.coerceAtMost(cur + 60L * 60_000L)
+                        } else {
+                            cur + 15L * 60_000L
+                        }
+                    }
                     ScrapeLogStore.log("COVER", "github_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "HTTP $code")
                     return emptyList()
                 }
@@ -1669,6 +1689,7 @@ class CoverSource(
         const val MATCHER_VERSION = 2
         const val THUMB_MAX_WIDTH_PX = 320
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
+        const val INDEX_FAIL_COOLDOWN_MS = 10L * 60 * 1000
 
         val API_COVER_NODES = setOf(
             ScraperCatalog.CoverIds.GAMETDB,

@@ -65,6 +65,8 @@ class ScraperClient(context: Context) {
 
     private val memHits = ConcurrentHashMap<String, CacheEntry>()
     private val inFlight = ConcurrentHashMap<String, Deferred<ScrapeHit?>>()
+    private val hasheousHashCache = ConcurrentHashMap<String, QueryOutcome>()
+    private val hasheousHashLocks = ConcurrentHashMap<String, Mutex>()
     private val rateLocks = ConcurrentHashMap<String, Mutex>()
     private val lastRequestMs = ConcurrentHashMap<String, Long>()
 
@@ -121,6 +123,7 @@ class ScraperClient(context: Context) {
 
     fun clearApiCache() {
         memHits.clear()
+        hasheousHashCache.clear()
         identityExtractor.clearMemoryCache()
         database.clearScrapeCache()
         gameTdb.clearCache()
@@ -297,51 +300,60 @@ class ScraperClient(context: Context) {
 
     private suspend fun queryHasheous(game: Game, platform: Platform?): QueryOutcome {
         val identity = identityExtractor.extract(File(game.id), platform?.id)
-        val lookupUrl = when {
-            identity.crc32 != null -> "https://hasheous.org/api/v1/Lookup/ByHash/crc/${identity.crc32}?returnAllMetadata=true"
-            identity.sha1 != null -> "https://hasheous.org/api/v1/Lookup/ByHash/sha1/${identity.sha1}?returnAllMetadata=true"
+        val (hashKey, lookupUrl) = when {
+            identity.crc32 != null -> "crc:${identity.crc32}" to "https://hasheous.org/api/v1/Lookup/ByHash/crc/${identity.crc32}?returnAllMetadata=true"
+            identity.sha1 != null -> "sha1:${identity.sha1}" to "https://hasheous.org/api/v1/Lookup/ByHash/sha1/${identity.sha1}?returnAllMetadata=true"
             else -> return QueryOutcome(ScrapeHit())
         }
-        throttle(ScraperCatalog.CoverIds.HASHEOUS, 250L)
-        val res = httpGet(lookupUrl)
-        if (res.statusCode == 404) return QueryOutcome(ScrapeHit())
-        if (res.transientError || res.body == null) return QueryOutcome(null, transientError = true)
+        hasheousHashCache[hashKey]?.let { return it }
+        val lock = hasheousHashLocks.getOrPut(hashKey) { Mutex() }
+        return lock.withLock {
+            hasheousHashCache[hashKey]?.let { return@withLock it }
+            throttle(ScraperCatalog.CoverIds.HASHEOUS, 250L)
+            val res = httpGet(lookupUrl)
+            if (res.statusCode == 404) {
+                return@withLock QueryOutcome(ScrapeHit()).also { hasheousHashCache[hashKey] = it }
+            }
+            if (res.transientError || res.body == null) {
+                return@withLock QueryOutcome(null, transientError = true)
+            }
 
-        val hit = runCatching {
-            val o = JSONObject(res.body)
-            val name = o.optString("name").takeIf { it.isNotBlank() }
-            val sigGame = o.optJSONObject("signature")?.optJSONObject("game")
-            val year = sigGame?.optString("year")?.takeIf { it.isNotBlank() }
-            val publisher = o.optJSONObject("publisher")?.optString("name")?.takeIf { it.isNotBlank() }
-                ?: sigGame?.optString("publisher")?.takeIf { it.isNotBlank() }
+            val hit = runCatching {
+                val o = JSONObject(res.body)
+                val name = o.optString("name").takeIf { it.isNotBlank() }
+                val sigGame = o.optJSONObject("signature")?.optJSONObject("game")
+                val year = sigGame?.optString("year")?.takeIf { it.isNotBlank() }
+                val publisher = o.optJSONObject("publisher")?.optString("name")?.takeIf { it.isNotBlank() }
+                    ?: sigGame?.optString("publisher")?.takeIf { it.isNotBlank() }
 
-            // 严格优先 BoxArt，其次 Logo，避免把透明横幅当主封面
-            val boxArts = LinkedHashSet<String>()
-            val otherImgs = LinkedHashSet<String>()
-            val attrs = o.optJSONArray("attributes")
-            if (attrs != null) {
-                for (i in 0 until attrs.length()) {
-                    val a = attrs.optJSONObject(i) ?: continue
-                    val type = a.optString("attributeType")
-                    val attrName = a.optString("attributeName")
-                    val link = a.optString("link")
-                    if (!link.startsWith("/")) continue
-                    val full = "https://hasheous.org$link"
-                    when {
-                        attrName.equals("BoxArt", ignoreCase = true) ||
-                            attrName.contains("Box", ignoreCase = true) -> boxArts += full
-                        type == "ImageId" || attrName.equals("Logo", ignoreCase = true) -> otherImgs += full
+                // 严格优先 BoxArt，其次 Logo，避免把透明横幅当主封面
+                val boxArts = LinkedHashSet<String>()
+                val otherImgs = LinkedHashSet<String>()
+                val attrs = o.optJSONArray("attributes")
+                if (attrs != null) {
+                    for (i in 0 until attrs.length()) {
+                        val a = attrs.optJSONObject(i) ?: continue
+                        val type = a.optString("attributeType")
+                        val attrName = a.optString("attributeName")
+                        val link = a.optString("link")
+                        if (!link.startsWith("/")) continue
+                        val full = "https://hasheous.org$link"
+                        when {
+                            attrName.equals("BoxArt", ignoreCase = true) ||
+                                attrName.contains("Box", ignoreCase = true) -> boxArts += full
+                            type == "ImageId" || attrName.equals("Logo", ignoreCase = true) -> otherImgs += full
+                        }
                     }
                 }
-            }
-            val urls = (boxArts + otherImgs).toList()
-            ScrapeHit(
-                officialName = name,
-                meta = GameMetadata(releaseDate = year, publisher = publisher),
-                coverUrls = urls,
-            )
-        }.getOrNull() ?: return QueryOutcome(ScrapeHit())
-        return QueryOutcome(hit)
+                val urls = (boxArts + otherImgs).toList()
+                ScrapeHit(
+                    officialName = name,
+                    meta = GameMetadata(releaseDate = year, publisher = publisher),
+                    coverUrls = urls,
+                )
+            }.getOrNull() ?: ScrapeHit()
+            QueryOutcome(hit).also { hasheousHashCache[hashKey] = it }
+        }
     }
 
     // ───────────────────────── ArcadeItalia ─────────────────────────
