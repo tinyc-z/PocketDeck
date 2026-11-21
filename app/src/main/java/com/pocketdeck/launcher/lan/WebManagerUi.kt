@@ -2754,14 +2754,14 @@ function scrapeCoverCandidates(id) {
       '<div style="display:flex;gap:8px;align-items:center;">' +
         '<input id="webCoverKw" class="input" style="flex:1;" value="' + esc(initKw) + '" placeholder="输入英文或中文游戏名搜索封面…" ' +
           'oninput="renderWebCoverSuggest(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')" ' +
-          'onkeydown="if(event.key===\'Enter\')runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\',false)"/>' +
-        '<button class="btn sm primary" onclick="runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\',false)">' + esc(tr('btn_pick_cover_short')) + '</button>' +
+          'onkeydown="if(event.key===\'Enter\')runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')"/>' +
+        '<button class="btn sm primary" onclick="runWebCoverSearch(\'' + escJs(id) + '\',\'' + escJs(sys) + '\')">' + esc(tr('btn_pick_cover_short')) + '</button>' +
       '</div>' +
       '<div id="webCoverSugs" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>' +
       '<div id="webCoverStatus" class="sub" style="margin-top:8px;"></div>' +
       '<div id="webCoverGrid" class="cand-grid" style="margin-top:8px;"></div>' +
     '</div>';
-  runWebCoverSearch(id, sys, true);
+  runWebCoverSearch(id, sys);
 }
 
 function renderWebCoverSuggest(id, sys) {
@@ -2779,10 +2779,11 @@ function pickWebCoverSuggest(id, sys, sug) {
   if (inp) inp.value = sug;
   const box = el('webCoverSugs');
   if (box) box.innerHTML = '';
-  runWebCoverSearch(id, sys, false);
+  runWebCoverSearch(id, sys);
 }
 
-async function runWebCoverSearch(id, sys, includeHash) {
+const _webHashCoverCache = Object.create(null);
+async function runWebCoverSearch(id, sys) {
   const inp = el('webCoverKw');
   const statusEl = el('webCoverStatus');
   const grid = el('webCoverGrid');
@@ -2790,12 +2791,16 @@ async function runWebCoverSearch(id, sys, includeHash) {
   const kw = inp.value.trim();
   if (!kw) return;
   grid.innerHTML = '';
-  const hashPromise = includeHash
-    ? api('/api/games/hash-covers?id=' + encodeURIComponent(id))
+  const hashPromise = Array.isArray(_webHashCoverCache[id])
+    ? Promise.resolve(_webHashCoverCache[id])
+    : api('/api/games/hash-covers?id=' + encodeURIComponent(id))
         .then(r => r.ok ? r.json() : null)
-        .then(d => (d && d.ok && Array.isArray(d.candidates)) ? d.candidates : [])
-        .catch(() => [])
-    : Promise.resolve([]);
+        .then(d => {
+          const list = (d && d.ok && Array.isArray(d.candidates)) ? d.candidates : [];
+          _webHashCoverCache[id] = list;
+          return list;
+        })
+        .catch(() => []);
   const idx = await _ensureWebLibretroIndex(sys, statusEl);
   const libItems = idx ? _searchWebLibretro(idx, kw, 16) : [];
   const hashRaw = await hashPromise;
