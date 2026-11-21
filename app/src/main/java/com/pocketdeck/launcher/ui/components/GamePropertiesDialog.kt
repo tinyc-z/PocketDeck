@@ -165,9 +165,12 @@ fun GamePropertiesDialog(
         CoverMatchMode.AppIcon -> stringResource(R.string.match_mode_app_icon)
     }
 
-    val actualSize = remember(game.id, game.fileSize) {
-        if (game.fileSize > 0L) game.fileSize
-        else if (!isApk) runCatching { File(game.id).length() }.getOrDefault(0L) else 0L
+    val actualSize by androidx.compose.runtime.produceState(initialValue = game.fileSize, game.id, game.fileSize, isApk) {
+        if (game.fileSize <= 0L && !isApk) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { File(game.id).length() }.getOrDefault(0L)
+            }
+        }
     }
     val sizeText = if (actualSize > 0L) {
         "${formatFileSize(actualSize)} (${NumberFormat.getIntegerInstance().format(actualSize)} B)"

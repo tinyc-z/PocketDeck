@@ -940,7 +940,7 @@ class HomeViewModel(
         if (!candidate.coverUrl.isNullOrBlank() && !latest.customCover.isNullOrBlank()) {
             val prevCover = latest.customCover
             val existingName = repo.user.value?.renames?.get(latest.id)
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 if (prevCover.contains("/custom_covers/")) {
                     runCatching { java.io.File(prevCover).delete() }
                 }

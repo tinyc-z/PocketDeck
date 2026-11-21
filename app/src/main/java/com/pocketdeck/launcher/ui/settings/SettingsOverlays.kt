@@ -103,7 +103,6 @@ import com.pocketdeck.launcher.ui.theme.SystemFonts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withContext
 import java.io.File
 
 // ════════════════════════════════════════════════════════════════
@@ -216,8 +215,13 @@ class DirBrowserState(private val appContext: Context? = null) {
         private set
     var index by mutableIntStateOf(0)
     var showAutoCreate by mutableStateOf(false)
+    internal var reloadTick by mutableIntStateOf(0)
+        private set
+    private var cachedRootPaths: Set<String> = emptySet()
+    private var pendingFocusPath: String? = null
+    private var focusUseIfEmpty: Boolean = false
 
-    private fun storageRoots(): List<File> {
+    private fun storageRootsIo(): List<File> {
         val seen = LinkedHashSet<String>()
         val roots = ArrayList<File>()
         fun add(dir: File?) {
@@ -245,25 +249,41 @@ class DirBrowserState(private val appContext: Context? = null) {
         return roots
     }
 
-    private val rootPaths get() = storageRoots().map { it.path }.toSet()
-
     fun reset() {
         current = null
         index = 0
+        pendingFocusPath = null
+        focusUseIfEmpty = false
         showAutoCreate = false
-        load()
+        reloadTick++
     }
 
-    private fun load() {
-        val cur = current
-        rows = if (cur == null) {
-            storageRoots().map { Row(Kind.Dir, it, it.path) }
-        } else {
-            cur.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }
-                .orEmpty()
-                .sortedBy { it.name.lowercase() }
-                .map { Row(Kind.Dir, it, it.name) }
+    internal suspend fun loadAsync() {
+        val target = current
+        val (loadedRows, roots) = withContext(Dispatchers.IO) {
+            if (target == null) {
+                val r = storageRootsIo()
+                r.map { Row(Kind.Dir, it, it.path) } to r.map { it.path }.toSet()
+            } else {
+                val rPaths = cachedRootPaths.ifEmpty { storageRootsIo().map { it.path }.toSet() }
+                val list = target.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }
+                    .orEmpty()
+                    .sortedBy { it.name.lowercase() }
+                    .map { Row(Kind.Dir, it, it.name) }
+                list to rPaths
+            }
         }
+        if (current?.path != target?.path) return
+        cachedRootPaths = roots
+        rows = loadedRows
+        val focusPath = pendingFocusPath
+        pendingFocusPath = null
+        index = when {
+            focusPath != null -> loadedRows.indexOfFirst { it.file?.path == focusPath }.coerceAtLeast(0)
+            focusUseIfEmpty -> if (loadedRows.isNotEmpty()) 0 else -1
+            else -> index.coerceIn(if (target != null) -1 else 0, (loadedRows.size - 1).coerceAtLeast(if (target != null) -1 else 0))
+        }
+        focusUseIfEmpty = false
     }
 
     fun move(delta: Int) {
@@ -274,17 +294,22 @@ class DirBrowserState(private val appContext: Context? = null) {
 
     private fun enter(dir: File) {
         current = dir
-        load()
-        // 有子文件夹时默认停在第一个子文件夹上；空目录时直接聚焦顶部的「使用此目录」按钮
-        index = if (rows.isNotEmpty()) 0 else -1
+        pendingFocusPath = null
+        focusUseIfEmpty = true
+        rows = emptyList()
+        index = -1
+        reloadTick++
     }
 
     /** 返回上一级；已在存储列表时返回 false。 */
     fun up(): Boolean {
         val cur = current ?: return false
-        current = if (cur.path in rootPaths) null else cur.parentFile
-        load()
-        index = rows.indexOfFirst { it.file?.path == cur.path }.coerceAtLeast(0)
+        current = if (cur.path in cachedRootPaths) null else cur.parentFile
+        pendingFocusPath = cur.path
+        focusUseIfEmpty = false
+        rows = emptyList()
+        index = 0
+        reloadTick++
         return true
     }
 
@@ -308,6 +333,9 @@ fun DirBrowser(
     onDismiss: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    LaunchedEffect(state.current, state.reloadTick) {
+        state.loadAsync()
+    }
     LaunchedEffect(state.index, state.current) {
         if (state.index >= 0) {
             listState.animateScrollToItem((state.index - 3).coerceAtLeast(0))

@@ -181,6 +181,12 @@ class CoverSource(
                     }
                 }
             }
+            // 启动时后台扫描已有 WebP 缩略图文件名，避免主线程 preferredThumbOrOriginal() 触发磁盘 stat()
+            thumbDir.listFiles()?.forEach { f ->
+                if (f.isFile && f.length() > 0L) {
+                    thumbExistingNames.add(f.name)
+                }
+            }
             if (loadedUrls > 0 || webCacheFilesById.isNotEmpty()) {
                 _indexVersion.value += 1
             }
@@ -489,6 +495,7 @@ class CoverSource(
         indexFailedUntilMs.clear()
         remoteIndexRefreshInFlight.clear()
         thumbPathLru.evictAll()
+        thumbExistingNames.clear()
         clearPendingCoverInfo()
         _coverInfo.value = emptyMap()
         runCatching { SingletonImageLoader.get(appCtx).memoryCache?.clear() }
@@ -1810,22 +1817,25 @@ class CoverSource(
      * 固定宽度 320px WebP 缩略图缓存 + 内存 LRU：
      * 命中则 O(1) 返回磁盘 WebP 缩略图；未命中则先返回原图并在 IO 线程异步生成 WebP 缩略图，避免阻塞主线程。
      */
+    private val thumbExistingNames = ConcurrentHashMap.newKeySet<String>()
+
     private fun preferredThumbOrOriginal(original: File): File {
         val key = original.path
-        thumbPathLru.get(key)?.let { cached ->
-            if (cached.isFile) return cached
-        }
-        val hash = sha1Hex(key)
-        val dest = File(thumbDir, "$hash.webp")
-        if (dest.isFile && dest.length() > 0L) {
+        thumbPathLru.get(key)?.let { return it }
+        val fileName = "${sha1Hex(key)}.webp"
+        val dest = File(thumbDir, fileName)
+        if (fileName in thumbExistingNames) {
             thumbPathLru.put(key, dest)
             return dest
         }
         if (thumbGenerating.putIfAbsent(key, true) == null) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    generateWebpThumb(original, dest)
+                    if (!dest.isFile || dest.length() <= 0L) {
+                        generateWebpThumb(original, dest)
+                    }
                     if (dest.isFile && dest.length() > 0L) {
+                        thumbExistingNames.add(fileName)
                         thumbPathLru.put(key, dest)
                     }
                 } finally {
