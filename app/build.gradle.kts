@@ -9,7 +9,19 @@ plugins {
 
 val appVersionName = "0.6.1"
 
-val gitCommitCount: Int? = if (rootProject.file(".git").exists()) {
+val isReleaseRequested: Boolean = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true) ||
+        it.contains("bundle", ignoreCase = true) ||
+        it.equals("assemble", ignoreCase = true) ||
+        it.equals("build", ignoreCase = true)
+}
+
+fun readPropOrEnv(key: String): String? =
+    providers.gradleProperty(key).orNull?.takeIf { it.isNotBlank() }
+        ?: providers.environmentVariable(key).orNull?.takeIf { it.isNotBlank() }
+
+// Skip git exec & wall-clock timestamps on debug/test builds so Configuration Cache & Build Cache stay reusable.
+val gitCommitCount: Int? = if (isReleaseRequested && rootProject.file(".git").exists()) {
     providers.exec {
         commandLine("git", "rev-list", "--count", "HEAD")
         isIgnoreExitValue = true
@@ -18,25 +30,27 @@ val gitCommitCount: Int? = if (rootProject.file(".git").exists()) {
     null
 }
 
-val gitShortHash: String = if (rootProject.file(".git").exists()) {
-    providers.exec {
-        commandLine("git", "rev-parse", "--short", "HEAD")
-        isIgnoreExitValue = true
-    }.standardOutput.asText.orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "local"
-} else {
-    "local"
-}
+val gitShortHash: String = readPropOrEnv("POCKETDECK_GIT_HASH")
+    ?: if (isReleaseRequested && rootProject.file(".git").exists()) {
+        providers.exec {
+            commandLine("git", "rev-parse", "--short", "HEAD")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "local"
+    } else {
+        "dev"
+    }
 
-val nowTime = LocalDateTime.now()
-val buildTimeStr: String = nowTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-val dateBuildSeq: String = nowTime.format(DateTimeFormatter.ofPattern("yyyyMMddHH"))
+val nowTime: LocalDateTime? = if (isReleaseRequested) LocalDateTime.now() else null
+val buildTimeStr: String = readPropOrEnv("POCKETDECK_BUILD_TIME")
+    ?: nowTime?.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+    ?: "dev"
+val dateBuildSeq: String = nowTime?.format(DateTimeFormatter.ofPattern("yyyyMMddHH")) ?: "dev"
 
-val buildNumberStr: String = providers.gradleProperty("POCKETDECK_BUILD_NUMBER").orNull
-    ?: providers.environmentVariable("POCKETDECK_BUILD_NUMBER").orNull
+val buildNumberStr: String = readPropOrEnv("POCKETDECK_BUILD_NUMBER")
     ?: gitCommitCount?.let { "$it ($gitShortHash)" }
     ?: dateBuildSeq
 
-val resolvedVersionCode: Int = providers.gradleProperty("POCKETDECK_VERSION_CODE").orNull?.toIntOrNull()
+val resolvedVersionCode: Int = readPropOrEnv("POCKETDECK_VERSION_CODE")?.toIntOrNull()
     ?: gitCommitCount?.coerceAtLeast(3)
     ?: 3
 
@@ -62,7 +76,8 @@ val hasReleaseSigning = !releaseStorePath.isNullOrBlank() &&
     rootProject.file(releaseStorePath).isFile
 
 base {
-    archivesName.set("PocketDeck-v$appVersionName-b${gitCommitCount ?: dateBuildSeq}")
+    val buildTag = gitCommitCount?.let { "b$it" } ?: if (isReleaseRequested) "b$dateBuildSeq" else "dev"
+    archivesName.set("PocketDeck-v$appVersionName-$buildTag")
 }
 
 android {
@@ -89,7 +104,7 @@ android {
                 storePassword = releaseStorePass
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPass
-                enableV1Signing = true
+                enableV1Signing = false
                 enableV2Signing = true
                 enableV3Signing = true
             }
@@ -103,6 +118,10 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            ndk {
+                // Keep ARM ABIs only in release APKs (debug keeps x86/x86_64 for emulators).
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
