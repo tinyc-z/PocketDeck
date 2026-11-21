@@ -13,10 +13,13 @@ internal object WebManagerUi {
         "app.js" to "application/javascript; charset=utf-8",
         "login.css" to "text/css; charset=utf-8",
         "login.js" to "application/javascript; charset=utf-8",
+        "cjk_aliases.tsv" to "text/tab-separated-values; charset=utf-8",
     )
 
-    private fun readAsset(context: Context, name: String): String =
-        context.assets.open("web/$name").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    private fun readAsset(context: Context, name: String): String {
+        val assetPath = if (name == "cjk_aliases.tsv") name else "web/$name"
+        return context.assets.open(assetPath).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }
 
     fun staticAssetMime(name: String): String? = STATIC_ASSET_MIMES[name]
 

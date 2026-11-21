@@ -1878,32 +1878,31 @@ async function refreshGameMetaFromHandheld(id) {
 
 // ==================== 浏览器端本地封面搜索与直传（不依赖掌机联网） ====================
 const _webLibretroIdx = {};
-const _webCjkAliases = [
-  ['超级马里奥合集','Super Mario All-Stars'],['马里奥合集','Super Mario All-Stars'],['超级马里奥全明星','Super Mario All-Stars'],
-  ['超级马里奥世界2','Super Mario World 2 - Yoshi\'s Island'],['超级马里奥世界','Super Mario World'],
-  ['超级马里奥兄弟3','Super Mario Bros. 3'],['超级马里奥兄弟2','Super Mario Bros. 2'],['超级马里奥兄弟','Super Mario Bros.'],
-  ['超级马里奥RPG','Super Mario RPG'],['超级马里奥64','Super Mario 64'],['超级马里奥乐园2','Super Mario Land 2'],['超级马里奥乐园','Super Mario Land'],
-  ['马里奥赛车','Mario Kart'],['纸片马里奥','Paper Mario'],['耀西岛','Yoshi\'s Island'],['马里奥医生','Dr. Mario'],['超级马里奥','Super Mario'],
-  ['口袋妖怪 红宝石','Pokemon - Ruby Version'],['口袋妖怪 蓝宝石','Pokemon - Sapphire Version'],['口袋妖怪 绿宝石','Pokemon - Emerald Version'],
-  ['口袋妖怪 火红','Pokemon - FireRed Version'],['口袋妖怪 叶绿','Pokemon - LeafGreen Version'],
-  ['口袋妖怪 金','Pokemon - Gold Version'],['口袋妖怪 银','Pokemon - Silver Version'],['口袋妖怪 水晶','Pokemon - Crystal Version'],
-  ['口袋妖怪 黄','Pokemon - Yellow Version'],['口袋妖怪 红','Pokemon - Red Version'],['口袋妖怪 蓝','Pokemon - Blue Version'],
-  ['宝可梦','Pokemon'],['口袋妖怪','Pokemon'],
-  ['塞尔达传说 缩小帽','The Legend of Zelda - The Minish Cap'],['塞尔达传说 织梦岛','The Legend of Zelda - Link\'s Awakening'],
-  ['塞尔达传说 众神的三角力量','The Legend of Zelda - A Link to the Past'],['塞尔达传说 时之笛','The Legend of Zelda - Ocarina of Time'],['塞尔达传说','Legend of Zelda'],
-  ['恶魔城 晓月圆舞曲','Castlevania - Aria of Sorrow'],['恶魔城 白夜协奏曲','Castlevania - Harmony of Dissonance'],
-  ['恶魔城 月下夜想曲','Castlevania - Symphony of the Night'],['恶魔城','Castlevania'],
-  ['火焰纹章 封印之剑','Fire Emblem - Fuuin no Tsurugi'],['火焰纹章 烈火之剑','Fire Emblem'],['火焰纹章 圣魔之光石','Fire Emblem - The Sacred Stones'],['火焰纹章','Fire Emblem'],
-  ['银河战士 零点任务','Metroid - Zero Mission'],['银河战士 融合','Metroid Fusion'],['超级银河战士','Super Metroid'],['银河战士','Metroid'],
-  ['星之卡比 镜之大迷宫','Kirby & the Amazing Mirror'],['星之卡比 超级豪华版','Kirby Super Star'],['星之卡比','Kirby'],
-  ['魂斗罗','Contra'],['超级魂斗罗','Super C'],['坦克大战','Battle City'],['冒险岛','Adventure Island'],
-  ['松鼠大战','Chip \'n Dale Rescue Rangers'],['赤影战士','Shadow of the Ninja'],['双截龙','Double Dragon'],['热血物语','River City Ransom'],
-  ['洛克人X','Mega Man X'],['洛克人','Mega Man'],['最终幻想','Final Fantasy'],['勇者斗恶龙','Dragon Quest'],
-  ['时空之轮','Chrono Trigger'],['黄金太阳','Golden Sun'],['逆转裁判','Phoenix Wright'],['牧场物语','Harvest Moon'],
-  ['大金刚国度','Donkey Kong Country'],['大金刚','Donkey Kong'],['索尼克','Sonic'],['街头霸王','Street Fighter'],
-  ['拳皇','King of Fighters'],['合金弹头','Metal Slug'],['游戏王','Yu-Gi-Oh'],['超级机器人大战','Super Robot Taisen'],
-  ['俄罗斯方块','Tetris'],['吃豆人','Pac-Man'],['炸弹人','Bomberman'],['三国志','Romance of the Three Kingdoms']
-];
+let _webCjkAliases = [];
+let _webCjkLoaded = false;
+let _webCjkPromise = null;
+async function _ensureWebCjkAliases() {
+  if (_webCjkLoaded) return _webCjkAliases;
+  if (!_webCjkPromise) {
+    _webCjkPromise = fetch('/web/cjk_aliases.tsv')
+      .then(r => r.ok ? r.text() : '')
+      .then(txt => {
+        const list = [];
+        for (const rawLine of txt.split(/\r?\n/)) {
+          if (!rawLine || rawLine[0] === '#') continue;
+          const parts = rawLine.split('\t');
+          if (parts.length >= 3 && parts[1] && parts[2]) {
+            list.push([parts[1], parts[2]]);
+          }
+        }
+        _webCjkAliases = list;
+        _webCjkLoaded = true;
+        return list;
+      })
+      .catch(() => _webCjkAliases);
+  }
+  return _webCjkPromise;
+}
 
 function _webStripTags(s) {
   return String(s || '').replace(/_/g, ' ').replace(/\s*[\(\[][^\)\]]*[\)\]]\s*/g, ' ').replace(/\s+/g, ' ').trim();
@@ -2167,6 +2166,9 @@ async function runWebCoverSearch(id, sys) {
           return list;
         })
         .catch(() => []);
+  if (/[\u4e00-\u9fff]/.test(kw)) {
+    await _ensureWebCjkAliases();
+  }
   const idx = await _ensureWebLibretroIndex(sys, statusEl);
   const libItems = idx ? _searchWebLibretro(idx, kw, 16) : [];
   const hashRaw = await hashPromise;
