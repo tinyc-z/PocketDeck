@@ -16,6 +16,7 @@ import com.pocketdeck.launcher.data.MetadataRepository
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.data.PlatformCatalog
 import com.pocketdeck.launcher.data.ScrapeLogStore
+import com.pocketdeck.launcher.data.ScrapeProgress
 import com.pocketdeck.launcher.data.RomScanner
 import com.pocketdeck.launcher.data.ThemeAccent
 import com.pocketdeck.launcher.data.UserData
@@ -188,6 +189,18 @@ class WebManagerServer(
         private const val MAX_SSE_CONNECTIONS = 6
         private const val SSE_PING_INTERVAL_MS = 15_000L
         private const val SSE_TASKS_THROTTLE_MS = 250L
+
+        internal fun buildScrapeProgressJson(p: ScrapeProgress): JSONObject = JSONObject()
+            .put("running", p.running)
+            .put("done", p.done)
+            .put("total", p.total)
+            .put("percent", p.percent)
+            .put("currentTitle", p.currentTitle)
+            .put("currentPlatform", p.currentPlatform)
+            .put("updatedCount", p.updatedCount)
+            .put("failedCount", p.failedCount)
+            .put("cancelled", p.cancelled)
+            .put("finishedAtMs", p.finishedAtMs)
     }
 
     private class SessionRecord(
@@ -396,6 +409,9 @@ class WebManagerServer(
         }
     }
 
+    private fun buildScrapePayload(): JSONObject =
+        buildScrapeProgressJson(metadataRepo.scrapeProgress.value)
+
     private fun enqueueAutoScrape(gameId: String, forceRefresh: Boolean) {
         if (gameId.isBlank() || gameId.startsWith(GameLauncher.APK_PREFIX)) return
         val q = scrapeQueue ?: return
@@ -516,6 +532,24 @@ class WebManagerServer(
         launchCollector {
             repo.lastFileTaskEvent.drop(1).collect {
                 emitSse("tasks", buildFileTasksPayload().toString())
+            }
+        }
+        launchCollector {
+            var lastPushMs = 0L
+            var lastState = metadataRepo.scrapeProgress.value
+            metadataRepo.scrapeProgress.drop(1).collect { p ->
+                val now = System.currentTimeMillis()
+                val structural = p.running != lastState.running ||
+                    p.cancelled != lastState.cancelled ||
+                    p.total != lastState.total ||
+                    (p.finishedAtMs > 0L && lastState.finishedAtMs == 0L) ||
+                    (p.total == 0 && lastState.total != 0) ||
+                    (p.total > 0 && p.done >= p.total && lastState.done < p.done)
+                if (structural || now - lastPushMs >= SSE_TASKS_THROTTLE_MS) {
+                    lastState = p
+                    lastPushMs = now
+                    emitSse("scrape_progress", buildScrapeProgressJson(p).toString())
+                }
             }
         }
         ScrapeLogStore.init(context)
@@ -1054,7 +1088,13 @@ class WebManagerServer(
                 res.sendJson(404, """{"ok":false,"error":"not_found"}""")
                 return
             }
-            val etag = "\"v${BuildConfig.VERSION_NAME}-b${BuildConfig.VERSION_CODE}-$name\""
+            val cachedEtag = WebManagerUi.staticAssetEtag(name)
+            val loaded = if (cachedEtag == null) WebManagerUi.loadStaticAsset(context, name) else null
+            val etag = cachedEtag ?: loaded?.third
+            if (etag == null) {
+                res.sendJson(404, """{"ok":false,"error":"not_found"}""")
+                return
+            }
             val inm = req.headers["if-none-match"].orEmpty()
             val matched = inm.split(',').any { token ->
                 val t = token.trim().removePrefix("W/")
@@ -1068,7 +1108,7 @@ class WebManagerServer(
                 res.sendBytes(304, ByteArray(0), mime, headers)
                 return
             }
-            val asset = WebManagerUi.loadStaticAsset(context, name)
+            val asset = loaded ?: WebManagerUi.loadStaticAsset(context, name)
             if (asset != null) {
                 res.sendText(200, asset.first, asset.second, headers)
             } else {
@@ -1115,7 +1155,10 @@ class WebManagerServer(
             req.method == "POST" && req.path == "/api/games/categories" -> handleGameCategories(req, res)
             req.method == "POST" && req.path == "/api/games/batch" -> handleGamesBatch(req, res)
             req.method == "POST" && req.path == "/api/games/refresh-meta" -> handleGameRefreshMeta(req, res)
+            req.method == "GET" && req.path == "/api/scrape/status" -> res.sendJson(200, buildScrapePayload().put("ok", true).toString())
             req.method == "POST" && req.path == "/api/scrape/missing" -> handleScrapeMissing(res)
+            req.method == "POST" && req.path == "/api/scrape/cancel" -> handleScrapeCancel(res)
+            req.method == "POST" && req.path == "/api/scrape/dismiss" -> handleScrapeDismiss(res)
             req.method == "POST" && req.path == "/api/games/upload-cover" -> handleGameUploadCover(req, res)
             req.method == "POST" && req.path == "/api/games/reset-cover" -> handleGameResetCover(req, res)
             req.method == "GET" && req.path == "/api/categories" -> handleGetCategories(res)
@@ -1324,6 +1367,7 @@ class WebManagerServer(
             put("storage", storageVolumes)
             put("storageVolumes", storageVolumes)
             put("theme", themeConfig.toJson())
+            put("scrapeProgress", buildScrapePayload())
         }
         res.sendJson(200, obj.toString())
     }
@@ -1353,6 +1397,7 @@ class WebManagerServer(
             res.startEventStream()
             if (!res.sendSseRaw("event: state\ndata: ${buildStatePayload()}\n\n")) return
             if (!res.sendSseRaw("event: tasks\ndata: ${buildFileTasksPayload()}\n\n")) return
+            if (!res.sendSseRaw("event: scrape_progress\ndata: ${buildScrapePayload()}\n\n")) return
 
             kotlinx.coroutines.coroutineScope {
                 val writerJob = launch(Dispatchers.IO) {
@@ -2005,6 +2050,29 @@ class WebManagerServer(
                 .put("ok", true)
                 .put("queued", queued)
                 .put("alreadyRunning", wasRunning)
+                .put("progress", buildScrapePayload())
+                .toString(),
+        )
+    }
+
+    private suspend fun handleScrapeCancel(res: HttpResponseWriter) {
+        metadataRepo.cancelScrapeMissing()
+        res.sendJson(
+            200,
+            JSONObject()
+                .put("ok", true)
+                .put("progress", buildScrapePayload())
+                .toString(),
+        )
+    }
+
+    private suspend fun handleScrapeDismiss(res: HttpResponseWriter) {
+        metadataRepo.dismissScrapeProgress()
+        res.sendJson(
+            200,
+            JSONObject()
+                .put("ok", true)
+                .put("progress", buildScrapePayload())
                 .toString(),
         )
     }

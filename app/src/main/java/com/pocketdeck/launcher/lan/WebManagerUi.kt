@@ -1,6 +1,8 @@
 package com.pocketdeck.launcher.lan
 
 import android.content.Context
+import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * PocketDeck Web Console 静态资源加载器：
@@ -21,12 +23,22 @@ internal object WebManagerUi {
         return context.assets.open(assetPath).bufferedReader(Charsets.UTF_8).use { it.readText() }
     }
 
+    private val assetEtags = ConcurrentHashMap<String, String>()
+
     fun staticAssetMime(name: String): String? = STATIC_ASSET_MIMES[name]
 
-    fun loadStaticAsset(context: Context, name: String): Pair<String, String>? {
+    fun staticAssetEtag(name: String): String? = assetEtags[name]
+
+    fun loadStaticAsset(context: Context, name: String): Triple<String, String, String>? {
         val mime = STATIC_ASSET_MIMES[name] ?: return null
         val content = runCatching { readAsset(context, name) }.getOrNull() ?: return null
-        return content to mime
+        val etag = assetEtags.getOrPut(name) {
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(content.toByteArray(Charsets.UTF_8))
+            val hex = digest.take(8).joinToString("") { "%02x".format(it) }
+            "\"$name-$hex\""
+        }
+        return Triple(content, mime, etag)
     }
 
     private fun cssVars(theme: WebThemeConfig): String {

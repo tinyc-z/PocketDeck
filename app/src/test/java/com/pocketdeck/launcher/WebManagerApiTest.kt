@@ -1,8 +1,11 @@
 package com.pocketdeck.launcher
 
 import com.pocketdeck.launcher.data.CategorySortOrder
+import com.pocketdeck.launcher.data.ScrapeProgress
 import com.pocketdeck.launcher.lan.CategoryValidator
+import com.pocketdeck.launcher.lan.WebManagerServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -82,5 +85,54 @@ class WebManagerApiTest {
         assertEquals(null, com.pocketdeck.launcher.lan.WebBatchValidator.parse("""{"action":"hide","ids":[]}"""))
         assertTrue(com.pocketdeck.launcher.lan.WebBatchValidator.isSafePlatformId("gba"))
         assertTrue(!com.pocketdeck.launcher.lan.WebBatchValidator.isSafePlatformId("../etc"))
+    }
+
+    @Test
+    fun buildScrapeProgressJsonSerializesRunningCancelledAndIdleStates() {
+        val idle = WebManagerServer.buildScrapeProgressJson(ScrapeProgress())
+        assertFalse(idle.getBoolean("running"))
+        assertEquals(0, idle.getInt("done"))
+        assertEquals(0, idle.getInt("total"))
+        assertEquals(0, idle.getInt("percent"))
+        assertEquals(0L, idle.getLong("finishedAtMs"))
+
+        val running = WebManagerServer.buildScrapeProgressJson(
+            ScrapeProgress(
+                running = true,
+                done = 12,
+                total = 48,
+                currentTitle = "Zelda",
+                currentPlatform = "GBA",
+                updatedCount = 10,
+                failedCount = 2,
+                cancelled = false,
+                finishedAtMs = 0L,
+            ),
+        )
+        assertTrue(running.getBoolean("running"))
+        assertEquals(12, running.getInt("done"))
+        assertEquals(48, running.getInt("total"))
+        assertEquals(25, running.getInt("percent"))
+        assertEquals("Zelda", running.getString("currentTitle"))
+        assertEquals("GBA", running.getString("currentPlatform"))
+        assertEquals(10, running.getInt("updatedCount"))
+        assertEquals(2, running.getInt("failedCount"))
+        assertFalse(running.getBoolean("cancelled"))
+
+        val cancelled = WebManagerServer.buildScrapeProgressJson(
+            ScrapeProgress(
+                running = false,
+                done = 20,
+                total = 48,
+                updatedCount = 15,
+                failedCount = 5,
+                cancelled = true,
+                finishedAtMs = 1700000000000L,
+            ),
+        )
+        assertFalse(cancelled.getBoolean("running"))
+        assertTrue(cancelled.getBoolean("cancelled"))
+        assertEquals(41, cancelled.getInt("percent"))
+        assertEquals(1700000000000L, cancelled.getLong("finishedAtMs"))
     }
 }

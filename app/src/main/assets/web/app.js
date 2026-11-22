@@ -5,10 +5,34 @@ const I18N = {
     tab_categories: '标签分类',
     tab_files: '文件管理',
     btn_rescan: '↻ 重新扫描',
-    btn_scrape_missing: '✦ 刮削缺失数据',
+    btn_scrape_missing: '刮削缺失数据',
+    btn_scrape_tasks: '刮削任务管理',
     msg_scrape_missing_started: '掌机已开始后台刮削 {n} 款缺失游戏',
     msg_scrape_missing_running: '掌机后台刮削任务已在运行中',
     msg_scrape_missing_none: '全部游戏封面与信息均已完整',
+    msg_scrape_cancelled: '已请求停止刮削任务',
+    scrape_modal_title: '批量刮削任务',
+    scrape_status_running: '正在后台刮削…',
+    scrape_status_cancelled: '已停止刮削',
+    scrape_status_done: '刮削完成',
+    scrape_status_idle: '暂无进行中的刮削任务',
+    scrape_idle_hint: '可一键补充缺失封面与游戏元数据，PC 与手机浏览器均通过 SSE 实时同步掌机进度。',
+    scrape_preparing: '正在准备刮削队列…',
+    scrape_done_summary: '已更新 {u} 款 · 未匹配 {f} 款',
+    scrape_cancelled_summary: '已手动停止（已更新 {u} 款并保留进度）',
+    scrape_stat_progress: '进度',
+    scrape_stat_updated: '已更新',
+    scrape_stat_failed: '未匹配',
+    scrape_btn_stop: '停止刮削',
+    scrape_btn_stopping: '正在停止…',
+    scrape_btn_bg: '后台运行',
+    scrape_btn_dismiss: '关闭记录',
+    scrape_btn_restart: '重新刮削',
+    scrape_btn_start: '开始刮削缺失游戏',
+    scrape_pill_running: '刮削 {pct}%',
+    scrape_pill_done: '刮削完成',
+    scrape_pill_cancelled: '刮削已停',
+    scrape_bar_hint: '点击打开任务管理',
     btn_logout: '退出登录',
     search_games_ph: '搜索游戏',
     vis_all: '全部状态',
@@ -249,10 +273,34 @@ const I18N = {
     tab_categories: '標籤分類',
     tab_files: '檔案管理',
     btn_rescan: '↻ 重新掃描',
-    btn_scrape_missing: '✦ 刮削缺失資料',
+    btn_scrape_missing: '刮削缺失資料',
+    btn_scrape_tasks: '刮削任務管理',
     msg_scrape_missing_started: '掌機已開始背景刮削 {n} 款缺失遊戲',
     msg_scrape_missing_running: '掌機背景刮削任務已在執行中',
     msg_scrape_missing_none: '全部遊戲封面與資訊均已完整',
+    msg_scrape_cancelled: '已請求停止刮削任務',
+    scrape_modal_title: '批次刮削任務',
+    scrape_status_running: '正在背景刮削…',
+    scrape_status_cancelled: '已停止刮削',
+    scrape_status_done: '刮削完成',
+    scrape_status_idle: '暫無進行中的刮削任務',
+    scrape_idle_hint: '可一鍵補充缺少封面與遊戲中繼資料，電腦與手機瀏覽器皆透過 SSE 即時同步掌機進度。',
+    scrape_preparing: '正在準備刮削佇列…',
+    scrape_done_summary: '已更新 {u} 款 · 未符合 {f} 款',
+    scrape_cancelled_summary: '已手動停止（已更新 {u} 款並保留進度）',
+    scrape_stat_progress: '進度',
+    scrape_stat_updated: '已更新',
+    scrape_stat_failed: '未符合',
+    scrape_btn_stop: '停止刮削',
+    scrape_btn_stopping: '正在停止…',
+    scrape_btn_bg: '背景執行',
+    scrape_btn_dismiss: '關閉記錄',
+    scrape_btn_restart: '重新刮削',
+    scrape_btn_start: '開始刮削缺失遊戲',
+    scrape_pill_running: '刮削 {pct}%',
+    scrape_pill_done: '刮削完成',
+    scrape_pill_cancelled: '刮削已停',
+    scrape_bar_hint: '點擊開啟任務管理',
     btn_logout: '登出',
     search_games_ph: '搜尋遊戲',
     vis_all: '全部狀態',
@@ -494,9 +542,33 @@ const I18N = {
     tab_files: 'Files',
     btn_rescan: 'Rescan',
     btn_scrape_missing: 'Scrape missing',
+    btn_scrape_tasks: 'Scrape tasks',
     msg_scrape_missing_started: 'Started background scraping for {n} games on handheld',
     msg_scrape_missing_running: 'Background scraping is already running on handheld',
     msg_scrape_missing_none: 'All games already have covers and info',
+    msg_scrape_cancelled: 'Scrape cancellation requested',
+    scrape_modal_title: 'Scrape Task',
+    scrape_status_running: 'Scraping in background…',
+    scrape_status_cancelled: 'Scraping stopped',
+    scrape_status_done: 'Scraping complete',
+    scrape_status_idle: 'No active scrape task',
+    scrape_idle_hint: 'Automatically fetch missing covers and metadata. Live progress stays synced via SSE on both desktop and mobile browsers.',
+    scrape_preparing: 'Preparing scrape queue…',
+    scrape_done_summary: 'Updated {u} · Unmatched {f}',
+    scrape_cancelled_summary: 'Stopped (kept {u} updated items)',
+    scrape_stat_progress: 'Progress',
+    scrape_stat_updated: 'Updated',
+    scrape_stat_failed: 'Unmatched',
+    scrape_btn_stop: 'Stop',
+    scrape_btn_stopping: 'Stopping…',
+    scrape_btn_bg: 'Run in background',
+    scrape_btn_dismiss: 'Dismiss',
+    scrape_btn_restart: 'Scrape again',
+    scrape_btn_start: 'Scrape missing games',
+    scrape_pill_running: 'Scraping {pct}%',
+    scrape_pill_done: 'Scrape done',
+    scrape_pill_cancelled: 'Stopped',
+    scrape_bar_hint: 'Tap for details',
     btn_logout: 'Log Out',
     search_games_ph: 'Search games',
     vis_all: 'All Status',
@@ -780,6 +852,7 @@ function setWebLang(lang) {
   renderCategories();
   renderFiles();
   updateBatchBar();
+  renderScrapeStatusUi();
   if (curTab === 'files') loadFiles(curDir, true, true);
   const lw = el('logWin');
   if (lw && lw.classList.contains('open')) {
@@ -1063,6 +1136,213 @@ async function cancelFileTask(id, kind) {
   await api('/api/files/tasks/cancel', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) });
 }
 
+let scrapeState = {
+  running: false, done: 0, total: 0, percent: 0,
+  currentTitle: '', currentPlatform: '', updatedCount: 0, failedCount: 0,
+  cancelled: false, finishedAtMs: 0,
+};
+let scrapeCancelling = false;
+let scrapePanelManual = false;
+let scrapeBarMin = false;
+
+function isScrapeActive(s = scrapeState) {
+  return !!(s && (s.running || s.total > 0 || s.finishedAtMs > 0));
+}
+
+function scrapeSubtitleText(s) {
+  if (!isScrapeActive(s)) return tr('scrape_idle_hint');
+  if (s.running) {
+    if (s.currentTitle) {
+      return (s.currentPlatform ? ('[' + s.currentPlatform + '] ') : '') + s.currentTitle;
+    }
+    return tr('scrape_preparing');
+  }
+  if (s.cancelled) {
+    return tr('scrape_cancelled_summary').replace('{u}', String(s.updatedCount || 0));
+  }
+  return tr('scrape_done_summary')
+    .replace('{u}', String(s.updatedCount || 0))
+    .replace('{f}', String(s.failedCount || 0));
+}
+
+function applyScrapeProgressPayload(d) {
+  if (!d || typeof d !== 'object') return;
+  const wasActive = isScrapeActive(scrapeState);
+  const wasRunning = !!scrapeState.running;
+  const prevTotal = scrapeState.total || 0;
+  scrapeState = {
+    running: !!d.running,
+    done: Number(d.done) || 0,
+    total: Number(d.total) || 0,
+    percent: Number(d.percent) || 0,
+    currentTitle: d.currentTitle || '',
+    currentPlatform: d.currentPlatform || '',
+    updatedCount: Number(d.updatedCount) || 0,
+    failedCount: Number(d.failedCount) || 0,
+    cancelled: !!d.cancelled,
+    finishedAtMs: Number(d.finishedAtMs) || 0,
+  };
+  if (!scrapeState.running) scrapeCancelling = false;
+  if (!wasActive && isScrapeActive(scrapeState)) scrapeBarMin = false;
+  if (wasActive && !isScrapeActive(scrapeState)) scrapeBarMin = false;
+  renderScrapeStatusUi();
+  if (wasRunning && !scrapeState.running && (scrapeState.updatedCount > 0 || prevTotal > 0)) {
+    loadGames();
+  }
+}
+
+function openScrapeTaskPanel() {
+  scrapePanelManual = true;
+  scrapeBarMin = false;
+  renderScrapeStatusUi();
+  api('/api/scrape/status')
+    .then(r => (r.ok ? r.json() : null))
+    .then(d => {
+      if (d && d.ok) applyScrapeProgressPayload(d);
+    })
+    .catch(() => {});
+}
+
+function minimizeScrapeBar() {
+  scrapeBarMin = true;
+  renderScrapeStatusUi();
+}
+
+function restoreScrapeBar() {
+  scrapeBarMin = false;
+  renderScrapeStatusUi();
+}
+
+function closeIdleScrapeBar() {
+  scrapePanelManual = false;
+  scrapeBarMin = false;
+  renderScrapeStatusUi();
+}
+
+function renderScrapeStatusUi() {
+  const s = scrapeState;
+  const active = isScrapeActive(s);
+  const showPanel = (active || scrapePanelManual) && !scrapeBarMin;
+
+  const badge = el('moreScrapeBadge');
+  if (badge) {
+    badge.textContent = (active && s.running) ? (s.done + '/' + s.total) : '';
+  }
+
+  const pill = el('scrapeHeaderPill');
+  const pillTxt = el('scrapeHeaderTxt');
+  if (pill && pillTxt) {
+    const showPill = active && scrapeBarMin;
+    pill.classList.toggle('show', showPill);
+    pill.classList.toggle('running', showPill && s.running);
+    pill.classList.toggle('done', showPill && !s.running && !s.cancelled);
+    pill.classList.toggle('cancelled', showPill && !s.running && s.cancelled);
+    if (showPill) {
+      pillTxt.textContent = s.running
+        ? (tr('scrape_pill_running').replace('{pct}', String(s.percent)) + (s.total > 0 ? (' · ' + s.done + '/' + s.total) : ''))
+        : (s.cancelled ? tr('scrape_pill_cancelled') : tr('scrape_pill_done'));
+    } else {
+      pillTxt.textContent = '';
+    }
+  }
+
+  const bar = el('scrapeTaskBar');
+  if (!bar) return;
+  if (!showPanel) {
+    bar.classList.remove('show');
+    bar.innerHTML = '';
+    return;
+  }
+  bar.classList.add('show');
+
+  const hasTotal = active && s.total > 0;
+  const pct = hasTotal ? Math.min(100, Math.max(0, s.percent)) : 0;
+  const iconHtml = !active
+    ? ''
+    : (s.running
+      ? '<div class="task-spin"></div>'
+      : (s.cancelled
+        ? '<span class="scrape-badge warn">!</span>'
+        : '<span class="scrape-badge ok">✓</span>'));
+  const titleText = !active
+    ? tr('scrape_status_idle')
+    : (s.running ? tr('scrape_status_running') : tr(s.cancelled ? 'scrape_status_cancelled' : 'scrape_status_done'));
+  const pctHtml = hasTotal ? ('<span class="scrape-bar-pct">' + pct + '%</span>') : '';
+  const minBtnHtml = active
+    ? '<button class="scrape-mini-btn" onclick="minimizeScrapeBar()" title="—">—</button>'
+    : '';
+  const subText = scrapeSubtitleText(s);
+
+  const progHtml = active
+    ? '<div class="task-prog ' + ((s.running && !hasTotal) ? 'indet' : '') + '"><div style="width:' + (hasTotal ? pct + '%' : '40%') + '"></div></div>'
+    : '';
+
+  const statsHtml = active
+    ? '<div class="scrape-bar-stats">' +
+        '<div class="scrape-bar-cell"><span class="scrape-bar-lbl">' + esc(tr('scrape_stat_progress')) + '</span><span class="scrape-bar-val">' + esc(s.done + ' / ' + s.total) + '</span></div>' +
+        '<div class="scrape-bar-cell"><span class="scrape-bar-lbl">' + esc(tr('scrape_stat_updated')) + '</span><span class="scrape-bar-val accent">' + esc(String(s.updatedCount || 0)) + '</span></div>' +
+        '<div class="scrape-bar-cell"><span class="scrape-bar-lbl">' + esc(tr('scrape_stat_failed')) + '</span><span class="scrape-bar-val">' + esc(String(s.failedCount || 0)) + '</span></div>' +
+      '</div>'
+    : '';
+
+  const logsBtn = '<button class="btn sm" onclick="openScrapeLogsModal()">' + esc(tr('btn_logs')) + '</button>';
+  let actsHtml = '';
+  if (!active) {
+    actsHtml = logsBtn +
+      '<button class="btn sm" onclick="closeIdleScrapeBar()">' + esc(tr('btn_close')) + '</button>' +
+      '<button class="btn sm primary" onclick="triggerScrapeMissing()">' + esc(tr('scrape_btn_start')) + '</button>';
+  } else if (s.running) {
+    actsHtml = logsBtn +
+      '<button class="btn sm danger" ' + (scrapeCancelling ? 'disabled ' : '') + 'onclick="cancelScrapeMissing()">' + esc(tr(scrapeCancelling ? 'scrape_btn_stopping' : 'scrape_btn_stop')) + '</button>';
+  } else {
+    actsHtml = logsBtn +
+      '<button class="btn sm" onclick="triggerScrapeMissing()">' + esc(tr('scrape_btn_restart')) + '</button>' +
+      '<button class="btn sm primary" onclick="dismissScrapeProgress()">' + esc(tr('btn_close')) + '</button>';
+  }
+
+  bar.innerHTML =
+    '<div class="task-item">' +
+      '<div class="scrape-bar-head">' +
+        iconHtml +
+        '<strong style="font-size:13.5px;">' + esc(titleText) + '</strong>' +
+        pctHtml +
+        minBtnHtml +
+      '</div>' +
+      '<div class="sub" style="white-space:normal;word-break:break-word;">' + esc(subText) + '</div>' +
+      progHtml +
+      statsHtml +
+      '<div class="scrape-bar-acts">' + actsHtml + '</div>' +
+    '</div>';
+}
+
+async function cancelScrapeMissing() {
+  if (!scrapeState.running || scrapeCancelling) return;
+  scrapeCancelling = true;
+  renderScrapeStatusUi();
+  const r = await api('/api/scrape/cancel', { method: 'POST' });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.ok) {
+    scrapeCancelling = false;
+    renderScrapeStatusUi();
+    toast(tr('msg_meta_fail') + (d.error || r.status));
+    return;
+  }
+  toast(tr('msg_scrape_cancelled'));
+  if (d.progress) applyScrapeProgressPayload(d.progress);
+}
+
+async function dismissScrapeProgress() {
+  scrapePanelManual = false;
+  scrapeBarMin = false;
+  const r = await api('/api/scrape/dismiss', { method: 'POST' });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.ok) {
+    toast(tr('msg_meta_fail') + (d.error || r.status));
+    return;
+  }
+  if (d.progress) applyScrapeProgressPayload(d.progress);
+}
+
 let eventSrc = null;
 let sseReconnectTimer = null;
 let sseBackoffMs = 2000;
@@ -1166,6 +1446,12 @@ function connectEventsSse() {
     lastAliveAt = Date.now();
     try {
       applyFileTasksPayload(JSON.parse(e.data));
+    } catch (_) {}
+  });
+  es.addEventListener('scrape_progress', (e) => {
+    lastAliveAt = Date.now();
+    try {
+      applyScrapeProgressPayload(JSON.parse(e.data));
     } catch (_) {}
   });
   es.addEventListener('theme', (e) => {
@@ -1272,6 +1558,7 @@ async function loadInit() {
   deviceInfo = info;
   roots = info.roots || [];
   if (info.theme) applyThemeObj(info.theme);
+  if (info.scrapeProgress) applyScrapeProgressPayload(info.scrapeProgress);
   renderDevInfo(true, !!info.online);
   connectEventsSse();
   await Promise.all([loadGames(), loadCategories()]);
@@ -3118,6 +3405,8 @@ function openScrapeLogsModal() {
 }
 
 function closeModal() {
+  window._curModalKind = null;
+  window._curDetailGameId = null;
   el('modalBg').classList.remove('open');
   el('mBody').innerHTML = '';
   el('mFoot').innerHTML = '';
@@ -3336,18 +3625,23 @@ async function openAutoCreatePlatformsModal() {
 }
 
 async function triggerScrapeMissing() {
+  scrapePanelManual = true;
+  scrapeBarMin = false;
   const r = await api('/api/scrape/missing', { method: 'POST' });
   const d = await r.json().catch(() => ({}));
   if (!r.ok || !d.ok) {
     toast(tr('msg_meta_fail') + (d.error || r.status));
     return;
   }
+  if (d.progress) applyScrapeProgressPayload(d.progress);
   if (d.alreadyRunning) {
     toast(tr('msg_scrape_missing_running'));
   } else if (d.queued > 0) {
     toast(tr('msg_scrape_missing_started').replace('{n}', String(d.queued)));
   } else {
     toast(tr('msg_scrape_missing_none'));
+    scrapePanelManual = false;
+    renderScrapeStatusUi();
   }
 }
 
