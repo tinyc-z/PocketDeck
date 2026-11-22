@@ -20,7 +20,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +40,7 @@ import java.net.URLDecoder
 import java.security.MessageDigest
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 data class ScrapedCoverCandidate(
     val url: String,
@@ -109,10 +112,17 @@ class CoverSource(
     private val resolvedUrls = ConcurrentHashMap<String, String>()
     private val resolvedOrigins = ConcurrentHashMap<String, Pair<String, CoverMatchMode>>()
     private val failedUntilMs = ConcurrentHashMap<String, Long>()
+    /** 已确认全源未命中并持久化至 SQLite 的失败项 ID（区别于仅内存态的短时错误冷却）。 */
+    private val persistedFailedIds = ConcurrentHashMap.newKeySet<String>()
+    /** 本会话已完成离线 CRC 哈希封面探测的 gameId，防止未跑完哈希前提前写入 7 天负缓存。 */
+    private val offlineHashCheckedIds = ConcurrentHashMap.newKeySet<String>()
     private val systemIndexes = ConcurrentHashMap<String, BoxartIndex>()
     private val systemIndexLastUsedMs = ConcurrentHashMap<String, Long>()
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
     private val indexFailedUntilMs = ConcurrentHashMap<String, Long>()
+
+    @Volatile
+    private var preloadIndexesJob: Job? = null
     private val remoteIndexRefreshInFlight = ConcurrentHashMap<String, Boolean>()
     @Volatile
     private var githubIndexBlockedUntilMs: Long = 0L
@@ -236,6 +246,7 @@ class CoverSource(
                     loadedUrls++
                 } else if (r.failedUntilMs > now) {
                     failedUntilMs[r.gameId] = r.failedUntilMs
+                    persistedFailedIds.add(r.gameId)
                 }
             }
             if (infoBatch.isNotEmpty()) {
@@ -274,12 +285,46 @@ class CoverSource(
             var prev = NetworkStatus.online.value
             NetworkStatus.online.collect { now ->
                 if (now && !prev) {
-                    failedUntilMs.clear()
+                    clearTransientFailures()
                     bumpIndexVersion()
                 }
                 prev = now
             }
         }
+    }
+
+    private fun isPersistedCoverFailureFresh(
+        gameId: String,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (gameId !in persistedFailedIds) return false
+        val until = failedUntilMs[gameId]
+        if (until == null || until <= nowMs) {
+            persistedFailedIds.remove(gameId)
+            if (until != null) failedUntilMs.remove(gameId, until)
+            return false
+        }
+        return true
+    }
+
+    private fun clearTransientFailures() {
+        val it = failedUntilMs.entries.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            if (e.key !in persistedFailedIds) {
+                it.remove()
+            }
+        }
+    }
+
+    private fun clearAllFailuresInMemory() {
+        failedUntilMs.clear()
+        persistedFailedIds.clear()
+    }
+
+    private fun removeFailureInMemory(gameId: String): Boolean {
+        persistedFailedIds.remove(gameId)
+        return failedUntilMs.remove(gameId) != null
     }
 
     private fun migrateLegacyPrefsIfNeeded() {
@@ -528,7 +573,8 @@ class CoverSource(
             val nextEnabled = normalized.filter { it.enabled }.map { it.id }.toSet()
             val disabledNodes = prevEnabled - nextEnabled
 
-            failedUntilMs.clear()
+            clearAllFailuresInMemory()
+            offlineHashCheckedIds.clear()
             candidateOrigins.clear()
             indexMatchCache.clear()
 
@@ -597,12 +643,15 @@ class CoverSource(
 
     /** 彻底清理内存与磁盘上的封面、缩略图、索引及 API 缓存，等待磁盘删除全部完成后再返回。 */
     suspend fun clearCoverCacheNow() {
+        preloadIndexesJob?.cancel()
+        preloadIndexesJob = null
         windowPrepareJob?.cancel()
         windowScrapeQueue.scheduleReplace(emptyList(), debounceMs = 0L)
         resolvedUrls.clear()
         resolvedOrigins.clear()
         webCacheFilesById.clear()
-        failedUntilMs.clear()
+        clearAllFailuresInMemory()
+        offlineHashCheckedIds.clear()
         candidateOrigins.clear()
         systemIndexes.clear()
         indexFailedUntilMs.clear()
@@ -637,7 +686,8 @@ class CoverSource(
         for (id in gameIds) {
             val cached = resolvedUrls[id]
             if (!cached.isNullOrEmpty()) continue
-            if (failedUntilMs.remove(id) != null) {
+            offlineHashCheckedIds.remove(id)
+            if (removeFailureInMemory(id)) {
                 unlocked += id
             }
         }
@@ -703,7 +753,7 @@ class CoverSource(
         if (coverUrl.isNullOrBlank()) return
         resolvedUrls[gameId] = coverUrl
         resolvedOrigins[gameId] = providerId to CoverMatchMode.ApiSearch
-        failedUntilMs.remove(gameId)
+        removeFailureInMemory(gameId)
         webCacheFilesById.remove(gameId)
         scope.launch(Dispatchers.IO) {
             runCatching { webCacheFile(gameId).delete() }
@@ -713,23 +763,63 @@ class CoverSource(
         bumpIndexVersion(immediate = true)
     }
 
-    /** 仅对存在缺失封面（无本地封面且未命中缓存 URL）的平台按需预载 Boxart 索引，已全部刮削完时冷启动零离线表 IO。 */
+    private fun hasEnabledIndexNode(): Boolean = nodeConfigs.any {
+        it.enabled && (
+            it.id == ScraperCatalog.CoverIds.LIBRETRO_BOXARTS ||
+                it.id == ScraperCatalog.CoverIds.LIBRETRO_SNAPS
+            )
+    }
+
+    /**
+     * 仅对存在待拉取封面（无本地封面、未命中缓存 URL 且未处于持久负缓存冷却期）的平台按需预载 Boxart 索引：
+     * - 全库已有封面或仅剩冷却期无封面项时，冷启动零离线表 IO；
+     * - 按焦点外扩顺序优先加载首屏附近平台，并将并发解析上限控制在 [MAX_CONCURRENT_PRELOAD_SYSTEMS]。
+     */
     fun ensureIndexesLoadedIfNeeded(
         games: List<Game>,
+        focusIdx: Int = 0,
         platformResolver: (Game) -> Platform,
     ) {
-        if (games.isEmpty()) return
-        scope.launch(Dispatchers.IO) {
+        preloadIndexesJob?.cancel()
+        if (games.isEmpty() || !hasEnabledIndexNode()) {
+            preloadIndexesJob = null
+            return
+        }
+        preloadIndexesJob = scope.launch(Dispatchers.IO) {
             initialCoversReady.await()
-            val neededSystems = HashSet<String>()
-            for (g in games) {
-                if (g.id.startsWith(GameLauncher.APK_PREFIX)) continue
-                if (g.customCover != null || g.localCover != null) continue
-                if (webCacheFilesById.containsKey(g.id) || resolvedUrls.containsKey(g.id)) continue
-                val plat = platformResolver(g)
-                val sys = plat.libretroSystem
-                if (!sys.isNullOrBlank() && neededSystems.add(sys)) {
-                    ensureIndexLoaded(plat)
+            val now = System.currentTimeMillis()
+            val neededSystems = LinkedHashSet<String>()
+            OfflineGameDb.forEachFocusOutward(games.size, focusIdx) { idx ->
+                val g = games[idx]
+                if (g.id.startsWith(GameLauncher.APK_PREFIX)) return@forEachFocusOutward
+                if (g.customCover != null || g.localCover != null) return@forEachFocusOutward
+                if (webCacheFilesById.containsKey(g.id) || resolvedUrls.containsKey(g.id)) return@forEachFocusOutward
+                if (isPersistedCoverFailureFresh(g.id, now)) return@forEachFocusOutward
+                val sys = platformResolver(g).libretroSystem
+                if (!sys.isNullOrBlank() && !systemIndexes.containsKey(sys)) {
+                    neededSystems.add(sys)
+                }
+            }
+            if (neededSystems.isEmpty()) return@launch
+            val systemList = neededSystems.toList()
+            val nextIdx = AtomicInteger(0)
+            val workerCount = minOf(MAX_CONCURRENT_PRELOAD_SYSTEMS, systemList.size)
+            coroutineScope {
+                repeat(workerCount) {
+                    launch(Dispatchers.IO) {
+                        while (true) {
+                            val i = nextIdx.getAndIncrement()
+                            if (i >= systemList.size) break
+                            currentCoroutineContext().ensureActive()
+                            val sys = systemList[i]
+                            if (systemIndexes.containsKey(sys)) continue
+                            val loaded = loadSystemIndex(sys)
+                            if (loaded) {
+                                clearTransientFailures()
+                                bumpIndexVersion()
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -738,17 +828,11 @@ class CoverSource(
     /** 预加载指定平台的在线封面目录索引（首次联网拉取，之后读本地缓存）。 */
     fun ensureIndexLoaded(platform: Platform?) {
         val system = platform?.libretroSystem ?: return
-        val needIndex = nodeConfigs.any {
-            it.enabled && (
-                it.id == ScraperCatalog.CoverIds.LIBRETRO_BOXARTS ||
-                    it.id == ScraperCatalog.CoverIds.LIBRETRO_SNAPS
-                )
-        }
-        if (!needIndex || systemIndexes.containsKey(system)) return
+        if (!hasEnabledIndexNode() || systemIndexes.containsKey(system)) return
         scope.launch {
             val loaded = loadSystemIndex(system)
             if (loaded) {
-                failedUntilMs.clear()
+                clearTransientFailures()
                 bumpIndexVersion()
             }
         }
@@ -757,17 +841,11 @@ class CoverSource(
     /** 供全量刮削任务等待指定平台索引加载完成（避免 fire-and-forget 竞态）。 */
     suspend fun ensureIndexLoadedAwait(platform: Platform?): Boolean {
         val system = platform?.libretroSystem ?: return false
-        val needIndex = nodeConfigs.any {
-            it.enabled && (
-                it.id == ScraperCatalog.CoverIds.LIBRETRO_BOXARTS ||
-                    it.id == ScraperCatalog.CoverIds.LIBRETRO_SNAPS
-                )
-        }
-        if (!needIndex) return false
+        if (!hasEnabledIndexNode()) return false
         if (systemIndexes.containsKey(system)) return true
         val loaded = loadSystemIndex(system)
         if (loaded) {
-            failedUntilMs.clear()
+            clearTransientFailures()
             bumpIndexVersion()
         }
         return systemIndexes.containsKey(system)
@@ -805,7 +883,7 @@ class CoverSource(
         val url = buildLibretroBoxartUrl(system, match.first, mirror)
         resolvedUrls[game.id] = url
         resolvedOrigins[game.id] = ScraperCatalog.CoverIds.LIBRETRO_BOXARTS to match.second
-        failedUntilMs.remove(game.id)
+        removeFailureInMemory(game.id)
         scope.launch(Dispatchers.IO) {
             db.putCoverSuccess(game.id, url, ScraperCatalog.CoverIds.LIBRETRO_BOXARTS, match.second.name)
         }
@@ -818,19 +896,23 @@ class CoverSource(
         scope = scope,
         maxConcurrency = 2,
         worker = { (g, plat) ->
-            if (hasLocalOrCachedCover(g)) return@ReplaceableTaskQueue
+            if (hasLocalOrCachedCover(g) || isPersistedCoverFailureFresh(g.id)) return@ReplaceableTaskQueue
             val system = plat.libretroSystem
             if (system != null && isLibretroBoxartsEnabled() && !systemIndexes.containsKey(system)) {
                 val loaded = loadSystemIndex(system)
                 if (loaded) {
-                    failedUntilMs.clear()
+                    clearTransientFailures()
                     bumpIndexVersion()
                 }
             }
             val resolvedName = searchNameResolver?.invoke(g.id)
             if (hasIndexCoverMatch(g, plat, resolvedName)) return@ReplaceableTaskQueue
             if (tryResolveCoverViaOfflineHash(g, plat)) return@ReplaceableTaskQueue
-            scrapeGameApiNodesInternal(g, plat, officialName = resolvedName)
+            offlineHashCheckedIds.add(g.id)
+            val gotCover = scrapeGameApiNodesInternal(g, plat, officialName = resolvedName)
+            if (!gotCover && !hasLocalOrCachedCover(g) && !hasIndexCoverMatch(g, plat, resolvedName)) {
+                rememberFailure(g.id, plat)
+            }
         },
     )
 
@@ -852,10 +934,12 @@ class CoverSource(
         windowPrepareJob = scope.launch(Dispatchers.Default) {
             delay(180L)
             if (fastScrollingPaused) return@launch
+            initialCoversReady.await()
             if (!NetworkStatus.isOnline(appCtx)) return@launch
             val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
             if (enabledApiNodes.isEmpty() && !isLibretroBoxartsEnabled()) return@launch
 
+            val now = System.currentTimeMillis()
             val ordered = ArrayList<Pair<String, Pair<Game, Platform>>>(windowSize.coerceAtMost(games.size))
             val safeFocus = focusIdx.coerceIn(0, games.lastIndex)
             var offset = 0
@@ -867,6 +951,7 @@ class CoverSource(
                     if (g.id.startsWith(GameLauncher.APK_PREFIX)) continue
                     if (!g.customCover.isNullOrBlank() || !g.localCover.isNullOrBlank()) continue
                     if (hasLocalOrCachedCover(g)) continue
+                    if (isPersistedCoverFailureFresh(g.id, now)) continue
                     val plat = platformResolver(g)
                     val resolvedName = searchNameResolver?.invoke(g.id)
                     if (hasIndexCoverMatch(g, plat, resolvedName)) continue
@@ -882,9 +967,9 @@ class CoverSource(
         game: Game,
         platform: Platform?,
         officialName: String?,
-    ) {
+    ): Boolean {
         val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
-        if (enabledApiNodes.isEmpty()) return
+        if (enabledApiNodes.isEmpty()) return false
         val cred = credentials
         val needNodes = enabledApiNodes.filter { node ->
             if (node.id == ScraperCatalog.CoverIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) {
@@ -895,7 +980,7 @@ class CoverSource(
             val key = "${node.id}::${game.id}"
             !client.hasFreshCacheInMemory(node.id, game.id) && scrapingInFlight.putIfAbsent(key, true) == null
         }
-        if (needNodes.isEmpty()) return
+        if (needNodes.isEmpty()) return false
 
         var gotCover = false
         withContext(Dispatchers.IO) {
@@ -923,9 +1008,10 @@ class CoverSource(
             }
         }
         if (gotCover) {
-            failedUntilMs.remove(game.id)
+            removeFailureInMemory(game.id)
             bumpIndexVersion()
         }
+        return gotCover
     }
 
     /**
@@ -998,7 +1084,8 @@ class CoverSource(
                     writeIndexCache(cacheFile, merged)
                     if (merged.size > bundled.size) {
                         putSystemIndex(system, buildIndex(merged))
-                        failedUntilMs.clear()
+                        clearAllFailuresInMemory()
+                        offlineHashCheckedIds.clear()
                         bumpIndexVersion()
                     }
                 } else {
@@ -1334,9 +1421,13 @@ class CoverSource(
     /** 0 表示已有缓存/自定义可直接尝试首项；-1 表示当前负缓存窗口内已全部失败；null 表示正常按序试探。 */
     fun knownIndex(key: String, platform: Platform?): Int? {
         if (cachedUrl(key) != null) return 0
+        val now = System.currentTimeMillis()
+        if (isPersistedCoverFailureFresh(key, now)) {
+            return -1
+        }
         val failUntil = failedUntilMs[key] ?: return null
-        if (failUntil <= System.currentTimeMillis()) {
-            failedUntilMs.remove(key)
+        if (failUntil <= now) {
+            failedUntilMs.remove(key, failUntil)
             return null
         }
         val system = platform?.libretroSystem
@@ -1345,7 +1436,7 @@ class CoverSource(
                 val desc = ScraperCatalog.coverDescriptor(node.id)
                 !ScraperCatalog.hasCredentials(desc?.credentialKind, credentials) ||
                     (node.id == ScraperCatalog.CoverIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) ||
-                    client.hasFreshCacheInMemory(node.id, key)
+                    client.hasConfirmedCacheInMemory(node.id, key)
             }
         if (allApiCached && (system == null || systemIndexes.containsKey(system))) {
             return -1
@@ -1354,7 +1445,7 @@ class CoverSource(
     }
 
     fun rememberSuccess(key: String, model: Any?) {
-        val wasFailed = failedUntilMs.remove(key) != null
+        val wasFailed = removeFailureInMemory(key)
         val modelStr = model?.toString()
         val origin = modelStr?.let { candidateOrigins["$key::$it"] }
             ?: modelStr?.let { inferOrigin(it, model) }
@@ -1395,25 +1486,27 @@ class CoverSource(
         scheduleCoverInfoRemove(key)
         if (!NetworkStatus.online.value) return
         val now = System.currentTimeMillis()
-        val prevUntil = failedUntilMs[key]
-        if (prevUntil != null && prevUntil > now) return
+        if (isPersistedCoverFailureFresh(key, now)) return
 
         val system = platform?.libretroSystem
-        val allApiCached = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
+        val allApiConfirmed = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
             .all { node ->
                 val desc = ScraperCatalog.coverDescriptor(node.id)
                 !ScraperCatalog.hasCredentials(desc?.credentialKind, credentials) ||
                     (node.id == ScraperCatalog.CoverIds.GAMETDB && !client.gameTdb.supportsPlatform(platform?.id)) ||
-                    client.hasFreshCacheInMemory(node.id, key)
+                    client.hasConfirmedCacheInMemory(node.id, key)
             }
-        val ttl = if (allApiCached && (system == null || systemIndexes.containsKey(system))) {
-            ScrapeDatabase.TTL_MISS_MS
-        } else {
-            ScrapeDatabase.TTL_ERROR_MS
+        val offlineHashReady = !isLibretroBoxartsEnabled() || system == null || key in offlineHashCheckedIds
+        val exhaustiveMiss = allApiConfirmed && (system == null || systemIndexes.containsKey(system)) && offlineHashReady
+        if (!exhaustiveMiss) {
+            val prevUntil = failedUntilMs[key]
+            if (prevUntil != null && prevUntil > now) return
         }
+        val ttl = if (exhaustiveMiss) ScrapeDatabase.TTL_MISS_MS else ScrapeDatabase.TTL_ERROR_MS
         val until = now + ttl
         failedUntilMs[key] = until
-        if (ttl == ScrapeDatabase.TTL_MISS_MS) {
+        if (exhaustiveMiss) {
+            persistedFailedIds.add(key)
             scope.launch(Dispatchers.IO) { db.putCoverFailure(key, until) }
         }
     }
@@ -1421,7 +1514,8 @@ class CoverSource(
     fun forget(key: String) {
         resolvedUrls.remove(key)
         resolvedOrigins.remove(key)
-        failedUntilMs.remove(key)
+        removeFailureInMemory(key)
+        offlineHashCheckedIds.remove(key)
         scheduleCoverInfoRemove(key)
         scope.launch(Dispatchers.IO) {
             db.deleteCover(key)
@@ -1534,7 +1628,7 @@ class CoverSource(
         if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return
         resolvedUrls[gameId] = url
         resolvedOrigins[gameId] = WEB_PICKER_PROVIDER to CoverMatchMode.ApiSearch
-        failedUntilMs.remove(gameId)
+        removeFailureInMemory(gameId)
         scope.launch(Dispatchers.IO) {
             db.putCoverSuccess(gameId, url, WEB_PICKER_PROVIDER, CoverMatchMode.ApiSearch.name)
         }
@@ -1757,6 +1851,8 @@ class CoverSource(
         for (u in wikiHit?.coverUrls.orEmpty().take(2)) {
             if (tried.add(u) && tryDownloadAndSave(u)) return@withContext true
         }
+        offlineHashCheckedIds.add(game.id)
+        rememberFailure(game.id, platform)
         false
     }
 
@@ -2352,6 +2448,7 @@ class CoverSource(
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
         const val INDEX_FAIL_COOLDOWN_MS = 10L * 60 * 1000
         const val MAX_CACHED_SYSTEM_INDEXES = 6
+        const val MAX_CONCURRENT_PRELOAD_SYSTEMS = 2
 
         val API_COVER_NODES = setOf(
             ScraperCatalog.CoverIds.GAMETDB,

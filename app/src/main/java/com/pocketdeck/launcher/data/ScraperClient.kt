@@ -55,10 +55,12 @@ data class ScrapeHit(
  * - 分服务商限流器（ScreenScraper 1 req/s、IGDB 4 req/s、其余 3~4 req/s）
  * - 完整支持 GameTDB / Hasheous / ArcadeItalia / ScreenScraper / TheGamesDB / IGDB / SteamGridDB / Wikidata
  */
-class ScraperClient(context: Context) {
+class ScraperClient(
+    context: Context,
+    val database: ScrapeDatabase = ScrapeDatabase(context.applicationContext),
+) {
 
     private val appCtx = context.applicationContext.also { ScrapeLogStore.init(it) }
-    val database = ScrapeDatabase(appCtx)
     val identityExtractor = RomIdentityExtractor(database)
 
     /** 供 Scraper 与 Coil 共用的基础 OkHttpClient（共享 ConnectionPool、Dispatcher 与 HTTP/2 连接复用，懒初始化不拖慢冷启）。 */
@@ -124,6 +126,7 @@ class ScraperClient(context: Context) {
     private data class CacheEntry(
         val hit: ScrapeHit?,
         val expiresAtMs: Long,
+        val status: Int = ScrapeDatabase.STATUS_HIT,
     )
 
     private data class HttpResult(
@@ -150,6 +153,13 @@ class ScraperClient(context: Context) {
         return entry.expiresAtMs == 0L || entry.expiresAtMs >= System.currentTimeMillis()
     }
 
+    /** 检查是否已有已确认结果（HIT 或 MISS，排除临时网络错误 STATUS_ERROR）的未过期内存缓存。 */
+    fun hasConfirmedCacheInMemory(providerId: String, gameId: String): Boolean {
+        val entry = memHits["$providerId::$gameId"] ?: return false
+        if (entry.status == ScrapeDatabase.STATUS_ERROR) return false
+        return entry.expiresAtMs == 0L || entry.expiresAtMs >= System.currentTimeMillis()
+    }
+
     fun cachedHit(providerId: String, gameId: String): ScrapeHit? {
         val key = "$providerId::$gameId"
         val now = System.currentTimeMillis()
@@ -160,7 +170,7 @@ class ScraperClient(context: Context) {
         }
         val row = database.getScrapeHit(providerId, gameId, now) ?: return null
         val hit = if (row.status == ScrapeDatabase.STATUS_HIT) row.hit else ScrapeHit()
-        memHits[key] = CacheEntry(hit = hit, expiresAtMs = row.expiresAtMs)
+        memHits[key] = CacheEntry(hit = hit, expiresAtMs = row.expiresAtMs, status = row.status)
         return hit
     }
 
@@ -214,7 +224,7 @@ class ScraperClient(context: Context) {
             val dbRow = withContext(Dispatchers.IO) { database.getScrapeHit(providerId, game.id, now) }
             if (dbRow != null) {
                 val h = if (dbRow.status == ScrapeDatabase.STATUS_HIT) dbRow.hit else ScrapeHit()
-                memHits[key] = CacheEntry(h, dbRow.expiresAtMs)
+                memHits[key] = CacheEntry(h, dbRow.expiresAtMs, dbRow.status)
                 return h
             }
         }
@@ -245,7 +255,7 @@ class ScraperClient(context: Context) {
             if (outcome.transientError) {
                 val exp = now + ScrapeDatabase.TTL_ERROR_MS
                 val empty = ScrapeHit()
-                memHits[key] = CacheEntry(empty, exp)
+                memHits[key] = CacheEntry(empty, exp, ScrapeDatabase.STATUS_ERROR)
                 withContext(Dispatchers.IO) {
                     database.putScrapeHit(providerId, game.id, empty, ScrapeDatabase.STATUS_ERROR, exp)
                 }
@@ -257,7 +267,7 @@ class ScraperClient(context: Context) {
                 val isHit = !hit.isEmpty
                 val status = if (isHit) ScrapeDatabase.STATUS_HIT else ScrapeDatabase.STATUS_MISS
                 val exp = now + if (isHit) ScrapeDatabase.TTL_HIT_MS else ScrapeDatabase.TTL_MISS_MS
-                memHits[key] = CacheEntry(hit, exp)
+                memHits[key] = CacheEntry(hit, exp, status)
                 withContext(Dispatchers.IO) {
                     database.putScrapeHit(providerId, game.id, hit, status, exp)
                 }
@@ -317,7 +327,7 @@ class ScraperClient(context: Context) {
                     val status = if (isHit) ScrapeDatabase.STATUS_HIT else ScrapeDatabase.STATUS_MISS
                     val exp = ts + if (isHit) ScrapeDatabase.TTL_HIT_MS else ScrapeDatabase.TTL_MISS_MS
                     for (game in sameNameGames) {
-                        memHits["${ScraperCatalog.CoverIds.ARCADEITALIA}::${game.id}"] = CacheEntry(hit, exp)
+                        memHits["${ScraperCatalog.CoverIds.ARCADEITALIA}::${game.id}"] = CacheEntry(hit, exp, status)
                         batchRows += ScrapeDatabase.BatchScrapeEntry(
                             providerId = ScraperCatalog.CoverIds.ARCADEITALIA,
                             gameId = game.id,

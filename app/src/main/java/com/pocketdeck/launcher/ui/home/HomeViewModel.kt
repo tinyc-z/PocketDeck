@@ -223,6 +223,10 @@ class HomeViewModel(
             metadataRepo.newlyResolvedNames.collect { newlyResolved ->
                 if (newlyResolved.isNotEmpty()) {
                     covers.onOfficialNamesResolved(newlyResolved)
+                    val cur = _state.value
+                    if (cur.games.isNotEmpty() && cur.games.any { it.id in newlyResolved }) {
+                        covers.ensureIndexesLoadedIfNeeded(cur.games, _focusIndex.value, cur::platformFor)
+                    }
                 }
             }
         }
@@ -502,22 +506,21 @@ class HomeViewModel(
         platformResolver: (Game) -> Platform,
     ) {
         if (games.isEmpty()) return
-        // 标记当前正在使用的平台集合：LRU 淘汰与 onTrimMemory 均保护这些平台不被释放
-        val seenSystems = HashSet<String>()
-        for (g in games) {
-            val sys = platformResolver(g).libretroSystem
-            if (sys != null) seenSystems.add(sys)
-        }
-        OfflineGameDb.activeSystems = seenSystems.toSet()
-        // 仅对仍有缺封面游戏的平台按需加载离线 Boxart 清单，全库已有封面时冷启动零离线表读取
-        covers.ensureIndexesLoadedIfNeeded(games, platformResolver)
+        // 仅保护距当前焦点最近的少量活跃平台（上限 6 个），避免多平台聚合 Tab 钉死十余份离线表绕过 LRU
+        OfflineGameDb.activeSystems = OfflineGameDb.collectActiveSystemsNearFocus(
+            items = games,
+            focusIdx = focusIdx,
+            systemOf = { platformResolver(it).libretroSystem },
+        )
+        // 仅对仍有待拉取封面的平台按需加载离线 Boxart 清单（跳过冷却期无封面项，受控并发优先首屏）
+        covers.ensureIndexesLoadedIfNeeded(games, focusIdx, platformResolver)
         val focusGame = games.getOrNull(focusIdx)
         if (focusGame != null) {
             val plat = platformResolver(focusGame)
             metadataRepo.resolveFocusGame(focusGame, plat)
         }
         covers.ensureWindowCoversScraped(games, focusIdx, platformResolver)
-        metadataRepo.ensureLoaded(games, platformResolver)
+        metadataRepo.ensureLoaded(games, focusIdx, platformResolver)
     }
 
     private fun buildManageTabs(lib: Library, user: UserData): List<TabEntry> {
@@ -801,6 +804,14 @@ class HomeViewModel(
         focusResolveJob?.cancel()
         if (focusGame != null) {
             val plat = s.platformFor(focusGame)
+            val sys = plat.libretroSystem
+            if (!sys.isNullOrBlank() && sys !in OfflineGameDb.activeSystems) {
+                OfflineGameDb.activeSystems = OfflineGameDb.collectActiveSystemsNearFocus(
+                    items = s.games,
+                    focusIdx = newIdx,
+                    systemOf = { s.platformFor(it).libretroSystem },
+                )
+            }
             focusResolveJob = viewModelScope.launch {
                 delay(220)
                 metadataRepo.resolveFocusGame(focusGame, plat)

@@ -99,12 +99,21 @@ class MetadataRepository(
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
     private val remoteMetaRefreshInFlight = ConcurrentHashMap<String, Boolean>()
     private val gameCache = ConcurrentHashMap<String, GameMetadata>()
+    private val metaMissStates = ConcurrentHashMap<String, MetaMissState>()
     private val localSeedMap = ConcurrentHashMap<String, GameMetadata>()
     private val manualMetaIds = ConcurrentHashMap.newKeySet<String>()
     /** 英文/国际标准检索名（独立于本地化展示名，用于跨源查英文 API 与 Libretro Boxarts）。 */
     private val canonicalNames = ConcurrentHashMap<String, String>()
     private val focusApiResolved = ConcurrentHashMap<String, Boolean>()
     private val inFlightFocus = ConcurrentHashMap.newKeySet<String>()
+
+    @Volatile
+    private var ensureLoadedJob: Job? = null
+
+    private data class MetaMissState(
+        val expiresAtMs: Long,
+        val focusChecked: Boolean,
+    )
 
     @Volatile
     private var providerConfigs: List<SourceItemConfig> = ScraperCatalog.defaultMetadataConfigs()
@@ -146,7 +155,8 @@ class MetadataRepository(
         // 后台异步恢复持久化的自动/手动刮削元数据，避免冷启阻塞主线程且已刮削游戏无需再解压 25MB 离线库
         scope.launch(Dispatchers.IO) {
             try {
-                val savedResolved = client.database.loadAllResolvedMetadata()
+                val now = System.currentTimeMillis()
+                val savedResolved = client.database.loadAllResolvedMetadata(now)
                 val savedManual = client.database.loadAllManualMetadata()
                 if (savedResolved.isNotEmpty() || savedManual.isNotEmpty()) {
                     val totalSize = savedResolved.size + savedManual.size
@@ -156,7 +166,19 @@ class MetadataRepository(
                     for (row in savedResolved) {
                         if (!row.meta.isEmpty) {
                             gameCache[row.gameId] = row.meta
+                            metaMissStates.remove(row.gameId)
                             metaBatch[row.gameId] = row.meta
+                        } else if (row.status == ScrapeDatabase.STATUS_MISS) {
+                            metaMissStates[row.gameId] = MetaMissState(
+                                expiresAtMs = row.expiresAtMs,
+                                focusChecked = row.focusChecked,
+                            )
+                        } else if (!row.officialName.isNullOrBlank()) {
+                            // 兼容旧版落库的“仅有官方名、无元数据”记录（如 PS1/PS2/MAME 等 M=0 平台），避免冷启重复解压离线表
+                            metaMissStates[row.gameId] = MetaMissState(
+                                expiresAtMs = now + ScrapeDatabase.TTL_MISS_MS,
+                                focusChecked = false,
+                            )
                         }
                         if (!row.officialName.isNullOrBlank()) {
                             nameBatch[row.gameId] = row.officialName
@@ -165,13 +187,16 @@ class MetadataRepository(
                         if (!canon.isNullOrBlank()) {
                             canonicalNames[row.gameId] = canon
                         }
-                        infoBatch[row.gameId] = MetadataResolutionInfo(
-                            providers = listOf(row.providerId),
-                            matchModes = listOf(MetaMatchMode.TitleMatch),
-                        )
+                        if (!row.meta.isEmpty || !row.officialName.isNullOrBlank()) {
+                            infoBatch[row.gameId] = MetadataResolutionInfo(
+                                providers = listOf(row.providerId),
+                                matchModes = listOf(MetaMatchMode.TitleMatch),
+                            )
+                        }
                     }
                     for (row in savedManual) {
                         manualMetaIds.add(row.gameId)
+                        metaMissStates.remove(row.gameId)
                         if (!row.meta.isEmpty) {
                             gameCache[row.gameId] = row.meta
                             metaBatch[row.gameId] = row.meta
@@ -188,7 +213,10 @@ class MetadataRepository(
                             matchModes = listOf(MetaMatchMode.ApiNameSearch),
                         )
                     }
-                    enqueueBatchUpdate(metaBatch, nameBatch, infoBatch, immediate = true)
+                    if (metaBatch.isNotEmpty() || nameBatch.isNotEmpty() || infoBatch.isNotEmpty()) {
+                        // 启动恢复已落库的历史官方名不属于“新解析结果”，不发射 newlyResolvedNames 避免误清封面负缓存
+                        enqueueBatchUpdate(metaBatch, nameBatch, infoBatch, immediate = true, emitNewlyResolved = false)
+                    }
                 }
             } finally {
                 initialCacheReady.complete(Unit)
@@ -214,6 +242,35 @@ class MetadataRepository(
         client.computeRomCrc32(File(path))
     }
 
+    private fun isOfflineMissFresh(gameId: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val state = metaMissStates[gameId] ?: return false
+        if (state.expiresAtMs in 1L..nowMs) {
+            metaMissStates.remove(gameId, state)
+            return false
+        }
+        return true
+    }
+
+    private fun isFullMissFresh(gameId: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val state = metaMissStates[gameId] ?: return false
+        if (state.expiresAtMs in 1L..nowMs) {
+            metaMissStates.remove(gameId, state)
+            return false
+        }
+        return state.focusChecked
+    }
+
+    private fun recordMetaMiss(gameId: String, focusChecked: Boolean, nowMs: Long): MetaMissState {
+        val expiresAt = nowMs + ScrapeDatabase.TTL_MISS_MS
+        return metaMissStates.compute(gameId) { _, prev ->
+            val keepFocus = prev != null && prev.focusChecked && (prev.expiresAtMs == 0L || prev.expiresAtMs > nowMs)
+            MetaMissState(
+                expiresAtMs = maxOf(expiresAt, prev?.expiresAtMs ?: 0L),
+                focusChecked = focusChecked || keepFocus,
+            )
+        }!!
+    }
+
     /** 注入从本地 ES-DE / Pegasus `gamelist.xml` 解析的元数据（零网络优先命中）。 */
     fun seedLocalMetadata(localMeta: Map<String, GameMetadata>) {
         if (localMeta.isEmpty()) return
@@ -222,7 +279,8 @@ class MetadataRepository(
         for ((gid, meta) in localMeta) {
             if (meta.isEmpty) continue
             localSeedMap[gid] = meta
-            if (!gameCache.containsKey(gid)) {
+            metaMissStates.remove(gid)
+            if (gameCache[gid]?.isEmpty != false) {
                 gameCache[gid] = meta
                 metaUpdates[gid] = meta
                 infoUpdates[gid] = MetadataResolutionInfo(
@@ -447,12 +505,18 @@ class MetadataRepository(
             return
         }
         if (changed) {
+            ensureLoadedJob?.cancel()
+            ensureLoadedJob = null
             gameCache.clear()
+            metaMissStates.clear()
             focusApiResolved.clear()
             clearPendingBatch()
             _metadata.value = emptyMap()
             _officialNames.value = emptyMap()
             _resolutionInfo.value = emptyMap()
+            scope.launch(Dispatchers.IO) {
+                client.database.clearResolvedMetadataMisses()
+            }
         }
     }
 
@@ -488,9 +552,12 @@ class MetadataRepository(
 
     /** 彻底清理内存与磁盘上的元数据缓存，等待磁盘删除完成后再返回。 */
     suspend fun clearCacheNow() {
+        ensureLoadedJob?.cancel()
+        ensureLoadedJob = null
         systemTables.clear()
         remoteMetaRefreshInFlight.clear()
         gameCache.clear()
+        metaMissStates.clear()
         manualMetaIds.clear()
         canonicalNames.clear()
         focusApiResolved.clear()
@@ -674,20 +741,23 @@ class MetadataRepository(
                                     var searchName = bestSearchNameFor(g.id)
 
                                     if (needMeta && enabled.isNotEmpty()) {
+                                        val isOnline = NetworkStatus.isOnline(appCtx)
                                         val res = resolveSingleGame(
                                             g = g,
                                             platform = platform,
                                             enabled = enabled,
                                             cred = cred,
-                                            queryApi = NetworkStatus.isOnline(appCtx),
+                                            queryApi = isOnline,
                                         )
-                                        gameCache[g.id] = res.meta
+                                        val now = System.currentTimeMillis()
                                         val effSearch = res.canonicalName?.takeIf { it.isNotBlank() } ?: res.officialName
                                         if (!effSearch.isNullOrBlank()) {
                                             canonicalNames[g.id] = effSearch
                                             searchName = effSearch
                                         }
-                                        if (!res.meta.isEmpty || !res.officialName.isNullOrBlank()) {
+                                        if (!res.meta.isEmpty) {
+                                            gameCache[g.id] = res.meta
+                                            metaMissStates.remove(g.id)
                                             client.database.putResolvedMetadataBatch(
                                                 listOf(
                                                     ScrapeDatabase.ManualMetaRow(
@@ -696,9 +766,39 @@ class MetadataRepository(
                                                         officialName = res.officialName,
                                                         canonicalName = effSearch,
                                                         meta = res.meta,
+                                                        status = ScrapeDatabase.STATUS_HIT,
+                                                        expiresAtMs = 0L,
+                                                        focusChecked = true,
                                                     ),
                                                 ),
                                             )
+                                        } else {
+                                            gameCache.putIfAbsent(g.id, res.meta)
+                                            val libretroMissingOffline = useLibretroDb && !system.isNullOrBlank() &&
+                                                systemTables[system] == null && !isOnline
+                                            if (!libretroMissingOffline && gameCache[g.id]?.isEmpty != false) {
+                                                val missState = recordMetaMiss(
+                                                    gameId = g.id,
+                                                    focusChecked = isOnline && !res.hadTransientApiError,
+                                                    nowMs = now,
+                                                )
+                                                val persistedOff = res.officialName?.takeIf { it.isNotBlank() } ?: _officialNames.value[g.id]
+                                                val persistedCanon = effSearch ?: persistedOff ?: canonicalNames[g.id]
+                                                client.database.putResolvedMetadataBatch(
+                                                    listOf(
+                                                        ScrapeDatabase.ManualMetaRow(
+                                                            gameId = g.id,
+                                                            providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
+                                                            officialName = persistedOff,
+                                                            canonicalName = persistedCanon,
+                                                            meta = res.meta,
+                                                            status = ScrapeDatabase.STATUS_MISS,
+                                                            expiresAtMs = missState.expiresAtMs,
+                                                            focusChecked = missState.focusChecked,
+                                                        ),
+                                                    ),
+                                                )
+                                            }
                                         }
                                         synchronized(accLock) {
                                             if (!res.meta.isEmpty) {
@@ -762,39 +862,72 @@ class MetadataRepository(
         }
     }
 
-    /** 预加载指定平台下可见游戏的元数据（仅对尚未缓存元数据的平台按需加载离线库，已完整刮削时零离线表 IO/内存）。 */
-    fun ensureLoaded(games: List<Game>, platformResolver: (Game) -> Platform?) {
-        val romGames = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
-        if (romGames.isEmpty()) return
+    /**
+     * 预加载指定平台下可见游戏的元数据：
+     * - 仅对尚未缓存且未处于负缓存冷却期的游戏按需加载离线库，已完整刮削或无元数据平台冷启动零离线表 IO；
+     * - 按焦点外扩顺序优先加载当前首屏附近平台，并将并发离线表解析上限控制在 [MAX_CONCURRENT_PRELOAD_SYSTEMS]。
+     */
+    fun ensureLoaded(
+        games: List<Game>,
+        focusIdx: Int = 0,
+        platformResolver: (Game) -> Platform?,
+    ) {
+        ensureLoadedJob?.cancel()
+        if (games.isEmpty()) {
+            ensureLoadedJob = null
+            return
+        }
         val enabled = providerConfigs.filter { it.enabled }
-        if (enabled.isEmpty()) return
+        if (enabled.isEmpty()) {
+            ensureLoadedJob = null
+            return
+        }
         val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
         val useArcadeItalia = enabled.any { it.id == ScraperCatalog.MetaIds.ARCADEITALIA }
 
-        scope.launch(Dispatchers.IO) {
+        ensureLoadedJob = scope.launch(Dispatchers.IO) {
             initialCacheReady.await()
-            val pendingGames = romGames.filter { it.id !in manualMetaIds && !gameCache.containsKey(it.id) }
-            if (pendingGames.isEmpty()) return@launch
-            val grouped = pendingGames.groupBy { platformResolver(it) }
+            val now = System.currentTimeMillis()
+            // 按焦点向两侧收集待处理游戏并按平台分组，保证首屏平台在受控并发下最先解析
+            val grouped = LinkedHashMap<Platform?, MutableList<Game>>()
+            OfflineGameDb.forEachFocusOutward(games.size, focusIdx) { idx ->
+                val g = games[idx]
+                if (g.id.startsWith(GameLauncher.APK_PREFIX)) return@forEachFocusOutward
+                if (g.id in manualMetaIds || gameCache.containsKey(g.id) || isOfflineMissFresh(g.id, now)) {
+                    return@forEachFocusOutward
+                }
+                val plat = platformResolver(g)
+                grouped.getOrPut(plat) { ArrayList() }.add(g)
+            }
+            if (grouped.isEmpty()) return@launch
+            val groupedList = grouped.entries.toList()
+            val nextIdx = AtomicInteger(0)
+            val workerCount = minOf(MAX_CONCURRENT_PRELOAD_SYSTEMS, groupedList.size)
             coroutineScope {
-                for ((platform, platGames) in grouped) {
-                    launch {
-                        val system = platform?.libretroSystem
-                        if (useLibretroDb && !system.isNullOrBlank()) {
-                            getOrFetchLibretroTable(system)
+                repeat(workerCount) {
+                    launch(Dispatchers.IO) {
+                        while (true) {
+                            val i = nextIdx.getAndIncrement()
+                            if (i >= groupedList.size) break
+                            currentCoroutineContext().ensureActive()
+                            val (platform, platGames) = groupedList[i]
+                            val system = platform?.libretroSystem
+                            if (useLibretroDb && !system.isNullOrBlank()) {
+                                getOrFetchLibretroTable(system)
+                            }
+                            if (useArcadeItalia && NetworkStatus.isOnline(appCtx)) {
+                                // 街机平台批量预取（每批 20 款仅 1 次 HTTP RTT）
+                                client.prefetchArcadeItaliaBatch(platGames.take(60), platform)
+                            }
+                            resolveGames(platGames, platform, queryApi = false)
                         }
-                        if (useArcadeItalia && NetworkStatus.isOnline(appCtx)) {
-                            // 街机平台批量预取（每批 20 款仅 1 次 HTTP RTT）
-                            client.prefetchArcadeItaliaBatch(platGames.take(60), platform)
-                        }
-                        resolveGames(platGames, platform, queryApi = false)
                     }
                 }
             }
         }
     }
 
-    /** 确保单个焦点游戏从全部已启用的服务商查询并合并元数据（已持久化命中的游戏冷启动跳过离线表解压）。 */
+    /** 确保单个焦点游戏从全部已启用的服务商查询并合并元数据（已持久化命中或全源负缓存的游戏冷启动跳过离线表解压）。 */
     fun resolveFocusGame(game: Game?, platform: Platform?) {
         val g = game ?: return
         if (g.id.startsWith(GameLauncher.APK_PREFIX)) return
@@ -810,16 +943,29 @@ class MetadataRepository(
         scope.launch {
             try {
                 initialCacheReady.await()
+                val now = System.currentTimeMillis()
                 val existing = gameCache[g.id]
                 if (g.id in manualMetaIds || (existing != null && !existing.isEmpty)) {
                     focusApiResolved[g.id] = true
                     return@launch
                 }
+                if (isFullMissFresh(g.id, now)) {
+                    focusApiResolved[g.id] = true
+                    return@launch
+                }
+                val alreadyCheckedOffline = isOfflineMissFresh(g.id, now)
+                if (!online && alreadyCheckedOffline) {
+                    return@launch
+                }
                 val system = platform?.libretroSystem
-                if (useLibretroDb && !system.isNullOrBlank()) {
+                val skipLibretroLoad = alreadyCheckedOffline && (
+                    !canonicalNames[g.id].isNullOrBlank() ||
+                        withContext(Dispatchers.IO) { client.hasFastFingerprint(File(g.id), platform?.id) }
+                    )
+                if (useLibretroDb && !system.isNullOrBlank() && !skipLibretroLoad) {
                     getOrFetchLibretroTable(system)
                 }
-                resolveGames(listOf(g), platform, queryApi = online)
+                resolveGames(listOf(g), platform, queryApi = online, skippedLibretroLoad = skipLibretroLoad)
                 if (online) {
                     focusApiResolved[g.id] = true
                 }
@@ -853,10 +999,22 @@ class MetadataRepository(
         val hasResult = !res.meta.isEmpty || !res.officialName.isNullOrBlank()
         if (!hasResult) return@withContext false
 
-        gameCache[game.id] = res.meta
+        if (!res.meta.isEmpty) {
+            gameCache[game.id] = res.meta
+            metaMissStates.remove(game.id)
+        } else {
+            gameCache.putIfAbsent(game.id, res.meta)
+        }
         focusApiResolved[game.id] = true
         (res.canonicalName?.takeIf { it.isNotBlank() } ?: res.officialName)?.let { canonicalNames[game.id] = it }
         if (game.id !in manualMetaIds) {
+            val now = System.currentTimeMillis()
+            val status = if (!res.meta.isEmpty) ScrapeDatabase.STATUS_HIT else ScrapeDatabase.STATUS_MISS
+            val expiresAt = if (!res.meta.isEmpty) 0L else now + ScrapeDatabase.TTL_MISS_MS
+            val focusChecked = !res.meta.isEmpty || !res.hadTransientApiError
+            if (res.meta.isEmpty) {
+                recordMetaMiss(game.id, focusChecked = focusChecked, nowMs = now)
+            }
             client.database.putResolvedMetadataBatch(
                 listOf(
                     ScrapeDatabase.ManualMetaRow(
@@ -865,6 +1023,9 @@ class MetadataRepository(
                         officialName = res.officialName,
                         canonicalName = res.canonicalName,
                         meta = res.meta,
+                        status = status,
+                        expiresAtMs = expiresAt,
+                        focusChecked = focusChecked,
                     ),
                 ),
             )
@@ -903,7 +1064,10 @@ class MetadataRepository(
         focusApiResolved[game.id] = true
         val hasResult = !res.meta.isEmpty || !res.officialName.isNullOrBlank() || res.info?.crc32 != null
         if (!hasResult) return@withContext false
-        if (!res.meta.isEmpty) gameCache[game.id] = res.meta
+        if (!res.meta.isEmpty) {
+            gameCache[game.id] = res.meta
+            metaMissStates.remove(game.id)
+        }
         (res.canonicalName?.takeIf { it.isNotBlank() } ?: res.officialName)?.let { canonicalNames[game.id] = it }
         enqueueBatchUpdate(
             metaUpdates = if (!res.meta.isEmpty) mapOf(game.id to res.meta) else emptyMap(),
@@ -919,6 +1083,7 @@ class MetadataRepository(
         val officialName: String?,
         val canonicalName: String?,
         val info: MetadataResolutionInfo?,
+        val hadTransientApiError: Boolean = false,
     )
 
     private suspend fun resolveSingleGame(
@@ -938,6 +1103,7 @@ class MetadataRepository(
         var publisher: String? = null
         var identity: RomIdentityExtractor.Identity? = null
         var description: String? = localSeedMap[g.id]?.description
+        var hadTransientApiError = false
         val usedProviders = LinkedHashSet<String>()
         val usedModes = LinkedHashSet<MetaMatchMode>()
 
@@ -1040,7 +1206,10 @@ class MetadataRepository(
                 else -> {
                     val desc = ScraperCatalog.metaDescriptor(provider.id)
                     if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
-                    val searchHint = canonicalName ?: officialName?.takeIf { !CjkAliases.containsCjk(it) }
+                    val searchHint = canonicalName
+                        ?: officialName?.takeIf { !CjkAliases.containsCjk(it) }
+                        ?: canonicalNames[g.id]
+                        ?: _officialNames.value[g.id]?.takeIf { !CjkAliases.containsCjk(it) }
                     val hadFreshCacheBefore = queryApi && !forceApiRefresh && client.cachedHit(provider.id, g.id) != null
                     var hit = if (queryApi) {
                         client.queryProvider(
@@ -1053,6 +1222,9 @@ class MetadataRepository(
                         )
                     } else {
                         client.cachedHit(provider.id, g.id)
+                    }
+                    if (queryApi && (hit == null || !client.hasConfirmedCacheInMemory(provider.id, g.id))) {
+                        hadTransientApiError = true
                     }
                     // I3: 仅对支持名称检索、尚未负缓存且未提供英文提示的中文 ROM 尝试第二英文别名补充，避免重复发包或击穿负缓存
                     if (queryApi && !hadFreshCacheBefore && (hit == null || hit.isEmpty) && searchHint == null &&
@@ -1076,6 +1248,9 @@ class MetadataRepository(
                                 forceRefresh = true,
                                 officialNameHint = secondAlias,
                             )
+                            if (hit == null || !client.hasConfirmedCacheInMemory(provider.id, g.id)) {
+                                hadTransientApiError = true
+                            }
                         }
                     }
                     if (hit != null && !hit.isEmpty) {
@@ -1115,28 +1290,32 @@ class MetadataRepository(
         } else {
             null
         }
-        return SingleResolution(resolved, officialName, canonicalName, info)
+        return SingleResolution(resolved, officialName, canonicalName, info, hadTransientApiError)
     }
 
     private suspend fun resolveGames(
         games: List<Game>,
         platform: Platform?,
         queryApi: Boolean,
+        skippedLibretroLoad: Boolean = false,
     ) = withContext(Dispatchers.IO) {
         val enabled = providerConfigs.filter { it.enabled }
         if (enabled.isEmpty()) return@withContext
         val cred = credentials
+        val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
+        val system = platform?.libretroSystem
 
         val updates = HashMap<String, GameMetadata>()
         val nameUpdates = HashMap<String, String>()
         val infoUpdates = HashMap<String, MetadataResolutionInfo>()
         val persistRows = ArrayList<ScrapeDatabase.ManualMetaRow>()
 
+        val nowStart = System.currentTimeMillis()
         val romOnly = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
         val pending = if (queryApi) {
             romOnly.filter { it.id !in manualMetaIds }
         } else {
-            romOnly.filter { it.id !in manualMetaIds && !gameCache.containsKey(it.id) }
+            romOnly.filter { it.id !in manualMetaIds && !gameCache.containsKey(it.id) && !isOfflineMissFresh(it.id, nowStart) }
         }
         // 静默浏览加载（queryApi=false）绝不写 _scrapeProgress，避免切 Tab 覆写运行中的全量刮削进度或误关常亮
         val trackProgress = queryApi && pending.size > 1 && missingScrapeJob?.isActive != true
@@ -1154,6 +1333,11 @@ class MetadataRepository(
 
         try {
             for (g in pending) {
+                currentCoroutineContext().ensureActive()
+                if (!queryApi && (g.id in manualMetaIds || gameCache.containsKey(g.id))) {
+                    doneCount++
+                    continue
+                }
                 if (trackProgress) {
                     _scrapeProgress.value = ScrapeProgress(
                         running = true,
@@ -1164,12 +1348,7 @@ class MetadataRepository(
                     )
                 }
                 val res = resolveSingleGame(g, platform, enabled, cred, queryApi = queryApi)
-                gameCache[g.id] = res.meta
-                if (!res.meta.isEmpty) {
-                    updates[g.id] = res.meta
-                } else {
-                    failCount++
-                }
+                val now = System.currentTimeMillis()
                 val off = res.officialName
                 if (!off.isNullOrBlank()) {
                     nameUpdates[g.id] = off
@@ -1179,14 +1358,58 @@ class MetadataRepository(
                     canonicalNames[g.id] = canon
                 }
                 res.info?.let { infoUpdates[g.id] = it }
-                if (!res.meta.isEmpty || !off.isNullOrBlank()) {
+
+                if (!res.meta.isEmpty) {
+                    gameCache[g.id] = res.meta
+                    metaMissStates.remove(g.id)
+                    updates[g.id] = res.meta
                     persistRows += ScrapeDatabase.ManualMetaRow(
                         gameId = g.id,
                         providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
                         officialName = off,
                         canonicalName = canon,
                         meta = res.meta,
+                        status = ScrapeDatabase.STATUS_HIT,
+                        expiresAtMs = 0L,
+                        focusChecked = true,
                     )
+                } else {
+                    failCount++
+                    gameCache.putIfAbsent(g.id, res.meta)
+                    // 仅当未命中非空元数据时写入负缓存，避免并发 queryApi=false 降级覆盖有效结果或 focusChecked=true
+                    val existingNonEmpty = gameCache[g.id]?.isEmpty == false
+                    val libretroMissingOffline = useLibretroDb && !system.isNullOrBlank() &&
+                        systemTables[system] == null && !skippedLibretroLoad && !NetworkStatus.isOnline(appCtx)
+                    if (!existingNonEmpty && !libretroMissingOffline) {
+                        val missState = recordMetaMiss(
+                            gameId = g.id,
+                            focusChecked = queryApi && !res.hadTransientApiError,
+                            nowMs = now,
+                        )
+                        val persistedOff = off?.takeIf { it.isNotBlank() } ?: _officialNames.value[g.id]
+                        val persistedCanon = canon ?: persistedOff ?: canonicalNames[g.id]
+                        persistRows += ScrapeDatabase.ManualMetaRow(
+                            gameId = g.id,
+                            providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
+                            officialName = persistedOff,
+                            canonicalName = persistedCanon,
+                            meta = res.meta,
+                            status = ScrapeDatabase.STATUS_MISS,
+                            expiresAtMs = missState.expiresAtMs,
+                            focusChecked = missState.focusChecked,
+                        )
+                    } else if (!existingNonEmpty && !off.isNullOrBlank()) {
+                        persistRows += ScrapeDatabase.ManualMetaRow(
+                            gameId = g.id,
+                            providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
+                            officialName = off,
+                            canonicalName = canon,
+                            meta = res.meta,
+                            status = ScrapeDatabase.STATUS_HIT,
+                            expiresAtMs = 0L,
+                            focusChecked = false,
+                        )
+                    }
                 }
                 doneCount++
             }
@@ -1556,6 +1779,7 @@ class MetadataRepository(
         covers: CoverSource,
     ) {
         manualMetaIds.add(gameId)
+        metaMissStates.remove(gameId)
         if (!candidate.metadata.isEmpty) {
             gameCache[gameId] = candidate.metadata
             _metadata.update { it + (gameId to candidate.metadata) }
@@ -1603,6 +1827,7 @@ class MetadataRepository(
         nameUpdates: Map<String, String>,
         infoUpdates: Map<String, MetadataResolutionInfo>,
         immediate: Boolean,
+        emitNewlyResolved: Boolean = true,
     ) {
         synchronized(batchLock) {
             pendingMeta.putAll(metaUpdates)
@@ -1611,20 +1836,20 @@ class MetadataRepository(
             if (immediate) {
                 batchFlushJob?.cancel()
                 batchFlushJob = null
-                flushBatchLocked()
+                flushBatchLocked(emitNewlyResolved = emitNewlyResolved)
             } else if (batchFlushJob?.isActive != true) {
                 batchFlushJob = scope.launch {
                     delay(140L)
                     synchronized(batchLock) {
                         batchFlushJob = null
-                        flushBatchLocked()
+                        flushBatchLocked(emitNewlyResolved = true)
                     }
                 }
             }
         }
     }
 
-    private fun flushBatchLocked() {
+    private fun flushBatchLocked(emitNewlyResolved: Boolean = true) {
         if (pendingMeta.isNotEmpty()) {
             val delta = HashMap(pendingMeta)
             pendingMeta.clear()
@@ -1634,7 +1859,9 @@ class MetadataRepository(
             val delta = HashMap(pendingNames)
             pendingNames.clear()
             _officialNames.update { it + delta }
-            _newlyResolvedNames.tryEmit(delta.keys)
+            if (emitNewlyResolved) {
+                _newlyResolvedNames.tryEmit(delta.keys)
+            }
         }
         if (pendingInfo.isNotEmpty()) {
             val delta = HashMap(pendingInfo)
@@ -1709,6 +1936,9 @@ class MetadataRepository(
                 delay(3_000L)
                 val remote = fetchFromLibretroWithFailover(system, cacheFile) ?: return@launch
                 putSystemTable(system, SystemTable(offline = bundled, overlay = remote))
+                // 远端首次拉回新的 .dat 覆盖层时，清理负缓存以便下次访问能命中新增元数据
+                metaMissStates.clear()
+                client.database.clearResolvedMetadataMisses()
             } finally {
                 remoteMetaRefreshInFlight.remove(system)
             }
@@ -1969,9 +2199,10 @@ class MetadataRepository(
         }
     }
 
-    private companion object {
+    internal companion object {
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
         const val MAX_CACHED_SYSTEM_TABLES = 6
+        const val MAX_CONCURRENT_PRELOAD_SYSTEMS = 2
         const val SCRAPE_CONCURRENCY = 4
         const val SCRAPE_FLUSH_BATCH_SIZE = 16
         const val SCRAPE_FLUSH_INTERVAL_MS = 450L

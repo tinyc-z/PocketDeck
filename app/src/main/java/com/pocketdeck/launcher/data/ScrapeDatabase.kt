@@ -21,7 +21,7 @@ import org.json.JSONObject
  * - 路径迁移/删除 API 与 `UserStore` 同步，避免 ROM 移动/删库残留孤儿行；
  * - 异常写入 `Log.w` 留审计线索，不静默吞错。
  */
-class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
+open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     context.applicationContext,
     DB_NAME,
     null,
@@ -147,7 +147,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
 
     // ───────────────────────── cover_cache ─────────────────────────
 
-    fun loadAllCovers(): List<CoverRow> = safeDb("loadAllCovers", emptyList()) {
+    open fun loadAllCovers(): List<CoverRow> = safeDb("loadAllCovers", emptyList()) {
         val db = readableDatabase
         val out = ArrayList<CoverRow>(512)
         db.rawQuery(
@@ -168,7 +168,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         out
     }
 
-    fun putCoverSuccess(gameId: String, url: String, provider: String?, matchMode: String?) {
+    open fun putCoverSuccess(gameId: String, url: String, provider: String?, matchMode: String?) {
         safeDbUnit("putCoverSuccess") {
             val cv = ContentValues(6).apply {
                 put("game_id", gameId)
@@ -182,7 +182,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    fun putCoverFailure(gameId: String, failedUntilMs: Long) {
+    open fun putCoverFailure(gameId: String, failedUntilMs: Long) {
         safeDbUnit("putCoverFailure") {
             val cv = ContentValues(6).apply {
                 put("game_id", gameId)
@@ -196,13 +196,13 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    fun deleteCover(gameId: String) {
+    open fun deleteCover(gameId: String) {
         safeDbUnit("deleteCover") {
             writableDatabase.delete("cover_cache", "game_id = ?", arrayOf(gameId))
         }
     }
 
-    fun clearCoverFailures(gameIds: Collection<String>) {
+    open fun clearCoverFailures(gameIds: Collection<String>) {
         if (gameIds.isEmpty()) return
         safeDbUnit("clearCoverFailures") {
             val db = writableDatabase
@@ -221,13 +221,13 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    fun clearAllCoverFailures() {
+    open fun clearAllCoverFailures() {
         safeDbUnit("clearAllCoverFailures") {
             writableDatabase.delete("cover_cache", "url IS NULL", null)
         }
     }
 
-    fun clearCovers() {
+    open fun clearCovers() {
         safeDbUnit("clearCovers") {
             writableDatabase.delete("cover_cache", null, null)
         }
@@ -265,6 +265,9 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         val officialName: String?,
         val canonicalName: String?,
         val meta: GameMetadata,
+        val status: Int = STATUS_HIT,
+        val expiresAtMs: Long = 0L,
+        val focusChecked: Boolean = false,
     )
 
     data class BatchScrapeEntry(
@@ -278,15 +281,20 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     private fun parseExtraJson(raw: String?): JSONObject? =
         if (raw.isNullOrBlank()) null else runCatching { JSONObject(raw) }.getOrNull()
 
-    private fun buildExtraJson(hit: ScrapeHit, manualProvider: String? = null): String? {
+    private fun buildExtraJson(
+        hit: ScrapeHit,
+        manualProvider: String? = null,
+        focusChecked: Boolean = false,
+    ): String? {
         val hasCanonical = !hit.canonicalName.isNullOrBlank() && hit.canonicalName != hit.officialName
         val hasDesc = !hit.meta.description.isNullOrBlank()
-        if (!hit.matchedBySerial && !hasCanonical && !hasDesc && manualProvider.isNullOrBlank()) return null
+        if (!hit.matchedBySerial && !hasCanonical && !hasDesc && manualProvider.isNullOrBlank() && !focusChecked) return null
         return JSONObject().apply {
             if (hit.matchedBySerial) put("matchedBySerial", true)
             if (hasCanonical) put("canonicalName", hit.canonicalName)
             if (hasDesc) put("description", hit.meta.description)
             if (!manualProvider.isNullOrBlank()) put("manualProvider", manualProvider)
+            if (focusChecked) put("focusChecked", true)
         }.toString()
     }
 
@@ -297,8 +305,9 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         status: Int,
         expiresAtMs: Long,
         manualProvider: String? = null,
+        focusChecked: Boolean = false,
     ): ContentValues {
-        val extraJson = buildExtraJson(hit, manualProvider)
+        val extraJson = buildExtraJson(hit, manualProvider, focusChecked)
         return ContentValues(12).apply {
             put("provider_id", providerId)
             put("game_id", gameId)
@@ -315,7 +324,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    fun getScrapeHit(providerId: String, gameId: String, nowMs: Long = System.currentTimeMillis()): ScrapeCacheRow? =
+    open fun getScrapeHit(providerId: String, gameId: String, nowMs: Long = System.currentTimeMillis()): ScrapeCacheRow? =
         safeDb("getScrapeHit", null) {
             readableDatabase.rawQuery(
                 """
@@ -358,7 +367,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
             }
         }
 
-    fun putScrapeHit(
+    open fun putScrapeHit(
         providerId: String,
         gameId: String,
         hit: ScrapeHit,
@@ -372,7 +381,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     /** 单事务批量写入刮削缓存，显著降低批量预取与全量刮削的 SQLite WAL fsync 频次。 */
-    fun putScrapeHitsBatch(entries: List<BatchScrapeEntry>) {
+    open fun putScrapeHitsBatch(entries: List<BatchScrapeEntry>) {
         if (entries.isEmpty()) return
         safeDbUnit("putScrapeHitsBatch") {
             val db = writableDatabase
@@ -390,7 +399,7 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     /** 持久化用户手动刮削选中的元数据与官方名（永久有效，重启不丢失）。 */
-    fun putManualMetadata(
+    open fun putManualMetadata(
         gameId: String,
         providerId: String,
         officialName: String?,
@@ -415,8 +424,8 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    /** 批量持久化自动刮削/离线匹配得到的元数据与官方名，冷启动直接从 SQLite 恢复而无需解压 25MB 离线表。 */
-    fun putResolvedMetadataBatch(rows: List<ManualMetaRow>) {
+    /** 批量持久化自动刮削/离线匹配得到的元数据、官方名及未命中负缓存（TTL 过期前冷启动不再解压离线表）。 */
+    open fun putResolvedMetadataBatch(rows: List<ManualMetaRow>) {
         if (rows.isEmpty()) return
         safeDbUnit("putResolvedMetadataBatch") {
             val db = writableDatabase
@@ -432,9 +441,10 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                         providerId = RESOLVED_META_PROVIDER,
                         gameId = row.gameId,
                         hit = hit,
-                        status = STATUS_HIT,
-                        expiresAtMs = 0L,
+                        status = row.status,
+                        expiresAtMs = row.expiresAtMs,
                         manualProvider = row.providerId,
+                        focusChecked = row.focusChecked,
                     )
                     db.insertWithOnConflict("scrape_cache", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                 }
@@ -445,29 +455,48 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    /** 一次性加载所有持久化的自动刮削元数据（冷启动后台秒读）。 */
-    fun loadAllResolvedMetadata(): List<ManualMetaRow> =
-        loadMetadataRowsByProvider("loadAllResolvedMetadata", RESOLVED_META_PROVIDER)
+    /** 一次性加载所有未过期的自动刮削元数据与负缓存（冷启动后台秒读）。 */
+    open fun loadAllResolvedMetadata(nowMs: Long = System.currentTimeMillis()): List<ManualMetaRow> =
+        loadMetadataRowsByProvider("loadAllResolvedMetadata", RESOLVED_META_PROVIDER, nowMs)
 
     /** 一次性加载所有持久化的手动刮削元数据（冷启动后台恢复）。 */
-    fun loadAllManualMetadata(): List<ManualMetaRow> =
-        loadMetadataRowsByProvider("loadAllManualMetadata", MANUAL_META_PROVIDER)
+    open fun loadAllManualMetadata(): List<ManualMetaRow> =
+        loadMetadataRowsByProvider("loadAllManualMetadata", MANUAL_META_PROVIDER, nowMs = 0L)
 
-    private fun loadMetadataRowsByProvider(op: String, providerKey: String): List<ManualMetaRow> = safeDb(op, emptyList()) {
+    /** 清除自动刮削负缓存（保留有效命中与手动刮削记录），用于数据源/凭证变更或远端元数据表更新后重试。 */
+    open fun clearResolvedMetadataMisses() {
+        safeDbUnit("clearResolvedMetadataMisses") {
+            writableDatabase.delete(
+                "scrape_cache",
+                "provider_id = ? AND status != ?",
+                arrayOf(RESOLVED_META_PROVIDER, STATUS_HIT.toString()),
+            )
+        }
+    }
+
+    private fun loadMetadataRowsByProvider(
+        op: String,
+        providerKey: String,
+        nowMs: Long,
+    ): List<ManualMetaRow> = safeDb(op, emptyList()) {
         val out = ArrayList<ManualMetaRow>(64)
         readableDatabase.rawQuery(
             """
-            SELECT game_id, official_name, release_date, genre, developer, publisher, extra_json
+            SELECT game_id, official_name, release_date, genre, developer, publisher, extra_json, status, expires_at_ms
             FROM scrape_cache
             WHERE provider_id = ?
             """.trimIndent(),
             arrayOf(providerKey),
         ).use { c ->
             while (c.moveToNext()) {
+                val status = c.getInt(7)
+                val expiresAtMs = c.getLong(8)
+                if (nowMs > 0L && expiresAtMs > 0L && expiresAtMs < nowMs) continue
                 val extraObj = parseExtraJson(if (c.isNull(6)) null else c.getString(6))
                 val prov = extraObj?.optString("manualProvider")?.takeIf { it.isNotBlank() } ?: providerKey
                 val canonical = extraObj?.optString("canonicalName")?.takeIf { it.isNotBlank() }
                 val desc = extraObj?.optString("description")?.takeIf { it.isNotBlank() }
+                val focusChecked = extraObj?.optBoolean("focusChecked", false) ?: false
                 val meta = GameMetadata(
                     releaseDate = if (c.isNull(2)) null else c.getString(2).takeIf { it.isNotBlank() },
                     genre = if (c.isNull(3)) null else c.getString(3).takeIf { it.isNotBlank() },
@@ -481,13 +510,16 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                     officialName = if (c.isNull(1)) null else c.getString(1).takeIf { it.isNotBlank() },
                     canonicalName = canonical,
                     meta = meta,
+                    status = status,
+                    expiresAtMs = expiresAtMs,
+                    focusChecked = focusChecked,
                 )
             }
         }
         out
     }
 
-    fun clearScrapeCache() {
+    open fun clearScrapeCache() {
         safeDbUnit("clearScrapeCache") {
             writableDatabase.delete("scrape_cache", null, null)
         }

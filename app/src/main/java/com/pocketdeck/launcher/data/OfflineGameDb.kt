@@ -21,10 +21,46 @@ import java.util.concurrent.ConcurrentHashMap
 object OfflineGameDb {
 
     private const val MAX_CACHED_PLATFORMS = 4
+    const val MAX_ACTIVE_PROTECTED_SYSTEMS = 6
 
-    /** 当前前台列表正在使用的 `libretroSystem` 集合：LRU 淘汰与 `onTrimMemory` 均受保护，不会被释放。 */
+    /** 当前前台列表焦点附近正在使用的 `libretroSystem` 集合：LRU 淘汰与 `onTrimMemory` 均受保护，不会被释放。 */
     @Volatile
     var activeSystems: Set<String> = emptySet()
+
+    /** 按焦点为中心向两侧交替遍历列表下标（focus, focus+1, focus-1, ...），优先处理首屏可见项。 */
+    inline fun forEachFocusOutward(size: Int, focusIdx: Int, action: (index: Int) -> Unit) {
+        if (size <= 0) return
+        val center = focusIdx.coerceIn(0, size - 1)
+        action(center)
+        var offset = 1
+        while (center + offset < size || center - offset >= 0) {
+            if (center + offset < size) action(center + offset)
+            if (center - offset >= 0) action(center - offset)
+            offset++
+        }
+    }
+
+    /**
+     * 提取距当前焦点最近的最多 [maxSystems] 个活跃平台（按焦点外扩顺序收集），
+     * 防止多平台聚合 Tab（如 NOW/OTHER）把十余个平台全部钉死在内存里绕过 LRU 淘汰。
+     */
+    fun <T> collectActiveSystemsNearFocus(
+        items: List<T>,
+        focusIdx: Int,
+        maxSystems: Int = MAX_ACTIVE_PROTECTED_SYSTEMS,
+        systemOf: (T) -> String?,
+    ): Set<String> {
+        if (items.isEmpty() || maxSystems <= 0) return emptySet()
+        val out = LinkedHashSet<String>(maxSystems)
+        forEachFocusOutward(items.size, focusIdx) { idx ->
+            val sys = systemOf(items[idx])
+            if (!sys.isNullOrBlank()) {
+                out.add(sys)
+                if (out.size >= maxSystems) return out
+            }
+        }
+        return out
+    }
 
     data class MetaRow(
         val name: String,
