@@ -37,9 +37,9 @@ object GamepadKeys {
         KeyAction.Settings -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_X else KeyEvent.KEYCODE_BUTTON_Y
         KeyAction.Play -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_B else KeyEvent.KEYCODE_BUTTON_A
         KeyAction.Back -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_A else KeyEvent.KEYCODE_BUTTON_B
-        KeyAction.Menu -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_Y else KeyEvent.KEYCODE_BUTTON_X
+        KeyAction.Menu -> KeyEvent.KEYCODE_BUTTON_START
         KeyAction.ViewMode -> KeyEvent.KEYCODE_BUTTON_THUMBR
-        KeyAction.Search -> KeyEvent.KEYCODE_BUTTON_START
+        KeyAction.Search -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_Y else KeyEvent.KEYCODE_BUTTON_X
     }
 
     /** 解析某操作当前生效的 Android keyCode（可能返回 [UNBOUND]）。 */

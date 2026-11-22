@@ -330,9 +330,9 @@
     <string name="key_action_next_tab">下一標籤</string>
     <string name="key_action_apps">應用</string>
     <string name="key_action_settings">設定</string>
-    <string name="key_action_play">開始 / 確認</string>
+    <string name="key_action_play">詳情 / 確認</string>
     <string name="key_action_back">返回</string>
-    <string name="key_action_menu">遊戲詳情</string>
+    <string name="key_action_menu">開始遊戲</string>
     <string name="key_action_view_mode">切換檢視</string>
     <string name="key_action_search">搜尋</string>
     <string name="keybind_capture_title">綁定「%s」</string>

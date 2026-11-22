@@ -331,9 +331,9 @@
     <string name="key_action_next_tab">Next tab</string>
     <string name="key_action_apps">Apps</string>
     <string name="key_action_settings">Settings</string>
-    <string name="key_action_play">Play / OK</string>
+    <string name="key_action_play">Details / OK</string>
     <string name="key_action_back">Back</string>
-    <string name="key_action_menu">Game details</string>
+    <string name="key_action_menu">Launch game</string>
     <string name="key_action_view_mode">Switch view</string>
     <string name="key_action_search">Search</string>
     <string name="keybind_capture_title">Bind “%s”</string>
