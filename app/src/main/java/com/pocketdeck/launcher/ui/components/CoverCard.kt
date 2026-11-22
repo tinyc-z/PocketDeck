@@ -43,6 +43,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
@@ -122,6 +123,7 @@ fun GameCoverCard(
     isFavorite: Boolean = false,
     fastScrolling: Boolean = false,
     allowDiskDuringFastScroll: Boolean = false,
+    offscreenDefaultTitle: Boolean = false,
     modifier: Modifier = Modifier,
     shapeOverride: Shape? = null,
     centeredTitle: Boolean = false,
@@ -182,6 +184,7 @@ fun GameCoverCard(
         apkPackage = apkPackage,
         fastScrolling = fastScrolling,
         allowDiskDuringFastScroll = allowDiskDuringFastScroll,
+        offscreenDefaultTitle = offscreenDefaultTitle,
         modifier = modifier,
         shapeOverride = shapeOverride,
         centeredTitle = centeredTitle,
@@ -215,6 +218,7 @@ fun CoverCard(
     apkPackage: String? = null,
     fastScrolling: Boolean = false,
     allowDiskDuringFastScroll: Boolean = false,
+    offscreenDefaultTitle: Boolean = false,
     modifier: Modifier = Modifier,
     shapeOverride: Shape? = null,
     centeredTitle: Boolean = false,
@@ -393,6 +397,7 @@ fun CoverCard(
                     cardHeight = height,
                     centeredTitle = centeredTitle,
                     appIcon = appIconBitmap,
+                    offscreenTitle = offscreenDefaultTitle,
                 )
             }
 
@@ -525,6 +530,7 @@ fun DefaultCoverArt(
     cardHeight: Dp,
     centeredTitle: Boolean = false,
     appIcon: ImageBitmap? = null,
+    offscreenTitle: Boolean = false,
 ) {
     val p = LocalDeckColors.current
     val tiny = cardHeight < 64.dp
@@ -571,6 +577,12 @@ fun DefaultCoverArt(
             )
         }
 
+        val titleLayerModifier = if (offscreenTitle) {
+            Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        } else {
+            Modifier
+        }
+
         if (tiny) {
             // 极小列表缩略图仅展示居中图标，避免与外侧标题重叠
         } else if (centeredTitle) {
@@ -593,6 +605,7 @@ fun DefaultCoverArt(
                     textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = titleLayerModifier,
                 )
             }
         } else {
@@ -612,7 +625,9 @@ fun DefaultCoverArt(
                     color = Color.White,
                     maxLines = if (compact) 2 else 3,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(titleLayerModifier),
                 )
             }
         }

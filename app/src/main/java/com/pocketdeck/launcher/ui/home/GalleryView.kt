@@ -184,20 +184,10 @@ fun GalleryView(
         animationSpec = if (reduceMotion) snap() else tween(120),
         label = "titleDragAlpha",
     )
-    val metaVisible = !isDragging && !fastScrolling
-    val metaChipsAlpha by animateFloatAsState(
-        targetValue = if (metaVisible) 1f else 0.32f,
-        animationSpec = if (reduceMotion) snap() else tween(if (metaVisible) 150 else 100),
-        label = "metaChipsAlpha",
-    )
     val listKey = remember(games) { games.firstOrNull()?.id }
     val titleSlidePx = with(density) { 28.dp.roundToPx() }
 
     val focusedGame = games.getOrNull(focusIndex)
-    var settledMetaGame by remember(listKey, games.size) { mutableStateOf(focusedGame) }
-    if ((!fastScrolling && !isDragging) || settledMetaGame == null) {
-        settledMetaGame = focusedGame
-    }
     val focusCardHPx = with(density) { focusCardHeight.toPx() }
     val smallCardHPx = with(density) { smallCardHeight.toPx() }
     val spacingPx = with(density) { cardSpacing.toPx() }
@@ -274,11 +264,11 @@ fun GalleryView(
             )
         }
 
-        // 副标题：平台全称 · 年份 · 发行商/开发商（快滚期仅显示平台名，避免每次按键查询元数据与正则匹配）
+        // 副标题：平台全称 · 年份 · 发行商/开发商
         val focusedPlatform = focusedGame?.let(platformOf)
-        val focusedMeta = if (metaVisible) focusedGame?.let { metadataMap[it.id] } else null
-        val subtitle = remember(focusedPlatform?.fullName, focusedMeta, showMetadata, metaVisible, metaDisplay) {
-            gallerySubtitle(focusedPlatform?.fullName, focusedMeta, showMetadata && metaVisible, metaDisplay)
+        val focusedMeta = focusedGame?.let { metadataMap[it.id] }
+        val subtitle = remember(focusedPlatform?.fullName, focusedMeta, showMetadata, metaDisplay) {
+            gallerySubtitle(focusedPlatform?.fullName, focusedMeta, showMetadata, metaDisplay)
         }
         Text(
             text = subtitle,
@@ -397,23 +387,17 @@ fun GalleryView(
             }
         }
 
-        // 信息胶囊行：开发商 / 完整发行日期 / 文件大小（快滚/拖动期以半透明弱化并跳过胶囊投影，停稳后再同步并恢复）
+        // 信息胶囊行：开发商 / 完整发行日期 / 文件大小
         if (showMetadata) {
             Spacer(Modifier.height(12.dp))
-            val settledMeta = settledMetaGame?.let { metadataMap[it.id] }
-            val chips = remember(settledMeta, metaDisplay, settledMetaGame?.fileSize) {
-                galleryChips(settledMeta, metaDisplay, settledMetaGame?.fileSize ?: 0L)
+            val chips = remember(focusedMeta, metaDisplay, focusedGame?.fileSize) {
+                galleryChips(focusedMeta, metaDisplay, focusedGame?.fileSize ?: 0L)
             }
             MetaChipRow(
                 chips = chips,
-                fastScrolling = !metaVisible,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = leftMargin, end = 24.dp)
-                    .graphicsLayer {
-                        alpha = metaChipsAlpha
-                        compositingStrategy = CompositingStrategy.ModulateAlpha
-                    },
+                    .padding(start = leftMargin, end = 24.dp),
             )
         }
     }
@@ -449,6 +433,7 @@ internal fun galleryChips(
     fileSizeBytes: Long,
 ): List<String> = buildList {
     if (meta != null) {
+        if (display.genre) meta.genre?.takeIf { it.isNotBlank() }?.let(::add)
         val subtitleUsedPublisher = display.publisher && !meta.publisher.isNullOrBlank()
         val dev = meta.developer
         if (display.developer && subtitleUsedPublisher && !dev.isNullOrBlank() && !dev.equals(meta.publisher, ignoreCase = true)) {

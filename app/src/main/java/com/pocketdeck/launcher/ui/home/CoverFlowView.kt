@@ -371,6 +371,7 @@ private fun CoverFlowCardSlot(
         isFavorite = isFavorite,
         fastScrolling = fastScrolling,
         allowDiskDuringFastScroll = allowDiskDuringFastScroll,
+        offscreenDefaultTitle = !reduceMotion,
         prominentFocus = false,
         drawShadow = false,
         onClick = cardOnClick,
@@ -391,13 +392,7 @@ private fun CoverFlowFooter(
 ) {
     val focusedGame = games[safeFocus]
     val focusedPlatform = platformOf(focusedGame)
-
-    // 快滚期冻结下方元数据胶囊更新，减少长按连发时的文本测量与布局开销
-    var settledMetaGame by remember(games.firstOrNull()?.id) { mutableStateOf(focusedGame) }
-    if (!fastScrolling) {
-        settledMetaGame = focusedGame
-    }
-    val activeMeta = metadataMap[settledMetaGame.id]
+    val activeMeta = metadataMap[focusedGame.id]
 
     Column(
         modifier = Modifier
@@ -415,10 +410,10 @@ private fun CoverFlowFooter(
             modifier = Modifier.widthIn(max = 560.dp),
         )
 
-        val subtitleText = remember(focusedPlatform?.fullName, showMetadata, fastScrolling, metaDisplay, activeMeta, safeFocus, games.size) {
+        val subtitleText = remember(focusedPlatform?.fullName, showMetadata, metaDisplay, activeMeta, safeFocus, games.size) {
             buildList {
                 focusedPlatform?.fullName?.takeIf { it.isNotBlank() }?.let { add(it) }
-                if (showMetadata && !fastScrolling) {
+                if (showMetadata) {
                     if (metaDisplay.releaseDate) {
                         activeMeta?.releaseDate?.takeIf { it.isNotBlank() }?.take(4)?.let { add(it) }
                     }
@@ -444,31 +439,21 @@ private fun CoverFlowFooter(
         }
 
         if (showMetadata) {
-            val pills = remember(settledMetaGame.id, settledMetaGame.fileSize, activeMeta, metaDisplay) {
+            val pills = remember(focusedGame.id, focusedGame.fileSize, activeMeta, metaDisplay) {
                 buildList {
                     if (metaDisplay.genre) activeMeta?.genre?.takeIf { it.isNotBlank() }?.let { add(it) }
                     if (metaDisplay.developer && metaDisplay.publisher) {
                         activeMeta?.developer?.takeIf { it.isNotBlank() && it != activeMeta.publisher }?.let { add(it) }
                     }
                     if (metaDisplay.releaseDate) activeMeta?.releaseDate?.takeIf { it.isNotBlank() }?.let { add(it) }
-                    if (metaDisplay.fileSize && settledMetaGame.fileSize > 0L) add(formatFileSize(settledMetaGame.fileSize))
+                    if (metaDisplay.fileSize && focusedGame.fileSize > 0L) add(formatFileSize(focusedGame.fileSize))
                 }.take(3)
             }
-            // 保留固定高度槽位防止 3D 舞台上下跳动；连续滚动期以半透明弱化显示，避免突然消失/闪现，也免去节点反复销毁重建
-            val reduceMotion = LocalReduceMotion.current
-            val pillsAlpha = animateFloatAsState(
-                targetValue = if (fastScrolling) 0.32f else 1f,
-                animationSpec = if (reduceMotion) snap() else tween(durationMillis = 120),
-                label = "coverflow_pills_alpha",
-            )
+            // 保留固定高度槽位防止 3D 舞台上下跳动；快滚期保持实时显示，仅跳过胶囊硬件阴影重算
             Box(
                 modifier = Modifier
                     .padding(top = 6.dp)
-                    .height(26.dp)
-                    .graphicsLayer {
-                        alpha = pillsAlpha.value
-                        compositingStrategy = CompositingStrategy.ModulateAlpha
-                    },
+                    .height(26.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 if (pills.isNotEmpty()) {
