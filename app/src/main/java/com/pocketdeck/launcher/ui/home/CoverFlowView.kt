@@ -202,8 +202,6 @@ fun CoverFlowView(
                 CoverFlowStage(
                     games = games,
                     platformOf = platformOf,
-                    safeFocus = safeFocus,
-                    isDragging = isDragging,
                     animatedFocus = animatedFocus,
                     covers = covers,
                     officialNames = officialNames,
@@ -237,8 +235,6 @@ fun CoverFlowView(
 private fun CoverFlowStage(
     games: List<Game>,
     platformOf: (Game) -> Platform?,
-    safeFocus: Int,
-    isDragging: Boolean,
     animatedFocus: Animatable<Float, AnimationVector1D>,
     covers: CoverSource?,
     officialNames: Map<String, String>,
