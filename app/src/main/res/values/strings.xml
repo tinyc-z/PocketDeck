@@ -334,6 +334,7 @@
     <string name="key_action_play">Details / OK</string>
     <string name="key_action_back">Back</string>
     <string name="key_action_menu">Launch game</string>
+    <string name="key_action_favorite">Favorite</string>
     <string name="key_action_view_mode">Switch view</string>
     <string name="key_action_search">Search</string>
     <string name="keybind_capture_title">Bind “%s”</string>

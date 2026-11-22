@@ -1256,6 +1256,7 @@ internal fun keyActionLabel(action: KeyAction): String = when (action) {
     KeyAction.Play -> stringResource(R.string.key_action_play)
     KeyAction.Back -> stringResource(R.string.key_action_back)
     KeyAction.Menu -> stringResource(R.string.key_action_menu)
+    KeyAction.Favorite -> stringResource(R.string.key_action_favorite)
     KeyAction.ViewMode -> stringResource(R.string.key_action_view_mode)
     KeyAction.Search -> stringResource(R.string.key_action_search)
 }

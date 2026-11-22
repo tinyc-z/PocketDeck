@@ -264,6 +264,10 @@ internal fun handleHomePreviewKeyEvent(
             launchCurrentGame()
             true
         }
+        GamepadKeys.isFavorite(event.key, state.swapAbxy, state.keyBindings) -> {
+            state.games.getOrNull(vm.focusIndex.value)?.let { vm.toggleFavorite(it.id) }
+            true
+        }
         GamepadKeys.isSettings(event.key, state.swapAbxy, state.keyBindings) -> {
             vm.toggleSettings()
             true

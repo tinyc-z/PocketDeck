@@ -16,6 +16,7 @@ enum class KeyAction {
     Play,
     Back,
     Menu,
+    Favorite,
     ViewMode,
     Search,
 }
@@ -38,8 +39,9 @@ object GamepadKeys {
         KeyAction.Play -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_B else KeyEvent.KEYCODE_BUTTON_A
         KeyAction.Back -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_A else KeyEvent.KEYCODE_BUTTON_B
         KeyAction.Menu -> KeyEvent.KEYCODE_BUTTON_START
+        KeyAction.Favorite -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_Y else KeyEvent.KEYCODE_BUTTON_X
         KeyAction.ViewMode -> KeyEvent.KEYCODE_BUTTON_THUMBR
-        KeyAction.Search -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_Y else KeyEvent.KEYCODE_BUTTON_X
+        KeyAction.Search -> UNBOUND
     }
 
     /** 解析某操作当前生效的 Android keyCode（可能返回 [UNBOUND]）。 */
@@ -72,6 +74,7 @@ object GamepadKeys {
         return when (action) {
             KeyAction.Play -> key == Key.Enter || key == Key.NumPadEnter || key == Key.DirectionCenter
             KeyAction.Menu -> key == Key.Menu || key == Key.F3
+            KeyAction.Favorite -> key == Key.F7
             KeyAction.PrevTab -> key == Key.PageUp
             KeyAction.NextTab -> key == Key.PageDown
             KeyAction.PrevLetter -> key == Key.LeftBracket
@@ -108,6 +111,12 @@ object GamepadKeys {
         swapAbxy: Boolean,
         bindings: Map<KeyAction, Int> = emptyMap(),
     ): Boolean = matches(key, KeyAction.Menu, bindings, swapAbxy)
+
+    fun isFavorite(
+        key: Key,
+        swapAbxy: Boolean,
+        bindings: Map<KeyAction, Int> = emptyMap(),
+    ): Boolean = matches(key, KeyAction.Favorite, bindings, swapAbxy)
 
     fun isSettings(
         key: Key,

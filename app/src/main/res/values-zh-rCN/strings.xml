@@ -333,6 +333,7 @@
     <string name="key_action_play">详情 / 确认</string>
     <string name="key_action_back">返回</string>
     <string name="key_action_menu">开始游戏</string>
+    <string name="key_action_favorite">收藏 / 取消收藏</string>
     <string name="key_action_view_mode">切换视图</string>
     <string name="key_action_search">搜索</string>
     <string name="keybind_capture_title">绑定「%s」</string>
