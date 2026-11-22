@@ -1,6 +1,5 @@
 package com.pocketdeck.launcher.ui.components
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -71,6 +70,7 @@ import com.pocketdeck.launcher.data.ScraperCatalog
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -267,7 +267,7 @@ fun ScrapeTaskDialog(
             onDismiss = onDismiss,
             modifier = Modifier
                 .padding(horizontal = 24.dp, vertical = 16.dp)
-                .widthIn(max = 460.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
                 .fillMaxWidth(),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
@@ -579,8 +579,8 @@ fun ManualScrapeDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 28.dp, vertical = 20.dp)
-                .widthIn(max = 520.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
@@ -916,6 +916,7 @@ fun ManualScrapeDialog(
         // 点击缩略图弹出高清大图预览浮层
         previewPair?.let { (pIdx, pUrl) ->
             val pCand = results.getOrNull(pIdx)
+            val previewShape = RoundedCornerShape(DeckBrand.RadiusXL)
             Box(
                 Modifier
                     .fillMaxSize()
@@ -925,11 +926,12 @@ fun ManualScrapeDialog(
             ) {
                 Column(
                     Modifier
-                        .padding(horizontal = 24.dp, vertical = 18.dp)
-                        .widthIn(max = 420.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .widthIn(max = DeckDialogSize.WidthM)
+                        .fillMaxWidth()
+                        .clip(previewShape)
                         .background(DeckColors.DialogBg)
-                        .border(0.8.dp, DeckColors.Line, RoundedCornerShape(16.dp))
+                        .border(0.8.dp, DeckColors.Line, previewShape)
                         .padding(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp),

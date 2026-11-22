@@ -166,11 +166,11 @@ fun QuickHudOverlay(
             },
         contentAlignment = Alignment.TopEnd,
     ) {
-        val shape = RoundedCornerShape(DeckBrand.RadiusL)
+        val shape = RoundedCornerShape(DeckBrand.RadiusXL)
         Column(
             Modifier
-                .padding(top = 56.dp, end = 20.dp)
-                .widthIn(min = 280.dp, max = 340.dp)
+                .padding(start = 16.dp, top = 56.dp, end = 20.dp)
+                .widthIn(min = 280.dp, max = DeckDialogSize.WidthS)
                 .cardSurface(shape = shape, elevation = 14.dp)
                 .border(0.8.dp, DeckColors.Line, shape)
                 .padding(16.dp),

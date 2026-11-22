@@ -60,6 +60,7 @@ import com.pocketdeck.launcher.lan.WebTransferDirection
 import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.ui.components.DeckSwitch
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.DpadNavController
 import com.pocketdeck.launcher.ui.components.dpadNavItem
@@ -214,8 +215,8 @@ fun LanServiceControlDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 28.dp, vertical = 18.dp)
-                .widthIn(max = 540.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight),
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
@@ -267,10 +268,10 @@ fun LanServiceControlDialog(
                     Text(
                         stringResource(R.string.lan_stop_all),
                         style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFFDC2626),
+                        color = DeckColors.StatusDanger,
                         modifier = Modifier
                             .clip(DeckShapes.tabPill)
-                            .background(Color(0xFFEF4444).copy(alpha = 0.14f))
+                            .background(DeckColors.StatusDanger.copy(alpha = 0.14f))
                             .dpadNavItem(nav, "stop_all", shape = DeckShapes.tabPill, onClick = onStopAll)
                             .padding(horizontal = 11.dp, vertical = 5.dp),
                     )

@@ -84,6 +84,7 @@ import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.ButtonBadge
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.requestFocusSafely
@@ -129,12 +130,14 @@ fun ActionMenuDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             Modifier
-                .width(340.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthS)
+                .fillMaxWidth()
                 .heightIn(max = maxPanelHeight)
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
@@ -584,9 +587,10 @@ private fun AutoCreateRomDirsOverlay(
     ) {
         DialogPanelCard(
             modifier = Modifier
-                .widthIn(min = 420.dp, max = 720.dp)
-                .fillMaxWidth(0.94f)
-                .fillMaxHeight(0.92f)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthXL)
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f)
                 .blockOverlayTouchThrough(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             closeInset = 10.dp,
@@ -616,7 +620,7 @@ private fun AutoCreateRomDirsOverlay(
                         .background(DeckColors.Surface)
                         .border(
                             1.dp,
-                            if (isNameValid) DeckColors.DialogBorder else Color(0xFFE53935),
+                            if (isNameValid) DeckColors.DialogBorder else DeckColors.StatusDanger,
                             DeckShapes.settingsDropdown,
                         )
                         .padding(horizontal = 10.dp),
@@ -645,7 +649,7 @@ private fun AutoCreateRomDirsOverlay(
                 Text(
                     stringResource(R.string.picker_auto_create_target, targetRoot.path),
                     style = DeckType.settingsLabel,
-                    color = if (isNameValid) DeckColors.Ruby else Color(0xFFE53935),
+                    color = if (isNameValid) DeckColors.Ruby else DeckColors.StatusDanger,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -657,7 +661,7 @@ private fun AutoCreateRomDirsOverlay(
                 Text(
                     stringResource(R.string.picker_auto_create_dir_exists_warn),
                     style = DeckType.settingsLabel,
-                    color = Color(0xFFD97706),
+                    color = DeckColors.StatusWarning,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -768,7 +772,7 @@ private fun AutoCreateRomDirsOverlay(
                     Text(
                         err,
                         style = DeckType.settingsLabel,
-                        color = Color(0xFFE53935),
+                        color = DeckColors.StatusDanger,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
@@ -951,13 +955,14 @@ fun NameDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(
             Modifier
-                .padding(top = 48.dp)
-                .width(420.dp)
+                .padding(start = 24.dp, end = 24.dp, top = 48.dp, bottom = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})
@@ -1090,12 +1095,14 @@ fun ScraperCredentialDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             Modifier
-                .width(440.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})
@@ -1189,12 +1196,15 @@ fun KeyBindCaptureDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
         contentAlignment = Alignment.Center,
     ) {
         DialogPanelCard(
             onDismiss = onDismiss,
-            modifier = Modifier.width(420.dp),
+            modifier = Modifier
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth(),
             contentPadding = PaddingValues(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -1289,12 +1299,14 @@ fun KeyBindConflictDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             Modifier
-                .width(420.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})
@@ -1352,12 +1364,14 @@ fun ConfirmActionDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             Modifier
-                .width(400.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})
@@ -1416,13 +1430,14 @@ fun SystemTabEditDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(
             Modifier
-                .padding(top = 44.dp)
-                .width(440.dp)
+                .padding(start = 24.dp, end = 24.dp, top = 44.dp, bottom = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})
@@ -1588,7 +1603,7 @@ fun FontPickerDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -1622,7 +1637,9 @@ fun FontPickerDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .width(480.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
+                .fillMaxWidth()
                 .heightIn(max = 580.dp),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,

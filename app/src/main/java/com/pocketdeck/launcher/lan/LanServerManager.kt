@@ -93,90 +93,26 @@ class LanServerManager(
     private val context: Context,
     private val userStore: UserStore,
     private val repo: GameRepository,
-    covers: CoverSource,
-    metadataRepo: MetadataRepository,
+    private val covers: CoverSource,
+    private val metadataRepo: MetadataRepository,
     private val scope: CoroutineScope,
 ) {
-    val webServer = WebManagerServer(context, repo, covers, metadataRepo)
-    val quickShare = QuickShareService(context, repo)
+    private val webServerLazy = lazy { WebManagerServer(context, repo, covers, metadataRepo) }
+    private val quickShareLazy = lazy { QuickShareService(context, repo) }
+    val webServer: WebManagerServer get() = webServerLazy.value
+    val quickShare: QuickShareService get() = quickShareLazy.value
 
     private val opMutex = Mutex()
     private val _state = MutableStateFlow(LanServerState())
     val state: StateFlow<LanServerState> = _state.asStateFlow()
 
+    @Volatile
+    private var serversWired = false
+    private val wireLock = Any()
+
     init {
-        scope.launch(Dispatchers.IO) { refreshInterfaces() }
-        scope.launch {
-            userStore.data.collectLatest { u ->
-                var id = u.deviceId
-                var name = u.deviceName
-                if (id.isBlank() || name.isBlank()) {
-                    val newId = id.ifBlank { UUID.randomUUID().toString() }
-                    val newName = name.ifBlank { DeviceNames.randomCuteName() }
-                    userStore.update { cur ->
-                        cur.copy(
-                            deviceId = cur.deviceId.ifBlank { newId },
-                            deviceName = cur.deviceName.ifBlank { newName },
-                        )
-                    }
-                    id = newId
-                    name = newName
-                }
-                quickShare.updateIdentity(id, name)
-                quickShare.setLocalSendCompat(u.localSendCompat)
-                val sysDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-                webServer.updateTheme(u.theme, u.themeAccent, sysDark)
-                _state.update { it.copy(
-                    deviceId = id,
-                    deviceName = name,
-                    localSendCompat = u.localSendCompat,
-                ) }
-            }
-        }
-        scope.launch {
-            quickShare.peers.collectLatest { peers ->
-                _state.update { it.copy(peers = peers) }
-            }
-        }
-        scope.launch {
-            quickShare.incomingRequest.collectLatest { req ->
-                _state.update { it.copy(incomingRequest = req) }
-            }
-        }
-        scope.launch {
-            quickShare.transfer.collectLatest { tx ->
-                _state.update { it.copy(transfer = tx) }
-            }
-        }
-        scope.launch {
-            quickShare.pinChallenge.collectLatest { pin ->
-                _state.update { it.copy(pinChallenge = pin) }
-            }
-        }
-        scope.launch {
-            quickShare.history.collectLatest { hist ->
-                _state.update { it.copy(shareHistory = hist) }
-            }
-        }
-        scope.launch {
-            webServer.connectedClients.collectLatest { clients ->
-                _state.update { it.copy(webClients = clients) }
-            }
-        }
-        scope.launch {
-            webServer.activeTransfers.collectLatest { active ->
-                _state.update { it.copy(webActiveTransfers = active) }
-                while (isActive && active.isNotEmpty()) {
-                    delay(1000L)
-                    webServer.tickActiveTransfers()
-                }
-            }
-        }
-        scope.launch {
-            webServer.transferHistory.collectLatest { hist ->
-                _state.update { it.copy(webTransferHistory = hist) }
-            }
-        }
+        // 冷启动仅挂接轻量文件任务流（供顶栏显示压缩/解压/复制等本地文件任务进度）；
+        // WebManagerServer、QuickShareService 与网卡枚举延后至用户首次打开局域网面板或启停服务时初始化。
         scope.launch {
             repo.fileTasks.collectLatest { tasks ->
                 _state.update { it.copy(fileTasks = tasks) }
@@ -184,11 +120,96 @@ class LanServerManager(
         }
     }
 
+    private fun ensureServersWired() {
+        if (serversWired) return
+        synchronized(wireLock) {
+            if (serversWired) return
+            serversWired = true
+            val ws = webServer
+            val qs = quickShare
+            scope.launch {
+                userStore.data.collectLatest { u ->
+                    var id = u.deviceId
+                    var name = u.deviceName
+                    if (id.isBlank() || name.isBlank()) {
+                        val newId = id.ifBlank { UUID.randomUUID().toString() }
+                        val newName = name.ifBlank { DeviceNames.randomCuteName() }
+                        userStore.update { cur ->
+                            cur.copy(
+                                deviceId = cur.deviceId.ifBlank { newId },
+                                deviceName = cur.deviceName.ifBlank { newName },
+                            )
+                        }
+                        id = newId
+                        name = newName
+                    }
+                    qs.updateIdentity(id, name)
+                    qs.setLocalSendCompat(u.localSendCompat)
+                    val sysDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+                    ws.updateTheme(u.theme, u.themeAccent, sysDark)
+                    _state.update {
+                        it.copy(
+                            deviceId = id,
+                            deviceName = name,
+                            localSendCompat = u.localSendCompat,
+                        )
+                    }
+                }
+            }
+            scope.launch {
+                qs.peers.collectLatest { peers ->
+                    _state.update { it.copy(peers = peers) }
+                }
+            }
+            scope.launch {
+                qs.incomingRequest.collectLatest { req ->
+                    _state.update { it.copy(incomingRequest = req) }
+                }
+            }
+            scope.launch {
+                qs.transfer.collectLatest { tx ->
+                    _state.update { it.copy(transfer = tx) }
+                }
+            }
+            scope.launch {
+                qs.pinChallenge.collectLatest { pin ->
+                    _state.update { it.copy(pinChallenge = pin) }
+                }
+            }
+            scope.launch {
+                qs.history.collectLatest { hist ->
+                    _state.update { it.copy(shareHistory = hist) }
+                }
+            }
+            scope.launch {
+                ws.connectedClients.collectLatest { clients ->
+                    _state.update { it.copy(webClients = clients) }
+                }
+            }
+            scope.launch {
+                ws.activeTransfers.collectLatest { active ->
+                    _state.update { it.copy(webActiveTransfers = active) }
+                    while (isActive && active.isNotEmpty()) {
+                        delay(1000L)
+                        ws.tickActiveTransfers()
+                    }
+                }
+            }
+            scope.launch {
+                ws.transferHistory.collectLatest { hist ->
+                    _state.update { it.copy(webTransferHistory = hist) }
+                }
+            }
+        }
+    }
+
     fun cancelFileTask(id: String): Boolean = repo.cancelFileTask(id)
 
-    fun cancelWebTransfer(id: String): Boolean = webServer.cancelActiveTransfer(id)
+    fun cancelWebTransfer(id: String): Boolean =
+        if (webServerLazy.isInitialized()) webServer.cancelActiveTransfer(id) else false
 
     fun refreshInterfaces(): List<LanInterface> {
+        ensureServersWired()
         val list = LanInterfaces.listAvailable(context)
         val curSel = _state.value.selectedInterfaceName
         val nextSel = if (curSel != null && list.any { it.interfaceName == curSel }) {
@@ -200,14 +221,18 @@ class LanServerManager(
         return list
     }
 
+    fun refreshInterfacesAsync() {
+        scope.launch(Dispatchers.IO) { refreshInterfaces() }
+    }
+
     fun selectInterface(interfaceName: String) {
         scope.launch(Dispatchers.IO) {
             opMutex.withLock {
                 val prevIface = _state.value.selectedInterfaceName
                 val list = refreshInterfaces()
                 val chosen = list.firstOrNull { it.interfaceName == interfaceName } ?: return@withLock
-                val wasWeb = webServer.isRunning
-                val wasShare = quickShare.isRunning
+                val wasWeb = webServerLazy.isInitialized() && webServer.isRunning
+                val wasShare = quickShareLazy.isInitialized() && quickShare.isRunning
                 _state.update { it.copy(selectedInterfaceName = chosen.interfaceName, lastError = null) }
                 if (prevIface != chosen.interfaceName) {
                     if (wasWeb) startWebLocked(chosen)
@@ -239,6 +264,7 @@ class LanServerManager(
     }
 
     private fun startWebLocked(explicitIface: LanInterface? = null): Boolean {
+        ensureServersWired()
         val lan = explicitIface ?: refreshInterfaces().let { list ->
             list.firstOrNull { it.interfaceName == _state.value.selectedInterfaceName } ?: list.firstOrNull()
         }
@@ -271,7 +297,9 @@ class LanServerManager(
     }
 
     private fun stopWebLocked() {
-        webServer.stop()
+        if (webServerLazy.isInitialized()) {
+            webServer.stop()
+        }
         _state.update { it.copy(
             webRunning = false,
             webUrl = null,
@@ -284,7 +312,7 @@ class LanServerManager(
     fun refreshWebPassword() {
         scope.launch(Dispatchers.IO) {
             opMutex.withLock {
-                if (!webServer.isRunning) return@withLock
+                if (!webServerLazy.isInitialized() || !webServer.isRunning) return@withLock
                 val pwd = webServer.refreshPassword()
                 _state.update { it.copy(webPassword = pwd) }
             }
@@ -298,6 +326,7 @@ class LanServerManager(
     }
 
     private fun startShareLocked(explicitIface: LanInterface? = null): Boolean {
+        ensureServersWired()
         val lan = explicitIface ?: refreshInterfaces().let { list ->
             list.firstOrNull { it.interfaceName == _state.value.selectedInterfaceName } ?: list.firstOrNull()
         }
@@ -332,7 +361,9 @@ class LanServerManager(
     }
 
     private fun stopShareLocked() {
-        quickShare.stop()
+        if (quickShareLazy.isInitialized()) {
+            quickShare.stop()
+        }
         _state.update { it.copy(
             shareRunning = false,
             shareIp = null,
@@ -357,34 +388,63 @@ class LanServerManager(
         }
     }
 
-    fun scanPeers() = quickShare.scanPeers()
+    fun scanPeers() {
+        ensureServersWired()
+        quickShare.scanPeers()
+    }
 
     fun sendGame(peer: LanPeer, file: File, gameTitle: String, platformId: String, platformName: String) {
+        ensureServersWired()
         quickShare.sendGame(peer, file, gameTitle, platformId, platformName)
     }
 
     fun sendFiles(peer: LanPeer, files: List<File>, title: String, platformId: String, platformName: String) {
+        ensureServersWired()
         quickShare.sendFiles(peer, files, title, platformId, platformName)
     }
 
-    fun acceptIncoming(sessionId: String, targetDir: File) = quickShare.acceptIncoming(sessionId, targetDir)
-    fun rejectIncoming(sessionId: String) = quickShare.rejectIncoming(sessionId)
-    fun cancelTransfer() = quickShare.cancelTransfer()
-    fun submitQuickSharePin(pin: String) = quickShare.submitSendPin(pin)
-    fun cancelQuickSharePin() = quickShare.cancelSendPin()
-    fun dismissTransferBanner() = quickShare.dismissTransferBanner()
-    fun deleteShareHistoryItem(id: String, deleteFiles: Boolean = false) = quickShare.deleteHistoryItem(id, deleteFiles)
-    fun clearShareHistory(deleteFiles: Boolean = false) = quickShare.clearHistory(deleteFiles)
-    fun deleteWebTransferHistoryItem(id: String) = webServer.deleteTransferHistoryItem(id)
-    fun clearWebTransferHistory() = webServer.clearTransferHistory()
+    fun acceptIncoming(sessionId: String, targetDir: File) {
+        ensureServersWired()
+        quickShare.acceptIncoming(sessionId, targetDir)
+    }
+    fun rejectIncoming(sessionId: String) {
+        if (quickShareLazy.isInitialized()) quickShare.rejectIncoming(sessionId)
+    }
+    fun cancelTransfer() {
+        if (quickShareLazy.isInitialized()) quickShare.cancelTransfer()
+    }
+    fun submitQuickSharePin(pin: String) {
+        if (quickShareLazy.isInitialized()) quickShare.submitSendPin(pin)
+    }
+    fun cancelQuickSharePin() {
+        if (quickShareLazy.isInitialized()) quickShare.cancelSendPin()
+    }
+    fun dismissTransferBanner() {
+        if (quickShareLazy.isInitialized()) quickShare.dismissTransferBanner()
+    }
+    fun deleteShareHistoryItem(id: String, deleteFiles: Boolean = false) {
+        if (quickShareLazy.isInitialized()) quickShare.deleteHistoryItem(id, deleteFiles)
+    }
+    fun clearShareHistory(deleteFiles: Boolean = false) {
+        if (quickShareLazy.isInitialized()) quickShare.clearHistory(deleteFiles)
+    }
+    fun deleteWebTransferHistoryItem(id: String) {
+        if (webServerLazy.isInitialized()) webServer.deleteTransferHistoryItem(id)
+    }
+    fun clearWebTransferHistory() {
+        if (webServerLazy.isInitialized()) webServer.clearTransferHistory()
+    }
     fun kickWebClient(ip: String) {
+        if (!webServerLazy.isInitialized()) return
         scope.launch(Dispatchers.IO) {
             webServer.kickClient(ip)
         }
     }
 
     fun setLocalSendCompat(enabled: Boolean) {
-        quickShare.setLocalSendCompat(enabled)
+        if (quickShareLazy.isInitialized()) {
+            quickShare.setLocalSendCompat(enabled)
+        }
         _state.update { it.copy(localSendCompat = enabled) }
         scope.launch {
             userStore.update { it.copy(localSendCompat = enabled) }

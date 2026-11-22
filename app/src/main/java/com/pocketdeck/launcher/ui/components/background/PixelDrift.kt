@@ -3,14 +3,13 @@ package com.pocketdeck.launcher.ui.components.background
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.geometry.Rect
 import com.pocketdeck.launcher.ui.theme.DeckPalette
 import kotlin.math.PI
 import kotlin.math.sin
@@ -73,9 +72,17 @@ private val SPRITE_PIXEL = arrayOf("X")
 
 private val SPRITES = arrayOf(SPRITE_DPAD, SPRITE_STAR, SPRITE_HEART, SPRITE_INVADER, SPRITE_COIN, SPRITE_PIXEL)
 
-/** 将像素图按行合并成矩形段并以中心为原点构建 Path（单位：像素格）。 */
-private fun buildSpritePath(rows: Array<String>): Path {
-    val path = Path()
+private class SpriteStrip(
+    val topLeft: Offset,
+    val size: Size,
+)
+
+/**
+ * 将像素图按行合并成矩形条数组（以中心为原点，单位：像素格）。
+ * 相比组合 Path，旋转/缩放时直接 drawRect 全部走 GPU 硬件四边形直出，避免 Skia 每帧软件光栅化 Path 吃满 RenderThread 与 hwuiTask。
+ */
+private fun buildSpriteStrips(rows: Array<String>): Array<SpriteStrip> {
+    val list = ArrayList<SpriteStrip>(12)
     val hRows = rows.size
     val wCols = rows.maxOf { it.length }
     val ox = wCols / 2f
@@ -87,14 +94,21 @@ private fun buildSpritePath(rows: Array<String>): Path {
             if (row[x] == 'X') {
                 val start = x
                 while (x < row.length && row[x] == 'X') x++
-                path.addRect(Rect(start - ox, y - oy, x - ox, y + 1 - oy))
+                list.add(
+                    SpriteStrip(
+                        topLeft = Offset(start - ox, y - oy),
+                        size = Size((x - start).toFloat(), 1f),
+                    ),
+                )
             } else {
                 x++
             }
         }
     }
-    return path
+    return list.toTypedArray()
 }
+
+private val SpriteStrips: Array<Array<SpriteStrip>> = Array(SPRITES.size) { buildSpriteStrips(SPRITES[it]) }
 
 private class Sprite(
     val kind: Int,
@@ -150,7 +164,6 @@ internal fun Modifier.pixelDrift(p: DeckPalette, time: () -> Float): Modifier = 
     val w = size.width
     val h = size.height
     val unit = w / BG_REF_WIDTH_DP // 1dp 对应的像素
-    val paths = Array(SPRITES.size) { buildSpritePath(SPRITES[it]) }
     val maxAlpha = if (p.isDark) 0.50f else 0.36f
     val violet = if (p.isDark) Color(0xFF9B7BE0) else Color(0xFF9C7FE6)
     val tones = arrayOf(p.brandStart, p.brandMid, p.brandEnd, violet)
@@ -181,10 +194,15 @@ internal fun Modifier.pixelDrift(p: DeckPalette, time: () -> Float): Modifier = 
             val x = w * (s.x + s.swayAmp * sin(swayA))
             val cell = s.cellDp * unit * (1f + 0.08f * sin(swayA * 0.5f + 1.3f))
             val rot = s.rotAmp * sin(swayA * 0.75f + s.seed)
+            val strips = SpriteStrips[s.kind]
+            val col = colors[i]
             translate(x, y) {
                 rotate(rot, pivot = Offset.Zero) {
                     scale(cell, cell, pivot = Offset.Zero) {
-                        drawPath(paths[s.kind], color = colors[i])
+                        for (j in strips.indices) {
+                            val strip = strips[j]
+                            drawRect(color = col, topLeft = strip.topLeft, size = strip.size)
+                        }
                     }
                 }
             }

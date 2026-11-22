@@ -27,13 +27,20 @@ import java.util.zip.ZipInputStream
  */
 class GameTdbClient(
     context: Context,
-    private val http: OkHttpClient,
+    private val httpProvider: () -> OkHttpClient,
     private val identityExtractor: RomIdentityExtractor,
 ) {
+    constructor(
+        context: Context,
+        http: OkHttpClient,
+        identityExtractor: RomIdentityExtractor,
+    ) : this(context, { http }, identityExtractor)
+
     private val appCtx = context.applicationContext
-    private val cacheDir = File(appCtx.cacheDir, "gametdb").apply { mkdirs() }
-    private val tables = ConcurrentHashMap<String, TdbTable>()
+    private val cacheDir = File(appCtx.cacheDir, "gametdb")
+    private val tables = BoundedLruCache<String, TdbTable>(MAX_CACHED_TABLES)
     private val locks = ConcurrentHashMap<String, Mutex>()
+    private val downloadFailedUntilMs = ConcurrentHashMap<String, Long>()
 
     data class TdbEntry(
         val id: String,
@@ -45,6 +52,7 @@ class GameTdbClient(
         val publisher: String?,
         val genre: String?,
         val releaseDate: String?,
+        val titleId: String? = null,
     )
 
     data class TdbMatch(
@@ -89,10 +97,10 @@ class GameTdbClient(
                 }
             }
 
-            // 倒排词模糊匹配（防止细微标点或副标题差异漏掉）
+            // 倒排词模糊匹配（优先保留英文别名与去重词元，防止细微标点或副标题差异漏掉）
             var best: TdbEntry? = null
             var bestScore = 0.78
-            for (q in queries.take(4)) {
+            for (q in TitleNormalizer.selectFuzzyQueries(queries)) {
                 val norm = TitleNormalizer.normalizedTitle(q)
                 val tokens = TitleNormalizer.tokenize(norm)
                 if (tokens.isEmpty()) continue
@@ -123,8 +131,31 @@ class GameTdbClient(
 
     fun clearCache() {
         tables.clear()
+        downloadFailedUntilMs.clear()
         runCatching { cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
     }
+
+    /** 释放非活跃平台的 GameTDB 内存表（保留当前浏览的活跃平台对应索引）。 */
+    fun trimMemory(keepDbKeys: Set<String> = emptySet(), aggressive: Boolean = false) {
+        if (aggressive && keepDbKeys.isEmpty()) {
+            tables.clear()
+        } else {
+            tables.retainOnly(keepDbKeys)
+        }
+    }
+
+    fun trimMemoryByLibretroSystems(
+        keepSystems: Set<String> = OfflineGameDb.activeSystems,
+        aggressive: Boolean = false,
+    ) {
+        val keepDbKeys = dbKeysForLibretroSystems(keepSystems)
+        trimMemory(keepDbKeys = keepDbKeys, aggressive = aggressive)
+    }
+
+    internal fun cachedTableCount(): Int = tables.size
+
+    internal fun isDownloadInCooldown(dbKey: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        (downloadFailedUntilMs[dbKey] ?: 0L) > nowMs
 
     /** 若该平台索引已在内存中，做 O(1)/微秒级纯内存查询（不触发网络或磁盘 I/O）。 */
     fun lookupInMemory(game: Game, platform: Platform?): TdbMatch? {
@@ -150,17 +181,28 @@ class GameTdbClient(
         return lock.withLock {
             tables[spec.dbKey]?.let { return@withLock it }
             withContext(Dispatchers.IO) {
-                val tsvFile = File(cacheDir, "${spec.dbKey}_v1.tsv")
+                val tsvFile = File(cacheDir, "${spec.dbKey}_v2.tsv")
                 val entries = if (tsvFile.isFile && tsvFile.length() > 0L) {
                     readTsv(tsvFile)
                 } else if (allowDownload && NetworkStatus.isOnline(appCtx)) {
-                    downloadAndParseZip(spec, tsvFile)
+                    val now = System.currentTimeMillis()
+                    if ((downloadFailedUntilMs[spec.dbKey] ?: 0L) > now) {
+                        emptyList()
+                    } else {
+                        val downloaded = downloadAndParseZip(spec, tsvFile)
+                        if (downloaded.isEmpty()) {
+                            downloadFailedUntilMs[spec.dbKey] = now + DOWNLOAD_FAIL_COOLDOWN_MS
+                        } else {
+                            downloadFailedUntilMs.remove(spec.dbKey)
+                        }
+                        downloaded
+                    }
                 } else {
                     emptyList()
                 }
                 if (entries.isEmpty()) return@withContext null
                 val table = buildTable(spec, entries)
-                tables[spec.dbKey] = table
+                tables.put(spec.dbKey, table, protectedKeys = dbKeysForLibretroSystems(OfflineGameDb.activeSystems))
                 table
             }
         }
@@ -175,7 +217,7 @@ class GameTdbClient(
                 .url(url)
                 .header("User-Agent", USER_AGENT)
                 .build()
-            http.newCall(req).execute().use { resp ->
+            httpProvider().newCall(req).execute().use { resp ->
                 code = resp.code
                 if (!resp.isSuccessful) {
                     ScrapeLogStore.log(
@@ -237,6 +279,7 @@ class GameTdbClient(
 
         var inGame = false
         var id = ""
+        var titleId: String? = null
         var region = ""
         var nameAttr = ""
         var titleEn: String? = null
@@ -260,6 +303,7 @@ class GameTdbClient(
                         inGame = true
                         nameAttr = parser.getAttributeValue(null, "name").orEmpty()
                         id = ""
+                        titleId = null
                         region = ""
                         titleEn = null
                         titleZhCn = null
@@ -288,6 +332,7 @@ class GameTdbClient(
                         if (txt.isNotEmpty()) {
                             when (currentTag) {
                                 "id" -> id = txt.uppercase()
+                                "titleid" -> titleId = if (titleId == null) txt.uppercase() else "$titleId,${txt.uppercase()}"
                                 "region" -> region = txt.uppercase()
                                 "developer" -> if (dev == null) dev = txt
                                 "publisher" -> if (pub == null) pub = txt
@@ -320,6 +365,7 @@ class GameTdbClient(
                                 publisher = pub,
                                 genre = genre,
                                 releaseDate = rel,
+                                titleId = titleId,
                             )
                         }
                         inGame = false
@@ -333,6 +379,7 @@ class GameTdbClient(
 
     private fun writeTsv(file: File, entries: List<TdbEntry>) {
         runCatching {
+            cacheDir.mkdirs()
             val tmp = File(cacheDir, "${file.name}.tmp")
             tmp.bufferedWriter().use { w ->
                 for (e in entries) {
@@ -344,7 +391,8 @@ class GameTdbClient(
                         .append(cleanTsv(e.developer)).append('\t')
                         .append(cleanTsv(e.publisher)).append('\t')
                         .append(cleanTsv(e.genre)).append('\t')
-                        .append(cleanTsv(e.releaseDate)).append('\n')
+                        .append(cleanTsv(e.releaseDate)).append('\t')
+                        .append(cleanTsv(e.titleId)).append('\n')
                 }
             }
             tmp.renameTo(file)
@@ -367,6 +415,7 @@ class GameTdbClient(
                     publisher = p[6].takeIf { it.isNotEmpty() },
                     genre = p[7].takeIf { it.isNotEmpty() },
                     releaseDate = p[8].takeIf { it.isNotEmpty() },
+                    titleId = p.getOrNull(9)?.takeIf { it.isNotEmpty() },
                 )
             }
         }
@@ -396,6 +445,12 @@ class GameTdbClient(
 
         for (e in entries) {
             byId.putIfAbsent(e.id, e)
+            e.titleId?.split(',')?.forEach { rawTid ->
+                val cleanTid = rawTid.trim().uppercase()
+                if (cleanTid.isNotEmpty()) {
+                    byId.putIfAbsent(cleanTid, e)
+                }
+            }
             val normEn = TitleNormalizer.normalizedTitle(e.titleEn)
             putBetter(byTitle, normEn, e)
             putBetter(byCompact, TitleNormalizer.compactKey(e.titleEn), e)
@@ -418,10 +473,32 @@ class GameTdbClient(
 
     companion object {
         private const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
+        internal const val MAX_CACHED_TABLES = 3
+        private const val DOWNLOAD_FAIL_COOLDOWN_MS = 10L * 60 * 1000L
         private val MONTHS = arrayOf(
             "Jan", "Feb", "Mar", "Apr", "May", "Jun",
             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
         )
+
+        private val LIBRETRO_SYSTEM_TO_DB_KEY: Map<String, String> = mapOf(
+            "Nintendo - Wii" to "wiitdb",
+            "Nintendo - GameCube" to "wiitdb",
+            "Nintendo - Nintendo DS" to "dstdb",
+            "Nintendo - Nintendo DSi" to "dstdb",
+            "Nintendo - Nintendo 3DS" to "3dstdb",
+            "Nintendo - Wii U" to "wiiutdb",
+            "Nintendo - Nintendo Switch" to "switchtdb",
+            "Sony - PlayStation 3" to "ps3tdb",
+        )
+
+        internal fun dbKeysForLibretroSystems(systems: Set<String>): Set<String> {
+            if (systems.isEmpty()) return emptySet()
+            val out = HashSet<String>(systems.size)
+            for (sys in systems) {
+                LIBRETRO_SYSTEM_TO_DB_KEY[sys]?.let { out += it }
+            }
+            return out
+        }
 
         private val PLATFORM_SPEC: Map<String, DbSpec> = mapOf(
             "wii" to DbSpec("wiitdb", "wii"),
@@ -446,11 +523,11 @@ class GameTdbClient(
             return if (m != null && m in 1..12) "${MONTHS[m - 1]} $y" else y
         }
 
-        private fun coverRegionCodes(entry: TdbEntry): List<String> {
+        internal fun coverRegionCodes(entry: TdbEntry, artSystem: String = ""): List<String> {
             val out = LinkedHashSet<String>(4)
             val id = entry.id
-            // 任天堂 4~6 位 ID 第 4 位通常代表发行区码（E=US, J=JA, P/X/Y/Z=EN/EU, W/C=ZH）
-            if (id.length in 4..6) {
+            // 任天堂 Wii / GC / DS / 3DS / WiiU 的 4~6 位 ID 第 4 位代表发行区码；Switch 5 位码不遵循此规则
+            if (artSystem != "switch" && id.length in 4..6) {
                 when (id[3]) {
                     'E' -> out += "US"
                     'J' -> out += "JA"
@@ -470,14 +547,14 @@ class GameTdbClient(
             return out.toList()
         }
 
-        private fun entryToHit(entry: TdbEntry, artSystem: String, preferZh: Boolean): ScrapeHit {
+        internal fun entryToHit(entry: TdbEntry, artSystem: String, preferZh: Boolean): ScrapeHit {
             val official = if (preferZh) {
                 entry.titleZh ?: entry.titleEn
             } else {
                 entry.titleEn
             }
             val urls = ArrayList<String>(4)
-            val regions = coverRegionCodes(entry)
+            val regions = coverRegionCodes(entry, artSystem)
             val coverPath = when (artSystem) {
                 "wii", "wiiu" -> "cover"
                 "ds", "3ds", "switch", "ps3" -> "cover"
@@ -492,6 +569,7 @@ class GameTdbClient(
             }
             return ScrapeHit(
                 officialName = official,
+                canonicalName = entry.titleEn,
                 meta = GameMetadata(
                     releaseDate = entry.releaseDate,
                     genre = entry.genre,

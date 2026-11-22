@@ -42,6 +42,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
 import com.pocketdeck.launcher.ui.components.HorizontalDivider
 import com.pocketdeck.launcher.ui.components.LinearProgressIndicator
+import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -109,6 +110,7 @@ import com.pocketdeck.launcher.lan.LanServerManager
 import com.pocketdeck.launcher.lan.LanServerState
 import com.pocketdeck.launcher.lan.QuickShareService
 import com.pocketdeck.launcher.launch.GameLauncher
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
@@ -239,7 +241,7 @@ internal fun MoveFolderDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -275,7 +277,9 @@ internal fun MoveFolderDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .width(460.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .heightIn(max = 540.dp),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,

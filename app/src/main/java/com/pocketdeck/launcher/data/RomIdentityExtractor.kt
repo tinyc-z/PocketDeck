@@ -5,7 +5,6 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
 import java.io.RandomAccessFile
-import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -22,12 +21,29 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
         val crc32: String? = null,
         val sha1: String? = null,
         val serial: String? = null,
+        /** 压缩包内主 ROM 的解压体积（未从压缩包读取时为 null），供 ScreenScraper 精确匹配 romtaille。 */
+        val romSize: Long? = null,
     )
 
-    private val memCache = ConcurrentHashMap<String, Identity>()
+    private val memCache = BoundedLruCache<String, Identity>(MAX_MEM_CACHE)
 
     fun clearMemoryCache() {
         memCache.clear()
+    }
+
+    fun trimMemory(targetSize: Int = 256) {
+        memCache.trimToSize(targetSize)
+    }
+
+    internal fun memoryCacheSize(): Int = memCache.size
+
+    /** 判断该 ROM 是否能以极低开销（<1ms：内存缓存命中、压缩包目录、头部读取或 CHD SHA1）获取精确指纹。 */
+    fun hasFastFingerprint(file: File, platformId: String? = null): Boolean {
+        if (memCache.containsKey(file.path)) return true
+        val ext = file.extension.lowercase()
+        if (ext in FAST_FINGERPRINT_EXT) return true
+        val pid = platformId?.lowercase()
+        return pid in FAST_FINGERPRINT_PLATFORMS
     }
 
     fun extract(file: File, platformId: String? = null): Identity {
@@ -47,15 +63,20 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
         var crc32: String? = null
         var sha1: String? = null
         var serial: String? = extractSerialFromFileName(file.name, platformId)
+        var romSize: Long? = null
 
         when (ext) {
             "zip" -> {
-                val zipRes = inspectZip(file)
-                crc32 = zipRes.first
-                if (serial == null) serial = zipRes.second
+                val zipRes = inspectZip(file, platformId)
+                crc32 = zipRes.crc32
+                if (serial == null) serial = zipRes.serial
+                romSize = zipRes.romSize
             }
             "7z" -> {
-                crc32 = inspectSevenZipCrc(file)
+                val szRes = inspectSevenZip(file, platformId)
+                crc32 = szRes.crc32
+                if (serial == null) serial = szRes.serial
+                romSize = szRes.romSize
             }
             "chd" -> {
                 sha1 = extractChdSha1(file)
@@ -70,10 +91,11 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
                 if (size in 1L..MAX_CRC_SIZE) {
                     crc32 = computeHeaderlessCrc32(file, ext, size)
                 }
+                romSize = size.takeIf { it > 0L }
             }
         }
 
-        val identity = Identity(crc32 = crc32, sha1 = sha1, serial = serial)
+        val identity = Identity(crc32 = crc32, sha1 = sha1, serial = serial, romSize = romSize)
         memCache[path] = identity
         db.putRomIdentity(path, size, mtime, ScrapeDatabase.RomIdentityRow(crc32, sha1, serial))
         return identity
@@ -81,10 +103,27 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
 
     // ───────────────────────── ZIP / 7Z / 无头 CRC32 ─────────────────────────
 
-    private fun inspectZip(file: File): Pair<String?, String?> = runCatching {
+    private data class ArchiveInspectResult(
+        val crc32: String? = null,
+        val serial: String? = null,
+        val romSize: Long? = null,
+    )
+
+    internal fun isBetterArchiveCandidate(
+        knownRom: Boolean,
+        size: Long,
+        bestKnownRom: Boolean,
+        bestSize: Long,
+    ): Boolean {
+        if (knownRom != bestKnownRom) return knownRom
+        return size > bestSize
+    }
+
+    private fun inspectZip(file: File, platformId: String?): ArchiveInspectResult = runCatching {
         ZipFile(file).use { zip ->
             var bestEntry: ZipEntry? = null
-            var bestScore = Int.MIN_VALUE
+            var bestKnown = false
+            var bestSize = -1L
             val entries = zip.entries()
             while (entries.hasMoreElements()) {
                 val e = entries.nextElement()
@@ -93,15 +132,17 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
                 if (name.startsWith("__MACOSX/") || name.substringAfterLast('/').startsWith(".")) continue
                 val entryExt = name.substringAfterLast('.', "").lowercase()
                 if (entryExt in NON_ROM_ARCHIVE_EXT) continue
-                val score = (if (entryExt in KNOWN_ROM_EXT) 1_000_000 else 0) +
-                    e.size.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                if (score > bestScore) {
-                    bestScore = score
+                val known = entryExt in KNOWN_ROM_EXT
+                val size = e.size.coerceAtLeast(0L)
+                if (bestEntry == null || isBetterArchiveCandidate(known, size, bestKnown, bestSize)) {
                     bestEntry = e
+                    bestKnown = known
+                    bestSize = size
                 }
             }
-            val entry = bestEntry ?: return@runCatching null to null
-            val entryExt = entry.name.substringAfterLast('.', "").lowercase()
+            val entry = bestEntry ?: return@runCatching ArchiveInspectResult()
+            val entryFileName = entry.name.substringAfterLast('/')
+            val entryExt = entryFileName.substringAfterLast('.', "").lowercase()
             val headerSize = detectHeaderSizeForExt(entryExt, entry.size)
             val crc = if (headerSize > 0 && entry.size in 1L..MAX_CRC_SIZE) {
                 zip.getInputStream(entry).use { stream ->
@@ -112,31 +153,80 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
             } else {
                 null
             }
-            val serial = extractSerialFromFileName(entry.name.substringAfterLast('/'), null)
-            crc to serial
+            var serial = extractSerialFromFileName(entryFileName, platformId)
+            if (serial == null && (entryExt == "nds" || entryExt == "dsi" || platformId == "nds" || platformId == "dsi") && entry.size >= 0x14) {
+                serial = zip.getInputStream(entry).use(::extractNdsCodeFromStream)
+            }
+            ArchiveInspectResult(
+                crc32 = crc,
+                serial = serial,
+                romSize = entry.size.takeIf { it > 0L },
+            )
         }
-    }.getOrDefault(null to null)
+    }.getOrDefault(ArchiveInspectResult())
 
-    private fun inspectSevenZipCrc(file: File): String? = runCatching {
+    private fun inspectSevenZip(file: File, platformId: String?): ArchiveInspectResult = runCatching {
         SevenZFile.Builder().setFile(file).get().use { sz ->
-            var bestCrc: Long? = null
-            var bestScore = Int.MIN_VALUE
+            var bestEntry: org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry? = null
+            var bestKnown = false
+            var bestSize = -1L
             for (entry in sz.entries) {
-                if (entry.isDirectory || !entry.hasCrc) continue
+                if (entry.isDirectory) continue
                 val name = entry.name ?: continue
-                if (name.startsWith("__MACOSX/")) continue
+                if (name.startsWith("__MACOSX/") || name.substringAfterLast('/').startsWith(".")) continue
                 val entryExt = name.substringAfterLast('.', "").lowercase()
                 if (entryExt in NON_ROM_ARCHIVE_EXT) continue
-                val score = (if (entryExt in KNOWN_ROM_EXT) 1_000_000 else 0) +
-                    entry.size.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                if (score > bestScore) {
-                    bestScore = score
-                    bestCrc = entry.crcValue
+                val known = entryExt in KNOWN_ROM_EXT
+                val size = entry.size.coerceAtLeast(0L)
+                if (bestEntry == null || isBetterArchiveCandidate(known, size, bestKnown, bestSize)) {
+                    bestEntry = entry
+                    bestKnown = known
+                    bestSize = size
                 }
             }
-            bestCrc?.let { "%08X".format(it and 0xFFFFFFFFL) }
+            val entry = bestEntry ?: return@runCatching ArchiveInspectResult()
+            val entryFileName = entry.name.substringAfterLast('/')
+            val entryExt = entryFileName.substringAfterLast('.', "").lowercase()
+            val headerSize = detectHeaderSizeForExt(entryExt, entry.size)
+            val needNdsCode = (entryExt == "nds" || entryExt == "dsi" || platformId == "nds" || platformId == "dsi") && entry.size >= 0x14
+            var serial = extractSerialFromFileName(entryFileName, platformId)
+
+            val crc = if (headerSize > 0 && entry.size in 1L..MAX_CRC_SIZE) {
+                runCatching {
+                    sz.getInputStream(entry).use { stream ->
+                        computeStreamCrc32WithHeaderCheck(stream, entryExt, entry.size)
+                    }
+                }.getOrNull() ?: if (entry.hasCrc) "%08X".format(entry.crcValue and 0xFFFFFFFFL) else null
+            } else if (entry.hasCrc) {
+                "%08X".format(entry.crcValue and 0xFFFFFFFFL)
+            } else {
+                null
+            }
+            if (serial == null && needNdsCode) {
+                serial = runCatching {
+                    sz.getInputStream(entry).use(::extractNdsCodeFromStream)
+                }.getOrNull()
+            }
+            ArchiveInspectResult(
+                crc32 = crc,
+                serial = serial,
+                romSize = entry.size.takeIf { it > 0L },
+            )
         }
-    }.getOrNull()
+    }.getOrDefault(ArchiveInspectResult())
+
+    private fun extractNdsCodeFromStream(stream: InputStream): String? {
+        val buf = ByteArray(16)
+        var offset = 0
+        while (offset < buf.size) {
+            val n = stream.read(buf, offset, buf.size - offset)
+            if (n <= 0) break
+            offset += n
+        }
+        if (offset < 16) return null
+        val code = String(buf, 0x0C, 4, Charsets.US_ASCII)
+        return code.takeIf { NDS_CODE_REGEX.matches(it) }
+    }
 
     private fun computeHeaderlessCrc32(file: File, ext: String, size: Long): String? = runCatching {
         FileInputStream(file).use { input ->
@@ -307,9 +397,9 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
                 }
             }
 
-            // 3. 3DS (.3ds / .cci): search NCSD/NCCH product code "CTR-P-XXXX" in first 16 KB
+            // 3. 3DS (.3ds / .cci): NCSD 分区 0 NCCH 位于 0x4000，产品码 "CTR-P-XXXX" 位于 0x4150（>16KB），需读取至少 32 KB
             if (ext in setOf("3ds", "cci", "cxi") || platformId == "3ds") {
-                val buf = ByteArray(minOf(len, 16 * 1024L).toInt())
+                val buf = ByteArray(minOf(len, 32 * 1024L).toInt())
                 raf.seek(0L)
                 raf.readFully(buf)
                 val ascii = String(buf, Charsets.ISO_8859_1)
@@ -358,6 +448,12 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
 
     companion object {
         const val MAX_CRC_SIZE = 32L * 1024 * 1024
+        internal const val MAX_MEM_CACHE = 2048
+
+        private val FAST_FINGERPRINT_EXT = setOf(
+            "zip", "7z", "chd", "nds", "dsi", "3ds", "cci", "cxi", "rvz", "wbfs", "gcm", "gcz",
+        )
+        private val FAST_FINGERPRINT_PLATFORMS = setOf("nds", "dsi", "3ds", "switch")
 
         private val NON_ROM_ARCHIVE_EXT = setOf(
             "txt", "nfo", "diz", "md", "pdf", "jpg", "jpeg", "png", "gif", "webp",

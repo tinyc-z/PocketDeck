@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import com.pocketdeck.launcher.ui.components.HorizontalDivider
 import com.pocketdeck.launcher.ui.components.Text
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -76,6 +77,7 @@ import com.pocketdeck.launcher.ui.components.InlineExpandableSearchPill
 import com.pocketdeck.launcher.data.ScrapeLogStore
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
@@ -184,11 +186,7 @@ fun ScrapeLogsScreen(
         Modifier
             .fillMaxSize()
             .background(DeckColors.Background)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-            )
+            .blockOverlayTouchThrough()
             .focusRequester(screenFr)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -271,12 +269,12 @@ fun ScrapeLogsScreen(
                 Text(
                     stringResource(if (paused) R.string.scrape_logs_paused else R.string.scrape_logs_live),
                     style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (paused) Color(0xFFB45309) else Color(0xFF15803D),
+                    color = if (paused) DeckColors.StatusWarning else DeckColors.StatusSuccess,
                     modifier = Modifier
                         .clip(DeckShapes.tabPill)
                         .background(
-                            if (paused) Color(0xFFF59E0B).copy(alpha = 0.14f)
-                            else Color(0xFF22C55E).copy(alpha = 0.14f),
+                            if (paused) DeckColors.StatusWarning.copy(alpha = 0.14f)
+                            else DeckColors.StatusSuccess.copy(alpha = 0.14f),
                         )
                         .soundClickable {
                             if (!paused) {
@@ -541,8 +539,8 @@ private fun ExportLogDirDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 520.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = 540.dp),
             contentPadding = PaddingValues(20.dp),

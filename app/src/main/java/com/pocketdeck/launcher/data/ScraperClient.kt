@@ -2,6 +2,7 @@ package com.pocketdeck.launcher.data
 
 import android.content.Context
 import android.net.Uri
+import com.pocketdeck.launcher.BuildConfig
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
@@ -14,6 +15,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -21,6 +23,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.net.URLEncoder
 import java.util.Calendar
 import java.util.Locale
@@ -33,9 +36,14 @@ data class ScrapeHit(
     val meta: GameMetadata = GameMetadata(),
     val coverUrls: List<String> = emptyList(),
     val matchedBySerial: Boolean = false,
+    /** 英文/国际标准名（用于中文系统下继续匹配英文封面库与英文 API，不污染跨源查询）。 */
+    val canonicalName: String? = null,
 ) {
+    val effectiveSearchName: String?
+        get() = canonicalName?.takeIf { it.isNotBlank() } ?: officialName?.takeIf { it.isNotBlank() }
+
     val isEmpty: Boolean
-        get() = officialName == null && meta.isEmpty && coverUrls.isEmpty()
+        get() = officialName == null && canonicalName == null && meta.isEmpty && coverUrls.isEmpty()
 }
 
 /**
@@ -53,21 +61,54 @@ class ScraperClient(context: Context) {
     val database = ScrapeDatabase(appCtx)
     val identityExtractor = RomIdentityExtractor(database)
 
-    val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .callTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .connectionPool(ConnectionPool(8, 2, TimeUnit.MINUTES))
-        .addInterceptor(HttpLogInterceptor("scraper"))
-        .build()
+    /** 供 Scraper 与 Coil 共用的基础 OkHttpClient（共享 ConnectionPool、Dispatcher 与 HTTP/2 连接复用，懒初始化不拖慢冷启）。 */
+    private val sharedBaseHttp: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .connectionPool(ConnectionPool(10, 2, TimeUnit.MINUTES))
+            .dispatcher(
+                Dispatcher().apply {
+                    maxRequests = 32
+                    maxRequestsPerHost = 6
+                },
+            )
+            .build()
+    }
 
-    val gameTdb = GameTdbClient(appCtx, http, identityExtractor)
+    val http: OkHttpClient by lazy {
+        sharedBaseHttp.newBuilder()
+            .apply {
+                if (BuildConfig.DEBUG) addInterceptor(HttpLogInterceptor("scraper"))
+            }
+            .build()
+    }
 
-    private val memHits = ConcurrentHashMap<String, CacheEntry>()
+    /** 基于 [sharedBaseHttp] 派生 Coil 专用客户端：共享底层连接池与调度器，仅在 Debug 挂日志拦截器并限制单图 8MB。 */
+    fun newCoilHttpClient(): OkHttpClient =
+        sharedBaseHttp.newBuilder()
+            .apply {
+                if (BuildConfig.DEBUG) addInterceptor(HttpLogInterceptor("coil"))
+            }
+            .addNetworkInterceptor { chain ->
+                val resp = chain.proceed(chain.request())
+                val len = resp.body?.contentLength() ?: -1L
+                if (len > 8L * 1024 * 1024) {
+                    resp.close()
+                    throw IOException("Image exceeds 8MB limit ($len bytes)")
+                }
+                resp
+            }
+            .build()
+
+    val gameTdb = GameTdbClient(appCtx, { http }, identityExtractor)
+
+    private val memHits = BoundedLruCache<String, CacheEntry>(MAX_MEM_HITS)
     private val inFlight = ConcurrentHashMap<String, Deferred<ScrapeHit?>>()
-    private val hasheousHashCache = ConcurrentHashMap<String, QueryOutcome>()
+    private val hasheousHashCache = BoundedLruCache<String, QueryOutcome>(MAX_HASHEOUS_HASH_CACHE)
     private val hasheousHashLocks = Array(32) { Mutex() }
     private val rateLocks = ConcurrentHashMap<String, Mutex>()
     private val lastRequestMs = ConcurrentHashMap<String, Long>()
@@ -132,6 +173,23 @@ class ScraperClient(context: Context) {
         // 清理旧版本遗留的 scraper_api 零散 JSON 缓存目录
         runCatching { File(appCtx.cacheDir, "scraper_api").deleteRecursively() }
     }
+
+    /** 系统内存吃紧时收缩内存 LRU 缓存并释放非活跃 GameTDB 平台表，持久化 SQLite 缓存不受影响。 */
+    fun trimMemory(
+        keepSystems: Set<String> = OfflineGameDb.activeSystems,
+        aggressive: Boolean = false,
+    ) {
+        memHits.trimToSize(if (aggressive) 0 else 256)
+        hasheousHashCache.clear()
+        identityExtractor.trimMemory(if (aggressive) 0 else 256)
+        gameTdb.trimMemoryByLibretroSystems(keepSystems, aggressive = aggressive)
+    }
+
+    internal fun memHitsSize(): Int = memHits.size
+    internal fun hasheousHashCacheSize(): Int = hasheousHashCache.size
+
+    fun hasFastFingerprint(file: File, platformId: String? = null): Boolean =
+        identityExtractor.hasFastFingerprint(file, platformId)
 
     fun extractIdentity(file: File, platformId: String? = null): RomIdentityExtractor.Identity =
         identityExtractor.extract(file, platformId)
@@ -235,8 +293,9 @@ class ScraperClient(context: Context) {
             }
             for (chunk in toFetch.chunked(20)) {
                 throttle(ScraperCatalog.CoverIds.ARCADEITALIA, 260L)
-                val byRomLower = chunk.associateBy { it.baseName.lowercase() }
-                val namesParam = chunk.joinToString(";") { Uri.encode(it.baseName) }
+                val byRomLower = chunk.groupBy { it.baseName.lowercase() }
+                val uniqueNames = byRomLower.values.map { it.first().baseName }
+                val namesParam = uniqueNames.joinToString(";") { Uri.encode(it) }
                 val res = httpGet("https://adb.arcadeitalia.net/service_scraper.php?ajax=query_mame&game_name=$namesParam")
                 if (res.transientError || res.body == null) continue
                 val matched = HashMap<String, ScrapeHit>()
@@ -251,14 +310,24 @@ class ScraperClient(context: Context) {
                     }
                 }
                 val ts = System.currentTimeMillis()
-                for ((romKey, game) in byRomLower) {
+                val batchRows = ArrayList<ScrapeDatabase.BatchScrapeEntry>(chunk.size)
+                for ((romKey, sameNameGames) in byRomLower) {
                     val hit = matched[romKey] ?: ScrapeHit()
                     val isHit = !hit.isEmpty
                     val status = if (isHit) ScrapeDatabase.STATUS_HIT else ScrapeDatabase.STATUS_MISS
                     val exp = ts + if (isHit) ScrapeDatabase.TTL_HIT_MS else ScrapeDatabase.TTL_MISS_MS
-                    memHits["${ScraperCatalog.CoverIds.ARCADEITALIA}::${game.id}"] = CacheEntry(hit, exp)
-                    database.putScrapeHit(ScraperCatalog.CoverIds.ARCADEITALIA, game.id, hit, status, exp)
+                    for (game in sameNameGames) {
+                        memHits["${ScraperCatalog.CoverIds.ARCADEITALIA}::${game.id}"] = CacheEntry(hit, exp)
+                        batchRows += ScrapeDatabase.BatchScrapeEntry(
+                            providerId = ScraperCatalog.CoverIds.ARCADEITALIA,
+                            gameId = game.id,
+                            hit = hit,
+                            status = status,
+                            expiresAtMs = exp,
+                        )
+                    }
                 }
+                database.putScrapeHitsBatch(batchRows)
             }
         }
     }
@@ -521,7 +590,9 @@ class ScraperClient(context: Context) {
             .append("&output=json")
             .append("&romtype=rom")
             .append("&romnom=").append(Uri.encode(game.fileName))
-        if (game.fileSize > 0L) sb.append("&romtaille=").append(game.fileSize)
+        val isArchive = file.extension.lowercase() in setOf("zip", "7z")
+        val effectiveRomSize = if (isArchive) identity.romSize else game.fileSize.takeIf { it > 0L }
+        if (effectiveRomSize != null && effectiveRomSize > 0L) sb.append("&romtaille=").append(effectiveRomSize)
         if (identity.crc32 != null) sb.append("&crc=").append(identity.crc32)
         if (identity.sha1 != null) sb.append("&sha1=").append(identity.sha1)
         if (identity.serial != null) sb.append("&serialnum=").append(Uri.encode(identity.serial))
@@ -536,7 +607,9 @@ class ScraperClient(context: Context) {
                 ?: return@runCatching ScrapeHit()
             val preferZh = Locale.getDefault().language.equals("zh", ignoreCase = true)
             // 修复：noms 数组字段是 "region"（非 "langue"），genres 内部才是 "langue"
-            val name = extractSsByRegion(jeu.optJSONArray("noms"), preferZh)
+            val nomsArr = jeu.optJSONArray("noms")
+            val name = extractSsByRegion(nomsArr, preferZh)
+            val canonicalEn = extractSsByRegion(nomsArr, preferZh = false)
             val date = extractSsByRegion(jeu.optJSONArray("dates"), preferZh)
             val genre = jeu.optJSONArray("genres")?.optJSONObject(0)?.optJSONArray("noms")
                 ?.let { extractSsByLang(it, preferZh) }
@@ -570,6 +643,7 @@ class ScraperClient(context: Context) {
             }
             ScrapeHit(
                 officialName = name,
+                canonicalName = canonicalEn,
                 meta = GameMetadata(releaseDate = date, genre = genre, developer = dev, publisher = pub),
                 coverUrls = urls.take(4),
                 matchedBySerial = identity.serial != null,
@@ -610,19 +684,14 @@ class ScraperClient(context: Context) {
             val gamesArr = data.optJSONArray("games") ?: return@runCatching ScrapeHit()
             if (gamesArr.length() == 0) return@runCatching ScrapeHit()
 
-            // 按标题相似度挑选最佳匹配而非盲取 [0]
-            var bestGame: JSONObject? = null
-            var bestScore = 0.52
-            for (i in 0 until minOf(gamesArr.length(), 10)) {
-                val cand = gamesArr.optJSONObject(i) ?: continue
-                val t = cand.optString("game_title")
-                val s = TitleNormalizer.similarity(q, t)
-                if (s > bestScore) {
-                    bestScore = s
-                    bestGame = cand
-                }
-            }
-            val g = bestGame ?: gamesArr.getJSONObject(0)
+            // 严格按标题相似度挑选最佳匹配，无达标候选则放弃（绝不盲兜底 [0] 误配无关游戏并锁 30 天）
+            val g = selectBestTitleCandidate(
+                query = q,
+                candidates = gamesArr,
+                titleField = "game_title",
+                limit = 10,
+                minScore = 0.58,
+            ) ?: return@runCatching ScrapeHit()
             val gid = g.optInt("id").toString()
             val title = g.optString("game_title").takeIf { it.isNotBlank() }
             val rel = g.optString("release_date").takeIf { it.isNotBlank() }?.take(4)
@@ -729,17 +798,12 @@ class ScraperClient(context: Context) {
             val arr = JSONArray(res.body)
             if (arr.length() == 0) return@runCatching ScrapeHit()
 
-            var best: JSONObject? = null
-            var bestScore = 0.50
-            for (i in 0 until arr.length()) {
-                val cand = arr.optJSONObject(i) ?: continue
-                val sim = TitleNormalizer.similarity(q, cand.optString("name"))
-                if (sim > bestScore) {
-                    bestScore = sim
-                    best = cand
-                }
-            }
-            val g = best ?: arr.getJSONObject(0)
+            val g = selectBestTitleCandidate(
+                query = q,
+                candidates = arr,
+                titleField = "name",
+                minScore = 0.58,
+            ) ?: return@runCatching ScrapeHit()
             val name = g.optString("name").takeIf { it.isNotBlank() }
             val ts = g.optLong("first_release_date", 0L)
             val year = if (ts > 0) {
@@ -969,7 +1033,31 @@ class ScraperClient(context: Context) {
 
     internal companion object {
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
+        const val MAX_MEM_HITS = 2048
+        const val MAX_HASHEOUS_HASH_CACHE = 1024
         val TEXT_PLAIN = "text/plain; charset=utf-8".toMediaType()
+
+        /** 严格按标题相似度挑选最佳搜索结果，无超过阈值的候选时返回 null，绝不盲取第 0 条误配。 */
+        internal fun selectBestTitleCandidate(
+            query: String,
+            candidates: JSONArray,
+            titleField: String,
+            limit: Int = candidates.length(),
+            minScore: Double = 0.58,
+        ): JSONObject? {
+            var best: JSONObject? = null
+            var bestScore = minScore
+            val count = minOf(candidates.length(), limit)
+            for (i in 0 until count) {
+                val cand = candidates.optJSONObject(i) ?: continue
+                val sim = TitleNormalizer.similarity(query, cand.optString(titleField))
+                if (sim > bestScore) {
+                    bestScore = sim
+                    best = cand
+                }
+            }
+            return best
+        }
 
         val ARCADE_PLATFORMS = setOf(
             "arcade", "fbneo", "mame", "cps1", "cps2", "cps3", "neogeo",

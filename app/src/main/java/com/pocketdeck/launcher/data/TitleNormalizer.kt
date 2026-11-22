@@ -21,6 +21,8 @@ object TitleNormalizer {
     private val DIACRITICS = Regex("""\p{Mn}+""")
     private val BRACKET_TAGS = Regex("""\s*(?:\([^)]*\)|\[[^\]]*\]|\{[^}]*\}|（[^）]*）|【[^】]*】)""")
     private val LEADING_INDEX = Regex("""^(?:No\.?\s*\d{1,5}\s*(?:[-._、)\]]\s*|\s+)|\d{1,5}\s*[-._、)\]]\s*)""", RegexOption.IGNORE_CASE)
+    // 保护真实游戏标题中以「007 -」或四位年份「19xx -」「20xx -」（如 007 - GoldenEye、1942 - Joint Strike、1943 - The Battle of Midway）开头的前缀
+    private val PROTECTED_DASH_PREFIX = Regex("""^(?:007|(?:19|20)\d{2})\s*-""")
     private val CJK_PACK_TAGS = Regex(
         """(?i)(?:\s*[-_·]?\s*(?:完全汉化版?|完美汉化版?|中文汉化版?|汉化修正版?|简体中文版?|繁体中文版?|官方中文版?|中文版|汉化版|简中版?|繁中版?|简体|繁体|汉化|中文|无敌版|修改版|改版|破解版|测试版|金手指版|修正版|修正|加强版|最终版|典藏版|整合版|chs|cht|hack|v\d+(?:\.\d+)+|rev\s*[a-z0-9]+))+$""",
     )
@@ -89,6 +91,13 @@ object TitleNormalizer {
         return false
     }
 
+    private fun hasDotDigit(s: String): Boolean {
+        for (i in 0 until s.length - 1) {
+            if (s[i] == '.' && s[i + 1].isDigit()) return true
+        }
+        return false
+    }
+
     private fun mayHaveCjkOrPackSuffix(s: String): Boolean {
         for (i in s.indices) {
             if (s[i].code >= 0x80) return true
@@ -100,9 +109,7 @@ object TitleNormalizer {
             last == 's' -> s.endsWith("chs", ignoreCase = true)
             last == 't' -> s.endsWith("cht", ignoreCase = true)
             last == 'k' -> s.endsWith("hack", ignoreCase = true)
-            last.isDigit() -> s.contains(".0") || s.contains(".1") || s.contains(".2") ||
-                s.contains(".3") || s.contains(".4") || s.contains(".5") ||
-                s.contains("rev", ignoreCase = true)
+            last.isDigit() -> hasDotDigit(s) || s.contains("rev", ignoreCase = true)
             else -> s.contains("rev", ignoreCase = true)
         }
     }
@@ -175,7 +182,7 @@ object TitleNormalizer {
         var s = if (raw.indexOf('_') >= 0) raw.replace('_', ' ').trim() else raw.trim()
         if (s.isEmpty()) return s
         val first = s[0]
-        if (first.isDigit() || first == 'N' || first == 'n') {
+        if ((first.isDigit() || first == 'N' || first == 'n') && !PROTECTED_DASH_PREFIX.containsMatchIn(s)) {
             s = LEADING_INDEX.replace(s, "")
         }
         if (hasBracketChars(s)) {
@@ -338,6 +345,39 @@ object TitleNormalizer {
         addWithVariants(baseName)
         addWithVariants(title)
         return out.toList()
+    }
+
+    /**
+     * 为倒排词模糊匹配筛选查询词：
+     * 1. 按 [normalizedTitle] 去重，避免原名与去标签名重复检索同一组词元；
+     * 2. 优先保留非 CJK（英文/拉丁）别名，防止中文 ROM 变体占满前 4 席把英文译名截断；
+     * 3. 剩余名额继续保留唯一 CJK 查询（供 GameTDB 等支持中文标题的离线库命中）。
+     */
+    fun selectFuzzyQueries(queries: List<String>, maxCount: Int = 6): List<String> {
+        if (queries.isEmpty() || maxCount <= 0) return emptyList()
+        val latin = ArrayList<String>(maxCount)
+        val cjk = ArrayList<String>(maxCount)
+        val seenNorm = HashSet<String>(queries.size * 2)
+        for (q in queries) {
+            if (q.isBlank()) continue
+            val norm = normalizedTitle(q)
+            if (norm.isEmpty() || !seenNorm.add(norm)) continue
+            if (CjkAliases.containsCjk(norm)) {
+                cjk += q
+            } else {
+                latin += q
+            }
+        }
+        val result = ArrayList<String>(min(maxCount, latin.size + cjk.size))
+        for (q in latin) {
+            if (result.size >= maxCount) break
+            result += q
+        }
+        for (q in cjk) {
+            if (result.size >= maxCount) break
+            result += q
+        }
+        return result
     }
 
     /** 返回最适合送给外部搜索 API（IGDB / TGDB / SteamGridDB / Wikidata）的干净英文/原名查询词。 */

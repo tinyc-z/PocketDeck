@@ -7,6 +7,7 @@ import com.pocketdeck.launcher.data.BackgroundStyle
 import com.pocketdeck.launcher.data.CoverResolutionInfo
 import com.pocketdeck.launcher.data.CustomLauncherPreset
 import com.pocketdeck.launcher.data.GalleryAlign
+import com.pocketdeck.launcher.data.NavBarStyle
 import com.pocketdeck.launcher.data.MetadataDisplayConfig
 import com.pocketdeck.launcher.data.MetadataResolutionInfo
 import com.pocketdeck.launcher.data.RomDir
@@ -57,6 +58,7 @@ data class HomeUiState(
     val showMetadata: Boolean = true,
     val metaDisplay: MetadataDisplayConfig = MetadataDisplayConfig(),
     val bottomBar: Boolean = true,
+    val navBarStyle: NavBarStyle = NavBarStyle.Classic,
     val is12h: Boolean = false,
     val swapAbxy: Boolean = false,
     val searching: Boolean = false,
@@ -216,11 +218,18 @@ class HomeViewModel(
     }
 
     init {
+        // 增量监听新解析出的官方名，避免每次元数据刷盘都全表 O(N) diff 整个 officialNames
+        viewModelScope.launch(Dispatchers.Default) {
+            metadataRepo.newlyResolvedNames.collect { newlyResolved ->
+                if (newlyResolved.isNotEmpty()) {
+                    covers.onOfficialNamesResolved(newlyResolved)
+                }
+            }
+        }
         viewModelScope.launch(stateDispatcher) {
             var lastLib: Library? = null
             var lastUser: UserData? = null
             var lastScanning: Boolean? = null
-            var lastOfficialNames: Map<String, String> = emptyMap()
             combine(
                 combine(repo.library, repo.user, repo.scanning) { lib, user, scanning ->
                     Triple(lib, user, scanning)
@@ -240,15 +249,6 @@ class HomeViewModel(
                     officialNames = officialNames,
                 )
             }.collect { data ->
-                if (data.officialNames !== lastOfficialNames) {
-                    val newlyResolved = data.officialNames.entries
-                        .filter { (id, name) -> lastOfficialNames[id] != name }
-                        .map { it.key }
-                    lastOfficialNames = data.officialNames
-                    if (newlyResolved.isNotEmpty()) {
-                        covers.onOfficialNamesResolved(newlyResolved)
-                    }
-                }
                 val u = data.user
                 val curLib = data.lib
                 if (curLib != null && curLib !== lastLib && curLib.localMetadata.isNotEmpty()) {
@@ -428,8 +428,7 @@ class HomeViewModel(
         val autoRootVal = if (user.romDirs.isEmpty()) lib.root else null
         var committedState: HomeUiState? = null
         _state.update { latest ->
-            val base = stateOverride ?: latest
-            base.copy(
+            latest.copy(
                 tabs = tabs,
                 selectedTab = tabIdx,
                 games = filteredGames,
@@ -440,6 +439,7 @@ class HomeViewModel(
                 showMetadata = user.showMetadata,
                 metaDisplay = user.metaDisplay,
                 bottomBar = user.bottomBar,
+                navBarStyle = user.navBarStyle,
                 is12h = user.clock12h,
                 swapAbxy = user.swapAbxy,
                 scanning = scanning,
@@ -457,9 +457,9 @@ class HomeViewModel(
                 uncategorizedCount = uncategorizedCount,
                 metadataMap = metaMap,
                 officialNames = officialNames,
-                detailGame = base.detailGame?.let { lib.byId[it.id] ?: it },
-                propertiesGame = base.propertiesGame?.let { lib.byId[it.id] ?: it },
-                editingGame = base.editingGame?.let { lib.byId[it.id] ?: it },
+                detailGame = latest.detailGame?.let { lib.byId[it.id] ?: it },
+                propertiesGame = latest.propertiesGame?.let { lib.byId[it.id] ?: it },
+                editingGame = latest.editingGame?.let { lib.byId[it.id] ?: it },
                 showClock = user.showClock,
                 showBattery = user.showBattery,
                 showWifi = user.showWifi,
@@ -502,17 +502,15 @@ class HomeViewModel(
         platformResolver: (Game) -> Platform,
     ) {
         if (games.isEmpty()) return
-        // 为当前列表涉及的每个平台触发一次在线封面索引 & 元数据加载（支持 FAVS / NOW 混排）
+        // 标记当前正在使用的平台集合：LRU 淘汰与 onTrimMemory 均保护这些平台不被释放
         val seenSystems = HashSet<String>()
         for (g in games) {
-            val plat = platformResolver(g)
-            val sys = plat.libretroSystem
-            if (sys != null && seenSystems.add(sys)) {
-                covers.ensureIndexLoaded(plat)
-            }
+            val sys = platformResolver(g).libretroSystem
+            if (sys != null) seenSystems.add(sys)
         }
-        // 标记当前正在使用的平台集合：LRU 淘汰与 onTrimMemory 均保护这些平台不被释放
         OfflineGameDb.activeSystems = seenSystems.toSet()
+        // 仅对仍有缺封面游戏的平台按需加载离线 Boxart 清单，全库已有封面时冷启动零离线表读取
+        covers.ensureIndexesLoadedIfNeeded(games, platformResolver)
         val focusGame = games.getOrNull(focusIdx)
         if (focusGame != null) {
             val plat = platformResolver(focusGame)
@@ -812,6 +810,28 @@ class HomeViewModel(
 
     fun moveFocus(delta: Int) = setFocus(_focusIndex.value + delta)
 
+    fun setFastScrolling(scrolling: Boolean) {
+        covers.setFastScrolling(scrolling)
+        if (scrolling) {
+            focusResolveJob?.cancel()
+        } else {
+            val s = _state.value
+            val idx = _focusIndex.value
+            if (s.games.isNotEmpty()) {
+                covers.ensureWindowCoversScraped(s.games, idx, s::platformFor)
+                val focusGame = s.games.getOrNull(idx)
+                if (focusGame != null) {
+                    val plat = s.platformFor(focusGame)
+                    focusResolveJob?.cancel()
+                    focusResolveJob = viewModelScope.launch {
+                        delay(160L)
+                        metadataRepo.resolveFocusGame(focusGame, plat)
+                    }
+                }
+            }
+        }
+    }
+
     fun toggleSearch() {
         var nextState: HomeUiState? = null
         _state.update { s ->
@@ -987,6 +1007,7 @@ class HomeViewModel(
 
     fun saveGameEdits(id: String, name: String?, coverPath: String?) {
         covers.forget(id)
+        covers.invalidateThumbnail(coverPath)
         viewModelScope.launch { repo.saveGameEdits(id, name, coverPath) }
         _state.update { it.copy(editingGame = null) }
     }
@@ -1212,6 +1233,15 @@ class HomeViewModel(
 
     fun toggleBottomBar() {
         viewModelScope.launch { repo.updatePrefs { it.copy(bottomBar = !it.bottomBar) } }
+    }
+
+    fun cycleNavBarStyle() {
+        viewModelScope.launch {
+            repo.updatePrefs {
+                val all = NavBarStyle.entries
+                it.copy(navBarStyle = all[(all.indexOf(it.navBarStyle) + 1) % all.size])
+            }
+        }
     }
 
     fun toggleShowMetadata() {

@@ -109,7 +109,7 @@ fun DeckSwitch(
                     start = Offset.Zero,
                     end = Offset(size.width, size.height),
                 )
-                val offColor = if (p.isDark) Color(0xFF3A2D48) else Color(0xFFEBDDD8)
+                val offColor = p.line
                 val alpha = if (enabled) 1f else 0.45f
                 onDrawBehind {
                     drawRoundRect(color = offColor, cornerRadius = r, alpha = alpha)
@@ -421,7 +421,7 @@ fun DeckProgressBar(
             .height(height)
             .drawWithCache {
                 val r = CornerRadius(size.height / 2f)
-                val track = if (p.isDark) Color(0xFF3A2D48) else Color(0xFFF3E6E1)
+                val track = p.line
                 val brush = Brush.linearGradient(
                     listOf(p.brandStart, p.brandMid, p.brandEnd),
                     start = Offset.Zero,

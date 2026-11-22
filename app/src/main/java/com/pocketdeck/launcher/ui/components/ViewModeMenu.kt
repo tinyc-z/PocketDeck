@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -67,16 +69,24 @@ fun ViewModeMenu(
     val entries = ViewMode.entries
     val twoColumns = entries.size > 4
 
-    Box(
+    BoxWithConstraints(
         modifier
             .fillMaxSize()
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
     ) {
+        val targetWidth = if (twoColumns) 308.dp else 172.dp
+        val horizontalMargin = 16.dp
+        val startPad = if (maxWidth >= 148.dp + targetWidth + horizontalMargin) {
+            148.dp
+        } else {
+            ((maxWidth - targetWidth) / 2).coerceAtLeast(horizontalMargin)
+        }
         Column(
             Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 148.dp, bottom = 52.dp)
-                .width(if (twoColumns) 308.dp else 172.dp)
+                .padding(start = startPad, end = horizontalMargin, bottom = 52.dp)
+                .widthIn(max = targetWidth)
+                .fillMaxWidth()
                 .cardSurface(shape = cardShape, elevation = 12.dp)
                 .border(0.8.dp, DeckColors.Line, cardShape)
                 .clickable(enabled = false, onClick = {})

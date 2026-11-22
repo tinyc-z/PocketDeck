@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.pocketdeck.launcher.ui.components.Text
+import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -73,6 +74,7 @@ import com.pocketdeck.launcher.data.CategorySortOrder
 import com.pocketdeck.launcher.data.CredentialKind
 import com.pocketdeck.launcher.data.CustomLauncherPreset
 import com.pocketdeck.launcher.data.GalleryAlign
+import com.pocketdeck.launcher.data.NavBarStyle
 import com.pocketdeck.launcher.data.MetadataDisplayConfig
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.data.PlatformCatalog
@@ -111,6 +113,7 @@ data class SettingsState(
     val nowTab: Boolean,
     val favsTab: Boolean,
     val bottomBar: Boolean,
+    val navBarStyle: NavBarStyle = NavBarStyle.Classic,
     val showMetadata: Boolean,
     val backgroundStyle: BackgroundStyle,
     val customBackground: String? = null,
@@ -241,7 +244,7 @@ private fun itemCountForSection(
         val align = if (state.viewMode == ViewMode.Gallery) 1 else 0
         val metaFields = if (state.showMetadata) MetaFieldKey.entries.size else 0
         val tabsTotal = state.manageTabs.size + 2 + state.uncategorizedPlatforms.size
-        ViewMode.entries.size + align + 2 + metaFields + tabsTotal
+        ViewMode.entries.size + align + 3 + metaFields + tabsTotal
     }
     SettingsSection.Library -> state.romDirs.size + 4
     SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 3
@@ -279,6 +282,7 @@ fun SettingsScreen(
     onToggleNowTab: () -> Unit,
     onToggleFavsTab: () -> Unit,
     onToggleBottomBar: () -> Unit,
+    onCycleNavBarStyle: () -> Unit = {},
     onToggleShowMetadata: () -> Unit,
     onCycleBackground: () -> Unit,
     onSetBackgroundStyle: (BackgroundStyle) -> Unit = {},
@@ -683,6 +687,8 @@ fun SettingsScreen(
                     if (idx == cursor) { onCycleGalleryAlign(); return }
                     cursor++
                 }
+                if (idx == cursor) { onCycleNavBarStyle(); return }
+                cursor++
                 if (idx == cursor) { onToggleBottomBar(); return }
                 cursor++
                 if (idx == cursor) { onToggleShowMetadata(); return }
@@ -1135,6 +1141,7 @@ fun SettingsScreen(
                                                 if (nav.contentItemIndex >= max) nav.contentItemIndex = max - 1
                                             },
                                             onCycleGalleryAlign = onCycleGalleryAlign,
+                                            onCycleNavBarStyle = onCycleNavBarStyle,
                                             onToggleBottomBar = onToggleBottomBar,
                                             onToggleShowMetadata = onToggleShowMetadata,
                                             onToggleMetaField = manage.toggleMetaField,
@@ -1269,14 +1276,14 @@ fun SettingsScreen(
                 Modifier
                     .fillMaxSize()
                     .background(DeckColors.CardShadow)
-                    .clickable(enabled = updateDownloadProgress == null) { availableRelease = null },
+                    .scrimTapDismiss { if (updateDownloadProgress == null) availableRelease = null },
                 contentAlignment = Alignment.Center,
             ) {
                 com.pocketdeck.launcher.ui.components.DialogPanelCard(
                     onDismiss = { if (updateDownloadProgress == null) availableRelease = null },
                     modifier = Modifier
-                        .padding(horizontal = 32.dp, vertical = 20.dp)
-                        .widthIn(max = 460.dp)
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .widthIn(max = com.pocketdeck.launcher.ui.components.DeckDialogSize.WidthM)
                         .fillMaxWidth(),
                     swapAbxy = state.swapAbxy,
                     keyBindings = state.keyBindings,

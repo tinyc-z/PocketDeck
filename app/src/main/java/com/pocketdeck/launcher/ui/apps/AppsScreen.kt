@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import com.pocketdeck.launcher.ui.components.BrandTileIcon
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -485,7 +486,7 @@ fun AppsScreen(
                 Column(
                     Modifier
                         .padding(horizontal = 24.dp, vertical = 16.dp)
-                        .widthIn(max = 340.dp)
+                        .widthIn(max = DeckDialogSize.WidthS)
                         .fillMaxWidth()
                         .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp)
                         .cardSurface(sheetShape, elevation = 6.dp)

@@ -47,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -79,6 +80,7 @@ import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.launch.GameLauncher
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
@@ -655,7 +657,7 @@ fun DeleteFileConfirmDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -685,7 +687,7 @@ fun DeleteFileConfirmDialog(
         Column(
             Modifier
                 .padding(horizontal = 24.dp, vertical = 16.dp)
-                .widthIn(max = 440.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
                 .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
@@ -789,7 +791,7 @@ private fun ScrapeCoverDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -819,8 +821,8 @@ private fun ScrapeCoverDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 520.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth(),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,

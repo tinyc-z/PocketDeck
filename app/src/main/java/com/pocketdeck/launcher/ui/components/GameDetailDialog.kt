@@ -1,8 +1,8 @@
 package com.pocketdeck.launcher.ui.components
 
-import com.pocketdeck.launcher.data.formatCompactSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,15 +10,16 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,34 +36,43 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.PlayStats
+import com.pocketdeck.launcher.data.formatCompactSize
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.icons.HomeIcons
+import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
-import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.brandBackground
-import com.pocketdeck.launcher.ui.theme.brandBorder
+import com.pocketdeck.launcher.ui.theme.brandFocusRing
+import com.pocketdeck.launcher.ui.theme.cardSurface
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -74,7 +84,7 @@ private data class DetailAction(
     val primary: Boolean = false,
     val active: Boolean = false,
     val isFavoriteToggle: Boolean = false,
-    val shortcutBadge: String? = null,
+    val isEdit: Boolean = false,
     val onClick: () -> Unit,
 )
 
@@ -85,9 +95,11 @@ private enum class DetailFocusZone {
 }
 
 /**
- * 桌面游戏详情与操作中心（Sunset Arcade）：
- * 封面 + 所属分类/模拟器徽章 + 发行商/年份/平台/文件大小 + 游玩统计 + 简介 / 多盘内联选盘 + 快捷操作栏。
- * 支持横屏左右分栏与窄屏（<480dp）上下分块自适应。
+ * 桌面游戏详情与操作中心（全高海报分栏 · 经典均衡风）：
+ * - 左侧全高无边距海报封面 + 右缘无缝羽化渐变 + 右下磨砂「图库图标 + 换封面」胶囊
+ * - 右侧标题行（仅保留右上角关闭钮）+ 元数据行 + 标签行（分类/平台胶囊 + 模拟器胶囊 +「ⓘ 属性」胶囊）
+ *   + 单框 3 列游玩统计卡 + 简介文本 + 水平分割线 + 底部 3 胶囊操作栏（▶ 开始游戏 / ♥ 收藏 / 编辑）
+ * - 支持横屏左右全高分栏与极窄屏（<460dp）上下海报自适应，完整支持手柄方向键聚焦。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -135,7 +147,7 @@ fun GameDetailDialog(
         if (hasMultiDisc) {
             add(
                 DetailAction(
-                    if (pickingDisc) stringResource(R.string.detail_action_back_info)
+                    label = if (pickingDisc) stringResource(R.string.detail_action_back_info)
                     else stringResource(R.string.detail_action_discs, game.discFiles.size),
                     onClick = { pickingDisc = !pickingDisc },
                 ),
@@ -152,6 +164,7 @@ fun GameDetailDialog(
         add(
             DetailAction(
                 label = stringResource(R.string.menu_edit),
+                isEdit = true,
                 onClick = onEdit,
             ),
         )
@@ -246,419 +259,608 @@ fun GameDetailDialog(
         contentAlignment = Alignment.Center,
     ) {
         val isNarrow = maxWidth < 460.dp
+        val isCompact = maxWidth < 720.dp
         val isShort = maxHeight < 340.dp
-        val dialogMaxHeight = maxHeight * if (isShort) 0.92f else 0.88f
-        DialogPanelCard(
-            onDismiss = onDismiss,
-            modifier = Modifier
-                .padding(
-                    horizontal = if (isNarrow) 16.dp else 28.dp,
-                    vertical = when {
-                        isShort -> 8.dp
-                        isNarrow -> 12.dp
-                        else -> 18.dp
-                    },
-                )
-                .widthIn(max = 600.dp)
-                .fillMaxWidth()
-                .heightIn(max = dialogMaxHeight),
-            contentPadding = PaddingValues(
-                horizontal = if (isNarrow) 14.dp else 20.dp,
-                vertical = when {
-                    isShort -> 10.dp
-                    isNarrow -> 14.dp
-                    else -> 18.dp
-                },
-            ),
-            topEndExtra = {
-                Box(
-                    Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .then(
-                            if (propertiesFocused) Modifier.brandBackground(CircleShape)
-                            else Modifier.background(DeckColors.SurfaceAlt),
-                        )
-                        .brandBorder(
-                            active = propertiesFocused,
-                            shape = CircleShape,
-                            activeWidth = 1.4.dp,
-                            inactiveWidth = 0.6.dp,
-                        )
-                        .soundClickable(onClick = onProperties),
-                    contentAlignment = Alignment.Center,
+        val outerHPad = if (isNarrow) 16.dp else 24.dp
+        val outerVPad = when {
+            isShort -> 10.dp
+            isNarrow -> 12.dp
+            else -> 16.dp
+        }
+        val dialogBg = DeckColors.DialogBg
+        val dialogLine = DeckColors.Line
+        val isDark = DeckColors.isDark
+        val dialogShape = RoundedCornerShape(DeckBrand.RadiusXL)
+
+        val metaChips = listOfNotNull(
+            platform.fullName,
+            metadata?.releaseDate,
+            metadata?.publisher ?: metadata?.developer,
+            metadata?.genre,
+            formatCompactSize(game.fileSize),
+            if (game.discFiles.size > 1) stringResource(R.string.detail_multi_disc_fmt, game.discFiles.size) else null,
+        )
+        val primaryTagLabel = if (categoryNames.isNotEmpty()) {
+            categoryNames.joinToString(" · ")
+        } else {
+            platform.shortName
+        }
+
+        val count = playStats?.playCount ?: 0
+        val totalStr = formatPlayDuration(playStats?.totalPlayMs ?: 0L)
+        val lastStr = playStats?.lastPlayedAt?.takeIf { it > 0L }?.let {
+            SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(it))
+        } ?: stringResource(R.string.detail_never_played)
+        val desc = metadata?.description?.takeIf { it.isNotBlank() }
+
+        @Composable
+        fun CoverChangePill(modifier: Modifier) {
+            if (onManualScrape == null) return
+            val pillBg = if (isDark) DeckColors.Background.copy(alpha = 0.78f) else DeckColors.Surface.copy(alpha = 0.88f)
+            val pillBorder = when {
+                coverEditFocused -> Color.White.copy(alpha = 0.62f)
+                isDark -> Color.White.copy(alpha = 0.22f)
+                else -> DeckColors.TextPrimary.copy(alpha = 0.16f)
+            }
+            val pillFg = when {
+                coverEditFocused -> Color.White
+                isDark -> Color.White.copy(alpha = 0.94f)
+                else -> DeckColors.TextPrimary
+            }
+            Box(
+                modifier
+                    .graphicsLayer {
+                        val s = if (coverEditFocused) 1.03f else 1f
+                        scaleX = s
+                        scaleY = s
+                    }
+                    .brandFocusRing(
+                        focused = coverEditFocused,
+                        cornerRadius = 14.dp,
+                        width = 1.8.dp,
+                        gap = 2.dp,
+                        glow = true,
+                    )
+                    .height(28.dp)
+                    .clip(CircleShape)
+                    .then(
+                        if (coverEditFocused) Modifier.brandBackground(CircleShape)
+                        else Modifier.background(pillBg),
+                    )
+                    .border(1.dp, pillBorder, CircleShape)
+                    .soundClickable {
+                        focusZone = DetailFocusZone.CoverEdit
+                        onManualScrape()
+                    }
+                    .padding(start = 8.dp, end = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     DeckIcon(
-                        icon = HomeIcons.Info,
-                        size = 15.dp,
-                        tint = if (propertiesFocused) Color.White else DeckColors.TextSecondary,
+                        icon = HomeIcons.CoverGallery,
+                        size = 13.dp,
+                        tint = pillFg,
+                    )
+                    Text(
+                        text = stringResource(R.string.detail_change_cover),
+                        style = DeckType.metaLabel.copy(
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.1.sp,
+                        ),
+                        color = pillFg,
+                        maxLines = 1,
                     )
                 }
-            },
-            swapAbxy = swapAbxy,
-            keyBindings = keyBindings,
-        ) {
-            val metaChips = listOfNotNull(
-                platform.fullName,
-                metadata?.releaseDate,
-                metadata?.publisher ?: metadata?.developer,
-                metadata?.genre,
-                formatCompactSize(game.fileSize),
-                if (game.discFiles.size > 1) stringResource(R.string.detail_multi_disc_fmt, game.discFiles.size) else null,
-            )
-            val categoryLabel = if (categoryNames.isNotEmpty()) {
-                categoryNames.joinToString(" · ")
-            } else {
-                stringResource(R.string.lib_badge_uncategorized)
             }
+        }
 
-            val count = playStats?.playCount ?: 0
-            val totalStr = formatPlayDuration(playStats?.totalPlayMs ?: 0L)
-            val lastStr = playStats?.lastPlayedAt?.takeIf { it > 0L }?.let {
-                SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(it))
-            } ?: stringResource(R.string.detail_never_played)
-            val desc = metadata?.description?.takeIf { it.isNotBlank() }
-
-            @Composable
-            fun TagsRow() {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+        @Composable
+        fun TagsRow() {
+            val dashedBorderColor = DeckColors.Line
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                // 平台 / 分类主题强调胶囊
+                Box(
+                    Modifier
+                        .clip(CircleShape)
+                        .background(DeckColors.AccentSoft)
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
                 ) {
+                    Text(
+                        text = primaryTagLabel,
+                        style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp),
+                        color = DeckColors.Ruby,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // 模拟器 / 核心胶囊
+                if (!launcherLabel.isNullOrBlank()) {
                     Box(
                         Modifier
-                            .clip(DeckShapes.tabPill)
-                            .background(DeckColors.AccentSoft)
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                            .clip(CircleShape)
+                            .background(DeckColors.Surface)
+                            .border(0.8.dp, DeckColors.Line, CircleShape)
+                            .padding(horizontal = 9.dp, vertical = 3.dp),
                     ) {
                         Text(
-                            text = categoryLabel,
-                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp),
-                            color = DeckColors.Ruby,
+                            text = launcherLabel,
+                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium, fontSize = 11.sp),
+                            color = DeckColors.TextSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (!launcherLabel.isNullOrBlank()) {
-                        Box(
+                }
+                // 标签行末尾「ⓘ 属性」胶囊（释放右上角标题空间）
+                val propFg = if (propertiesFocused) DeckColors.Ruby else DeckColors.TextSecondary
+                Box(
+                    Modifier
+                        .brandFocusRing(
+                            focused = propertiesFocused,
+                            cornerRadius = 12.dp,
+                            width = 1.6.dp,
+                            gap = 1.5.dp,
+                            glow = false,
+                        )
+                        .clip(CircleShape)
+                        .background(if (propertiesFocused) DeckColors.AccentSoft else Color.Transparent)
+                        .then(
+                            if (propertiesFocused) {
+                                Modifier
+                            } else {
+                                Modifier.drawBehind {
+                                    val strokePx = 1.dp.toPx()
+                                    val r = size.height / 2f
+                                    drawRoundRect(
+                                        color = dashedBorderColor,
+                                        cornerRadius = CornerRadius(r, r),
+                                        style = Stroke(
+                                            width = strokePx,
+                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 5f), 0f),
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        .soundClickable {
+                            focusZone = DetailFocusZone.Properties
+                            onProperties()
+                        }
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        DeckIcon(
+                            icon = HomeIcons.Info,
+                            size = 12.dp,
+                            tint = propFg,
+                        )
+                        Text(
+                            text = stringResource(R.string.menu_properties),
+                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp),
+                            color = propFg,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+
+        @Composable
+        fun StatsAndBody() {
+            if (pickingDisc && hasMultiDisc) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    game.discFiles.forEachIndexed { idx, path ->
+                        val focused = idx == discIdx
+                        val shape = RoundedCornerShape(10.dp)
+                        Row(
                             Modifier
-                                .clip(DeckShapes.tabPill)
-                                .background(DeckColors.Surface)
-                                .border(0.6.dp, DeckColors.Line, DeckShapes.tabPill)
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .then(if (focused) Modifier.brandBackground(shape) else Modifier.background(DeckColors.Surface))
+                                .border(0.8.dp, if (focused) Color.Transparent else DeckColors.Line, shape)
+                                .soundClickable {
+                                    discIdx = idx
+                                    onLaunchDisc.invoke(path)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Text(
-                                text = launcherLabel,
-                                style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium, fontSize = 11.sp),
-                                color = DeckColors.TextSecondary,
+                                text = "$discLabelFmt ${idx + 1} · ${File(path).name}",
+                                style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
+                                color = if (focused) Color.White else DeckColors.TextPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
                             )
                         }
                     }
                 }
+            } else {
+                // 单框 3 列统计卡（游玩次数 / 累计时长 / 上次游玩）
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(DeckColors.Surface)
+                        .border(0.8.dp, DeckColors.Line, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StatCell(stringResource(R.string.detail_play_count), "$count", Modifier.weight(1f))
+                    StatCell(stringResource(R.string.detail_play_time), totalStr, Modifier.weight(1f))
+                    StatCell(stringResource(R.string.detail_last_played), lastStr, Modifier.weight(1f))
+                }
+                if (desc != null) {
+                    Text(
+                        text = desc,
+                        style = DeckType.metaLabel.copy(
+                            fontSize = 11.5.sp,
+                            lineHeight = 17.5.sp,
+                        ),
+                        color = DeckColors.TextSecondary,
+                        maxLines = if (isCompact) 3 else 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
+        }
 
-            @Composable
-            fun StatsAndBody() {
-                if (pickingDisc && hasMultiDisc) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        game.discFiles.forEachIndexed { idx, path ->
-                            val focused = idx == discIdx
-                            val shape = RoundedCornerShape(10.dp)
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(shape)
-                                    .then(if (focused) Modifier.brandBackground(shape) else Modifier.background(DeckColors.Surface))
-                                    .border(0.6.dp, if (focused) Color.Transparent else DeckColors.Line, shape)
-                                    .soundClickable {
-                                        discIdx = idx
-                                        onLaunchDisc.invoke(path)
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(
-                                    text = "$discLabelFmt ${idx + 1} · ${File(path).name}",
-                                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
-                                    color = if (focused) Color.White else DeckColors.TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
+        @Composable
+        fun ActionPill(act: DetailAction, idx: Int, modifier: Modifier) {
+            val hl = !pickingDisc && focusZone == DetailFocusZone.Actions && idx == actionIdx
+            val btnHeight = if (isShort) 34.dp else 38.dp
+            val bgMod = when {
+                act.primary -> Modifier.brandBackground(CircleShape)
+                act.active && hl -> Modifier.background(DeckColors.Ruby.copy(alpha = 0.22f))
+                act.active -> Modifier.background(DeckColors.AccentSoft)
+                hl -> Modifier.background(DeckColors.AccentSoft)
+                else -> Modifier.background(DeckColors.Surface)
+            }
+            val fgColor = when {
+                act.primary -> Color.White
+                act.active || hl -> DeckColors.Ruby
+                else -> DeckColors.TextPrimary
+            }
+            val borderMod = when {
+                act.primary || hl -> Modifier
+                act.active -> Modifier.border(1.dp, DeckColors.Ruby.copy(alpha = 0.55f), CircleShape)
+                else -> Modifier.border(0.8.dp, DeckColors.Line, CircleShape)
+            }
+            Box(
+                modifier
+                    .brandFocusRing(
+                        focused = hl,
+                        cornerRadius = btnHeight / 2,
+                        width = 2.dp,
+                        gap = 2.dp,
+                        glow = act.primary,
+                    )
+                    .height(btnHeight)
+                    .clip(CircleShape)
+                    .then(bgMod)
+                    .then(borderMod)
+                    .soundClickable {
+                        focusZone = DetailFocusZone.Actions
+                        actionIdx = idx
+                        act.onClick()
+                    }
+                    .padding(horizontal = if (isCompact) 6.dp else 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (isCompact) 4.dp else 5.dp),
+                ) {
+                    if (act.primary) {
+                        DeckIcon(
+                            icon = HomeIcons.Play,
+                            size = if (isCompact) 10.5.dp else 12.dp,
+                            tint = Color.White,
+                        )
+                    } else if (act.isFavoriteToggle) {
+                        FavoriteHeartIcon(
+                            filled = act.active,
+                            color = fgColor,
+                            size = if (isCompact) 11.dp else 12.5.dp,
+                            strokeWidth = 1.6.dp,
+                        )
+                    }
+                    Text(
+                        text = act.label,
+                        style = DeckType.settingsLabel.copy(
+                            fontSize = if (isCompact) 11.5.sp else 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = fgColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        @Composable
+        fun ActionsBar() {
+            Column(Modifier.fillMaxWidth()) {
+                Spacer(Modifier.height(if (isShort) 6.dp else 8.dp))
+                HorizontalDivider(thickness = 0.8.dp, color = DeckColors.Line)
+                Spacer(Modifier.height(if (isShort) 8.dp else 10.dp))
+                val longFavLabel = actions.any { it.isFavoriteToggle && it.label.length > 6 }
+                if (isNarrow && actions.size > 3) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ActionPill(actions[0], 0, Modifier.fillMaxWidth())
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            for (i in 1 until actions.size) {
+                                ActionPill(actions[i], i, Modifier.weight(1f))
                             }
                         }
                     }
                 } else {
                     Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(DeckColors.Surface)
-                            .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(if (isCompact) 6.dp else 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        StatCell(stringResource(R.string.detail_play_count), "$count")
-                        StatCell(stringResource(R.string.detail_play_time), totalStr)
-                        StatCell(stringResource(R.string.detail_last_played), lastStr)
-                    }
-                    if (desc != null) {
-                        Text(
-                            text = desc,
-                            style = DeckType.metaLabel,
-                            color = DeckColors.TextSecondary,
-                            maxLines = if (isNarrow) 4 else 5,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-
-            @Composable
-            fun CoverWithScrapeBadge(
-                coverW: androidx.compose.ui.unit.Dp,
-                coverH: androidx.compose.ui.unit.Dp,
-                compact: Boolean,
-            ) {
-                Box(Modifier.size(width = coverW, height = coverH)) {
-                    GameCoverCard(
-                        game = game,
-                        platform = platform,
-                        covers = covers,
-                        officialName = officialName,
-                        width = coverW,
-                        height = coverH,
-                        isFocused = coverEditFocused,
-                    )
-                    if (onManualScrape != null) {
-                        val visualSize = if (compact) 22.dp else 26.dp
-                        val iconSize = if (compact) 11.dp else 13.dp
-                        // 外层 36dp 透明触摸热区，内部清晰白底红铅笔圆钮（获焦时亮品牌渐变）
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomEnd)
-                                .size(36.dp)
-                                .soundClickable(onClick = onManualScrape)
-                                .padding(end = 6.dp, bottom = 6.dp),
-                            contentAlignment = Alignment.BottomEnd,
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(if (coverEditFocused) visualSize + 3.dp else visualSize)
-                                    .clip(CircleShape)
-                                    .then(
-                                        if (coverEditFocused) Modifier.brandBackground(CircleShape)
-                                        else Modifier.background(DeckColors.DialogBg.copy(alpha = 0.94f)),
-                                    )
-                                    .border(
-                                        width = if (coverEditFocused) 1.5.dp else 0.8.dp,
-                                        color = if (coverEditFocused) Color.White else DeckColors.Line,
-                                        shape = CircleShape,
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                DeckIcon(
-                                    icon = HomeIcons.Pencil,
-                                    size = if (coverEditFocused) iconSize + 1.dp else iconSize,
-                                    tint = if (coverEditFocused) Color.White else DeckColors.Ruby,
-                                )
+                        actions.forEachIndexed { idx, act ->
+                            val w = when {
+                                actions.size > 3 -> when {
+                                    act.primary -> 1.28f
+                                    act.isEdit -> 0.80f
+                                    act.isFavoriteToggle && longFavLabel -> 1.24f
+                                    else -> 1f
+                                }
+                                isCompact && longFavLabel -> when {
+                                    act.primary -> 1.05f
+                                    act.isFavoriteToggle -> 1.42f
+                                    act.isEdit -> 0.75f
+                                    else -> 1f
+                                }
+                                act.primary -> if (isCompact) 1.38f else 1.55f
+                                act.isEdit -> if (isCompact) 0.78f else 0.85f
+                                else -> if (isCompact) 1.16f else 1f
                             }
+                            ActionPill(act, idx, Modifier.weight(w))
                         }
                     }
                 }
             }
+        }
 
-            if (isNarrow) {
+        @Composable
+        fun RightInfoContent(modifier: Modifier, includeTitleClose: Boolean) {
+            Column(
+                modifier = modifier,
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = false)
+                        .weight(1f, fill = !isNarrow)
                         .verticalScroll(scrollState),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (isCompact) 7.dp else 9.dp),
                 ) {
                     Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(end = 62.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val coverH = if (isShort) 72.dp else 88.dp
-                        val coverW = (coverH * platform.coverAspect).coerceIn(54.dp, if (isShort) 80.dp else 96.dp)
-                        CoverWithScrapeBadge(coverW = coverW, coverH = coverH, compact = true)
-                        Column(
-                            Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = game.title,
-                                style = DeckType.menuTitle.copy(fontWeight = FontWeight.Bold, fontSize = 17.sp),
-                                color = DeckColors.TextPrimary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (metaChips.isNotEmpty()) {
-                                Text(
-                                    text = metaChips.joinToString(" · "),
-                                    style = DeckType.metaLabel,
-                                    color = DeckColors.TextSecondary,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            TagsRow()
-                        }
-                    }
-                    StatsAndBody()
-                }
-            } else {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .weight(1f, fill = false),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    val coverH = 168.dp
-                    val coverW = (coverH * platform.coverAspect).coerceIn(104.dp, 164.dp)
-                    CoverWithScrapeBadge(coverW = coverW, coverH = coverH, compact = false)
-
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .verticalScroll(scrollState),
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
                             text = game.title,
-                            style = DeckType.menuTitle.copy(fontWeight = FontWeight.Bold),
+                            style = DeckType.menuTitle.copy(
+                                fontSize = if (isCompact) 19.sp else 22.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = (-0.3).sp,
+                                lineHeight = if (isCompact) 23.sp else 26.sp,
+                            ),
                             color = DeckColors.TextPrimary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(end = 64.dp),
+                            modifier = Modifier.weight(1f),
                         )
-                        if (metaChips.isNotEmpty()) {
-                            Text(
-                                text = metaChips.joinToString(" · "),
-                                style = DeckType.settingsLabel,
-                                color = DeckColors.TextSecondary,
+                        if (includeTitleClose) {
+                            DialogCloseButton(
+                                onClick = onDismiss,
+                                size = 30.dp,
+                                swapAbxy = swapAbxy,
+                                keyBindings = keyBindings,
                             )
                         }
-                        TagsRow()
-                        StatsAndBody()
                     }
-                }
-            }
-
-            Spacer(Modifier.height(when { isShort -> 6.dp; isNarrow -> 10.dp; else -> 14.dp }))
-            HorizontalDivider(color = DeckColors.Line)
-            Spacer(Modifier.height(when { isShort -> 6.dp; isNarrow -> 10.dp; else -> 12.dp }))
-
-            @Composable
-            fun ActionPill(act: DetailAction, idx: Int, modifier: Modifier) {
-                val hl = !pickingDisc && focusZone == DetailFocusZone.Actions && idx == actionIdx
-                val bgMod = when {
-                    act.primary && hl -> Modifier.brandBackground(DeckShapes.tabPill)
-                    act.active && hl -> Modifier.background(DeckColors.Ruby.copy(alpha = 0.22f))
-                    hl -> Modifier.background(DeckColors.AccentSoft)
-                    act.primary -> Modifier.background(DeckColors.Ruby.copy(alpha = 0.14f))
-                    act.active -> Modifier.background(DeckColors.AccentSoft)
-                    else -> Modifier.background(DeckColors.Surface)
-                }
-                val fgColor = when {
-                    act.primary && hl -> Color.White
-                    hl || act.primary || act.active -> DeckColors.Ruby
-                    else -> DeckColors.TextPrimary
-                }
-                val borderMod = if (act.active && !hl) {
-                    Modifier.border(1.dp, DeckColors.Ruby.copy(alpha = 0.55f), DeckShapes.tabPill)
-                } else {
-                    Modifier.brandBorder(active = hl, shape = DeckShapes.tabPill, activeWidth = 1.4.dp, inactiveWidth = 0.6.dp)
-                }
-                Box(
-                    modifier
-                        .clip(DeckShapes.tabPill)
-                        .then(bgMod)
-                        .then(borderMod)
-                        .soundClickable {
-                            actionIdx = idx
-                            act.onClick()
-                        }
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        if (!act.shortcutBadge.isNullOrBlank()) {
-                            val badgeBg = if (act.primary && hl) {
-                                Color.White.copy(alpha = 0.24f)
-                            } else {
-                                fgColor.copy(alpha = 0.14f)
-                            }
-                            Box(
-                                Modifier
-                                    .size(16.dp)
-                                    .clip(CircleShape)
-                                    .background(badgeBg),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = act.shortcutBadge,
-                                    style = DeckType.metaLabel.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 9.5.sp,
-                                        lineHeight = 10.sp,
-                                    ),
-                                    color = fgColor,
-                                    maxLines = 1,
-                                )
-                            }
-                        }
-                        if (act.isFavoriteToggle) {
-                            FavoriteHeartIcon(
-                                filled = act.active,
-                                color = fgColor,
-                                size = 13.dp,
-                                strokeWidth = 1.6.dp,
-                            )
-                        }
+                    if (metaChips.isNotEmpty()) {
                         Text(
-                            text = act.label,
-                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                            color = fgColor,
-                            maxLines = 1,
+                            text = metaChips.joinToString(" · "),
+                            style = DeckType.metaLabel.copy(
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                            ),
+                            color = DeckColors.TextSecondary,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    TagsRow()
+                    StatsAndBody()
+                }
+                ActionsBar()
+            }
+        }
+
+        if (isNarrow) {
+            // 窄屏（<460dp）：顶部全宽海报 + 底部无缝羽化 + 右下磨砂「换封面」胶囊
+            val dialogMaxH = (maxHeight * if (isShort) 0.90f else 0.88f)
+            val bannerH: Dp = if (isShort) 112.dp else 148.dp
+            Box(
+                Modifier
+                    .padding(horizontal = outerHPad, vertical = outerVPad)
+                    .widthIn(max = DeckDialogSize.WidthM)
+                    .fillMaxWidth()
+                    .heightIn(max = dialogMaxH)
+                    .cardSurface(dialogShape, elevation = 12.dp)
+                    .clip(dialogShape)
+                    .background(dialogBg)
+                    .border(1.dp, dialogLine, dialogShape)
+                    .clickable(enabled = false, onClick = {}),
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    BoxWithConstraints(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(bannerH)
+                            .background(if (isDark) DeckColors.Background else DeckColors.SurfaceAlt),
+                    ) {
+                        GameCoverCard(
+                            game = game,
+                            platform = platform,
+                            covers = covers,
+                            officialName = officialName,
+                            width = maxWidth,
+                            height = maxHeight,
+                            isFocused = false,
+                            shapeOverride = RectangleShape,
+                            showPlatformBadge = false,
+                            drawShadow = false,
+                        )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        0.00f to Color.Black.copy(alpha = 0.24f),
+                                        0.30f to Color.Transparent,
+                                        0.68f to Color.Transparent,
+                                        1.00f to dialogBg,
+                                    ),
+                                ),
+                        )
+                        DialogCloseButton(
+                            onClick = onDismiss,
+                            size = 30.dp,
+                            darkSurface = true,
+                            swapAbxy = swapAbxy,
+                            keyBindings = keyBindings,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 12.dp, end = 12.dp),
+                        )
+                        CoverChangePill(
+                            Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(bottom = 12.dp, end = 14.dp),
+                        )
+                    }
+                    RightInfoContent(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        includeTitleClose = false,
+                    )
                 }
             }
+        } else {
+            // 横屏标准：全高海报分栏（左侧无边距封面 + 右缘羽化 + 右下磨砂「换封面」胶囊，右侧经典均衡排版）
+            val availW = (maxWidth - outerHPad * 2).coerceAtMost(DeckDialogSize.WidthXL)
+            val maxTargetH = if (desc == null && !pickingDisc) 284.dp else 340.dp
+            val dialogH = (maxHeight * if (isShort) 0.90f else 0.86f).coerceAtMost(maxTargetH)
+            val artW = (availW * 0.40f).coerceIn(180.dp, 260.dp)
 
-            if (isNarrow && actions.size > 3) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ActionPill(actions[0], 0, Modifier.fillMaxWidth())
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Box(
+                Modifier
+                    .padding(horizontal = outerHPad, vertical = outerVPad)
+                    .width(availW)
+                    .height(dialogH)
+                    .cardSurface(dialogShape, elevation = 12.dp)
+                    .clip(dialogShape)
+                    .background(dialogBg)
+                    .border(1.dp, dialogLine, dialogShape)
+                    .clickable(enabled = false, onClick = {}),
+            ) {
+                Row(Modifier.fillMaxSize()) {
+                    // 左侧全高封面海报区（无重复平台角标，右缘无缝羽化进弹窗底色）
+                    BoxWithConstraints(
+                        Modifier
+                            .width(artW)
+                            .fillMaxHeight()
+                            .background(if (isDark) DeckColors.Background else DeckColors.SurfaceAlt),
                     ) {
-                        for (i in 1 until actions.size) {
-                            ActionPill(actions[i], i, Modifier.weight(1f))
-                        }
+                        GameCoverCard(
+                            game = game,
+                            platform = platform,
+                            covers = covers,
+                            officialName = officialName,
+                            width = maxWidth,
+                            height = maxHeight,
+                            isFocused = false,
+                            shapeOverride = RectangleShape,
+                            showPlatformBadge = false,
+                            drawShadow = false,
+                        )
+                        // 上下轻暗角（保障底部胶囊对比度）
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        0.00f to Color.Black.copy(alpha = 0.22f),
+                                        0.24f to Color.Transparent,
+                                        0.72f to Color.Transparent,
+                                        1.00f to Color.Black.copy(alpha = 0.52f),
+                                    ),
+                                ),
+                        )
+                        // 右侧边缘无缝羽化进弹窗背景（70% -> 100%）
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        0.00f to Color.Transparent,
+                                        0.70f to Color.Transparent,
+                                        1.00f to dialogBg,
+                                    ),
+                                ),
+                        )
+                        // 右下角磨砂「换封面」胶囊（紧贴羽化带左侧，不贴边）
+                        CoverChangePill(
+                            Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(
+                                    bottom = 14.dp,
+                                    end = if (isCompact) 18.dp else 24.dp,
+                                ),
+                        )
                     }
-                }
-            } else {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    actions.forEachIndexed { idx, act ->
-                        ActionPill(act, idx, Modifier.weight(if (act.primary) 1.35f else 1f))
-                    }
+
+                    // 右侧经典均衡信息 + 操作区
+                    RightInfoContent(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(
+                                start = if (isCompact) 12.dp else 14.dp,
+                                end = if (isCompact) 18.dp else 22.dp,
+                                top = if (isCompact) 16.dp else 20.dp,
+                                bottom = if (isCompact) 14.dp else 18.dp,
+                            ),
+                        includeTitleClose = true,
+                    )
                 }
             }
         }
@@ -666,12 +868,22 @@ fun GameDetailDialog(
 }
 
 @Composable
-private fun StatCell(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.Start) {
-        Text(label, style = DeckType.metaLabel, color = DeckColors.TextSecondary)
+private fun StatCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
         Text(
-            value,
-            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+            text = label,
+            style = DeckType.metaLabel.copy(fontSize = 10.5.sp),
+            color = DeckColors.TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = value,
+            style = DeckType.settingsLabel.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold),
             color = DeckColors.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

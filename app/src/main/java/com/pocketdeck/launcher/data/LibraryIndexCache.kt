@@ -13,29 +13,46 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 
+/** 持久化在索引快照中的已安装 Android 应用摘要，用于冷启动首屏免 PackageManager Binder IPC。 */
+data class CachedAndroidApp(
+    val packageName: String,
+    val label: String,
+    val isAutoGame: Boolean,
+    val apkSize: Long,
+    val lastModifiedMs: Long,
+)
+
+data class CachedLibrarySnapshot(
+    val library: Library,
+    val installedApps: List<CachedAndroidApp>? = null,
+)
+
 /**
  * 极速二进制游戏库磁盘索引快照（Stale-While-Revalidate）。
  *
  * 冷启动时先读取本地二进制索引（万级游戏反序列化 < 30ms），立刻渲染首屏第一个标签页，
- * 随后后台静默核对真实磁盘目录并更新快照，彻底消除海量 ROM 冷启动白屏等待。
+ * 随后后台静默核对真实磁盘目录与已安装应用列表，仅在发生变更时更新快照。
  */
 class LibraryIndexCache(context: Context) {
     private val cacheFile = File(context.filesDir, "library_index_v1.bin")
     private val tmpFile = File(context.filesDir, "library_index_v1.bin.tmp")
 
     fun load(expectedRootsKey: String): Library? =
-        loadInternal(expectedRootsKey)
+        loadSnapshotInternal(expectedRootsKey)?.library
 
     fun loadUnchecked(): Library? =
-        loadInternal(expectedRootsKey = null)
+        loadSnapshotInternal(expectedRootsKey = null)?.library
 
-    private fun loadInternal(expectedRootsKey: String?): Library? {
+    fun loadUncheckedSnapshot(): CachedLibrarySnapshot? =
+        loadSnapshotInternal(expectedRootsKey = null)
+
+    private fun loadSnapshotInternal(expectedRootsKey: String?): CachedLibrarySnapshot? {
         if (!cacheFile.isFile) return null
         return runCatching {
             DataInputStream(BufferedInputStream(FileInputStream(cacheFile), 32 * 1024)).use { inp ->
                 val magic = inp.readInt()
                 val version = inp.readInt()
-                if (magic != MAGIC || version != VERSION) return null
+                if (magic != MAGIC || (version != VERSION_V2 && version != VERSION_V3)) return null
                 val rootsKey = inp.readUTF()
                 if (expectedRootsKey != null && rootsKey != expectedRootsKey) return null
 
@@ -112,7 +129,11 @@ class LibraryIndexCache(context: Context) {
                     val genre = inp.readNullableUtf()
                     val developer = inp.readNullableUtf()
                     val publisher = inp.readNullableUtf()
-                    val description = inp.readNullableUtf()
+                    val description = if (version >= VERSION_V3) {
+                        inp.readNullableLongString()
+                    } else {
+                        inp.readNullableUtf()
+                    }
                     localMetadata[gid] = GameMetadata(releaseDate, genre, developer, publisher, description)
                 }
 
@@ -125,24 +146,48 @@ class LibraryIndexCache(context: Context) {
                     dirSnapshots[dirPath] = mod to count
                 }
 
-                Library(
-                    root = rootsKey,
-                    platforms = platforms,
-                    games = games,
-                    rootCounts = rootCounts,
-                    localMetadata = localMetadata,
-                    dirSnapshots = dirSnapshots,
+                val installedApps: List<CachedAndroidApp>? = if (version >= VERSION_V3 && inp.readBoolean()) {
+                    val appCount = inp.readInt().coerceAtLeast(0)
+                    val list = ArrayList<CachedAndroidApp>(appCount)
+                    repeat(appCount) {
+                        list += CachedAndroidApp(
+                            packageName = inp.readUTF(),
+                            label = inp.readUTF(),
+                            isAutoGame = inp.readBoolean(),
+                            apkSize = inp.readLong(),
+                            lastModifiedMs = inp.readLong(),
+                        )
+                    }
+                    list
+                } else {
+                    null
+                }
+
+                CachedLibrarySnapshot(
+                    library = Library(
+                        root = rootsKey,
+                        platforms = platforms,
+                        games = games,
+                        rootCounts = rootCounts,
+                        localMetadata = localMetadata,
+                        dirSnapshots = dirSnapshots,
+                    ),
+                    installedApps = installedApps,
                 )
             }
         }.getOrNull()
     }
 
     @Synchronized
-    fun save(rootsKey: String, library: Library) {
+    fun save(
+        rootsKey: String,
+        library: Library,
+        installedApps: List<CachedAndroidApp>? = null,
+    ) {
         runCatching {
             DataOutputStream(BufferedOutputStream(FileOutputStream(tmpFile), 32 * 1024)).use { out ->
                 out.writeInt(MAGIC)
-                out.writeInt(VERSION)
+                out.writeInt(VERSION_V3)
                 out.writeUTF(rootsKey)
 
                 out.writeInt(library.rootCounts.size)
@@ -189,7 +234,7 @@ class LibraryIndexCache(context: Context) {
                     out.writeNullableUtf(m.genre)
                     out.writeNullableUtf(m.developer)
                     out.writeNullableUtf(m.publisher)
-                    out.writeNullableUtf(m.description)
+                    out.writeNullableLongString(m.description)
                 }
 
                 out.writeInt(library.dirSnapshots.size)
@@ -197,6 +242,20 @@ class LibraryIndexCache(context: Context) {
                     out.writeUTF(dirPath)
                     out.writeLong(snap.first)
                     out.writeInt(snap.second)
+                }
+
+                if (installedApps != null) {
+                    out.writeBoolean(true)
+                    out.writeInt(installedApps.size)
+                    for (app in installedApps) {
+                        out.writeUTF(app.packageName)
+                        out.writeUTF(app.label)
+                        out.writeBoolean(app.isAutoGame)
+                        out.writeLong(app.apkSize)
+                        out.writeLong(app.lastModifiedMs)
+                    }
+                } else {
+                    out.writeBoolean(false)
                 }
             }
             if (!tmpFile.renameTo(cacheFile)) {
@@ -220,8 +279,34 @@ class LibraryIndexCache(context: Context) {
     private fun DataInputStream.readNullableUtf(): String? =
         if (readBoolean()) readUTF() else null
 
+    /** 支持超 64KB 长文本（如 gamelist.xml 详尽简介），避免 DataOutputStream.writeUTF 抛出 UTFDataFormatException。 */
+    private fun DataOutputStream.writeNullableLongString(value: String?) {
+        if (value == null) {
+            writeBoolean(false)
+        } else {
+            val bytes = value.toByteArray(Charsets.UTF_8)
+            writeBoolean(true)
+            writeInt(bytes.size)
+            write(bytes)
+        }
+    }
+
+    private fun DataInputStream.readNullableLongString(): String? {
+        if (!readBoolean()) return null
+        val len = readInt()
+        if (len < 0 || len > MAX_LONG_STRING_BYTES) {
+            throw java.io.IOException("Corrupted long string length: $len")
+        }
+        if (len == 0) return ""
+        val buf = ByteArray(len)
+        readFully(buf)
+        return String(buf, Charsets.UTF_8)
+    }
+
     companion object {
         private const val MAGIC = 0x50444958 // "PDIX"
-        private const val VERSION = 2
+        private const val VERSION_V2 = 2
+        private const val VERSION_V3 = 3
+        private const val MAX_LONG_STRING_BYTES = 16 * 1024 * 1024
     }
 }

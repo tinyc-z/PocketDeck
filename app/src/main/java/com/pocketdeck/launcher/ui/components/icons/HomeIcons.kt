@@ -9,6 +9,10 @@ import androidx.compose.ui.graphics.vector.PathBuilder
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+
 /**
  * 主页专用线性图标（与 DeckIcons 同一 24×24 Lucide 规范，用 DeckIcon(icon, tint) 渲染）。
  */
@@ -41,6 +45,19 @@ object HomeIcons {
         path(fill = SolidColor(Color.Black), pathBuilder = block)
     }
 
+    private fun PathBuilder.roundRect(x: Float, y: Float, w: Float, h: Float, r: Float) {
+        moveTo(x + r, y)
+        horizontalLineTo(x + w - r)
+        arcToRelative(r, r, 0f, false, true, r, r)
+        verticalLineTo(y + h - r)
+        arcToRelative(r, r, 0f, false, true, -r, r)
+        horizontalLineTo(x + r)
+        arcToRelative(r, r, 0f, false, true, -r, -r)
+        verticalLineTo(y + r)
+        arcToRelative(r, r, 0f, false, true, r, -r)
+        close()
+    }
+
     /** 开始游戏（实心三角） */
     val Play: ImageVector by lazy {
         icon("Play") {
@@ -68,6 +85,35 @@ object HomeIcons {
                 close()
                 moveTo(14f, 6f)
                 lineTo(18f, 10f)
+            }
+        }
+    }
+
+    /** 换封面 / 图库（与设计图 COVER_ICON_SVG 1:1 对齐：圆角画框 + 太阳 + 山脉） */
+    val CoverGallery: ImageVector by lazy {
+        icon("CoverGallery") {
+            strokePath(strokeWidth = 2.0f) {
+                // 圆角矩形 x=3..21, y=3..21, rx=3
+                moveTo(6f, 3f)
+                lineTo(18f, 3f)
+                arcTo(3f, 3f, 0f, false, true, 21f, 6f)
+                lineTo(21f, 18f)
+                arcTo(3f, 3f, 0f, false, true, 18f, 21f)
+                lineTo(6f, 21f)
+                arcTo(3f, 3f, 0f, false, true, 3f, 18f)
+                lineTo(3f, 6f)
+                arcTo(3f, 3f, 0f, false, true, 6f, 3f)
+                close()
+                // 山脉 M21 15 L16 10 L5 21
+                moveTo(21f, 15f)
+                lineTo(16f, 10f)
+                lineTo(5f, 21f)
+            }
+            strokePath(strokeWidth = 2.0f) {
+                // 圆点 cx=8.5, cy=8.5, r=1.5
+                moveTo(8.5f, 7f)
+                arcTo(1.5f, 1.5f, 0f, true, true, 8.49f, 7f)
+                close()
             }
         }
     }
@@ -122,11 +168,11 @@ object HomeIcons {
     /** 搜索 */
     val Search: ImageVector by lazy {
         icon("Search") {
-            strokePath(strokeWidth = 2.2f) {
-                moveTo(10.5f, 3.5f)
-                arcTo(7f, 7f, 0f, true, true, 10.49f, 3.5f)
+            strokePath(strokeWidth = 2.0f) {
+                moveTo(10.5f, 3.8f)
+                arcTo(6.7f, 6.7f, 0f, true, true, 10.49f, 3.8f)
                 close()
-                moveTo(15.6f, 15.6f)
+                moveTo(15.4f, 15.4f)
                 lineTo(20.5f, 20.5f)
             }
         }
@@ -160,41 +206,67 @@ object HomeIcons {
         }
     }
 
-    /** 应用抽屉（四宫格圆角方块） */
+    /** 应用抽屉（四宫格圆角描边方块） */
     val Apps: ImageVector by lazy {
         icon("Apps") {
-            strokePath(strokeWidth = 2.1f) {
-                // 左上
-                moveTo(4.5f, 4.5f); lineTo(10f, 4.5f); lineTo(10f, 10f); lineTo(4.5f, 10f); close()
-                // 右上
-                moveTo(14f, 4.5f); lineTo(19.5f, 4.5f); lineTo(19.5f, 10f); lineTo(14f, 10f); close()
-                // 左下
-                moveTo(4.5f, 14f); lineTo(10f, 14f); lineTo(10f, 19.5f); lineTo(4.5f, 19.5f); close()
-                // 右下
-                moveTo(14f, 14f); lineTo(19.5f, 14f); lineTo(19.5f, 19.5f); lineTo(14f, 19.5f); close()
+            strokePath(strokeWidth = 2.0f) {
+                roundRect(3.5f, 3.5f, 6.6f, 6.6f, 1.6f)
+                roundRect(13.9f, 3.5f, 6.6f, 6.6f, 1.6f)
+                roundRect(3.5f, 13.9f, 6.6f, 6.6f, 1.6f)
+                roundRect(13.9f, 13.9f, 6.6f, 6.6f, 1.6f)
             }
         }
     }
 
-    /** 设置（极简六齿齿轮 + 圆心） */
+    /** 设置（八齿圆润齿轮 + 圆心） */
     val Settings: ImageVector by lazy {
         icon("Settings") {
-            strokePath(strokeWidth = 2.1f) {
-                // 中心圆
-                moveTo(12f, 8.8f)
-                arcTo(3.2f, 3.2f, 0f, true, true, 11.99f, 8.8f)
+            strokePath(strokeWidth = 2.0f) {
+                // 中心圆孔
+                moveTo(12f, 9.2f)
+                arcTo(2.8f, 2.8f, 0f, true, true, 11.99f, 9.2f)
                 close()
-                // 外圈
-                moveTo(12f, 5.2f)
-                arcTo(6.8f, 6.8f, 0f, true, true, 11.99f, 5.2f)
+                // 对称八齿外廓（StrokeJoin.Round 自然圆润齿顶与齿谷）
+                val cx = 12f
+                val cy = 12f
+                val rIn = 6.95f
+                val rOut = 9.65f
+                val teeth = 8
+                val step = 2.0 * PI / teeth
+                val deg = PI / 180.0
+                for (i in 0 until teeth) {
+                    val c = -PI / 2.0 + i * step
+                    val a1 = c - 13.0 * deg
+                    val a2 = c - 8.0 * deg
+                    val a3 = c + 8.0 * deg
+                    val a4 = c + 13.0 * deg
+                    val x1 = (cx + rIn * cos(a1)).toFloat()
+                    val y1 = (cy + rIn * sin(a1)).toFloat()
+                    val x2 = (cx + rOut * cos(a2)).toFloat()
+                    val y2 = (cy + rOut * sin(a2)).toFloat()
+                    val x3 = (cx + rOut * cos(a3)).toFloat()
+                    val y3 = (cy + rOut * sin(a3)).toFloat()
+                    val x4 = (cx + rIn * cos(a4)).toFloat()
+                    val y4 = (cy + rIn * sin(a4)).toFloat()
+                    if (i == 0) moveTo(x1, y1) else lineTo(x1, y1)
+                    lineTo(x2, y2)
+                    lineTo(x3, y3)
+                    lineTo(x4, y4)
+                }
                 close()
-                // 六方向短齿
-                moveTo(12f, 2.6f); lineTo(12f, 5.0f)
-                moveTo(12f, 19.0f); lineTo(12f, 21.4f)
-                moveTo(3.9f, 7.3f); lineTo(6.0f, 8.5f)
-                moveTo(18.0f, 15.5f); lineTo(20.1f, 16.7f)
-                moveTo(3.9f, 16.7f); lineTo(6.0f, 15.5f)
-                moveTo(18.0f, 8.5f); lineTo(20.1f, 7.3f)
+            }
+        }
+    }
+
+    /** 视图切换（圆角画廊框 + 左右双竖线） */
+    val ViewCarousel: ImageVector by lazy {
+        icon("ViewCarousel") {
+            strokePath(strokeWidth = 2.0f) {
+                roundRect(6.5f, 5.2f, 11.0f, 13.6f, 2.8f)
+                moveTo(2.8f, 7.0f)
+                lineTo(2.8f, 17.0f)
+                moveTo(21.2f, 7.0f)
+                lineTo(21.2f, 17.0f)
             }
         }
     }

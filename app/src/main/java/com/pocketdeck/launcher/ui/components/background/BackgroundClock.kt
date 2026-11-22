@@ -9,6 +9,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 
 /**
  * 背景动画的循环周期上限（秒）。所有效果的运动周期都是它的约数，
@@ -18,6 +19,43 @@ internal const val BG_TIME_WRAP_SEC = 1200f
 
 /** 慢速效果（流光、极光、封面光）以 20Hz 推进时间已足够丝滑，降低弱 GPU / 掌机连续唤醒负载。 */
 internal const val BG_STEP_SLOW = 1f / 20f
+
+/** 选中卡片微幅 3D 呼吸与气泡悬浮以 30Hz 推进，兼顾细腻流畅与 60~120Hz 掌机待机功耗。 */
+internal const val BG_STEP_IDLE = 1f / 30f
+
+internal class IdleBreathingClock(
+    val seconds: FloatState,
+    val envelope: FloatState,
+)
+
+private suspend fun runThrottledFrameClock(
+    lifecycle: Lifecycle,
+    stepSec: Float,
+    onAdvance: (dt: Float) -> Unit,
+) {
+    lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        var lastNanos = 0L
+        var accum = 0f
+        // 帧回调只创建一次，避免每帧分配 lambda
+        val onFrame: (Long) -> Unit = { now ->
+            if (lastNanos != 0L) {
+                // 单帧最多推进 50ms：从暂停/后台恢复时不会突然跳一大段
+                accum += ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+                if (accum >= stepSec) {
+                    val dt = accum
+                    accum = 0f
+                    onAdvance(dt)
+                }
+            }
+            lastNanos = now
+        }
+        val sleepMs = if (stepSec > 0f) ((stepSec - 0.008f) * 1000f).toLong().coerceAtLeast(16L) else 0L
+        while (true) {
+            withFrameNanos(onFrame)
+            if (sleepMs > 0L) delay(sleepMs)
+        }
+    }
+}
 
 /**
  * 背景共享时间源（秒）。
@@ -33,27 +71,45 @@ internal fun rememberBackgroundClock(paused: Boolean, stepSec: Float = 0f): Floa
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(paused, stepSec, lifecycle) {
         if (paused) return@LaunchedEffect
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            var lastNanos = 0L
-            var accum = 0f
-            // 帧回调只创建一次，避免每帧分配 lambda
-            val onFrame: (Long) -> Unit = { now ->
-                if (lastNanos != 0L) {
-                    // 单帧最多推进 50ms：从暂停/后台恢复时不会突然跳一大段
-                    accum += ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
-                    if (accum >= stepSec) {
-                        var t = time.floatValue + accum
-                        if (t >= BG_TIME_WRAP_SEC) t -= BG_TIME_WRAP_SEC
-                        time.floatValue = t
-                        accum = 0f
-                    }
-                }
-                lastNanos = now
-            }
-            while (true) {
-                withFrameNanos(onFrame)
-            }
+        runThrottledFrameClock(lifecycle, stepSec) { dt ->
+            var t = time.floatValue + dt
+            if (t >= BG_TIME_WRAP_SEC) t -= BG_TIME_WRAP_SEC
+            time.floatValue = t
         }
     }
     return time
+}
+
+/**
+ * 选中卡片/气泡空闲 3D 呼吸时间源：
+ * - 复用 [runThrottledFrameClock] 实现 30Hz 节流、`Lifecycle.State.STARTED` 自动暂停与零每帧 lambda；
+ * - [resetKey] 或暂停态变化时立即归零并在停稳 [delayMs] 后通过 [rampSec] 平滑渐入，纯 `graphicsLayer` 读取零重组。
+ */
+@Composable
+internal fun rememberIdleBreathingClock(
+    paused: Boolean,
+    resetKey: Any?,
+    delayMs: Long = 120L,
+    rampSec: Float = 0.65f,
+    stepSec: Float = BG_STEP_IDLE,
+): IdleBreathingClock {
+    val seconds = remember { mutableFloatStateOf(0f) }
+    val envelope = remember { mutableFloatStateOf(0f) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(paused, resetKey, delayMs, rampSec, stepSec, lifecycle) {
+        seconds.floatValue = 0f
+        envelope.floatValue = 0f
+        if (paused) return@LaunchedEffect
+        if (delayMs > 0L) delay(delayMs)
+        runThrottledFrameClock(lifecycle, stepSec) { dt ->
+            var t = seconds.floatValue + dt
+            if (t >= BG_TIME_WRAP_SEC) t -= BG_TIME_WRAP_SEC
+            seconds.floatValue = t
+            val curEnv = envelope.floatValue
+            if (curEnv < 1f) {
+                envelope.floatValue = (curEnv + dt / rampSec).coerceAtMost(1f)
+            }
+        }
+    }
+    return remember(seconds, envelope) { IdleBreathingClock(seconds, envelope) }
 }

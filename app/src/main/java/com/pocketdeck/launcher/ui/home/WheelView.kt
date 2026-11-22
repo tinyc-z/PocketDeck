@@ -40,6 +40,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -228,9 +229,10 @@ fun WheelView(
                 Brush.linearGradient(listOf(palette.brandStart, palette.brandMid, palette.brandEnd))
             }
 
-            val visibleRange by remember(focusIndex, isDragging, games.size) {
+            val effectiveFastScroll = fastScrolling || isDragging
+            val visibleRange by remember(games.size) {
                 derivedStateOf {
-                    val center = if (isDragging) animatedFocus.value.roundToInt() else focusIndex
+                    val center = animatedFocus.value.roundToInt().coerceIn(0, games.lastIndex)
                     val start = (center - 2).coerceAtLeast(0)
                     val end = (center + 2).coerceAtMost(games.lastIndex)
                     start..end
@@ -262,11 +264,15 @@ fun WheelView(
                                 scaleX = s
                                 scaleY = s
                                 alpha = (1f - absD * 0.24f).coerceIn(0.18f, 1f)
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
                             }
                             .then(
                                 if (isSelected) {
                                     Modifier
-                                        .cardSurface(shape = pillShape, elevation = 8.dp)
+                                        .cardSurface(
+                                            shape = pillShape,
+                                            elevation = if (effectiveFastScroll) 0.dp else 8.dp,
+                                        )
                                         .border(2.dp, focusBorderBrush, pillShape)
                                 } else {
                                     Modifier
@@ -293,7 +299,7 @@ fun WheelView(
                             height = 36.dp,
                             isFocused = false,
                             isFavorite = false,
-                            fastScrolling = fastScrolling,
+                            fastScrolling = effectiveFastScroll,
                             shapeOverride = RoundedCornerShape(10.dp),
                         )
                         Spacer(Modifier.width(10.dp))
@@ -354,7 +360,7 @@ fun WheelView(
                     height = coverH,
                     isFocused = true,
                     isFavorite = focusedGame.id in favorites,
-                    fastScrolling = fastScrolling,
+                    fastScrolling = fastScrolling || isDragging,
                     allowDiskDuringFastScroll = true,
                     prominentFocus = false,
                     onClick = { onLaunch(focusedGame) },

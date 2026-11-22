@@ -259,6 +259,62 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
 
     // ───────────────────────── scrape_cache ─────────────────────────
 
+    data class ManualMetaRow(
+        val gameId: String,
+        val providerId: String,
+        val officialName: String?,
+        val canonicalName: String?,
+        val meta: GameMetadata,
+    )
+
+    data class BatchScrapeEntry(
+        val providerId: String,
+        val gameId: String,
+        val hit: ScrapeHit,
+        val status: Int,
+        val expiresAtMs: Long,
+    )
+
+    private fun parseExtraJson(raw: String?): JSONObject? =
+        if (raw.isNullOrBlank()) null else runCatching { JSONObject(raw) }.getOrNull()
+
+    private fun buildExtraJson(hit: ScrapeHit, manualProvider: String? = null): String? {
+        val hasCanonical = !hit.canonicalName.isNullOrBlank() && hit.canonicalName != hit.officialName
+        val hasDesc = !hit.meta.description.isNullOrBlank()
+        if (!hit.matchedBySerial && !hasCanonical && !hasDesc && manualProvider.isNullOrBlank()) return null
+        return JSONObject().apply {
+            if (hit.matchedBySerial) put("matchedBySerial", true)
+            if (hasCanonical) put("canonicalName", hit.canonicalName)
+            if (hasDesc) put("description", hit.meta.description)
+            if (!manualProvider.isNullOrBlank()) put("manualProvider", manualProvider)
+        }.toString()
+    }
+
+    private fun buildScrapeContentValues(
+        providerId: String,
+        gameId: String,
+        hit: ScrapeHit,
+        status: Int,
+        expiresAtMs: Long,
+        manualProvider: String? = null,
+    ): ContentValues {
+        val extraJson = buildExtraJson(hit, manualProvider)
+        return ContentValues(12).apply {
+            put("provider_id", providerId)
+            put("game_id", gameId)
+            put("official_name", hit.officialName)
+            put("release_date", hit.meta.releaseDate)
+            put("genre", hit.meta.genre)
+            put("developer", hit.meta.developer)
+            put("publisher", hit.meta.publisher)
+            put("cover_urls", if (hit.coverUrls.isEmpty()) "" else JSONArray(hit.coverUrls).toString())
+            if (extraJson != null) put("extra_json", extraJson) else putNull("extra_json")
+            put("status", status)
+            put("expires_at_ms", expiresAtMs)
+            put("updated_at_ms", System.currentTimeMillis())
+        }
+    }
+
     fun getScrapeHit(providerId: String, gameId: String, nowMs: Long = System.currentTimeMillis()): ScrapeCacheRow? =
         safeDb("getScrapeHit", null) {
             readableDatabase.rawQuery(
@@ -281,17 +337,19 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                         if (u.isNotBlank()) urls += u
                     }
                 }
-                val extraRaw = if (c.isNull(6)) null else c.getString(6)
-                val matchedBySerial = if (!extraRaw.isNullOrBlank()) {
-                    runCatching { JSONObject(extraRaw).optBoolean("matchedBySerial", false) }.getOrDefault(false)
-                } else false
+                val extraObj = parseExtraJson(if (c.isNull(6)) null else c.getString(6))
+                val matchedBySerial = extraObj?.optBoolean("matchedBySerial", false) ?: false
+                val canonicalName = extraObj?.optString("canonicalName")?.takeIf { it.isNotBlank() }
+                val description = extraObj?.optString("description")?.takeIf { it.isNotBlank() }
                 val hit = ScrapeHit(
                     officialName = if (c.isNull(0)) null else c.getString(0).takeIf { it.isNotBlank() },
+                    canonicalName = canonicalName,
                     meta = GameMetadata(
                         releaseDate = if (c.isNull(1)) null else c.getString(1).takeIf { it.isNotBlank() },
                         genre = if (c.isNull(2)) null else c.getString(2).takeIf { it.isNotBlank() },
                         developer = if (c.isNull(3)) null else c.getString(3).takeIf { it.isNotBlank() },
                         publisher = if (c.isNull(4)) null else c.getString(4).takeIf { it.isNotBlank() },
+                        description = description,
                     ),
                     coverUrls = urls,
                     matchedBySerial = matchedBySerial,
@@ -308,27 +366,125 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         expiresAtMs: Long,
     ) {
         safeDbUnit("putScrapeHit") {
-            val extraJson = if (hit.matchedBySerial) {
-                JSONObject().put("matchedBySerial", true).toString()
-            } else {
-                null
-            }
-            val cv = ContentValues(12).apply {
-                put("provider_id", providerId)
-                put("game_id", gameId)
-                put("official_name", hit.officialName)
-                put("release_date", hit.meta.releaseDate)
-                put("genre", hit.meta.genre)
-                put("developer", hit.meta.developer)
-                put("publisher", hit.meta.publisher)
-                put("cover_urls", if (hit.coverUrls.isEmpty()) "" else JSONArray(hit.coverUrls).toString())
-                if (extraJson != null) put("extra_json", extraJson) else putNull("extra_json")
-                put("status", status)
-                put("expires_at_ms", expiresAtMs)
-                put("updated_at_ms", System.currentTimeMillis())
-            }
+            val cv = buildScrapeContentValues(providerId, gameId, hit, status, expiresAtMs)
             writableDatabase.insertWithOnConflict("scrape_cache", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
         }
+    }
+
+    /** 单事务批量写入刮削缓存，显著降低批量预取与全量刮削的 SQLite WAL fsync 频次。 */
+    fun putScrapeHitsBatch(entries: List<BatchScrapeEntry>) {
+        if (entries.isEmpty()) return
+        safeDbUnit("putScrapeHitsBatch") {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                for (e in entries) {
+                    val cv = buildScrapeContentValues(e.providerId, e.gameId, e.hit, e.status, e.expiresAtMs)
+                    db.insertWithOnConflict("scrape_cache", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
+    /** 持久化用户手动刮削选中的元数据与官方名（永久有效，重启不丢失）。 */
+    fun putManualMetadata(
+        gameId: String,
+        providerId: String,
+        officialName: String?,
+        canonicalName: String?,
+        meta: GameMetadata,
+    ) {
+        safeDbUnit("putManualMetadata") {
+            val hit = ScrapeHit(
+                officialName = officialName,
+                canonicalName = canonicalName,
+                meta = meta,
+            )
+            val cv = buildScrapeContentValues(
+                providerId = MANUAL_META_PROVIDER,
+                gameId = gameId,
+                hit = hit,
+                status = STATUS_HIT,
+                expiresAtMs = 0L,
+                manualProvider = providerId,
+            )
+            writableDatabase.insertWithOnConflict("scrape_cache", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        }
+    }
+
+    /** 批量持久化自动刮削/离线匹配得到的元数据与官方名，冷启动直接从 SQLite 恢复而无需解压 25MB 离线表。 */
+    fun putResolvedMetadataBatch(rows: List<ManualMetaRow>) {
+        if (rows.isEmpty()) return
+        safeDbUnit("putResolvedMetadataBatch") {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                for (row in rows) {
+                    val hit = ScrapeHit(
+                        officialName = row.officialName,
+                        canonicalName = row.canonicalName,
+                        meta = row.meta,
+                    )
+                    val cv = buildScrapeContentValues(
+                        providerId = RESOLVED_META_PROVIDER,
+                        gameId = row.gameId,
+                        hit = hit,
+                        status = STATUS_HIT,
+                        expiresAtMs = 0L,
+                        manualProvider = row.providerId,
+                    )
+                    db.insertWithOnConflict("scrape_cache", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
+    /** 一次性加载所有持久化的自动刮削元数据（冷启动后台秒读）。 */
+    fun loadAllResolvedMetadata(): List<ManualMetaRow> =
+        loadMetadataRowsByProvider("loadAllResolvedMetadata", RESOLVED_META_PROVIDER)
+
+    /** 一次性加载所有持久化的手动刮削元数据（冷启动后台恢复）。 */
+    fun loadAllManualMetadata(): List<ManualMetaRow> =
+        loadMetadataRowsByProvider("loadAllManualMetadata", MANUAL_META_PROVIDER)
+
+    private fun loadMetadataRowsByProvider(op: String, providerKey: String): List<ManualMetaRow> = safeDb(op, emptyList()) {
+        val out = ArrayList<ManualMetaRow>(64)
+        readableDatabase.rawQuery(
+            """
+            SELECT game_id, official_name, release_date, genre, developer, publisher, extra_json
+            FROM scrape_cache
+            WHERE provider_id = ?
+            """.trimIndent(),
+            arrayOf(providerKey),
+        ).use { c ->
+            while (c.moveToNext()) {
+                val extraObj = parseExtraJson(if (c.isNull(6)) null else c.getString(6))
+                val prov = extraObj?.optString("manualProvider")?.takeIf { it.isNotBlank() } ?: providerKey
+                val canonical = extraObj?.optString("canonicalName")?.takeIf { it.isNotBlank() }
+                val desc = extraObj?.optString("description")?.takeIf { it.isNotBlank() }
+                val meta = GameMetadata(
+                    releaseDate = if (c.isNull(2)) null else c.getString(2).takeIf { it.isNotBlank() },
+                    genre = if (c.isNull(3)) null else c.getString(3).takeIf { it.isNotBlank() },
+                    developer = if (c.isNull(4)) null else c.getString(4).takeIf { it.isNotBlank() },
+                    publisher = if (c.isNull(5)) null else c.getString(5).takeIf { it.isNotBlank() },
+                    description = desc,
+                )
+                out += ManualMetaRow(
+                    gameId = c.getString(0),
+                    providerId = prov,
+                    officialName = if (c.isNull(1)) null else c.getString(1).takeIf { it.isNotBlank() },
+                    canonicalName = canonical,
+                    meta = meta,
+                )
+            }
+        }
+        out
     }
 
     fun clearScrapeCache() {
@@ -482,6 +638,9 @@ class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         const val STATUS_HIT = 1
         const val STATUS_MISS = 0
         const val STATUS_ERROR = -1
+
+        const val MANUAL_META_PROVIDER = "manual"
+        const val RESOLVED_META_PROVIDER = "resolved"
 
         const val TTL_HIT_MS = 30L * 24 * 60 * 60 * 1000L
         const val TTL_MISS_MS = 7L * 24 * 60 * 60 * 1000L

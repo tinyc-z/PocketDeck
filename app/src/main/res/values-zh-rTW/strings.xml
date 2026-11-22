@@ -46,6 +46,9 @@
     <string name="settings_show_metadata">遊戲資訊</string>
     <string name="settings_metadata_desc">顯示於封面下方</string>
     <string name="settings_show_bottom_bar">底部欄</string>
+    <string name="settings_nav_bar_style">導覽列樣式</string>
+    <string name="nav_bar_style_classic">預設</string>
+    <string name="nav_bar_style_glass_dock">懸浮磨砂島</string>
     <string name="settings_default_view">預設檢視</string>
     <string name="settings_tabs">標籤頁</string>
     <string name="settings_swap_abxy">交換 ABXY</string>
@@ -687,6 +690,7 @@
     <string name="bg_style_pixel_drift">像素漂浮</string>
     <string name="bg_style_retro_grid">復古網格</string>
     <string name="bg_style_cover_glow">封面氛圍光</string>
+    <string name="bg_style_starfield">星海漫遊</string>
     <string name="view_gallery">畫廊</string>
     <string name="view_list">列表</string>
     <string name="view_grid">網格</string>
@@ -766,6 +770,7 @@
     <string name="detail_multi_disc_fmt">%1$d 片光碟</string>
     <string name="detail_action_discs">選盤 (%1$d)</string>
     <string name="detail_action_back_info">返回詳情</string>
+    <string name="detail_change_cover">換封面</string>
     <string name="settings_group_experimental">實驗性功能</string>
     <string name="settings_quick_hud_title">掌機快捷 HUD</string>
     <string name="settings_quick_hud_desc">開啟後可透過快速鍵喚出浮層，快速調整亮度、音量及區域網路服務</string>

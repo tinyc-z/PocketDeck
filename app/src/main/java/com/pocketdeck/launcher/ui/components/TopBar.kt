@@ -29,6 +29,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -40,7 +41,14 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -107,12 +115,13 @@ import kotlin.math.roundToInt
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pocketdeck.launcher.R
+import com.pocketdeck.launcher.data.NavBarStyle
 import com.pocketdeck.launcher.input.KeySound
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
@@ -128,9 +137,9 @@ fun ScrapeStatusPill(
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalReduceMotion.current
-    val spinAngle = if (!reduceMotion) {
+    val spinAngleState = if (!reduceMotion) {
         val inf = rememberInfiniteTransition(label = "scrape_spin")
-        val angle by inf.animateFloat(
+        inf.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
             animationSpec = infiniteRepeatable(
@@ -139,8 +148,7 @@ fun ScrapeStatusPill(
             ),
             label = "scrape_spin_angle",
         )
-        angle
-    } else 0f
+    } else null
     val accent = DeckColors.Ruby
     Row(
         modifier
@@ -155,7 +163,8 @@ fun ScrapeStatusPill(
             icon = DeckIcons.Refresh,
             size = 12.dp,
             tint = accent,
-            modifier = Modifier.graphicsLayer { rotationZ = spinAngle },
+            // 延迟在 graphicsLayer 绘制阶段读取旋转角，实现 0 重组流畅旋转
+            modifier = Modifier.graphicsLayer { rotationZ = spinAngleState?.value ?: 0f },
         )
         Text(
             text = "$percent%",
@@ -166,10 +175,77 @@ fun ScrapeStatusPill(
     }
 }
 
+/**
+ * 悬浮磨砂岛胶囊表面（自动适配浅色 / 深色模式，零离屏 FBO 开销）。
+ * 多层柔和投影 + 半透明毛玻璃渐变填充 + 顶部高光描边，用于顶栏与底栏悬浮岛。
+ */
+internal fun Modifier.glassDockCapsule(
+    isDark: Boolean,
+    surfaceColor: Color,
+    backgroundColor: Color,
+    reduceMotion: Boolean = false,
+): Modifier = this
+    .drawBehind {
+        if (!reduceMotion && size.width > 0f && size.height > 0f) {
+            val r = size.height / 2f
+            val yOff = 3.dp.toPx()
+            val shadowBase = if (isDark) Color.Black else Color(0xFF3E2040)
+            val maxAlpha = if (isDark) 0.24f else 0.085f
+            for (step in 3 downTo 1) {
+                val spread = step * 2.4.dp.toPx()
+                drawRoundRect(
+                    color = shadowBase.copy(alpha = maxAlpha * (4 - step) / 3f),
+                    topLeft = Offset(-spread * 0.35f, yOff - spread * 0.15f),
+                    size = Size(size.width + spread * 0.7f, size.height + spread * 0.55f),
+                    cornerRadius = CornerRadius(r + spread * 0.35f, r + spread * 0.35f),
+                )
+            }
+        }
+    }
+    .clip(CircleShape)
+    .background(
+        brush = if (isDark) {
+            Brush.verticalGradient(
+                listOf(
+                    surfaceColor.copy(alpha = 0.88f),
+                    backgroundColor.copy(alpha = 0.80f),
+                ),
+            )
+        } else {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.82f),
+                    Color.White.copy(alpha = 0.68f),
+                ),
+            )
+        },
+        shape = CircleShape,
+    )
+    .border(
+        width = 1.dp,
+        brush = if (isDark) {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.20f),
+                    Color.White.copy(alpha = 0.07f),
+                ),
+            )
+        } else {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.95f),
+                    Color.White.copy(alpha = 0.55f),
+                ),
+            )
+        },
+        shape = CircleShape,
+    )
+
 @Composable
 fun TopBar(
     tabs: List<String>,
     selectedIndex: Int,
+    navBarStyle: NavBarStyle = NavBarStyle.Classic,
     is12h: Boolean = false,
     showClock: Boolean = true,
     showBattery: Boolean = true,
@@ -195,203 +271,75 @@ fun TopBar(
     rapidTabSwitchFlow: StateFlow<Boolean>? = null,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var timeText by remember { mutableStateOf("") }
-    var batteryPct by remember { mutableIntStateOf(100) }
-    var isCharging by remember { mutableStateOf(false) }
-    var wifiLevel by remember { mutableIntStateOf(-1) } // -1=off/disconnected, 0-4=signal level
-    var btEnabled by remember { mutableStateOf(false) }
-    var headsetConnected by remember { mutableStateOf(false) }
-    var airplaneMode by remember { mutableStateOf(false) }
-    var dndEnabled by remember { mutableStateOf(false) }
-    var mobileLevel by remember { mutableIntStateOf(-1) } // -1=no SIM/no service, 0-4=signal level
+    val isGlassDock = navBarStyle == NavBarStyle.GlassDock
 
-    DisposableEffect(is12h, lifecycleOwner) {
-        val mainHandler = Handler(Looper.getMainLooper())
-        val fmt = SimpleDateFormat(if (is12h) "h:mm" else "H:mm", Locale.getDefault())
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        val disposed = AtomicBoolean(false)
-        val statusScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + safeCoroutineHandler("TopBarStatus"))
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(if (isGlassDock) 54.dp else 44.dp)
+            .padding(
+                start = 16.dp,
+                end = 16.dp,
+                top = if (isGlassDock) 8.dp else 0.dp,
+                bottom = if (isGlassDock) 2.dp else 0.dp,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TopBarTabsSection(
+            tabs = tabs,
+            selectedIndex = selectedIndex,
+            navBarStyle = navBarStyle,
+            onTabClick = onTabClick,
+            rapidTabSwitchFlow = rapidTabSwitchFlow,
+            modifier = Modifier.weight(1f),
+        )
 
-        timeText = fmt.format(Date())
-
-        fun syncAllStatusAsync(excludingLostNetwork: Network? = null) {
-            statusScope.launch {
-                if (disposed.get()) return@launch
-                val wifi = readWifiLevel(context, excludingLostNetwork)
-                val bt = readBluetoothEnabled(context)
-                val headset = readWiredHeadsetConnected(audioManager)
-                val airplane = readAirplaneMode(context)
-                val dnd = readDndEnabled(context)
-                val mobile = readMobileSignalLevel(context)
-                val battery = runCatching {
-                    val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-                    bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                }.getOrNull()
-                val nowStr = fmt.format(Date())
-                mainHandler.post {
-                    if (disposed.get()) return@post
-                    timeText = nowStr
-                    wifiLevel = wifi
-                    btEnabled = bt
-                    headsetConnected = headset
-                    airplaneMode = airplane
-                    dndEnabled = dnd
-                    mobileLevel = mobile
-                    if (battery != null && battery in 0..100) batteryPct = battery
-                }
-            }
-        }
-
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                timeText = fmt.format(Date())
-                when (intent.action) {
-                    Intent.ACTION_BATTERY_CHANGED -> {
-                        intent.extras?.let { b ->
-                            val level = b.getInt(BatteryManager.EXTRA_LEVEL, -1)
-                            val scale = b.getInt(BatteryManager.EXTRA_SCALE, 100)
-                            if (level >= 0 && scale > 0) batteryPct = level * 100 / scale
-                            val status = b.getInt(BatteryManager.EXTRA_STATUS, -1)
-                            isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                                status == BatteryManager.BATTERY_STATUS_FULL
-                        }
-                    }
-                    WifiManager.WIFI_STATE_CHANGED_ACTION -> {
-                        val state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN)
-                        wifiLevel = if (state == WifiManager.WIFI_STATE_ENABLED) {
-                            readWifiLevel(context)
-                        } else {
-                            -1
-                        }
-                    }
-                    WifiManager.NETWORK_STATE_CHANGED_ACTION,
-                    WifiManager.RSSI_CHANGED_ACTION -> {
-                        wifiLevel = readWifiLevel(context)
-                    }
-                    BluetoothAdapter.ACTION_STATE_CHANGED -> {
-                        val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
-                        btEnabled = state == BluetoothAdapter.STATE_ON
-                    }
-                    AudioManager.ACTION_HEADSET_PLUG -> {
-                        val plugged = intent.getIntExtra("state", 0) == 1
-                        headsetConnected = plugged || readWiredHeadsetConnected(audioManager)
-                    }
-                    Intent.ACTION_AIRPLANE_MODE_CHANGED -> {
-                        airplaneMode = intent.getBooleanExtra("state", readAirplaneMode(context))
-                        wifiLevel = readWifiLevel(context)
-                    }
-                    NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED -> {
-                        dndEnabled = readDndEnabled(context)
-                    }
-                }
-            }
-        }
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_TIME_TICK)
-            addAction(Intent.ACTION_BATTERY_CHANGED)
-            addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
-            addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
-            addAction(WifiManager.RSSI_CHANGED_ACTION)
-            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
-            addAction(AudioManager.ACTION_HEADSET_PLUG)
-            addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED)
-            addAction(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
-        }
-        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
-
-        val wifiCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                mainHandler.post { if (!disposed.get()) wifiLevel = readWifiLevel(context) }
-            }
-
-            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-                mainHandler.post { if (!disposed.get()) wifiLevel = readWifiLevel(context) }
-            }
-
-            override fun onLost(network: Network) {
-                mainHandler.post { if (!disposed.get()) wifiLevel = readWifiLevel(context, excludingNetwork = network) }
-            }
-        }
-        val wifiCallbackRegistered = AtomicBoolean(false)
-
-        val audioCallback = object : AudioDeviceCallback() {
-            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
-                headsetConnected = readWiredHeadsetConnected(audioManager)
-            }
-
-            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
-                headsetConnected = readWiredHeadsetConnected(audioManager)
-            }
-        }
-
-        val settingsObserver = object : ContentObserver(mainHandler) {
-            override fun onChange(selfChange: Boolean) {
-                airplaneMode = readAirplaneMode(context)
-                dndEnabled = readDndEnabled(context)
-                wifiLevel = readWifiLevel(context)
-            }
-        }
-
-        val lifecycleObserver = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                syncAllStatusAsync()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
-
-        // 首帧完成绘制后再异步批量读取系统状态并挂载回调，避免冷启首帧触发主线程 Binder IPC 风暴
-        syncAllStatusAsync()
-        mainHandler.post {
-            if (disposed.get()) return@post
-            runCatching {
-                val req = NetworkRequest.Builder()
-                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                    .build()
-                connectivityManager?.registerNetworkCallback(req, wifiCallback)
-                if (connectivityManager != null) wifiCallbackRegistered.set(true)
-            }
-            runCatching { audioManager?.registerAudioDeviceCallback(audioCallback, mainHandler) }
-            runCatching {
-                context.contentResolver.registerContentObserver(
-                    Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON),
-                    false,
-                    settingsObserver,
-                )
-                context.contentResolver.registerContentObserver(
-                    Settings.Global.getUriFor("zen_mode"),
-                    false,
-                    settingsObserver,
-                )
-            }
-        }
-
-        onDispose {
-            disposed.set(true)
-            statusScope.cancel()
-            runCatching { context.unregisterReceiver(receiver) }
-            if (wifiCallbackRegistered.get()) {
-                runCatching { connectivityManager?.unregisterNetworkCallback(wifiCallback) }
-            }
-            runCatching { audioManager?.unregisterAudioDeviceCallback(audioCallback) }
-            runCatching { context.contentResolver.unregisterContentObserver(settingsObserver) }
-            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
-        }
+        TopBarStatusCluster(
+            navBarStyle = navBarStyle,
+            is12h = is12h,
+            showClock = showClock,
+            showBattery = showBattery,
+            showWifi = showWifi,
+            showBluetooth = showBluetooth,
+            showMobileSignal = showMobileSignal,
+            showHeadset = showHeadset,
+            showAirplane = showAirplane,
+            showDnd = showDnd,
+            lanSharingActive = lanSharingActive,
+            lanWebActive = lanWebActive,
+            lanPendingIncoming = lanPendingIncoming,
+            lanTransferWaiting = lanTransferWaiting,
+            lanTaskProgress = lanTaskProgress,
+            scrapeRunning = scrapeRunning,
+            scrapePercent = scrapePercent,
+            onScrapeBadgeClick = onScrapeBadgeClick,
+            onLanBadgeClick = onLanBadgeClick,
+            onWifiClick = onWifiClick,
+        )
     }
+}
 
-    // 动态滑块胶囊状态：单按/点击时位置 X 与宽度 W 弹性滑移，长按连切或减少动态效果时零帧瞬切回无动画效果
+/** 独立的顶部标签栏重组边界：时钟、电量、Wi-Fi RSSI、刮削进度等状态栏刷新绝不会触发标签行重组。 */
+@Composable
+private fun TopBarTabsSection(
+    tabs: List<String>,
+    selectedIndex: Int,
+    navBarStyle: NavBarStyle,
+    onTabClick: (Int) -> Unit,
+    rapidTabSwitchFlow: StateFlow<Boolean>?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
     val reduceMotion = LocalReduceMotion.current
     val rapidTabSwitch = rapidTabSwitchFlow?.collectAsState()?.value ?: false
     val noTabAnim = reduceMotion || rapidTabSwitch
     val scrollState = rememberScrollState()
-    val tabBounds = remember(tabs) { mutableStateMapOf<Int, Pair<Float, Float>>() }
-    var pillHeightPx by remember { mutableFloatStateOf(0f) }
+    val tabBounds = remember(tabs, navBarStyle) { mutableStateMapOf<Int, Pair<Float, Float>>() }
+    var pillHeightPx by remember(navBarStyle) { mutableFloatStateOf(0f) }
     var viewportWidthPx by remember { mutableIntStateOf(0) }
     val pillX = remember { Animatable(0f) }
     val pillW = remember { Animatable(0f) }
-    var pillInitialized by remember { mutableStateOf(false) }
+    var pillInitialized by remember(navBarStyle) { mutableStateOf(false) }
 
     val safeSelected = selectedIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
     val targetBounds = tabBounds[safeSelected]
@@ -425,27 +373,21 @@ fun TopBar(
         }
     }
 
-    Row(
-        modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // 可滚动标签行 + 动态滑动缩放的渐变选中胶囊（减少动态效果时跳过离屏渐隐 FBO 与 3 层辉光）
-        val palette = LocalDeckColors.current
-        val brandStart = palette.brandStart
-        val brandMid = palette.brandMid
-        val brandEnd = palette.brandEnd
-        val tabGlow = palette.brandEnd
-        val tabSelectedStyle = DeckType.tabSelected
-        val tabInactiveStyle = DeckType.tabInactive.copy(fontWeight = FontWeight.SemiBold)
-        val fadeLeft by remember { derivedStateOf { !reduceMotion && scrollState.value > 2 } }
-        val fadeRight by remember { derivedStateOf { !reduceMotion && scrollState.value < scrollState.maxValue - 2 } }
+    val isGlassDock = navBarStyle == NavBarStyle.GlassDock
+    val palette = LocalDeckColors.current
+    val brandStart = palette.brandStart
+    val brandMid = palette.brandMid
+    val brandEnd = palette.brandEnd
+    val tabGlow = palette.brandEnd
+    val tabSelectedStyle = DeckType.tabSelected
+    val tabInactiveStyle = DeckType.tabInactive.copy(fontWeight = FontWeight.SemiBold)
+    val fadeLeft by remember { derivedStateOf { !reduceMotion && scrollState.value > 2 } }
+    val fadeRight by remember { derivedStateOf { !reduceMotion && scrollState.value < scrollState.maxValue - 2 } }
 
+    // 可滚动标签行 + 动态滑动缩放的渐变选中胶囊（减少动态效果时跳过离屏渐隐 FBO 与 3 层辉光）
+    val tabsViewport: @Composable (Modifier) -> Unit = { vpMod ->
         Box(
-            modifier = Modifier
-                .weight(1f)
+            modifier = vpMod
                 .fillMaxHeight()
                 .onSizeChanged { viewportWidthPx = it.width }
                 .graphicsLayer(
@@ -455,7 +397,8 @@ fun TopBar(
                     drawContent()
                     val w = size.width
                     if (w > 0f && (fadeLeft || fadeRight)) {
-                        val fadeFrac = (20f / w).coerceIn(0.01f, 0.45f)
+                        val fadePx = if (isGlassDock) 28.dp.toPx() else 20f
+                        val fadeFrac = (fadePx / w).coerceIn(0.01f, 0.45f)
                         val leftColor = if (fadeLeft) Color.Transparent else Color.Black
                         val rightColor = if (fadeRight) Color.Transparent else Color.Black
                         drawRect(
@@ -509,13 +452,18 @@ fun TopBar(
                     },
                 contentAlignment = Alignment.CenterStart,
             ) {
+                val inactiveTabColor = if (isGlassDock) {
+                    palette.textPrimary.copy(alpha = if (palette.isDark) 0.76f else 0.78f)
+                } else {
+                    DeckColors.TextLabel
+                }
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isGlassDock) 2.dp else 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     tabs.forEachIndexed { i, tab ->
                         val selected = i == safeSelected
-                        val targetTextColor = if (selected) Color.White else DeckColors.TextLabel
+                        val targetTextColor = if (selected) Color.White else inactiveTabColor
                         val textColor = if (noTabAnim) {
                             targetTextColor
                         } else {
@@ -544,7 +492,10 @@ fun TopBar(
                                     KeySound.playTabSwitch(context)
                                     onTabClick(i)
                                 }
-                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                                .padding(
+                                    horizontal = if (isGlassDock) 13.dp else 12.dp,
+                                    vertical = if (isGlassDock) 5.dp else 4.dp,
+                                ),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -559,41 +510,365 @@ fun TopBar(
                 }
             }
         }
+    }
 
-        Spacer(Modifier.width(24.dp))
+    if (isGlassDock) {
+        Box(
+            modifier = modifier.fillMaxHeight(),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .glassDockCapsule(
+                        isDark = palette.isDark,
+                        surfaceColor = palette.surface,
+                        backgroundColor = palette.background,
+                        reduceMotion = reduceMotion,
+                    )
+                    .padding(horizontal = 5.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                tabsViewport(Modifier)
+            }
+        }
+    } else {
+        tabsViewport(modifier)
+    }
+}
 
-        // 状态栏：时间 · 勿扰 飞行模式 耳机 蓝牙 移动信号 Wi-Fi 电池
-        val statusTint = DeckColors.TextPrimary
-        val statusBg = DeckColors.Background
-        val statusInactive = DeckColors.TextSecondary.copy(alpha = 0.28f)
-        val statusSlash = DeckColors.TextSecondary.copy(alpha = 0.72f)
+/**
+ * 独立的状态栏集群重组边界：
+ * - 全部系统广播与回调（Wi-Fi RSSI / NetworkCallback / AudioDeviceCallback / ContentObserver）
+ *   一律切到 `statusScope (Dispatchers.IO)` 执行 Binder IPC，主线程仅接收轻量结果；
+ * - 状态变化仅重组状态集群自身，不波及左侧标签行与整条 TopBar。
+ */
+@Composable
+private fun TopBarStatusCluster(
+    navBarStyle: NavBarStyle,
+    is12h: Boolean,
+    showClock: Boolean,
+    showBattery: Boolean,
+    showWifi: Boolean,
+    showBluetooth: Boolean,
+    showMobileSignal: Boolean,
+    showHeadset: Boolean,
+    showAirplane: Boolean,
+    showDnd: Boolean,
+    lanSharingActive: Boolean,
+    lanWebActive: Boolean,
+    lanPendingIncoming: Boolean,
+    lanTransferWaiting: Boolean,
+    lanTaskProgress: Float?,
+    scrapeRunning: Boolean,
+    scrapePercent: Int,
+    onScrapeBadgeClick: () -> Unit,
+    onLanBadgeClick: () -> Unit,
+    onWifiClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val reduceMotion = LocalReduceMotion.current
+    val isGlassDock = navBarStyle == NavBarStyle.GlassDock
+    val palette = LocalDeckColors.current
 
+    var timeText by remember { mutableStateOf("") }
+    var batteryPct by remember { mutableIntStateOf(100) }
+    var isCharging by remember { mutableStateOf(false) }
+    var wifiLevel by remember { mutableIntStateOf(-1) } // -1=off/disconnected, 0-4=signal level
+    var btEnabled by remember { mutableStateOf(false) }
+    var headsetConnected by remember { mutableStateOf(false) }
+    var airplaneMode by remember { mutableStateOf(false) }
+    var dndEnabled by remember { mutableStateOf(false) }
+    var mobileLevel by remember { mutableIntStateOf(-1) } // -1=no SIM/no service, 0-4=signal level
+
+    DisposableEffect(is12h, lifecycleOwner) {
+        val mainHandler = Handler(Looper.getMainLooper())
+        val fmt = DateTimeFormatter.ofPattern(if (is12h) "h:mm" else "H:mm", Locale.getDefault())
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val disposed = AtomicBoolean(false)
+        val statusScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + safeCoroutineHandler("TopBarStatus"))
+
+        timeText = LocalTime.now().format(fmt)
+
+        fun syncAllStatusAsync(excludingLostNetwork: Network? = null) {
+            statusScope.launch {
+                if (disposed.get()) return@launch
+                val wifi = readWifiLevel(context, excludingLostNetwork)
+                val bt = readBluetoothEnabled(context)
+                val headset = readWiredHeadsetConnected(audioManager)
+                val airplane = readAirplaneMode(context)
+                val dnd = readDndEnabled(context)
+                val mobile = readMobileSignalLevel(context)
+                val battery = runCatching {
+                    val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                    bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                }.getOrNull()
+                val nowStr = LocalTime.now().format(fmt)
+                mainHandler.post {
+                    if (disposed.get()) return@post
+                    timeText = nowStr
+                    wifiLevel = wifi
+                    btEnabled = bt
+                    headsetConnected = headset
+                    airplaneMode = airplane
+                    dndEnabled = dnd
+                    mobileLevel = mobile
+                    if (battery != null && battery in 0..100) batteryPct = battery
+                }
+            }
+        }
+
+        fun refreshWifiAsync(excludingNetwork: Network? = null) {
+            statusScope.launch {
+                if (disposed.get()) return@launch
+                val wifi = readWifiLevel(context, excludingNetwork)
+                mainHandler.post { if (!disposed.get()) wifiLevel = wifi }
+            }
+        }
+
+        fun refreshHeadsetAsync() {
+            statusScope.launch {
+                if (disposed.get()) return@launch
+                val connected = readWiredHeadsetConnected(audioManager)
+                mainHandler.post { if (!disposed.get()) headsetConnected = connected }
+            }
+        }
+
+        fun refreshDndAsync() {
+            statusScope.launch {
+                if (disposed.get()) return@launch
+                val dnd = readDndEnabled(context)
+                mainHandler.post { if (!disposed.get()) dndEnabled = dnd }
+            }
+        }
+
+        fun refreshSettingsAsync() {
+            statusScope.launch {
+                if (disposed.get()) return@launch
+                val air = readAirplaneMode(context)
+                val dnd = readDndEnabled(context)
+                val wifi = readWifiLevel(context)
+                mainHandler.post {
+                    if (disposed.get()) return@post
+                    airplaneMode = air
+                    dndEnabled = dnd
+                    wifiLevel = wifi
+                }
+            }
+        }
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                timeText = LocalTime.now().format(fmt)
+                when (intent.action) {
+                    Intent.ACTION_BATTERY_CHANGED -> {
+                        intent.extras?.let { b ->
+                            val level = b.getInt(BatteryManager.EXTRA_LEVEL, -1)
+                            val scale = b.getInt(BatteryManager.EXTRA_SCALE, 100)
+                            if (level >= 0 && scale > 0) batteryPct = level * 100 / scale
+                            val status = b.getInt(BatteryManager.EXTRA_STATUS, -1)
+                            isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                                status == BatteryManager.BATTERY_STATUS_FULL
+                        }
+                    }
+                    WifiManager.WIFI_STATE_CHANGED_ACTION -> {
+                        val state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN)
+                        if (state == WifiManager.WIFI_STATE_ENABLED) {
+                            refreshWifiAsync()
+                        } else {
+                            wifiLevel = -1
+                        }
+                    }
+                    WifiManager.NETWORK_STATE_CHANGED_ACTION,
+                    WifiManager.RSSI_CHANGED_ACTION -> {
+                        refreshWifiAsync()
+                    }
+                    BluetoothAdapter.ACTION_STATE_CHANGED -> {
+                        val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                        btEnabled = state == BluetoothAdapter.STATE_ON
+                    }
+                    AudioManager.ACTION_HEADSET_PLUG -> {
+                        val plugged = intent.getIntExtra("state", 0) == 1
+                        if (plugged) {
+                            headsetConnected = true
+                        } else {
+                            refreshHeadsetAsync()
+                        }
+                    }
+                    Intent.ACTION_AIRPLANE_MODE_CHANGED -> {
+                        if (intent.hasExtra("state")) {
+                            airplaneMode = intent.getBooleanExtra("state", false)
+                            refreshWifiAsync()
+                        } else {
+                            refreshSettingsAsync()
+                        }
+                    }
+                    NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED -> {
+                        refreshDndAsync()
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
+            addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
+            addAction(WifiManager.RSSI_CHANGED_ACTION)
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
+            addAction(AudioManager.ACTION_HEADSET_PLUG)
+            addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED)
+            addAction(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
+        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+
+        val wifiCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                refreshWifiAsync()
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                refreshWifiAsync()
+            }
+
+            override fun onLost(network: Network) {
+                refreshWifiAsync(excludingNetwork = network)
+            }
+        }
+        val wifiCallbackRegistered = AtomicBoolean(false)
+
+        val audioCallback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+                refreshHeadsetAsync()
+            }
+
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+                refreshHeadsetAsync()
+            }
+        }
+
+        val settingsObserver = object : ContentObserver(mainHandler) {
+            override fun onChange(selfChange: Boolean) {
+                refreshSettingsAsync()
+            }
+        }
+
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                syncAllStatusAsync()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+
+        // 首帧完成绘制后再异步批量读取系统状态并挂载回调，避免冷启首帧触发主线程 Binder IPC 风暴
+        syncAllStatusAsync()
+        mainHandler.post {
+            if (disposed.get()) return@post
+            runCatching {
+                val req = NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .build()
+                connectivityManager?.registerNetworkCallback(req, wifiCallback)
+                if (connectivityManager != null) wifiCallbackRegistered.set(true)
+            }
+            runCatching { audioManager?.registerAudioDeviceCallback(audioCallback, mainHandler) }
+            runCatching {
+                context.contentResolver.registerContentObserver(
+                    Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON),
+                    false,
+                    settingsObserver,
+                )
+                context.contentResolver.registerContentObserver(
+                    Settings.Global.getUriFor("zen_mode"),
+                    false,
+                    settingsObserver,
+                )
+            }
+        }
+
+        onDispose {
+            disposed.set(true)
+            statusScope.cancel()
+            runCatching { context.unregisterReceiver(receiver) }
+            if (wifiCallbackRegistered.get()) {
+                runCatching { connectivityManager?.unregisterNetworkCallback(wifiCallback) }
+            }
+            runCatching { audioManager?.unregisterAudioDeviceCallback(audioCallback) }
+            runCatching { context.contentResolver.unregisterContentObserver(settingsObserver) }
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+        }
+    }
+
+    val hasLanBadge = lanSharingActive || lanWebActive || lanPendingIncoming || lanTransferWaiting || lanTaskProgress != null
+    val hasCoreStatusItems = showClock || showWifi || showBattery ||
+        (showDnd && dndEnabled) || (showAirplane && airplaneMode) ||
+        (showHeadset && headsetConnected) || (showBluetooth && btEnabled) ||
+        (showMobileSignal && mobileLevel >= 0)
+    val hasAnyStatusItem = scrapeRunning || hasLanBadge || hasCoreStatusItems
+
+    // 状态栏：支持刮削进度 / 快传 / Web 与系统状态图标动态伸缩
+    val statusTint = DeckColors.TextPrimary
+    val statusBg = if (isGlassDock) {
+        if (palette.isDark) palette.surface else Color.White
+    } else {
+        DeckColors.Background
+    }
+    val statusInactive = DeckColors.TextSecondary.copy(alpha = 0.28f)
+    val statusSlash = DeckColors.TextSecondary.copy(alpha = 0.72f)
+    val statusGap = if (isGlassDock) 6.dp else 5.dp
+    val hasRightOfScrape = hasLanBadge || hasCoreStatusItems
+    val hasRightOfLan = hasCoreStatusItems
+
+    val statusContent: @Composable () -> Unit = {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            // 后台刮削任务旋转图标 + 进度百分比胶囊（点击打开任务管理弹窗）
-            if (scrapeRunning) {
+            // 后台刮削任务旋转图标 + 进度百分比胶囊（平滑展开宽度并推开胶囊，避免右端裁切）
+            StatusSlotVisibility(
+                visible = scrapeRunning,
+                reduceMotion = reduceMotion,
+                trailingGap = if (hasRightOfScrape) statusGap else 0.dp,
+            ) {
                 ScrapeStatusPill(
                     percent = scrapePercent,
                     onClick = onScrapeBadgeClick,
                 )
             }
 
-            // 局域网快传 / Web 管理与任务进度提醒（无边框扁平风格；常态中性轻量底色，有待确认/等待/活跃进度时呈现语义主题色）
+            // 局域网快传 / Web 管理与任务进度提醒（平滑横向扩缩 + 轻弹缩放，自然撑开状态岛）
             val hasTask = lanTaskProgress != null
-            if (lanSharingActive || lanWebActive || lanPendingIncoming || lanTransferWaiting || hasTask) {
-                val showTextOnly = lanPendingIncoming || lanTransferWaiting
+            var lastShowShare by remember { mutableStateOf(false) }
+            var lastShowWeb by remember { mutableStateOf(false) }
+            val curShowTextOnly = lanPendingIncoming || lanTransferWaiting
+            val curShowShare = lanSharingActive || (hasTask && !lanWebActive)
+            val curShowWeb = lanWebActive
+            if (hasLanBadge && !curShowTextOnly) {
+                lastShowShare = curShowShare
+                lastShowWeb = curShowWeb
+            }
+            StatusSlotVisibility(
+                visible = hasLanBadge,
+                reduceMotion = reduceMotion,
+                trailingGap = if (hasRightOfLan) statusGap else 0.dp,
+            ) {
+                val showTextOnly = curShowTextOnly
                 val isDarkTheme = DeckColors.isDark
-                val animProgress by animateFloatAsState(
-                    targetValue = (lanTaskProgress ?: 0f).coerceIn(0f, 1f),
-                    animationSpec = tween(durationMillis = 200),
-                    label = "lan_task_progress",
-                )
+                val targetProgress = (lanTaskProgress ?: 0f).coerceIn(0f, 1f)
+                val animProgress = if (reduceMotion) {
+                    targetProgress
+                } else {
+                    animateFloatAsState(
+                        targetValue = targetProgress,
+                        animationSpec = tween(durationMillis = 200),
+                        label = "lan_task_progress",
+                    ).value
+                }
                 val isColored = lanPendingIncoming || hasTask || lanTransferWaiting
                 val accent = when {
-                    lanPendingIncoming -> Color(0xFFEC4899)
-                    hasTask || lanTransferWaiting -> Color(0xFF0EA5E9)
+                    lanPendingIncoming -> DeckColors.Ruby
+                    hasTask || lanTransferWaiting -> DeckColors.StatusInfo
                     else -> statusTint.copy(alpha = 0.85f)
                 }
                 val bgTint = when {
@@ -617,7 +892,6 @@ fun TopBar(
                         .soundClickable(onClick = onLanBadgeClick)
                         .padding(horizontal = 9.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     if (showTextOnly) {
                         Box(
@@ -626,6 +900,7 @@ fun TopBar(
                                 .clip(CircleShape)
                                 .background(accent),
                         )
+                        Spacer(Modifier.width(5.dp))
                         Text(
                             text = stringResource(
                                 if (lanPendingIncoming) R.string.lan_status_pending else R.string.lan_status_waiting,
@@ -635,16 +910,24 @@ fun TopBar(
                             maxLines = 1,
                         )
                     } else {
-                        val showShareLogo = lanSharingActive || (hasTask && !lanWebActive)
-                        val showWebLogo = lanWebActive
-                        if (showShareLogo) {
+                        val showShareLogo = if (hasLanBadge) curShowShare else lastShowShare
+                        val showWebLogo = if (hasLanBadge) curShowWeb else lastShowWeb
+                        StatusSlotVisibility(
+                            visible = showShareLogo,
+                            reduceMotion = reduceMotion,
+                            trailingGap = if (showWebLogo) 5.dp else 0.dp,
+                        ) {
                             Box(
                                 Modifier
                                     .size(13.dp)
                                     .drawBehind { drawQuickShareLogo(accent) },
                             )
                         }
-                        if (showWebLogo) {
+                        StatusSlotVisibility(
+                            visible = showWebLogo,
+                            reduceMotion = reduceMotion,
+                            trailingGap = 0.dp,
+                        ) {
                             Box(
                                 Modifier
                                     .size(13.dp)
@@ -655,12 +938,28 @@ fun TopBar(
                 }
             }
 
-            if (showClock) {
+            // 其余状态栏核心项（时钟 / 勿扰 / 飞行 / 耳机 / 蓝牙 / 信号 / Wi-Fi / 电池）
+            if (!isGlassDock && showClock) {
                 Text(timeText, style = DeckType.statusInfo.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp), color = statusTint)
+                val hasRightOfClassicClock = (showDnd && dndEnabled) || (showAirplane && airplaneMode) ||
+                    (showHeadset && headsetConnected) || (showBluetooth && btEnabled) ||
+                    (showMobileSignal && mobileLevel >= 0) || showWifi || showBattery
+                if (hasRightOfClassicClock) Spacer(Modifier.width(statusGap))
             }
 
-            // 勿扰模式图标
-            if (showDnd && dndEnabled) {
+            val hasTrailingCore = showWifi || showBattery || (isGlassDock && showClock)
+            val hasAfterDnd = (showAirplane && airplaneMode) || (showHeadset && headsetConnected) ||
+                (showBluetooth && btEnabled) || (showMobileSignal && mobileLevel >= 0) || hasTrailingCore
+            val hasAfterAirplane = (showHeadset && headsetConnected) ||
+                (showBluetooth && btEnabled) || (showMobileSignal && mobileLevel >= 0) || hasTrailingCore
+            val hasAfterHeadset = (showBluetooth && btEnabled) || (showMobileSignal && mobileLevel >= 0) || hasTrailingCore
+            val hasAfterBluetooth = (showMobileSignal && mobileLevel >= 0) || hasTrailingCore
+
+            StatusSlotVisibility(
+                visible = showDnd && dndEnabled,
+                reduceMotion = reduceMotion,
+                trailingGap = if (hasAfterDnd) statusGap else 0.dp,
+            ) {
                 Box(
                     Modifier
                         .size(14.dp)
@@ -668,8 +967,11 @@ fun TopBar(
                 )
             }
 
-            // 飞行模式图标
-            if (showAirplane && airplaneMode) {
+            StatusSlotVisibility(
+                visible = showAirplane && airplaneMode,
+                reduceMotion = reduceMotion,
+                trailingGap = if (hasAfterAirplane) statusGap else 0.dp,
+            ) {
                 Box(
                     Modifier
                         .size(15.dp)
@@ -677,8 +979,11 @@ fun TopBar(
                 )
             }
 
-            // 有线/USB 耳机图标
-            if (showHeadset && headsetConnected) {
+            StatusSlotVisibility(
+                visible = showHeadset && headsetConnected,
+                reduceMotion = reduceMotion,
+                trailingGap = if (hasAfterHeadset) statusGap else 0.dp,
+            ) {
                 Box(
                     Modifier
                         .size(15.dp)
@@ -686,8 +991,11 @@ fun TopBar(
                 )
             }
 
-            // 蓝牙图标
-            if (showBluetooth && btEnabled) {
+            StatusSlotVisibility(
+                visible = showBluetooth && btEnabled,
+                reduceMotion = reduceMotion,
+                trailingGap = if (hasAfterBluetooth) statusGap else 0.dp,
+            ) {
                 Box(
                     Modifier
                         .size(14.dp)
@@ -695,8 +1003,11 @@ fun TopBar(
                 )
             }
 
-            // 移动信号图标
-            if (showMobileSignal && mobileLevel >= 0) {
+            StatusSlotVisibility(
+                visible = showMobileSignal && mobileLevel >= 0,
+                reduceMotion = reduceMotion,
+                trailingGap = if (hasTrailingCore) statusGap else 0.dp,
+            ) {
                 Box(
                     Modifier
                         .size(16.dp)
@@ -732,6 +1043,7 @@ fun TopBar(
                             },
                     )
                 }
+                if (showBattery || (isGlassDock && showClock)) Spacer(Modifier.width(statusGap))
             }
 
             // 电池图标
@@ -741,7 +1053,85 @@ fun TopBar(
                     charging = isCharging,
                     modifier = Modifier.size(width = 28.dp, height = 14.dp),
                 )
+                if (isGlassDock && showClock) Spacer(Modifier.width(statusGap))
             }
+
+            // 悬浮磨砂岛下时钟稳固锚定在最右端，左侧插入快传/刮削等图标时胶囊自然向左平滑撑开
+            if (isGlassDock && showClock) {
+                Text(timeText, style = DeckType.statusInfo.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp), color = statusTint)
+            }
+        }
+    }
+
+    if (isGlassDock) {
+        if (hasAnyStatusItem) {
+            Spacer(Modifier.width(12.dp))
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .glassDockCapsule(
+                        isDark = palette.isDark,
+                        surfaceColor = palette.surface,
+                        backgroundColor = palette.background,
+                        reduceMotion = reduceMotion,
+                    )
+                    .padding(horizontal = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                statusContent()
+            }
+        }
+    } else {
+        Spacer(Modifier.width(24.dp))
+        statusContent()
+    }
+}
+
+/**
+ * 状态栏动态项平滑插入/收起容器：
+ * 以子项自身横向扩缩（expandHorizontally + 轻弹缩放 + 淡入）实时驱动外层磨砂胶囊自然向左撑开，
+ * 避免对父容器使用 animateContentSize 导致的右侧时钟裁切与突变感。
+ */
+@Composable
+private fun StatusSlotVisibility(
+    visible: Boolean,
+    reduceMotion: Boolean,
+    trailingGap: Dp,
+    content: @Composable () -> Unit,
+) {
+    if (reduceMotion) {
+        if (visible) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                content()
+                if (trailingGap > 0.dp) Spacer(Modifier.width(trailingGap))
+            }
+        }
+        return
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandHorizontally(
+            expandFrom = Alignment.Start,
+            animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f),
+        ) + fadeIn(
+            animationSpec = tween(durationMillis = 180),
+        ) + scaleIn(
+            initialScale = 0.80f,
+            animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
+        ),
+        exit = shrinkHorizontally(
+            shrinkTowards = Alignment.Start,
+            animationSpec = spring(dampingRatio = 0.86f, stiffness = 460f),
+        ) + fadeOut(
+            animationSpec = tween(durationMillis = 130),
+        ) + scaleOut(
+            targetScale = 0.80f,
+            animationSpec = tween(durationMillis = 130),
+        ),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            content()
+            if (trailingGap > 0.dp) Spacer(Modifier.width(trailingGap))
         }
     }
 }
@@ -757,8 +1147,8 @@ private fun BatteryIcon(
     modifier: Modifier = Modifier,
 ) {
     val fillColor = when {
-        charging -> Color(0xFF4CAF50) // Material Green 500
-        percent <= 20 -> Color(0xFFF44336) // Material Red 500
+        charging -> DeckColors.StatusSuccess
+        percent <= 20 -> DeckColors.StatusDanger
         else -> DeckColors.TextPrimary
     }
     val outlineColor = DeckColors.TextPrimary

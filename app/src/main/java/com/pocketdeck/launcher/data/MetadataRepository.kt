@@ -7,18 +7,24 @@ import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.launch.GameLauncher
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -26,6 +32,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 enum class MetaMatchMode {
     LocalFile,
@@ -85,13 +93,16 @@ class MetadataRepository(
     private val client: ScraperClient,
 ) {
     private val appCtx = context.applicationContext
-    private val cacheDir = File(appCtx.cacheDir, "metadata").apply { mkdirs() }
+    private val cacheDir = File(appCtx.cacheDir, "metadata")
     private val systemTables = ConcurrentHashMap<String, SystemTable>()
     private val systemTableLastUsedMs = ConcurrentHashMap<String, Long>()
     private val systemLocks = ConcurrentHashMap<String, Mutex>()
     private val remoteMetaRefreshInFlight = ConcurrentHashMap<String, Boolean>()
     private val gameCache = ConcurrentHashMap<String, GameMetadata>()
     private val localSeedMap = ConcurrentHashMap<String, GameMetadata>()
+    private val manualMetaIds = ConcurrentHashMap.newKeySet<String>()
+    /** 英文/国际标准检索名（独立于本地化展示名，用于跨源查英文 API 与 Libretro Boxarts）。 */
+    private val canonicalNames = ConcurrentHashMap<String, String>()
     private val focusApiResolved = ConcurrentHashMap<String, Boolean>()
     private val inFlightFocus = ConcurrentHashMap.newKeySet<String>()
 
@@ -110,6 +121,10 @@ class MetadataRepository(
     private val _officialNames = MutableStateFlow<Map<String, String>>(emptyMap())
     val officialNames: StateFlow<Map<String, String>> = _officialNames.asStateFlow()
 
+    private val _newlyResolvedNames = MutableSharedFlow<Set<String>>(extraBufferCapacity = 32)
+    /** 增量通知本批新解析出官方名的 gameId 集合，避免下游对全量 officialNames Map 做 O(N) diff。 */
+    val newlyResolvedNames: SharedFlow<Set<String>> = _newlyResolvedNames.asSharedFlow()
+
     private val _resolutionInfo = MutableStateFlow<Map<String, MetadataResolutionInfo>>(emptyMap())
     val resolutionInfo: StateFlow<Map<String, MetadataResolutionInfo>> = _resolutionInfo.asStateFlow()
 
@@ -125,8 +140,60 @@ class MetadataRepository(
     private val pendingNames = HashMap<String, String>()
     private val pendingInfo = HashMap<String, MetadataResolutionInfo>()
     private var batchFlushJob: Job? = null
+    private val initialCacheReady = CompletableDeferred<Unit>()
 
     init {
+        // 后台异步恢复持久化的自动/手动刮削元数据，避免冷启阻塞主线程且已刮削游戏无需再解压 25MB 离线库
+        scope.launch(Dispatchers.IO) {
+            try {
+                val savedResolved = client.database.loadAllResolvedMetadata()
+                val savedManual = client.database.loadAllManualMetadata()
+                if (savedResolved.isNotEmpty() || savedManual.isNotEmpty()) {
+                    val totalSize = savedResolved.size + savedManual.size
+                    val metaBatch = HashMap<String, GameMetadata>(totalSize)
+                    val nameBatch = HashMap<String, String>(totalSize)
+                    val infoBatch = HashMap<String, MetadataResolutionInfo>(totalSize)
+                    for (row in savedResolved) {
+                        if (!row.meta.isEmpty) {
+                            gameCache[row.gameId] = row.meta
+                            metaBatch[row.gameId] = row.meta
+                        }
+                        if (!row.officialName.isNullOrBlank()) {
+                            nameBatch[row.gameId] = row.officialName
+                        }
+                        val canon = row.canonicalName?.takeIf { it.isNotBlank() } ?: row.officialName
+                        if (!canon.isNullOrBlank()) {
+                            canonicalNames[row.gameId] = canon
+                        }
+                        infoBatch[row.gameId] = MetadataResolutionInfo(
+                            providers = listOf(row.providerId),
+                            matchModes = listOf(MetaMatchMode.TitleMatch),
+                        )
+                    }
+                    for (row in savedManual) {
+                        manualMetaIds.add(row.gameId)
+                        if (!row.meta.isEmpty) {
+                            gameCache[row.gameId] = row.meta
+                            metaBatch[row.gameId] = row.meta
+                        }
+                        if (!row.officialName.isNullOrBlank()) {
+                            nameBatch[row.gameId] = row.officialName
+                        }
+                        val canon = row.canonicalName?.takeIf { it.isNotBlank() } ?: row.officialName
+                        if (!canon.isNullOrBlank()) {
+                            canonicalNames[row.gameId] = canon
+                        }
+                        infoBatch[row.gameId] = MetadataResolutionInfo(
+                            providers = listOf(row.providerId),
+                            matchModes = listOf(MetaMatchMode.ApiNameSearch),
+                        )
+                    }
+                    enqueueBatchUpdate(metaBatch, nameBatch, infoBatch, immediate = true)
+                }
+            } finally {
+                initialCacheReady.complete(Unit)
+            }
+        }
         scope.launch {
             var prev = NetworkStatus.online.value
             NetworkStatus.online.collect { now ->
@@ -137,6 +204,11 @@ class MetadataRepository(
             }
         }
     }
+
+    /** 返回最适合用于封面/英文 API 跨源检索的标准名（优先英文 canonicalName，其次已解析 officialName）。 */
+    fun bestSearchNameFor(gameId: String): String? =
+        canonicalNames[gameId]?.takeIf { it.isNotBlank() }
+            ?: _officialNames.value[gameId]?.takeIf { it.isNotBlank() }
 
     suspend fun computeCrc32(path: String): String? = withContext(Dispatchers.IO) {
         client.computeRomCrc32(File(path))
@@ -194,14 +266,73 @@ class MetadataRepository(
         val meta: GameMetadata,
     )
 
-    private class SystemTable(
+    private class OverlayTable(
         val byCrc: Map<String, ResolvedRow>,
         val bySerial: Map<String, ResolvedRow>,
         val byExact: Map<String, ResolvedRow>,
         val byTitle: Map<String, ResolvedRow>,
         val byCompact: Map<String, ResolvedRow>,
-        val byToken: Map<String, List<ResolvedRow>>,
     ) {
+        @Volatile
+        private var _byToken: Map<String, List<ResolvedRow>>? = null
+
+        fun ensureTokenIndexBuilt(): Map<String, List<ResolvedRow>> {
+            _byToken?.let { return it }
+            synchronized(this) {
+                _byToken?.let { return it }
+                val map = HashMap<String, MutableList<ResolvedRow>>(byTitle.size + 16)
+                for ((normKey, row) in byTitle) {
+                    for (tok in TitleNormalizer.tokenize(normKey)) {
+                        map.getOrPut(tok) { ArrayList(4) }.add(row)
+                    }
+                }
+                _byToken = map
+                return map
+            }
+        }
+    }
+
+    /**
+     * 零拷贝分层平台元数据表：直接共享 [OfflineGameDb.PlatformTable] 底座，
+     * 远端 `.dat`/缓存仅作为轻量化 [OverlayTable] 叠加，消除 2~4 倍重复内存拷贝与重复建表。
+     */
+    private class SystemTable(
+        val offline: OfflineGameDb.PlatformTable?,
+        val overlay: OverlayTable?,
+    ) {
+        private fun mergeRows(primary: ResolvedRow?, fallback: ResolvedRow?): ResolvedRow? {
+            if (primary == null) return fallback
+            if (fallback == null) return primary
+            return ResolvedRow(
+                officialName = primary.officialName.ifBlank { fallback.officialName },
+                meta = OfflineGameDb.mergeMeta(primary.meta, fallback.meta),
+            )
+        }
+
+        private fun offlineRowFor(name: String): ResolvedRow {
+            val base = offline ?: return ResolvedRow(name, GameMetadata())
+            val direct = base.metaByRawName[name]
+                ?: base.rowByExact[TitleNormalizer.exactKey(name)]?.meta
+                ?: base.rowByNorm[TitleNormalizer.normalizedTitle(name)]?.meta
+                ?: GameMetadata()
+            return ResolvedRow(name, direct)
+        }
+
+        private fun enrichRow(row: ResolvedRow): ResolvedRow {
+            if (!row.meta.isEmpty || row.officialName.isBlank()) return row
+            val exactKey = TitleNormalizer.exactKey(row.officialName)
+            val normKey = TitleNormalizer.normalizedTitle(row.officialName)
+            val extraOverlay = overlay?.let { it.byExact[exactKey] ?: it.byTitle[normKey] }
+            val extraOffline = offline?.let { it.rowByExact[exactKey] ?: it.rowByNorm[normKey] }
+                ?.let { ResolvedRow(it.name, it.meta) }
+            val extra = mergeRows(extraOverlay, extraOffline)
+            return if (extra != null && !extra.meta.isEmpty) {
+                ResolvedRow(row.officialName, OfflineGameDb.mergeMeta(row.meta, extra.meta))
+            } else {
+                row
+            }
+        }
+
         fun find(
             baseName: String,
             title: String,
@@ -209,66 +340,96 @@ class MetadataRepository(
             serial: String?,
         ): TableHit? {
             if (!crc.isNullOrBlank()) {
-                byCrc[crc.uppercase()]?.let { hit ->
-                    val enriched = if (hit.meta.isEmpty && hit.officialName.isNotBlank()) {
-                        val extra = byExact[TitleNormalizer.exactKey(hit.officialName)]
-                            ?: byTitle[TitleNormalizer.normalizedTitle(hit.officialName)]
-                        if (extra != null && !extra.meta.isEmpty) {
-                            ResolvedRow(hit.officialName, extra.meta)
-                        } else {
-                            hit
-                        }
-                    } else {
-                        hit
-                    }
-                    return TableHit(enriched, MetaMatchMode.Crc32Hash)
+                val up = crc.uppercase()
+                val ovHit = overlay?.byCrc?.get(up)
+                val offHit = offline?.hashToName?.get(up)?.let(::offlineRowFor)
+                val combined = mergeRows(ovHit, offHit)
+                if (combined != null) {
+                    return TableHit(enrichRow(combined), MetaMatchMode.Crc32Hash)
                 }
             }
             if (!serial.isNullOrBlank()) {
                 val up = serial.uppercase()
-                (bySerial[up] ?: bySerial[up.replace("-", "")])?.let {
-                    return TableHit(it, MetaMatchMode.SerialId)
+                val ovHit = overlay?.let { it.bySerial[up] ?: it.bySerial[up.replace("-", "")] }
+                if (ovHit != null) {
+                    return TableHit(enrichRow(ovHit), MetaMatchMode.SerialId)
                 }
             }
-            byExact[TitleNormalizer.exactKey(baseName)]?.let {
-                return TableHit(it, MetaMatchMode.ExactFilename)
+            val exactKey = TitleNormalizer.exactKey(baseName)
+            if (exactKey.isNotEmpty()) {
+                val ovExact = overlay?.byExact?.get(exactKey)
+                val offExact = offline?.rowByExact?.get(exactKey)?.let { ResolvedRow(it.name, it.meta) }
+                mergeRows(ovExact, offExact)?.let {
+                    return TableHit(it, MetaMatchMode.ExactFilename)
+                }
             }
 
             val variants = TitleNormalizer.buildQueryVariants(baseName, title)
             for (q in variants) {
                 val norm = TitleNormalizer.normalizedTitle(q)
                 if (norm.isNotEmpty()) {
-                    byTitle[norm]?.let { return TableHit(it, MetaMatchMode.TitleMatch) }
-                }
-                val comp = TitleNormalizer.compactKey(q)
-                if (comp.isNotEmpty()) {
-                    byCompact[comp]?.let { return TableHit(it, MetaMatchMode.TitleMatch) }
+                    val ovNorm = overlay?.byTitle?.get(norm)
+                    val offNorm = offline?.rowByNorm?.get(norm)?.let { ResolvedRow(it.name, it.meta) }
+                    mergeRows(ovNorm, offNorm)?.let { return TableHit(it, MetaMatchMode.TitleMatch) }
+
+                    val comp = TitleNormalizer.compactFromNorm(norm)
+                    if (comp.isNotEmpty()) {
+                        val ovComp = overlay?.byCompact?.get(comp)
+                        val offComp = offline?.rowByCompact?.get(comp)?.let { ResolvedRow(it.name, it.meta) }
+                        mergeRows(ovComp, offComp)?.let { return TableHit(it, MetaMatchMode.TitleMatch) }
+                    }
                 }
             }
 
-            // 倒排词模糊匹配（防止细微标点或版本差异漏掉）
+            // 倒排词模糊匹配（按需懒建倒排索引，防止细微标点或版本差异漏掉）
+            val ovTokens = overlay?.ensureTokenIndexBuilt()
+            val offTokens = offline?.ensureTokenIndexBuilt()
+            if (ovTokens.isNullOrEmpty() && offTokens.isNullOrEmpty()) return null
+
             var bestRow: ResolvedRow? = null
             var bestScore = 0.80
             val evaluated = HashSet<String>(64)
-            for (q in variants.take(4)) {
+            for (q in TitleNormalizer.selectFuzzyQueries(variants)) {
                 val norm = TitleNormalizer.normalizedTitle(q)
                 val tokens = TitleNormalizer.tokenize(norm)
                 if (tokens.isEmpty()) continue
-                val counts = HashMap<ResolvedRow, Int>(32)
-                for (tok in tokens) {
-                    val bucket = byToken[tok] ?: continue
-                    if (bucket.size > 400) continue
-                    for (row in bucket) {
-                        counts[row] = (counts[row] ?: 0) + 1
+                val minOverlap = if (tokens.size <= 2) 1 else 2
+
+                if (!ovTokens.isNullOrEmpty()) {
+                    val counts = HashMap<ResolvedRow, Int>(32)
+                    for (tok in tokens) {
+                        val bucket = ovTokens[tok] ?: continue
+                        if (bucket.size > 400) continue
+                        for (row in bucket) {
+                            counts[row] = (counts[row] ?: 0) + 1
+                        }
+                    }
+                    for ((row, cnt) in counts) {
+                        if (cnt < minOverlap || !evaluated.add("ov:${row.officialName}")) continue
+                        val sim = TitleNormalizer.similarity(q, row.officialName)
+                        if (sim > bestScore) {
+                            bestScore = sim
+                            bestRow = row
+                        }
                     }
                 }
-                val minOverlap = if (tokens.size <= 2) 1 else 2
-                for ((row, cnt) in counts) {
-                    if (cnt < minOverlap || !evaluated.add(row.officialName)) continue
-                    val sim = TitleNormalizer.similarity(q, row.officialName)
-                    if (sim > bestScore) {
-                        bestScore = sim
-                        bestRow = row
+
+                if (!offTokens.isNullOrEmpty()) {
+                    val counts = HashMap<OfflineGameDb.MetaRow, Int>(32)
+                    for (tok in tokens) {
+                        val bucket = offTokens[tok] ?: continue
+                        if (bucket.size > 400) continue
+                        for (row in bucket) {
+                            counts[row] = (counts[row] ?: 0) + 1
+                        }
+                    }
+                    for ((row, cnt) in counts) {
+                        if (cnt < minOverlap || !evaluated.add("off:${row.name}")) continue
+                        val sim = TitleNormalizer.similarity(q, row.name)
+                        if (sim > bestScore) {
+                            bestScore = sim
+                            bestRow = ResolvedRow(row.name, row.meta)
+                        }
                     }
                 }
             }
@@ -330,6 +491,8 @@ class MetadataRepository(
         systemTables.clear()
         remoteMetaRefreshInFlight.clear()
         gameCache.clear()
+        manualMetaIds.clear()
+        canonicalNames.clear()
         focusApiResolved.clear()
         inFlightFocus.clear()
         clearPendingBatch()
@@ -344,7 +507,12 @@ class MetadataRepository(
     }
 
     /**
-     * 增量后台刮削所有缺少封面或元数据的游戏（不清空已有缓存，支持随时 [cancelScrapeMissing] 终止）。
+     * 两阶段并发增量刮削所有缺少封面或元数据的游戏（支持随时 [cancelScrapeMissing] 终止）：
+     * 1. 按平台分组并并行预载平台离线元数据表、Boxart 索引及全量街机批次；
+     * 2. 阶段 A（零网络快通）：复用 Coil 磁盘缓存直接落盘离线封面；
+     * 3. 阶段 B（受控 4 并发 Worker 池）：对缺失项并发刮削元数据与封面（复用服务商限流器），
+     *    并按时间窗/批次节流刷新进度与 StateFlow，彻底消除 O(N²) 整表拷贝抖动。
+     *
      * @return 本次进入队列的缺失游戏数量；若已有任务运行中，返回当前任务总数。
      */
     suspend fun scrapeMissing(
@@ -384,20 +552,59 @@ class MetadataRepository(
         )
 
         missingScrapeJob = scope.launch(Dispatchers.IO) {
-            var doneCount = 0
-            var updatedCount = 0
-            var failCount = 0
+            val doneCount = AtomicInteger(0)
+            val updatedCount = AtomicInteger(0)
+            val failCount = AtomicInteger(0)
+            val lastProgressEmitMs = AtomicLong(0L)
             var wasCancelled = false
+
+            val accLock = Any()
             val updates = HashMap<String, GameMetadata>()
             val nameUpdates = HashMap<String, String>()
             val infoUpdates = HashMap<String, MetadataResolutionInfo>()
+            var lastFlushMs = System.currentTimeMillis()
+            var accSinceFlush = 0
 
-            fun flushPartial() {
-                if (updates.isNotEmpty() || nameUpdates.isNotEmpty() || infoUpdates.isNotEmpty()) {
-                    enqueueBatchUpdate(HashMap(updates), HashMap(nameUpdates), HashMap(infoUpdates), immediate = true)
+            fun flushPartial(force: Boolean = false) {
+                val now = System.currentTimeMillis()
+                val mCopy: HashMap<String, GameMetadata>
+                val nCopy: HashMap<String, String>
+                val iCopy: HashMap<String, MetadataResolutionInfo>
+                synchronized(accLock) {
+                    if (!force && accSinceFlush < SCRAPE_FLUSH_BATCH_SIZE && (now - lastFlushMs) < SCRAPE_FLUSH_INTERVAL_MS) {
+                        return
+                    }
+                    if (updates.isEmpty() && nameUpdates.isEmpty() && infoUpdates.isEmpty()) {
+                        accSinceFlush = 0
+                        lastFlushMs = now
+                        return
+                    }
+                    mCopy = HashMap(updates)
+                    nCopy = HashMap(nameUpdates)
+                    iCopy = HashMap(infoUpdates)
                     updates.clear()
                     nameUpdates.clear()
                     infoUpdates.clear()
+                    accSinceFlush = 0
+                    lastFlushMs = now
+                }
+                enqueueBatchUpdate(mCopy, nCopy, iCopy, immediate = true)
+            }
+
+            fun publishProgress(title: String, platName: String, force: Boolean = false) {
+                val now = System.currentTimeMillis()
+                val prev = lastProgressEmitMs.get()
+                if (!force && (now - prev) < SCRAPE_PROGRESS_THROTTLE_MS) return
+                if (force || lastProgressEmitMs.compareAndSet(prev, now)) {
+                    _scrapeProgress.value = ScrapeProgress(
+                        running = true,
+                        done = doneCount.get(),
+                        total = total,
+                        currentTitle = title,
+                        currentPlatform = platName,
+                        updatedCount = updatedCount.get(),
+                        failedCount = failCount.get(),
+                    )
                 }
             }
 
@@ -407,77 +614,133 @@ class MetadataRepository(
                     currentCoroutineContext().ensureActive()
                     val online = NetworkStatus.isOnline(appCtx)
                     val system = platform?.libretroSystem
-                    if (useLibretroDb && !system.isNullOrBlank()) {
-                        getOrFetchLibretroTable(system)
-                    }
-                    if (online && platform != null) {
-                        covers.ensureIndexLoaded(platform)
-                    }
-                    if (useArcadeItalia && online) {
-                        client.prefetchArcadeItaliaBatch(platGames.take(60), platform)
+                    val platName = platform?.shortName.orEmpty()
+
+                    // 并行预载该平台的离线元数据表与 Boxart 索引（等待就绪，消除竞态）
+                    coroutineScope {
+                        val tableJob = if (useLibretroDb && !system.isNullOrBlank()) {
+                            async { getOrFetchLibretroTable(system) }
+                        } else null
+                        val indexJob = if (online && platform != null) {
+                            async { covers.ensureIndexLoadedAwait(platform) }
+                        } else null
+                        val arcadeJob = if (useArcadeItalia && online) {
+                            async { client.prefetchArcadeItaliaBatch(platGames, platform) }
+                        } else null
+                        tableJob?.await()
+                        indexJob?.await()
+                        arcadeJob?.await()
                     }
 
+                    // 阶段 A：对无需刮削元数据的游戏先尝试零网络转存 Coil 磁盘缓存封面
+                    val needWorkerGames = ArrayList<Game>(platGames.size)
                     for (g in platGames) {
                         currentCoroutineContext().ensureActive()
-                        _scrapeProgress.value = ScrapeProgress(
-                            running = true,
-                            done = doneCount,
-                            total = total,
-                            currentTitle = g.title,
-                            currentPlatform = platform?.shortName.orEmpty(),
-                            updatedCount = updatedCount,
-                            failedCount = failCount,
-                        )
-
-                        val needMeta = (_metadata.value[g.id] ?: gameCache[g.id])?.isEmpty != false
-                        val needCover = !covers.hasDownloadedCover(g)
-                        var gotSomething = false
-                        var offName = _officialNames.value[g.id]
-
-                        if (needMeta && enabled.isNotEmpty()) {
-                            val res = resolveSingleGame(
-                                g = g,
-                                platform = platform,
-                                enabled = enabled,
-                                cred = cred,
-                                queryApi = NetworkStatus.isOnline(appCtx),
-                            )
-                            gameCache[g.id] = res.meta
-                            if (!res.meta.isEmpty) {
-                                updates[g.id] = res.meta
-                                gotSomething = true
-                            }
-                            if (!res.officialName.isNullOrBlank()) {
-                                nameUpdates[g.id] = res.officialName
-                                offName = res.officialName
-                            }
-                            res.info?.let { infoUpdates[g.id] = it }
+                        val needMeta = g.id !in manualMetaIds && (_metadata.value[g.id] ?: gameCache[g.id])?.isEmpty != false
+                        val promotedCover = !needMeta && covers.saveCoilCachedCoverIfAvailable(g)
+                        if (!needMeta && promotedCover) {
+                            updatedCount.incrementAndGet()
+                            doneCount.incrementAndGet()
+                            publishProgress(g.title, platName)
+                        } else {
+                            needWorkerGames += g
                         }
-
-                        if (needCover && NetworkStatus.isOnline(appCtx)) {
-                            val ok = covers.fetchWebCoverNow(g, platform, offName)
-                            if (ok) gotSomething = true
-                        }
-
-                        if (gotSomething) updatedCount++ else failCount++
-                        doneCount++
-                        if (doneCount % 4 == 0) flushPartial()
                     }
-                    flushPartial()
+
+                    if (needWorkerGames.isEmpty()) {
+                        flushPartial(force = true)
+                        continue
+                    }
+
+                    // 阶段 B：固定 4 并发 Worker 池并发处理当前平台待刮削项（保持平台表热缓存不抖动）
+                    val workerCount = minOf(SCRAPE_CONCURRENCY, needWorkerGames.size)
+                    val channel = Channel<Game>(capacity = Channel.UNLIMITED)
+                    for (g in needWorkerGames) {
+                        channel.trySend(g)
+                    }
+                    channel.close()
+
+                    coroutineScope {
+                        repeat(workerCount) {
+                            launch(Dispatchers.IO) {
+                                for (g in channel) {
+                                    currentCoroutineContext().ensureActive()
+                                    publishProgress(g.title, platName)
+
+                                    val needMeta = g.id !in manualMetaIds &&
+                                        (_metadata.value[g.id] ?: gameCache[g.id])?.isEmpty != false
+                                    val needCover = !covers.hasDownloadedCover(g)
+                                    var gotSomething = false
+                                    var searchName = bestSearchNameFor(g.id)
+
+                                    if (needMeta && enabled.isNotEmpty()) {
+                                        val res = resolveSingleGame(
+                                            g = g,
+                                            platform = platform,
+                                            enabled = enabled,
+                                            cred = cred,
+                                            queryApi = NetworkStatus.isOnline(appCtx),
+                                        )
+                                        gameCache[g.id] = res.meta
+                                        val effSearch = res.canonicalName?.takeIf { it.isNotBlank() } ?: res.officialName
+                                        if (!effSearch.isNullOrBlank()) {
+                                            canonicalNames[g.id] = effSearch
+                                            searchName = effSearch
+                                        }
+                                        if (!res.meta.isEmpty || !res.officialName.isNullOrBlank()) {
+                                            client.database.putResolvedMetadataBatch(
+                                                listOf(
+                                                    ScrapeDatabase.ManualMetaRow(
+                                                        gameId = g.id,
+                                                        providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
+                                                        officialName = res.officialName,
+                                                        canonicalName = effSearch,
+                                                        meta = res.meta,
+                                                    ),
+                                                ),
+                                            )
+                                        }
+                                        synchronized(accLock) {
+                                            if (!res.meta.isEmpty) {
+                                                updates[g.id] = res.meta
+                                                gotSomething = true
+                                            }
+                                            if (!res.officialName.isNullOrBlank()) {
+                                                nameUpdates[g.id] = res.officialName
+                                            }
+                                            res.info?.let { infoUpdates[g.id] = it }
+                                            accSinceFlush++
+                                        }
+                                    }
+
+                                    if (needCover) {
+                                        val ok = covers.fetchWebCoverNow(g, platform, searchName)
+                                        if (ok) gotSomething = true
+                                    }
+
+                                    if (gotSomething) updatedCount.incrementAndGet() else failCount.incrementAndGet()
+                                    doneCount.incrementAndGet()
+                                    flushPartial(force = false)
+                                    publishProgress(g.title, platName)
+                                }
+                            }
+                        }
+                    }
+                    flushPartial(force = true)
                 }
             } catch (e: CancellationException) {
                 wasCancelled = true
                 throw e
             } finally {
-                flushPartial()
+                flushPartial(force = true)
                 _scrapeProgress.value = ScrapeProgress(
                     running = false,
-                    done = doneCount,
+                    done = doneCount.get(),
                     total = total,
                     currentTitle = "",
                     currentPlatform = "",
-                    updatedCount = updatedCount,
-                    failedCount = failCount,
+                    updatedCount = updatedCount.get(),
+                    failedCount = failCount.get(),
                     cancelled = wasCancelled,
                     finishedAtMs = System.currentTimeMillis(),
                 )
@@ -499,7 +762,7 @@ class MetadataRepository(
         }
     }
 
-    /** 预加载指定平台下可见游戏的元数据（先使用 DAT / GameTDB 与已缓存 API 结果，再按需补齐）。 */
+    /** 预加载指定平台下可见游戏的元数据（仅对尚未缓存元数据的平台按需加载离线库，已完整刮削时零离线表 IO/内存）。 */
     fun ensureLoaded(games: List<Game>, platformResolver: (Game) -> Platform?) {
         val romGames = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
         if (romGames.isEmpty()) return
@@ -509,7 +772,10 @@ class MetadataRepository(
         val useArcadeItalia = enabled.any { it.id == ScraperCatalog.MetaIds.ARCADEITALIA }
 
         scope.launch(Dispatchers.IO) {
-            val grouped = romGames.groupBy { platformResolver(it) }
+            initialCacheReady.await()
+            val pendingGames = romGames.filter { it.id !in manualMetaIds && !gameCache.containsKey(it.id) }
+            if (pendingGames.isEmpty()) return@launch
+            val grouped = pendingGames.groupBy { platformResolver(it) }
             coroutineScope {
                 for ((platform, platGames) in grouped) {
                     launch {
@@ -528,7 +794,7 @@ class MetadataRepository(
         }
     }
 
-    /** 确保单个焦点游戏从全部已启用的服务商查询并合并元数据。 */
+    /** 确保单个焦点游戏从全部已启用的服务商查询并合并元数据（已持久化命中的游戏冷启动跳过离线表解压）。 */
     fun resolveFocusGame(game: Game?, platform: Platform?) {
         val g = game ?: return
         if (g.id.startsWith(GameLauncher.APK_PREFIX)) return
@@ -543,6 +809,12 @@ class MetadataRepository(
         val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
         scope.launch {
             try {
+                initialCacheReady.await()
+                val existing = gameCache[g.id]
+                if (g.id in manualMetaIds || (existing != null && !existing.isEmpty)) {
+                    focusApiResolved[g.id] = true
+                    return@launch
+                }
                 val system = platform?.libretroSystem
                 if (useLibretroDb && !system.isNullOrBlank()) {
                     getOrFetchLibretroTable(system)
@@ -583,6 +855,20 @@ class MetadataRepository(
 
         gameCache[game.id] = res.meta
         focusApiResolved[game.id] = true
+        (res.canonicalName?.takeIf { it.isNotBlank() } ?: res.officialName)?.let { canonicalNames[game.id] = it }
+        if (game.id !in manualMetaIds) {
+            client.database.putResolvedMetadataBatch(
+                listOf(
+                    ScrapeDatabase.ManualMetaRow(
+                        gameId = game.id,
+                        providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
+                        officialName = res.officialName,
+                        canonicalName = res.canonicalName,
+                        meta = res.meta,
+                    ),
+                ),
+            )
+        }
         enqueueBatchUpdate(
             metaUpdates = if (!res.meta.isEmpty) mapOf(game.id to res.meta) else emptyMap(),
             nameUpdates = res.officialName?.takeIf { it.isNotBlank() }?.let { mapOf(game.id to it) }.orEmpty(),
@@ -618,6 +904,7 @@ class MetadataRepository(
         val hasResult = !res.meta.isEmpty || !res.officialName.isNullOrBlank() || res.info?.crc32 != null
         if (!hasResult) return@withContext false
         if (!res.meta.isEmpty) gameCache[game.id] = res.meta
+        (res.canonicalName?.takeIf { it.isNotBlank() } ?: res.officialName)?.let { canonicalNames[game.id] = it }
         enqueueBatchUpdate(
             metaUpdates = if (!res.meta.isEmpty) mapOf(game.id to res.meta) else emptyMap(),
             nameUpdates = res.officialName?.takeIf { it.isNotBlank() }?.let { mapOf(game.id to it) }.orEmpty(),
@@ -630,6 +917,7 @@ class MetadataRepository(
     private data class SingleResolution(
         val meta: GameMetadata,
         val officialName: String?,
+        val canonicalName: String?,
         val info: MetadataResolutionInfo?,
     )
 
@@ -643,6 +931,7 @@ class MetadataRepository(
     ): SingleResolution {
         val system = platform?.libretroSystem
         var officialName: String? = null
+        var canonicalName: String? = null
         var releaseDate: String? = null
         var genre: String? = null
         var developer: String? = null
@@ -659,10 +948,21 @@ class MetadataRepository(
             return ext
         }
 
-        fun merge(providerId: String, mode: MetaMatchMode, name: String?, meta: GameMetadata) {
+        fun merge(
+            providerId: String,
+            mode: MetaMatchMode,
+            name: String?,
+            meta: GameMetadata,
+            enCanonical: String? = null,
+        ) {
             var contributed = false
             if (officialName == null && !name.isNullOrBlank()) {
                 officialName = name; contributed = true
+            }
+            val candCanon = enCanonical?.takeIf { it.isNotBlank() }
+                ?: name?.takeIf { it.isNotBlank() && !CjkAliases.containsCjk(it) }
+            if (canonicalName == null && candCanon != null) {
+                canonicalName = candCanon
             }
             if (releaseDate == null && !meta.releaseDate.isNullOrBlank()) {
                 releaseDate = meta.releaseDate; contributed = true
@@ -701,16 +1001,19 @@ class MetadataRepository(
                     if (!system.isNullOrBlank()) {
                         val table = systemTables[system]
                         if (table != null) {
+                            // 对快速指纹格式（缓存命中 / zip / 7z / nds / 3ds / chd / rvz / wbfs）优先精确指纹，避免模糊标题误配
+                            if (identity == null && client.hasFastFingerprint(File(g.id), platform.id)) {
+                                getIdentity()
+                            }
                             var hit = table.find(g.baseName, g.title, crc = identity?.crc32, serial = identity?.serial)
-                            val allowHeavyId = queryApi || g.id.endsWith(".zip", true) || g.id.endsWith(".7z", true)
-                            if (hit == null && identity == null && allowHeavyId) {
+                            if (hit == null && identity == null && queryApi) {
                                 val id = getIdentity()
                                 if (id.crc32 != null || id.serial != null) {
                                     hit = table.find(g.baseName, g.title, id.crc32, id.serial)
                                 }
                             }
                             if (hit != null) {
-                                merge(provider.id, hit.mode, hit.row.officialName, hit.row.meta)
+                                merge(provider.id, hit.mode, hit.row.officialName, hit.row.meta, enCanonical = hit.row.officialName)
                             }
                         }
                     }
@@ -724,13 +1027,21 @@ class MetadataRepository(
                         }
                         if (match != null && !match.hit.isEmpty) {
                             val mode = if (match.bySerial) MetaMatchMode.SerialId else MetaMatchMode.TitleMatch
-                            merge(provider.id, mode, match.hit.officialName, match.hit.meta)
+                            merge(
+                                provider.id,
+                                mode,
+                                match.hit.officialName,
+                                match.hit.meta,
+                                enCanonical = match.hit.canonicalName,
+                            )
                         }
                     }
                 }
                 else -> {
                     val desc = ScraperCatalog.metaDescriptor(provider.id)
                     if (!ScraperCatalog.hasCredentials(desc?.credentialKind, cred)) continue
+                    val searchHint = canonicalName ?: officialName?.takeIf { !CjkAliases.containsCjk(it) }
+                    val hadFreshCacheBefore = queryApi && !forceApiRefresh && client.cachedHit(provider.id, g.id) != null
                     var hit = if (queryApi) {
                         client.queryProvider(
                             providerId = provider.id,
@@ -738,25 +1049,32 @@ class MetadataRepository(
                             platform = platform,
                             cred = cred,
                             forceRefresh = forceApiRefresh,
-                            officialNameHint = officialName,
+                            officialNameHint = searchHint,
                         )
                     } else {
                         client.cachedHit(provider.id, g.id)
                     }
-                    // I3: 中文/汉化 ROM 首次未命中时，自动以 CjkAliases 标准化英文名二次重试
-                    if (queryApi && (hit == null || hit.isEmpty) &&
+                    // I3: 仅对支持名称检索、尚未负缓存且未提供英文提示的中文 ROM 尝试第二英文别名补充，避免重复发包或击穿负缓存
+                    if (queryApi && !hadFreshCacheBefore && (hit == null || hit.isEmpty) && searchHint == null &&
+                        provider.id in NAME_SEARCH_META_PROVIDERS &&
                         (CjkAliases.containsCjk(g.title) || CjkAliases.containsCjk(g.baseName))
                     ) {
-                        val enAlias = CjkAliases.expandEnglishAliases(g.title).firstOrNull()
-                            ?: CjkAliases.expandEnglishAliases(g.baseName).firstOrNull()
-                        if (!enAlias.isNullOrBlank() && !enAlias.equals(officialName, ignoreCase = true)) {
+                        val aliases = CjkAliases.expandEnglishAliases(g.title).ifEmpty {
+                            CjkAliases.expandEnglishAliases(g.baseName)
+                        }
+                        val firstNorm = aliases.firstOrNull()?.let(TitleNormalizer::normalizedTitle)
+                        val secondAlias = aliases.drop(1).firstOrNull { cand ->
+                            val n = TitleNormalizer.normalizedTitle(cand)
+                            n.isNotEmpty() && n != firstNorm
+                        }
+                        if (!secondAlias.isNullOrBlank()) {
                             hit = client.queryProvider(
                                 providerId = provider.id,
                                 game = g,
                                 platform = platform,
                                 cred = cred,
                                 forceRefresh = true,
-                                officialNameHint = enAlias,
+                                officialNameHint = secondAlias,
                             )
                         }
                     }
@@ -774,7 +1092,7 @@ class MetadataRepository(
                             }
                             else -> MetaMatchMode.ApiNameSearch
                         }
-                        merge(provider.id, apiMode, hit.officialName, hit.meta)
+                        merge(provider.id, apiMode, hit.officialName, hit.meta, enCanonical = hit.canonicalName)
                     }
                 }
             }
@@ -797,7 +1115,7 @@ class MetadataRepository(
         } else {
             null
         }
-        return SingleResolution(resolved, officialName, info)
+        return SingleResolution(resolved, officialName, canonicalName, info)
     }
 
     private suspend fun resolveGames(
@@ -812,10 +1130,16 @@ class MetadataRepository(
         val updates = HashMap<String, GameMetadata>()
         val nameUpdates = HashMap<String, String>()
         val infoUpdates = HashMap<String, MetadataResolutionInfo>()
+        val persistRows = ArrayList<ScrapeDatabase.ManualMetaRow>()
 
         val romOnly = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
-        val pending = if (queryApi) romOnly else romOnly.filter { !gameCache.containsKey(it.id) }
-        val trackProgress = pending.size > 1
+        val pending = if (queryApi) {
+            romOnly.filter { it.id !in manualMetaIds }
+        } else {
+            romOnly.filter { it.id !in manualMetaIds && !gameCache.containsKey(it.id) }
+        }
+        // 静默浏览加载（queryApi=false）绝不写 _scrapeProgress，避免切 Tab 覆写运行中的全量刮削进度或误关常亮
+        val trackProgress = queryApi && pending.size > 1 && missingScrapeJob?.isActive != true
         var doneCount = 0
         var failCount = 0
         if (trackProgress) {
@@ -850,7 +1174,20 @@ class MetadataRepository(
                 if (!off.isNullOrBlank()) {
                     nameUpdates[g.id] = off
                 }
+                val canon = res.canonicalName?.takeIf { it.isNotBlank() } ?: off
+                if (!canon.isNullOrBlank()) {
+                    canonicalNames[g.id] = canon
+                }
                 res.info?.let { infoUpdates[g.id] = it }
+                if (!res.meta.isEmpty || !off.isNullOrBlank()) {
+                    persistRows += ScrapeDatabase.ManualMetaRow(
+                        gameId = g.id,
+                        providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
+                        officialName = off,
+                        canonicalName = canon,
+                        meta = res.meta,
+                    )
+                }
                 doneCount++
             }
         } finally {
@@ -865,6 +1202,9 @@ class MetadataRepository(
             }
         }
 
+        if (persistRows.isNotEmpty()) {
+            client.database.putResolvedMetadataBatch(persistRows)
+        }
         if (updates.isNotEmpty() || nameUpdates.isNotEmpty() || infoUpdates.isNotEmpty()) {
             enqueueBatchUpdate(updates, nameUpdates, infoUpdates, immediate = games.size > 4)
         }
@@ -1209,25 +1549,42 @@ class MetadataRepository(
         synchronized(lock) { out.take(6).toList() }
     }
 
-    /** 一键应用手动搜索刮削结果（封面 + 元数据 + 官方名）。 */
+    /** 一键应用手动搜索刮削结果（封面 + 元数据 + 官方名），并永久持久化元数据到 SQLite 防重启丢失。 */
     fun applyManualScrape(
         gameId: String,
         candidate: ManualScrapeCandidate,
         covers: CoverSource,
     ) {
+        manualMetaIds.add(gameId)
         if (!candidate.metadata.isEmpty) {
             gameCache[gameId] = candidate.metadata
-            _metadata.value = _metadata.value + (gameId to candidate.metadata)
+            _metadata.update { it + (gameId to candidate.metadata) }
         }
-        if (candidate.title.isNotBlank()) {
-            _officialNames.value = _officialNames.value + (gameId to candidate.title)
+        val title = candidate.title.takeIf { it.isNotBlank() }
+        if (title != null) {
+            _officialNames.update { it + (gameId to title) }
+            if (!CjkAliases.containsCjk(title)) {
+                canonicalNames[gameId] = title
+            }
+            _newlyResolvedNames.tryEmit(setOf(gameId))
         }
-        _resolutionInfo.value = _resolutionInfo.value + (
-            gameId to MetadataResolutionInfo(
-                providers = listOf(candidate.providerId),
-                matchModes = listOf(MetaMatchMode.ApiNameSearch),
+        _resolutionInfo.update {
+            it + (
+                gameId to MetadataResolutionInfo(
+                    providers = listOf(candidate.providerId),
+                    matchModes = listOf(MetaMatchMode.ApiNameSearch),
+                )
             )
-        )
+        }
+        scope.launch(Dispatchers.IO) {
+            client.database.putManualMetadata(
+                gameId = gameId,
+                providerId = candidate.providerId,
+                officialName = title,
+                canonicalName = canonicalNames[gameId] ?: title,
+                meta = candidate.metadata,
+            )
+        }
         covers.applyManualCover(gameId, candidate.coverUrl, candidate.providerId)
     }
 
@@ -1271,17 +1628,18 @@ class MetadataRepository(
         if (pendingMeta.isNotEmpty()) {
             val delta = HashMap(pendingMeta)
             pendingMeta.clear()
-            _metadata.value = _metadata.value + delta
+            _metadata.update { it + delta }
         }
         if (pendingNames.isNotEmpty()) {
             val delta = HashMap(pendingNames)
             pendingNames.clear()
-            _officialNames.value = _officialNames.value + delta
+            _officialNames.update { it + delta }
+            _newlyResolvedNames.tryEmit(delta.keys)
         }
         if (pendingInfo.isNotEmpty()) {
             val delta = HashMap(pendingInfo)
             pendingInfo.clear()
-            _resolutionInfo.value = _resolutionInfo.value + delta
+            _resolutionInfo.update { it + delta }
         }
     }
 
@@ -1301,18 +1659,21 @@ class MetadataRepository(
                 val cacheFile = File(cacheDir, "v3_${sanitizeFileName(system)}.tsv")
                 val offlineTable = OfflineGameDb.loadPlatformTable(appCtx, system)
                 val tRead = System.currentTimeMillis()
-                val bundled = buildSystemTableFromOffline(offlineTable)
-                val tBuild = System.currentTimeMillis()
+                val bundled = offlineTable.takeUnless { it.isEmpty }
                 val cached = if (cacheFile.isFile && cacheFile.length() > 0) {
                     readCachedTsv(cacheFile)
                 } else {
                     null
                 }
-                val initial = mergeSystemTables(bundled, cached)
+                val initial = if (bundled != null || cached != null) {
+                    SystemTable(offline = bundled, overlay = cached)
+                } else {
+                    null
+                }
                 runCatching {
                     android.util.Log.i(
                         "PocketDeckPerf",
-                        "MetadataRepo.getOrFetch($system): h=${offlineTable.hashToName.size} m=${offlineTable.metaByRawName.size} read=${tRead - t0}ms build=${tBuild - tRead}ms",
+                        "MetadataRepo.getOrFetch($system): h=${offlineTable.hashToName.size} m=${offlineTable.metaByRawName.size} read=${tRead - t0}ms build=${System.currentTimeMillis() - tRead}ms",
                     )
                 }
                 if (initial != null) {
@@ -1327,111 +1688,37 @@ class MetadataRepository(
                 } else {
                     null
                 }
-                if (remote != null) {
-                    putSystemTable(system, remote)
+                val remoteTable = remote?.let { SystemTable(offline = null, overlay = it) }
+                if (remoteTable != null) {
+                    putSystemTable(system, remoteTable)
                 }
-                remote
+                remoteTable
             }
         }
     }
 
-    private fun launchAsyncRemoteMetaMerge(system: String, cacheFile: File, bundled: SystemTable?) {
+    private fun launchAsyncRemoteMetaMerge(
+        system: String,
+        cacheFile: File,
+        bundled: OfflineGameDb.PlatformTable?,
+    ) {
         if (remoteMetaRefreshInFlight.putIfAbsent(system, true) != null) return
         scope.launch(Dispatchers.IO) {
             try {
                 // 内置离线底座已立即可用：延迟 3 秒再做低优先级远端 .dat 合并，避免切 Tab 瞬间与首屏封面抢 CPU 和触发 GC
                 delay(3_000L)
                 val remote = fetchFromLibretroWithFailover(system, cacheFile) ?: return@launch
-                val merged = mergeSystemTables(bundled, remote) ?: return@launch
-                putSystemTable(system, merged)
+                putSystemTable(system, SystemTable(offline = bundled, overlay = remote))
             } finally {
                 remoteMetaRefreshInFlight.remove(system)
             }
         }
     }
 
-    private fun buildSystemTableFromOffline(offline: OfflineGameDb.PlatformTable): SystemTable? {
-        if (offline.isEmpty) return null
-        val byCrc = HashMap<String, ResolvedRow>(offline.hashToName.size + 16)
-        val byExact = HashMap<String, ResolvedRow>(offline.metaByExactName.size + 16)
-        val byTitle = HashMap<String, ResolvedRow>(offline.metaByNormTitle.size + 16)
-        val byCompact = HashMap<String, ResolvedRow>(offline.metaByNormTitle.size + 16)
-        val byToken = HashMap<String, MutableList<ResolvedRow>>(offline.metaByNormTitle.size + 16)
-
-        // 1. 仅对有元数据的 M 行建标题/分词索引（如 NES 仅 4.9k 条而非 25k 条，构建速度快 5~10 倍且内存更省）
-        val metaSource = if (offline.metaByRawName.isNotEmpty()) offline.metaByRawName else offline.metaByExactName
-        for ((name, meta) in metaSource) {
-            if (name.isEmpty() || meta.isEmpty) continue
-            val row = ResolvedRow(name, meta)
-            val exactKey = TitleNormalizer.exactKey(name)
-            if (exactKey.isNotEmpty()) byExact.putIfAbsent(exactKey, row)
-            val normKey = TitleNormalizer.normalizedTitle(name)
-            if (normKey.isNotEmpty()) {
-                val prev = byTitle[normKey]
-                if (prev == null || fieldCount(meta) > fieldCount(prev.meta)) {
-                    byTitle[normKey] = row
-                }
-                val comp = TitleNormalizer.compactFromNorm(normKey)
-                if (comp.isNotEmpty()) {
-                    val prevC = byCompact[comp]
-                    if (prevC == null || fieldCount(meta) > fieldCount(prevC.meta)) {
-                        byCompact[comp] = row
-                    }
-                }
-                for (tok in TitleNormalizer.tokenize(normKey)) {
-                    byToken.getOrPut(tok) { ArrayList(4) }.add(row)
-                }
-            }
-        }
-
-        // 2. CRC32 -> 标准名（仅 O(1) 直查 metaByRawName，零正则开销；未直命中的元数据在单次 find() 时按需补查）
-        val emptyMeta = GameMetadata()
-        for ((crc, canonicalName) in offline.hashToName) {
-            val meta = offline.metaByRawName[canonicalName] ?: emptyMeta
-            byCrc.putIfAbsent(crc, ResolvedRow(canonicalName, meta))
-        }
-        return SystemTable(byCrc, emptyMap(), byExact, byTitle, byCompact, byToken)
-    }
-
-    private fun mergeSystemTables(base: SystemTable?, overlay: SystemTable?): SystemTable? {
-        if (base == null) return overlay
-        if (overlay == null) return base
-        fun mergeRowMap(
-            a: Map<String, ResolvedRow>,
-            b: Map<String, ResolvedRow>,
-        ): Map<String, ResolvedRow> {
-            val out = HashMap<String, ResolvedRow>(a.size + b.size)
-            out.putAll(a)
-            for ((k, ov) in b) {
-                val prev = out[k]
-                out[k] = if (prev == null) {
-                    ov
-                } else {
-                    ResolvedRow(
-                        officialName = ov.officialName.ifBlank { prev.officialName },
-                        meta = OfflineGameDb.mergeMeta(ov.meta, prev.meta),
-                    )
-                }
-            }
-            return out
-        }
-        val mergedTokens = HashMap<String, MutableList<ResolvedRow>>(base.byToken.size + overlay.byToken.size)
-        for ((k, list) in base.byToken) mergedTokens[k] = ArrayList(list)
-        for ((k, list) in overlay.byToken) mergedTokens.getOrPut(k) { ArrayList(list.size) }.addAll(list)
-        return SystemTable(
-            byCrc = mergeRowMap(base.byCrc, overlay.byCrc),
-            bySerial = mergeRowMap(base.bySerial, overlay.bySerial),
-            byExact = mergeRowMap(base.byExact, overlay.byExact),
-            byTitle = mergeRowMap(base.byTitle, overlay.byTitle),
-            byCompact = mergeRowMap(base.byCompact, overlay.byCompact),
-            byToken = mergedTokens,
-        )
-    }
-
     private suspend fun fetchFromLibretroWithFailover(
         system: String,
         cacheFile: File,
-    ): SystemTable? = coroutineScope {
+    ): OverlayTable? = coroutineScope {
         val encodedSys = Uri.encode(system)
         val mirrors = listOf(
             "https://cdn.jsdelivr.net/gh/libretro/libretro-database@master/metadat",
@@ -1514,6 +1801,7 @@ class MetadataRepository(
         val succeededKinds = parsed.count { it.second.isNotEmpty() }
         if (succeededKinds >= 1) {
             runCatching {
+                cacheDir.mkdirs()
                 val tmp = File(cacheDir, "${cacheFile.name}.tmp")
                 tmp.bufferedWriter().use { out ->
                     for (r in rows) {
@@ -1530,10 +1818,10 @@ class MetadataRepository(
             }
         }
 
-        buildTable(rows)
+        buildOverlayTable(rows)
     }
 
-    private fun readCachedTsv(file: File): SystemTable? = runCatching {
+    private fun readCachedTsv(file: File): OverlayTable? = runCatching {
         val rows = ArrayList<CachedRow>(2048)
         file.bufferedReader().useLines { lines ->
             for (line in lines) {
@@ -1555,16 +1843,15 @@ class MetadataRepository(
                 }
             }
         }
-        if (rows.isEmpty()) null else buildTable(rows)
+        if (rows.isEmpty()) null else buildOverlayTable(rows)
     }.getOrNull()
 
-    private fun buildTable(rows: List<CachedRow>): SystemTable {
+    private fun buildOverlayTable(rows: List<CachedRow>): OverlayTable {
         val byCrc = HashMap<String, ResolvedRow>(rows.size)
         val bySerial = HashMap<String, ResolvedRow>(rows.size / 4 + 16)
         val byExact = HashMap<String, ResolvedRow>(rows.size)
         val byTitle = HashMap<String, ResolvedRow>(rows.size)
         val byCompact = HashMap<String, ResolvedRow>(rows.size)
-        val byToken = HashMap<String, MutableList<ResolvedRow>>(rows.size)
 
         for (r in rows) {
             if (r.meta.isEmpty) continue
@@ -1583,20 +1870,17 @@ class MetadataRepository(
                     if (prev == null || fieldCount(r.meta) > fieldCount(prev.meta)) {
                         byTitle[titleKey] = row
                     }
-                    val comp = TitleNormalizer.compactKey(r.comment)
+                    val comp = TitleNormalizer.compactFromNorm(titleKey)
                     if (comp.isNotEmpty()) {
                         val prevC = byCompact[comp]
                         if (prevC == null || fieldCount(r.meta) > fieldCount(prevC.meta)) {
                             byCompact[comp] = row
                         }
                     }
-                    for (tok in TitleNormalizer.tokenize(titleKey)) {
-                        byToken.getOrPut(tok) { ArrayList(4) }.add(row)
-                    }
                 }
             }
         }
-        return SystemTable(byCrc, bySerial, byExact, byTitle, byCompact, byToken)
+        return OverlayTable(byCrc, bySerial, byExact, byTitle, byCompact)
     }
 
     private data class DatEntry(
@@ -1688,6 +1972,15 @@ class MetadataRepository(
     private companion object {
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
         const val MAX_CACHED_SYSTEM_TABLES = 6
+        const val SCRAPE_CONCURRENCY = 4
+        const val SCRAPE_FLUSH_BATCH_SIZE = 16
+        const val SCRAPE_FLUSH_INTERVAL_MS = 450L
+        const val SCRAPE_PROGRESS_THROTTLE_MS = 200L
+        val NAME_SEARCH_META_PROVIDERS = setOf(
+            ScraperCatalog.MetaIds.THEGAMESDB,
+            ScraperCatalog.MetaIds.IGDB,
+            ScraperCatalog.MetaIds.WIKIDATA,
+        )
         val CRC_REGEX = Regex("""\bcrc\s+([0-9A-Fa-f]{8})\b""")
         val SERIAL_REGEX = Regex("""\bserial\s+"([^"]+)"""")
         val MONTHS = arrayOf(

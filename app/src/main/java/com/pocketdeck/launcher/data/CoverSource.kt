@@ -11,8 +11,10 @@ import coil3.SingletonImageLoader
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.launch.GameLauncher
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -22,6 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -30,6 +33,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.Reader
 import java.net.URLDecoder
 import java.security.MessageDigest
 import java.util.Collections
@@ -80,11 +84,27 @@ class CoverSource(
 ) {
     private val appCtx = context.applicationContext
     private val db = client.database
-    private val indexDir = File(appCtx.cacheDir, "boxart_index").apply { mkdirs() }
-    private val webCacheDir = File(appCtx.cacheDir, "web_covers").apply { mkdirs() }
-    private val thumbDir = File(appCtx.cacheDir, "cover_thumbs_webp").apply { mkdirs() }
+    private val indexDir = File(appCtx.cacheDir, "boxart_index")
+    private val webCacheDir = File(appCtx.cacheDir, "web_covers")
+    private val thumbDir = File(appCtx.cacheDir, "cover_thumbs_webp")
     private val thumbPathLru = LruCache<String, File>(512)
     private val thumbGenerating = ConcurrentHashMap<String, Boolean>()
+    private val thumbValidatedPaths = ConcurrentHashMap.newKeySet<String>()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val thumbDispatcher = Dispatchers.IO.limitedParallelism(2)
+    // 缓存 BoxartIndex 匹配结果，避免 indexVersion 变化时主线程重复对屏上全部卡片跑分词/模糊匹配
+    private val indexMatchCache: MutableMap<String, List<Pair<String, CoverMatchMode>>> =
+        Collections.synchronizedMap(
+            object : LinkedHashMap<String, List<Pair<String, CoverMatchMode>>>(128, 0.75f, true) {
+                override fun removeEldestEntry(
+                    eldest: MutableMap.MutableEntry<String, List<Pair<String, CoverMatchMode>>>?,
+                ): Boolean = size > 512
+            },
+        )
+
+    /** 可选外部官方/标准英文名提供者（由 AppContainer 接入 MetadataRepository），供滑动窗口刮削复用已识别的标准名。 */
+    @Volatile
+    var searchNameResolver: ((String) -> String?)? = null
 
     private val resolvedUrls = ConcurrentHashMap<String, String>()
     private val resolvedOrigins = ConcurrentHashMap<String, Pair<String, CoverMatchMode>>()
@@ -126,6 +146,55 @@ class CoverSource(
     private val _indexVersion = MutableStateFlow(0)
     val indexVersion: StateFlow<Int> = _indexVersion.asStateFlow()
 
+    private val indexBumpLock = Any()
+    private var indexBumpJob: Job? = null
+    @Volatile
+    private var fastScrollingPaused = false
+    @Volatile
+    private var pendingIndexBump = false
+    private val initialCoversReady = CompletableDeferred<Unit>()
+
+    /** 快滚期间暂停后台窗口刮削队列与 indexVersion 广播，停稳后再统一恢复，避免无封面卡片密集时抢占 CPU/IO 并引发全屏重组。 */
+    fun setFastScrolling(scrolling: Boolean) {
+        if (fastScrollingPaused == scrolling) return
+        fastScrollingPaused = scrolling
+        windowScrapeQueue.setPaused(scrolling)
+        if (scrolling) {
+            windowPrepareJob?.cancel()
+            windowScrapeQueue.clearPending()
+        } else if (pendingIndexBump) {
+            pendingIndexBump = false
+            bumpIndexVersion()
+        }
+    }
+
+    private fun bumpIndexVersion(immediate: Boolean = false) {
+        if (!immediate && fastScrollingPaused) {
+            pendingIndexBump = true
+            return
+        }
+        if (immediate) {
+            synchronized(indexBumpLock) {
+                indexBumpJob?.cancel()
+                indexBumpJob = null
+            }
+            _indexVersion.update { it + 1 }
+            return
+        }
+        synchronized(indexBumpLock) {
+            if (indexBumpJob?.isActive == true) return
+            indexBumpJob = scope.launch {
+                delay(120L)
+                synchronized(indexBumpLock) { indexBumpJob = null }
+                if (fastScrollingPaused) {
+                    pendingIndexBump = true
+                    return@launch
+                }
+                _indexVersion.update { it + 1 }
+            }
+        }
+    }
+
     private val _coverInfo = MutableStateFlow<Map<String, CoverResolutionInfo>>(emptyMap())
     val coverInfo: StateFlow<Map<String, CoverResolutionInfo>> = _coverInfo.asStateFlow()
 
@@ -138,6 +207,10 @@ class CoverSource(
     init {
         // 后台一次性加载 SQLite 封面缓存并平滑迁移旧版 cover_index_v3 SharedPreferences
         scope.launch(Dispatchers.IO) {
+            try {
+                indexDir.mkdirs()
+            webCacheDir.mkdirs()
+            thumbDir.mkdirs()
             migrateLegacyPrefsIfNeeded()
             val metaPrefs = appCtx.getSharedPreferences("cover_matcher_meta", Context.MODE_PRIVATE)
             if (metaPrefs.getInt("matcher_ver", 0) < MATCHER_VERSION) {
@@ -190,7 +263,10 @@ class CoverSource(
                 }
             }
             if (loadedUrls > 0 || webCacheFilesById.isNotEmpty()) {
-                _indexVersion.value += 1
+                bumpIndexVersion(immediate = true)
+            }
+            } finally {
+                initialCoversReady.complete(Unit)
             }
         }
 
@@ -199,7 +275,7 @@ class CoverSource(
             NetworkStatus.online.collect { now ->
                 if (now && !prev) {
                     failedUntilMs.clear()
-                    _indexVersion.value += 1
+                    bumpIndexVersion()
                 }
                 prev = now
             }
@@ -284,6 +360,7 @@ class CoverSource(
             queries: List<String>,
             allowBuildTokenIndex: Boolean = true,
         ): List<Pair<String, CoverMatchMode>> {
+            val preferredRegions = extractPreferredRegions(queries)
             val out = LinkedHashMap<String, CoverMatchMode>()
             for (q in queries) {
                 if (q.isBlank()) continue
@@ -293,7 +370,11 @@ class CoverSource(
                 val compact = TitleNormalizer.compactKey(q)
                 if (compact.isNotEmpty()) {
                     byCompact[compact]?.let { list ->
-                        val ordered = if (list.size <= 1) list else list.sortedBy { candidateScore(it) }
+                        val ordered = if (list.size <= 1) {
+                            list
+                        } else {
+                            list.sortedBy { candidateScore(it, preferredRegions) }
+                        }
                         ordered.take(3).forEach { out.putIfAbsent(it, CoverMatchMode.IndexFuzzy) }
                     }
                 }
@@ -308,10 +389,10 @@ class CoverSource(
                 return emptyList()
             }
 
-            // 精确与紧凑键均未命中时，使用倒排词索引 + Token Jaccard/编辑距离模糊匹配
+            // 精确与紧凑键均未命中时，使用倒排词索引 + Token Jaccard/编辑距离模糊匹配（优先保留英文别名）
             val scored = ArrayList<Pair<String, Double>>(4)
             val evaluated = HashSet<String>(64)
-            for (q in queries.take(4)) {
+            for (q in TitleNormalizer.selectFuzzyQueries(queries)) {
                 val norm = TitleNormalizer.normalizedTitle(q)
                 val tokens = TitleNormalizer.tokenize(norm)
                 if (tokens.isEmpty()) continue
@@ -336,7 +417,7 @@ class CoverSource(
             if (scored.isNotEmpty()) {
                 scored.sortWith(
                     compareByDescending<Pair<String, Double>> { it.second }
-                        .thenBy { candidateScore(it.first) },
+                        .thenBy { candidateScore(it.first, preferredRegions) },
                 )
                 scored.take(3).forEach { (fn, _) ->
                     out.putIfAbsent(fn, CoverMatchMode.IndexFuzzy)
@@ -347,6 +428,7 @@ class CoverSource(
 
         /** 手动搜索专用：先走精确/模糊匹配，不足时补充「关键词包含匹配」（按紧凑键去重，避免同游戏多区域刷屏）。 */
         fun findManualMatches(queries: List<String>, limit: Int = 12): List<String> {
+            val preferredRegions = extractPreferredRegions(queries)
             val picked = LinkedHashMap<String, String>(limit)
             for ((fn, _) in findMatchesWithMode(queries)) {
                 val base = if (fn.endsWith(".png", true)) fn.dropLast(4) else fn
@@ -370,7 +452,7 @@ class CoverSource(
             val containsScored = ArrayList<Triple<String, String, Double>>(24)
             for ((ck, files) in byCompact) {
                 if (ck in picked || files.isEmpty()) continue
-                val bestFile = files.first()
+                val bestFile = if (files.size <= 1) files.first() else files.minBy { candidateScore(it, preferredRegions) }
                 val base = if (bestFile.endsWith(".png", true)) bestFile.dropLast(4) else bestFile
                 val compactHit = queryCompacts.any { ck.contains(it) }
                 val tokenHit = if (compactHit) {
@@ -388,7 +470,7 @@ class CoverSource(
             if (containsScored.isNotEmpty()) {
                 containsScored.sortWith(
                     compareByDescending<Triple<String, String, Double>> { it.third }
-                        .thenBy { candidateScore(it.second) },
+                        .thenBy { candidateScore(it.second, preferredRegions) },
                 )
                 for ((ck, fn, _) in containsScored) {
                     picked.putIfAbsent(ck, fn)
@@ -432,7 +514,8 @@ class CoverSource(
 
     fun configure(nodes: List<SourceItemConfig>, cred: ScraperCredentials) {
         val normalized = ScraperCatalog.normalizeCoverConfigs(nodes)
-        val changed = normalized != nodeConfigs || cred != credentials
+        val prevNodes = nodeConfigs
+        val changed = normalized != prevNodes || cred != credentials
         nodeConfigs = normalized
         credentials = cred
         if (!configuredOnce) {
@@ -440,18 +523,44 @@ class CoverSource(
             return
         }
         if (changed) {
-            resolvedUrls.clear()
-            resolvedOrigins.clear()
+            // 仅清除负缓存与“被禁用节点”产出的封面，避免用户微调备用源或填 API Key 就把全库已有封面清空
+            val prevEnabled = prevNodes.filter { it.enabled }.map { it.id }.toSet()
+            val nextEnabled = normalized.filter { it.enabled }.map { it.id }.toSet()
+            val disabledNodes = prevEnabled - nextEnabled
+
             failedUntilMs.clear()
             candidateOrigins.clear()
-            clearPendingCoverInfo()
-            _coverInfo.value = emptyMap()
-            scope.launch(Dispatchers.IO) { db.clearCovers() }
-            _indexVersion.value += 1
+            indexMatchCache.clear()
+
+            val removedIds = if (disabledNodes.isNotEmpty()) {
+                val ids = ArrayList<String>()
+                for ((gid, origin) in resolvedOrigins.entries) {
+                    if (origin.first in disabledNodes) {
+                        ids += gid
+                    }
+                }
+                for (gid in ids) {
+                    resolvedUrls.remove(gid)
+                    resolvedOrigins.remove(gid)
+                    webCacheFilesById.remove(gid)
+                    scheduleCoverInfoRemove(gid)
+                }
+                ids
+            } else {
+                emptyList()
+            }
+
+            scope.launch(Dispatchers.IO) {
+                db.clearAllCoverFailures()
+                for (gid in removedIds) {
+                    db.deleteCover(gid)
+                    runCatching { webCacheFile(gid).delete() }
+                }
+            }
+            bumpIndexVersion(immediate = true)
         }
     }
 
-    /** 清空全部封面缓存：内存瞬时生效，磁盘/SQLite/Coil 缓存清理全异步在 IO 线程执行（绝不卡主线程）。 */
     /**
      * 系统内存吃紧时释放**非当前活跃平台**的封面索引缓存，保留 [keepSystems] 正在使用的平台。
      */
@@ -461,12 +570,14 @@ class CoverSource(
             systemIndexes.remove(sys)
             systemIndexLastUsedMs.remove(sys)
         }
+        indexMatchCache.clear()
         thumbPathLru.trimToSize(128)
     }
 
     private fun putSystemIndex(system: String, index: BoxartIndex) {
         systemIndexes[system] = index
         systemIndexLastUsedMs[system] = System.currentTimeMillis()
+        indexMatchCache.clear()
         val keep = OfflineGameDb.activeSystems
         while (systemIndexes.size > MAX_CACHED_SYSTEM_INDEXES) {
             val victim = systemIndexes.keys
@@ -498,6 +609,8 @@ class CoverSource(
         remoteIndexRefreshInFlight.clear()
         thumbPathLru.evictAll()
         thumbExistingNames.clear()
+        thumbValidatedPaths.clear()
+        indexMatchCache.clear()
         clearPendingCoverInfo()
         _coverInfo.value = emptyMap()
         runCatching { SingletonImageLoader.get(appCtx).memoryCache?.clear() }
@@ -511,7 +624,7 @@ class CoverSource(
             runCatching { File(appCtx.cacheDir, "covers").listFiles()?.forEach { it.deleteRecursively() } }
             client.clearApiCache()
         }
-        _indexVersion.value += 1
+        bumpIndexVersion(immediate = true)
     }
 
     /**
@@ -530,7 +643,7 @@ class CoverSource(
         }
         if (unlocked.isNotEmpty()) {
             scope.launch(Dispatchers.IO) { db.clearCoverFailures(unlocked) }
-            _indexVersion.value += 1
+            bumpIndexVersion()
         }
     }
 
@@ -585,17 +698,41 @@ class CoverSource(
         }
     }
 
-    /** 应用手动搜索刮削选中的封面 URL 并持久化至 SQLite 缓存。 */
+    /** 应用手动搜索刮削选中的封面 URL 并持久化至 SQLite 缓存（同步清理旧离线图，防止遮挡新封面）。 */
     fun applyManualCover(gameId: String, coverUrl: String?, providerId: String) {
         if (coverUrl.isNullOrBlank()) return
         resolvedUrls[gameId] = coverUrl
         resolvedOrigins[gameId] = providerId to CoverMatchMode.ApiSearch
         failedUntilMs.remove(gameId)
+        webCacheFilesById.remove(gameId)
         scope.launch(Dispatchers.IO) {
+            runCatching { webCacheFile(gameId).delete() }
             db.putCoverSuccess(gameId, coverUrl, providerId, CoverMatchMode.ApiSearch.name)
         }
-        _coverInfo.value = _coverInfo.value + (gameId to CoverResolutionInfo(providerId, CoverMatchMode.ApiSearch, coverUrl))
-        _indexVersion.value += 1
+        _coverInfo.update { it + (gameId to CoverResolutionInfo(providerId, CoverMatchMode.ApiSearch, coverUrl)) }
+        bumpIndexVersion(immediate = true)
+    }
+
+    /** 仅对存在缺失封面（无本地封面且未命中缓存 URL）的平台按需预载 Boxart 索引，已全部刮削完时冷启动零离线表 IO。 */
+    fun ensureIndexesLoadedIfNeeded(
+        games: List<Game>,
+        platformResolver: (Game) -> Platform,
+    ) {
+        if (games.isEmpty()) return
+        scope.launch(Dispatchers.IO) {
+            initialCoversReady.await()
+            val neededSystems = HashSet<String>()
+            for (g in games) {
+                if (g.id.startsWith(GameLauncher.APK_PREFIX)) continue
+                if (g.customCover != null || g.localCover != null) continue
+                if (webCacheFilesById.containsKey(g.id) || resolvedUrls.containsKey(g.id)) continue
+                val plat = platformResolver(g)
+                val sys = plat.libretroSystem
+                if (!sys.isNullOrBlank() && neededSystems.add(sys)) {
+                    ensureIndexLoaded(plat)
+                }
+            }
+        }
     }
 
     /** 预加载指定平台的在线封面目录索引（首次联网拉取，之后读本地缓存）。 */
@@ -612,9 +749,28 @@ class CoverSource(
             val loaded = loadSystemIndex(system)
             if (loaded) {
                 failedUntilMs.clear()
-                _indexVersion.value += 1
+                bumpIndexVersion()
             }
         }
+    }
+
+    /** 供全量刮削任务等待指定平台索引加载完成（避免 fire-and-forget 竞态）。 */
+    suspend fun ensureIndexLoadedAwait(platform: Platform?): Boolean {
+        val system = platform?.libretroSystem ?: return false
+        val needIndex = nodeConfigs.any {
+            it.enabled && (
+                it.id == ScraperCatalog.CoverIds.LIBRETRO_BOXARTS ||
+                    it.id == ScraperCatalog.CoverIds.LIBRETRO_SNAPS
+                )
+        }
+        if (!needIndex) return false
+        if (systemIndexes.containsKey(system)) return true
+        val loaded = loadSystemIndex(system)
+        if (loaded) {
+            failedUntilMs.clear()
+            bumpIndexVersion()
+        }
+        return systemIndexes.containsKey(system)
     }
 
     private fun isLibretroBoxartsEnabled(): Boolean =
@@ -653,10 +809,8 @@ class CoverSource(
         scope.launch(Dispatchers.IO) {
             db.putCoverSuccess(game.id, url, ScraperCatalog.CoverIds.LIBRETRO_BOXARTS, match.second.name)
         }
-        _coverInfo.value = _coverInfo.value + (
-            game.id to CoverResolutionInfo(ScraperCatalog.CoverIds.LIBRETRO_BOXARTS, match.second, url)
-        )
-        _indexVersion.value += 1
+        scheduleCoverInfoPut(game.id, CoverResolutionInfo(ScraperCatalog.CoverIds.LIBRETRO_BOXARTS, match.second, url))
+        bumpIndexVersion()
         return true
     }
 
@@ -670,12 +824,13 @@ class CoverSource(
                 val loaded = loadSystemIndex(system)
                 if (loaded) {
                     failedUntilMs.clear()
-                    _indexVersion.value += 1
+                    bumpIndexVersion()
                 }
             }
-            if (hasIndexCoverMatch(g, plat)) return@ReplaceableTaskQueue
+            val resolvedName = searchNameResolver?.invoke(g.id)
+            if (hasIndexCoverMatch(g, plat, resolvedName)) return@ReplaceableTaskQueue
             if (tryResolveCoverViaOfflineHash(g, plat)) return@ReplaceableTaskQueue
-            scrapeGameApiNodesInternal(g, plat, officialName = null)
+            scrapeGameApiNodesInternal(g, plat, officialName = resolvedName)
         },
     )
 
@@ -683,7 +838,7 @@ class CoverSource(
      * 为当前可见窗口内的未聚焦游戏做低并发队列调度（常驻 2 Worker + 180ms 滑动防抖）：
      * - 正在执行中的 1~2 个在途请求保活跑完并写缓存，不浪费已发出的网络流量；
      * - 用户滑到新位置停下后，清空尚未开始执行的旧等待队列，将新窗口的最多 16 款游戏按焦点优先顺序插入队列。
-     * - 若平台 Libretro 封面索引已在本地命中，则跳过逐游戏 API 查询（如 Hasheous），仅对索引未命中的游戏兜底。
+     * - 即使未启用外部 API 节点，只要启用了 Libretro Boxarts 也会为索引未命中的游戏（如中文名 ROM）跑离线 CRC 识别。
      */
     fun ensureWindowCoversScraped(
         games: List<Game>,
@@ -691,14 +846,15 @@ class CoverSource(
         platformResolver: (Game) -> Platform,
         windowSize: Int = 16,
     ) {
-        // 快速滚动期间在主线程零计算、零磁盘 I/O：仅重置 180ms 防抖协程，停稳后再切后台线程筛选并替换队列
+        // 快速滚动期间在主线程零计算、零磁盘 I/O：直接暂停调度，停稳后再切后台线程筛选并替换队列
         windowPrepareJob?.cancel()
-        if (games.isEmpty()) return
+        if (games.isEmpty() || fastScrollingPaused) return
         windowPrepareJob = scope.launch(Dispatchers.Default) {
             delay(180L)
+            if (fastScrollingPaused) return@launch
             if (!NetworkStatus.isOnline(appCtx)) return@launch
             val enabledApiNodes = nodeConfigs.filter { it.enabled && it.id in API_COVER_NODES }
-            if (enabledApiNodes.isEmpty()) return@launch
+            if (enabledApiNodes.isEmpty() && !isLibretroBoxartsEnabled()) return@launch
 
             val ordered = ArrayList<Pair<String, Pair<Game, Platform>>>(windowSize.coerceAtMost(games.size))
             val safeFocus = focusIdx.coerceIn(0, games.lastIndex)
@@ -712,7 +868,8 @@ class CoverSource(
                     if (!g.customCover.isNullOrBlank() || !g.localCover.isNullOrBlank()) continue
                     if (hasLocalOrCachedCover(g)) continue
                     val plat = platformResolver(g)
-                    if (hasIndexCoverMatch(g, plat)) continue
+                    val resolvedName = searchNameResolver?.invoke(g.id)
+                    if (hasIndexCoverMatch(g, plat, resolvedName)) continue
                     ordered += g.id to (g to plat)
                 }
                 offset++
@@ -767,7 +924,7 @@ class CoverSource(
         }
         if (gotCover) {
             failedUntilMs.remove(game.id)
-            _indexVersion.value += 1
+            bumpIndexVersion()
         }
     }
 
@@ -842,7 +999,7 @@ class CoverSource(
                     if (merged.size > bundled.size) {
                         putSystemIndex(system, buildIndex(merged))
                         failedUntilMs.clear()
-                        _indexVersion.value += 1
+                        bumpIndexVersion()
                     }
                 } else {
                     indexFailedUntilMs[system] = System.currentTimeMillis() + INDEX_FAIL_COOLDOWN_MS
@@ -879,15 +1036,15 @@ class CoverSource(
      */
     fun fastMemoryCandidates(game: Game): List<Any> {
         val custom = game.customCover
-        val local = game.localCover
         val downloaded = webCacheFilesById[game.id]
         val cached = cachedUrl(game.id)
+        val local = game.localCover
         if (custom == null && downloaded == null && cached == null && local == null) return emptyList()
         val out = ArrayList<Any>(3)
         if (custom != null) out += preferredThumbOrOriginal(File(custom))
-        if (local != null && local != custom) out += preferredThumbOrOriginal(File(local))
         if (downloaded != null) out += downloaded
         else if (cached != null) out += cached
+        if (local != null && local != custom) out += preferredThumbOrOriginal(File(local))
         return out
     }
 
@@ -896,15 +1053,11 @@ class CoverSource(
         platform: Platform?,
         officialName: String? = null,
     ): List<Any> {
-        // O(1) 快路径：1. 用户自定义封面 → 2. 本地媒体封面 → 3. 已下载到本地的离线封面缓存 → 4. 已解析命中的在线 URL
+        // O(1) 快路径：1. 用户自定义封面 → 2. 已下载离线缓存 → 3. 已解析/手动刮削在线 URL → 4. 本地媒体封面
+        // （让手动刮削写入的 resolvedUrls 优先于原有 localCover，避免旧本地图永远遮挡新选封面）
         game.customCover?.let { custom ->
             val f = preferredThumbOrOriginal(File(custom))
             candidateOrigins["${game.id}::$f"] = "custom" to CoverMatchMode.CustomFile
-            return listOf(f)
-        }
-        game.localCover?.let { local ->
-            val f = preferredThumbOrOriginal(File(local))
-            candidateOrigins["${game.id}::$f"] = "local" to CoverMatchMode.LocalFile
             return listOf(f)
         }
         webCacheFilesById[game.id]?.let { wf ->
@@ -917,6 +1070,11 @@ class CoverSource(
             val (prov, mode) = cachedOrigin(game.id, cached)
             candidateOrigins["${game.id}::$cached"] = prov to mode
             return listOf(cached)
+        }
+        game.localCover?.let { local ->
+            val f = preferredThumbOrOriginal(File(local))
+            candidateOrigins["${game.id}::$f"] = "local" to CoverMatchMode.LocalFile
+            return listOf(f)
         }
 
         val out = ArrayList<Any>(12)
@@ -938,18 +1096,24 @@ class CoverSource(
         val enabled = nodeConfigs.filter { it.enabled }
         val system = platform?.libretroSystem
         val index = system?.let { systemIndexes[it] }
-        val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, officialName)
-        // candidates() 在 Compose 主线程调用：绝不在主线程构建万级倒排分词索引，未就绪时转后台异步构建并在完成后刷新
+        val effectiveHint = officialName?.takeIf { it.isNotBlank() } ?: searchNameResolver?.invoke(game.id)
+        // candidates() 在 Compose 主线程调用：优先复用 indexMatchCache，且绝不在主线程构建万级倒排分词索引
         val indexMatches = if (online && index != null) {
-            val hits = index.findMatchesWithMode(queries, allowBuildTokenIndex = false)
-            if (hits.isEmpty() && !index.isTokenIndexReady() && !index.tokenBuildScheduled) {
-                index.tokenBuildScheduled = true
-                scope.launch(Dispatchers.Default) {
-                    index.ensureTokenIndexBuilt()
-                    _indexVersion.value += 1
+            val cacheKey = "$system|${game.baseName}|${game.title}|${effectiveHint.orEmpty()}|${index.isTokenIndexReady()}"
+            indexMatchCache.get(cacheKey) ?: run {
+                val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title, effectiveHint)
+                val hits = index.findMatchesWithMode(queries, allowBuildTokenIndex = false)
+                if (hits.isEmpty() && !index.isTokenIndexReady() && !index.tokenBuildScheduled) {
+                    index.tokenBuildScheduled = true
+                    scope.launch(Dispatchers.Default) {
+                        index.ensureTokenIndexBuilt()
+                        indexMatchCache.clear()
+                        bumpIndexVersion()
+                    }
                 }
+                indexMatchCache.put(cacheKey, hits)
+                hits
             }
-            hits
         } else {
             emptyList()
         }
@@ -1225,7 +1389,7 @@ class CoverSource(
             resolvedOrigins.remove(key)
             scheduleCoverInfoRemove(key)
             scope.launch(Dispatchers.IO) { db.deleteCover(key) }
-            _indexVersion.value += 1
+            bumpIndexVersion()
             return
         }
         scheduleCoverInfoRemove(key)
@@ -1263,6 +1427,18 @@ class CoverSource(
             db.deleteCover(key)
             webCacheFilesById.remove(key)
             runCatching { webCacheFile(key).delete() }
+        }
+    }
+
+    /** 当用户替换某个本地/自定义封面文件时主动清理对应缩略图缓存，避免旧缩略图残留。 */
+    fun invalidateThumbnail(filePath: String?) {
+        if (filePath.isNullOrBlank()) return
+        thumbPathLru.remove(filePath)
+        thumbValidatedPaths.remove(filePath)
+        val fileName = "${sha1HexFast(filePath)}.webp"
+        thumbExistingNames.remove(fileName)
+        scope.launch(thumbDispatcher) {
+            runCatching { File(thumbDir, fileName).delete() }
         }
     }
 
@@ -1453,13 +1629,36 @@ class CoverSource(
         null
     }
 
-    /** 由 Web 管理端触发掌机联网抓取并更新该游戏封面（直连下载首个命中项，避免全量候选验活 + 二次下载）。 */
+    /**
+     * 零网络本地快通：若该游戏已有已解析 URL 且 Coil 磁盘缓存中已存在图片字节，直接转存到 `web_covers/`，
+     * 避免全量刮削把用户浏览过的封面全部重新走外网下载一遍。
+     */
+    fun saveCoilCachedCoverIfAvailable(game: Game): Boolean {
+        if (hasDownloadedCover(game)) return true
+        val url = cachedUrl(game.id)?.takeIf { it.startsWith("http") } ?: return false
+        val bytes = readCoilDiskCache(url) ?: return false
+        if (bytes.size < 32) return false
+        val wf = webCacheFile(game.id)
+        val saved = runCatching {
+            webCacheDir.mkdirs()
+            wf.writeBytes(bytes)
+            true
+        }.getOrDefault(false)
+        if (saved) {
+            webCacheFilesById[game.id] = wf
+            return true
+        }
+        return false
+    }
+
+    /** 由 Web 管理端或全量刮削触发抓取并更新该游戏封面（优先复用 Coil 磁盘缓存，未命中再直连下载首个命中项）。 */
     suspend fun fetchWebCoverNow(
         game: Game,
         platform: Platform?,
         officialName: String?,
     ): Boolean = withContext(Dispatchers.IO) {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@withContext false
+        if (saveCoilCachedCoverIfAvailable(game)) return@withContext true
         if (!NetworkStatus.isOnline(appCtx)) return@withContext false
         val enabled = nodeConfigs.filter { it.enabled }
         val cred = credentials
@@ -1473,24 +1672,34 @@ class CoverSource(
             .ifEmpty { index?.findManualMatches(queries, limit = 4).orEmpty() }
         val directNames = if (index == null) buildDirectNames(game, officialName) else emptyList()
 
+        fun persistWebBytes(url: String, bytes: ByteArray): Boolean {
+            val wf = webCacheFile(game.id)
+            val saved = runCatching {
+                webCacheDir.mkdirs()
+                wf.writeBytes(bytes)
+                true
+            }.getOrDefault(false)
+            if (saved) webCacheFilesById[game.id] = wf
+            rememberSuccess(game.id, url)
+            bumpIndexVersion()
+            return true
+        }
+
         suspend fun tryDownloadAndSave(url: String): Boolean {
+            readCoilDiskCache(url)?.takeIf { it.size >= 32 }?.let { cachedBytes ->
+                return persistWebBytes(url, cachedBytes)
+            }
             downloadImageBytes(url)?.let { downloaded ->
-                val wf = webCacheFile(game.id)
-                val saved = runCatching { wf.writeBytes(downloaded.second); true }.getOrDefault(false)
-                if (saved) webCacheFilesById[game.id] = wf
-                rememberSuccess(game.id, url)
-                _indexVersion.value += 1
-                return true
+                return persistWebBytes(url, downloaded.second)
             }
             for ((mirrorIdx, altUrl) in libretroAlternativeMirrors(url)) {
+                readCoilDiskCache(altUrl)?.takeIf { it.size >= 32 }?.let { cachedBytes ->
+                    activeLibretroMirror = mirrorIdx
+                    return persistWebBytes(altUrl, cachedBytes)
+                }
                 downloadImageBytes(altUrl)?.let { downloaded ->
                     activeLibretroMirror = mirrorIdx
-                    val wf = webCacheFile(game.id)
-                    val saved = runCatching { wf.writeBytes(downloaded.second); true }.getOrDefault(false)
-                    if (saved) webCacheFilesById[game.id] = wf
-                    rememberSuccess(game.id, altUrl)
-                    _indexVersion.value += 1
-                    return true
+                    return persistWebBytes(altUrl, downloaded.second)
                 }
             }
             return false
@@ -1647,9 +1856,7 @@ class CoverSource(
     }.getOrNull()
 
     private fun webCacheFile(gameId: String): File {
-        val hash = MessageDigest.getInstance("SHA-256")
-            .digest(gameId.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+        val hash = sha256HexFast(gameId)
         return File(webCacheDir, "$hash.img")
     }
 
@@ -1757,18 +1964,12 @@ class CoverSource(
                     ScrapeLogStore.log("COVER", "github_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "HTTP $code")
                     return emptyList()
                 }
-                val text = resp.body?.string().orEmpty()
-                val tree = org.json.JSONObject(text).optJSONArray("tree") ?: return emptyList()
-                val names = LinkedHashSet<String>(4096)
-                val prefix = "Named_Boxarts/"
-                for (i in 0 until tree.length()) {
-                    val path = tree.optJSONObject(i)?.optString("path") ?: continue
-                    if (path.startsWith(prefix) && path.endsWith(".png", ignoreCase = true)) {
-                        names += path.removePrefix(prefix)
-                    }
+                val body = resp.body ?: return emptyList()
+                val names = body.byteStream().bufferedReader(Charsets.UTF_8).use { reader ->
+                    parseGitHubTreeBoxarts(reader)
                 }
                 ScrapeLogStore.log("COVER", "github_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${names.size} entries (github failover)")
-                names.toList()
+                names
             }
         } catch (t: Throwable) {
             ScrapeLogStore.log("COVER", "github_index", "GET $system", url = url, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
@@ -1778,6 +1979,7 @@ class CoverSource(
 
     private fun writeIndexCache(cacheFile: File, names: List<String>) {
         runCatching {
+            indexDir.mkdirs()
             val tmp = File(indexDir, "${cacheFile.name}.tmp")
             tmp.writeText(names.joinToString("\n"))
             tmp.renameTo(cacheFile)
@@ -1801,25 +2003,44 @@ class CoverSource(
 
     /**
      * 固定宽度 320px WebP 缩略图缓存 + 内存 LRU：
-     * 命中则 O(1) 返回磁盘 WebP 缩略图；未命中则先返回原图并在 IO 线程异步生成 WebP 缩略图，避免阻塞主线程。
+     * - 命中则 O(1) 返回磁盘 WebP 缩略图（零主线程 stat()、零 String.format）；
+     * - 每次会话在受控双并发 [thumbDispatcher] 上异步核对一次原图 mtime，原地替换封面时自动失效重绘；
+     * - 未命中则先返回原图并在受控并发队列异步生成 WebP 缩略图，防止海量本地封面引发内存尖峰与掉帧。
      */
     private fun preferredThumbOrOriginal(original: File): File {
         val key = original.path
         thumbPathLru.get(key)?.let { return it }
-        val fileName = "${sha1Hex(key)}.webp"
+        val fileName = "${sha1HexFast(key)}.webp"
         val dest = File(thumbDir, fileName)
         if (fileName in thumbExistingNames) {
             thumbPathLru.put(key, dest)
+            if (thumbValidatedPaths.add(key)) {
+                scope.launch(thumbDispatcher) {
+                    if (original.isFile && dest.isFile && original.lastModified() > dest.lastModified()) {
+                        if (thumbGenerating.putIfAbsent(key, true) == null) {
+                            try {
+                                generateWebpThumb(original, dest)
+                                if (dest.isFile && dest.length() > 0L) {
+                                    bumpIndexVersion()
+                                }
+                            } finally {
+                                thumbGenerating.remove(key)
+                            }
+                        }
+                    }
+                }
+            }
             return dest
         }
         if (thumbGenerating.putIfAbsent(key, true) == null) {
-            scope.launch(Dispatchers.IO) {
+            scope.launch(thumbDispatcher) {
                 try {
-                    if (!dest.isFile || dest.length() <= 0L) {
+                    if (!dest.isFile || dest.length() <= 0L || (original.isFile && original.lastModified() > dest.lastModified())) {
                         generateWebpThumb(original, dest)
                     }
                     if (dest.isFile && dest.length() > 0L) {
                         thumbExistingNames.add(fileName)
+                        thumbValidatedPaths.add(key)
                         thumbPathLru.put(key, dest)
                     }
                 } finally {
@@ -1833,6 +2054,7 @@ class CoverSource(
     private fun generateWebpThumb(original: File, dest: File) {
         if (!original.isFile || original.length() <= 0L) return
         runCatching {
+            dest.parentFile?.mkdirs()
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(original.path, bounds)
             val srcW = bounds.outWidth
@@ -1877,12 +2099,253 @@ class CoverSource(
         }
     }
 
-    private fun sha1Hex(input: String): String =
-        MessageDigest.getInstance("SHA-1")
-            .digest(input.toByteArray())
-            .joinToString("") { "%02x".format(it) }
+    internal companion object {
+        private val HEX_CHARS = "0123456789abcdef".toCharArray()
+        private val SHA1_TL = ThreadLocal.withInitial { MessageDigest.getInstance("SHA-1") }
+        private val SHA256_TL = ThreadLocal.withInitial { MessageDigest.getInstance("SHA-256") }
+        private const val BOXARTS_TREE_PREFIX = "Named_Boxarts/"
 
-    private companion object {
+        /**
+         * 流式解析 GitHub Git Trees JSON 响应，仅提取 `"tree"` 数组中 `Named_Boxarts` 目录下的 `.png` 文件名，
+         * 不缓存整段响应文本也不构建 `JSONObject`/`JSONArray`，避免超大平台仓库引发 40~80MB 堆尖峰。
+         */
+        internal fun parseGitHubTreeBoxarts(reader: Reader): List<String> {
+            val buf = CharArray(8192)
+            var pos = 0
+            var len = 0
+
+            fun ensureFilled(): Boolean {
+                if (pos < len) return true
+                len = reader.read(buf)
+                pos = 0
+                return len > 0
+            }
+
+            fun peek(): Int = if (ensureFilled()) buf[pos].code else -1
+            fun nextChar(): Int = if (ensureFilled()) buf[pos++].code else -1
+
+            fun skipWs() {
+                while (true) {
+                    val c = peek()
+                    if (c == ' '.code || c == '\t'.code || c == '\n'.code || c == '\r'.code) {
+                        pos++
+                    } else {
+                        return
+                    }
+                }
+            }
+
+            fun hexVal(c: Int): Int = when (c) {
+                in '0'.code..'9'.code -> c - '0'.code
+                in 'a'.code..'f'.code -> c - 'a'.code + 10
+                in 'A'.code..'F'.code -> c - 'A'.code + 10
+                else -> -1
+            }
+
+            fun readJsonString(out: StringBuilder): Boolean {
+                skipWs()
+                if (nextChar() != '"'.code) return false
+                out.setLength(0)
+                while (true) {
+                    val c = nextChar()
+                    if (c < 0) return false
+                    if (c == '"'.code) return true
+                    if (c == '\\'.code) {
+                        val esc = nextChar()
+                        if (esc < 0) return false
+                        when (esc) {
+                            '"'.code -> out.append('"')
+                            '\\'.code -> out.append('\\')
+                            '/'.code -> out.append('/')
+                            'b'.code -> out.append('\b')
+                            'f'.code -> out.append('\u000C')
+                            'n'.code -> out.append('\n')
+                            'r'.code -> out.append('\r')
+                            't'.code -> out.append('\t')
+                            'u'.code -> {
+                                val h1 = hexVal(nextChar())
+                                val h2 = hexVal(nextChar())
+                                val h3 = hexVal(nextChar())
+                                val h4 = hexVal(nextChar())
+                                if (h1 < 0 || h2 < 0 || h3 < 0 || h4 < 0) return false
+                                out.append(((h1 shl 12) or (h2 shl 8) or (h3 shl 4) or h4).toChar())
+                            }
+                            else -> out.append(esc.toChar())
+                        }
+                    } else {
+                        out.append(c.toChar())
+                    }
+                }
+            }
+
+            fun skipJsonString() {
+                if (nextChar() != '"'.code) return
+                while (true) {
+                    val c = nextChar()
+                    if (c < 0 || c == '"'.code) return
+                    if (c == '\\'.code) {
+                        if (nextChar() < 0) return
+                    }
+                }
+            }
+
+            fun skipJsonValue() {
+                skipWs()
+                when (val c = peek()) {
+                    -1 -> return
+                    '"'.code -> skipJsonString()
+                    '{'.code, '['.code -> {
+                        val open = c
+                        val close = if (c == '{'.code) '}'.code else ']'.code
+                        nextChar()
+                        var depth = 1
+                        while (depth > 0) {
+                            val ch = peek()
+                            if (ch < 0) return
+                            when (ch) {
+                                '"'.code -> skipJsonString()
+                                open -> {
+                                    nextChar()
+                                    depth++
+                                }
+                                close -> {
+                                    nextChar()
+                                    depth--
+                                }
+                                else -> nextChar()
+                            }
+                        }
+                    }
+                    else -> {
+                        while (true) {
+                            val ch = peek()
+                            if (ch < 0 || ch == ','.code || ch == '}'.code || ch == ']'.code ||
+                                ch == ' '.code || ch == '\t'.code || ch == '\n'.code || ch == '\r'.code
+                            ) {
+                                return
+                            }
+                            nextChar()
+                        }
+                    }
+                }
+            }
+
+            fun startsWithPrefix(sb: StringBuilder, prefix: String): Boolean {
+                if (sb.length < prefix.length) return false
+                for (i in prefix.indices) {
+                    if (sb[i] != prefix[i]) return false
+                }
+                return true
+            }
+
+            fun endsWithPng(sb: StringBuilder): Boolean {
+                val n = sb.length
+                if (n < 4) return false
+                return sb[n - 4] == '.' &&
+                    (sb[n - 3] == 'p' || sb[n - 3] == 'P') &&
+                    (sb[n - 2] == 'n' || sb[n - 2] == 'N') &&
+                    (sb[n - 1] == 'g' || sb[n - 1] == 'G')
+            }
+
+            val names = LinkedHashSet<String>(4096)
+            val keyBuf = StringBuilder(32)
+            val valBuf = StringBuilder(128)
+            val prefixLen = BOXARTS_TREE_PREFIX.length
+
+            skipWs()
+            if (nextChar() != '{'.code) return emptyList()
+            while (true) {
+                skipWs()
+                val c = peek()
+                if (c < 0 || c == '}'.code) break
+                if (c == ','.code) {
+                    nextChar()
+                    continue
+                }
+                if (!readJsonString(keyBuf)) break
+                val isTree = keyBuf.length == 4 &&
+                    keyBuf[0] == 't' && keyBuf[1] == 'r' && keyBuf[2] == 'e' && keyBuf[3] == 'e'
+                skipWs()
+                if (nextChar() != ':'.code) break
+                skipWs()
+                if (!isTree) {
+                    skipJsonValue()
+                    continue
+                }
+                if (nextChar() != '['.code) break
+                while (true) {
+                    skipWs()
+                    val tc = peek()
+                    if (tc < 0 || tc == ']'.code) {
+                        if (tc == ']'.code) nextChar()
+                        break
+                    }
+                    if (tc == ','.code) {
+                        nextChar()
+                        continue
+                    }
+                    if (tc != '{'.code) {
+                        skipJsonValue()
+                        continue
+                    }
+                    nextChar()
+                    while (true) {
+                        skipWs()
+                        val fc = peek()
+                        if (fc < 0 || fc == '}'.code) {
+                            if (fc == '}'.code) nextChar()
+                            break
+                        }
+                        if (fc == ','.code) {
+                            nextChar()
+                            continue
+                        }
+                        if (!readJsonString(keyBuf)) break
+                        val isPath = keyBuf.length == 4 &&
+                            keyBuf[0] == 'p' && keyBuf[1] == 'a' && keyBuf[2] == 't' && keyBuf[3] == 'h'
+                        skipWs()
+                        if (nextChar() != ':'.code) break
+                        skipWs()
+                        if (isPath && peek() == '"'.code) {
+                            if (readJsonString(valBuf) &&
+                                valBuf.length > prefixLen + 4 &&
+                                startsWithPrefix(valBuf, BOXARTS_TREE_PREFIX) &&
+                                endsWithPng(valBuf)
+                            ) {
+                                names += valBuf.substring(prefixLen)
+                            }
+                        } else {
+                            skipJsonValue()
+                        }
+                    }
+                }
+                break
+            }
+            return names.toList()
+        }
+
+        internal fun bytesToHexFast(bytes: ByteArray): String {
+            val chars = CharArray(bytes.size * 2)
+            for (i in bytes.indices) {
+                val v = bytes[i].toInt() and 0xFF
+                chars[i * 2] = HEX_CHARS[v ushr 4]
+                chars[i * 2 + 1] = HEX_CHARS[v and 0x0F]
+            }
+            return String(chars)
+        }
+
+        internal fun sha1HexFast(input: String): String {
+            val md = SHA1_TL.get()!!
+            md.reset()
+            return bytesToHexFast(md.digest(input.toByteArray(Charsets.UTF_8)))
+        }
+
+        internal fun sha256HexFast(input: String): String {
+            val md = SHA256_TL.get()!!
+            md.reset()
+            return bytesToHexFast(md.digest(input.toByteArray(Charsets.UTF_8)))
+        }
+
         private const val WEB_PICKER_PROVIDER = "web_picker"
         const val MATCHER_VERSION = 2
         const val THUMB_MAX_WIDTH_PX = 320
@@ -1911,7 +2374,83 @@ class CoverSource(
             RegexOption.IGNORE_CASE,
         )
 
-        fun candidateScore(name: String): Int {
+        private val PAREN_TAG_REGEX = Regex("""\(([^)]+)\)""")
+
+        private fun mapRegionToken(token: String, allowSingleLetter: Boolean): String? {
+            val clean = token.trim().lowercase()
+            return when (clean) {
+                "usa", "us", "美版" -> "USA"
+                "japan", "jp", "jpn", "日版" -> "Japan"
+                "europe", "eu", "eur", "欧版" -> "Europe"
+                "world" -> "World"
+                "asia", "as" -> "Asia"
+                "china", "cn", "ch" -> "China"
+                "taiwan", "tw", "台版" -> "Taiwan"
+                "hong kong", "hk", "港版" -> "Hong Kong"
+                "korea", "kr", "韩版" -> "Korea"
+                "australia", "au" -> "Australia"
+                "france" -> "France"
+                "germany" -> "Germany"
+                "spain" -> "Spain"
+                "italy" -> "Italy"
+                "brazil" -> "Brazil"
+                "canada" -> "Canada"
+                "netherlands" -> "Netherlands"
+                "sweden" -> "Sweden"
+                "russia" -> "Russia"
+                "u" -> if (allowSingleLetter) "USA" else null
+                "j" -> if (allowSingleLetter) "Japan" else null
+                "e" -> if (allowSingleLetter) "Europe" else null
+                "w" -> if (allowSingleLetter) "World" else null
+                "k" -> if (allowSingleLetter) "Korea" else null
+                "a" -> if (allowSingleLetter) "Australia" else null
+                "f" -> if (allowSingleLetter) "France" else null
+                "g" -> if (allowSingleLetter) "Germany" else null
+                "s" -> if (allowSingleLetter) "Spain" else null
+                "i" -> if (allowSingleLetter) "Italy" else null
+                else -> null
+            }
+        }
+
+        /** 从 ROM 文件名或 Boxart 候选名中提取规范化区域集合（兼容 No-Intro、GoodTools 与中文地区标）。 */
+        internal fun extractRegionTags(text: String): Set<String> {
+            if (text.isBlank()) return emptySet()
+            var out: LinkedHashSet<String>? = null
+            if ('(' in text) {
+                for (m in PAREN_TAG_REGEX.findAll(text)) {
+                    val inner = m.groupValues[1]
+                    val parts = inner.split(',')
+                    val singleToken = parts.size == 1
+                    for (part in parts) {
+                        val mapped = mapRegionToken(part, allowSingleLetter = singleToken)
+                        if (mapped != null) {
+                            (out ?: LinkedHashSet<String>(3).also { out = it }).add(mapped)
+                        }
+                    }
+                }
+            }
+            if (out == null) {
+                when {
+                    "日版" in text -> out = linkedSetOf("Japan")
+                    "美版" in text -> out = linkedSetOf("USA")
+                    "欧版" in text -> out = linkedSetOf("Europe")
+                    "韩版" in text -> out = linkedSetOf("Korea")
+                    "港版" in text -> out = linkedSetOf("Hong Kong")
+                    "台版" in text -> out = linkedSetOf("Taiwan")
+                }
+            }
+            return out ?: emptySet()
+        }
+
+        private fun extractPreferredRegions(queries: List<String>): Set<String> {
+            for (q in queries) {
+                val regions = extractRegionTags(q)
+                if (regions.isNotEmpty()) return regions
+            }
+            return emptySet()
+        }
+
+        fun candidateScore(name: String, preferredRegions: Set<String> = emptySet()): Int {
             var score = when {
                 "(USA)" in name -> 10
                 "(World)" in name -> 15
@@ -1920,8 +2459,16 @@ class CoverSource(
                 "(Japan)" in name -> 40
                 else -> 50
             }
-            if (COMPILATION_REISSUE_REGEX.containsMatchIn(name)) score += 60
-            if ("[b" in name || "[h" in name || "[tr" in name || "[p" in name) score += 100
+            if (preferredRegions.isNotEmpty()) {
+                val candRegions = extractRegionTags(name)
+                score += when {
+                    candRegions == preferredRegions -> 0
+                    candRegions.any { it in preferredRegions } -> 100
+                    else -> 200
+                }
+            }
+            if (COMPILATION_REISSUE_REGEX.containsMatchIn(name)) score += 300
+            if ("[b" in name || "[h" in name || "[tr" in name || "[p" in name) score += 500
             return score
         }
     }

@@ -48,6 +48,7 @@ class AppContainer(app: Application) {
     val lanManager = LanServerManager(app, userStore, repository, covers, metadata, appScope)
 
     init {
+        covers.searchNameResolver = metadata::bestSearchNameFor
         appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             kotlinx.coroutines.delay(5_000L)
             scraperClient.database.pruneExpired()
@@ -71,22 +72,28 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val am = getSystemService(ACTIVITY_SERVICE) as? ActivityManager
         val memPercent = if (am?.isLowRamDevice == true) 0.14 else 0.20
-        val coilHttp = OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .callTimeout(20, TimeUnit.SECONDS)
-            .addInterceptor(HttpLogInterceptor("coil"))
-            .addNetworkInterceptor { chain ->
-                val resp = chain.proceed(chain.request())
-                val len = resp.body?.contentLength() ?: -1L
-                if (len > 8L * 1024 * 1024) {
-                    resp.close()
-                    throw IOException("Image exceeds 8MB limit ($len bytes)")
+        val coilHttp = if (::container.isInitialized) {
+            container.scraperClient.newCoilHttpClient()
+        } else {
+            OkHttpClient.Builder()
+                .connectTimeout(8, TimeUnit.SECONDS)
+                .readTimeout(12, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .callTimeout(20, TimeUnit.SECONDS)
+                .apply {
+                    if (BuildConfig.DEBUG) addInterceptor(HttpLogInterceptor("coil"))
                 }
-                resp
-            }
-            .build()
+                .addNetworkInterceptor { chain ->
+                    val resp = chain.proceed(chain.request())
+                    val len = resp.body?.contentLength() ?: -1L
+                    if (len > 8L * 1024 * 1024) {
+                        resp.close()
+                        throw IOException("Image exceeds 8MB limit ($len bytes)")
+                    }
+                    resp
+                }
+                .build()
+        }
         return ImageLoader.Builder(context)
             .components {
                 add(OkHttpNetworkFetcherFactory(callFactory = { coilHttp }))
@@ -109,10 +116,12 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
             runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
             // 只释放当前未在使用的平台索引与元数据表，保护正在浏览的活跃平台不被清掉
             val keep = OfflineGameDb.activeSystems
+            val aggressive = level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
             OfflineGameDb.trimMemory(keep)
             if (::container.isInitialized) {
                 container.covers.trimMemory(keep)
                 container.metadata.trimMemory(keep)
+                container.scraperClient.trimMemory(keep, aggressive = aggressive)
             }
         }
     }

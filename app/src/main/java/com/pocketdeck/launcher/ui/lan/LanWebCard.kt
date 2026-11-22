@@ -97,6 +97,7 @@ import com.pocketdeck.launcher.lan.TransferDirection
 import com.pocketdeck.launcher.lan.TransferPhase
 import com.pocketdeck.launcher.lan.WebTransferDirection
 import com.pocketdeck.launcher.lan.WebTransferHistoryItem
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.DpadNavController
 import com.pocketdeck.launcher.ui.components.dpadNavItem
@@ -282,7 +283,7 @@ internal fun LanWebServiceCard(
                         Text(
                             stringResource(R.string.lan_nic_empty),
                             style = DeckType.metaLabel,
-                            color = Color(0xFFDC2626),
+                            color = DeckColors.StatusDanger,
                         )
                     } else {
                         state.interfaces.forEachIndexed { nicIdx, nic ->
@@ -344,7 +345,7 @@ internal fun LanWebServiceCard(
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = if (upSpeed > 0L) FontWeight.Bold else FontWeight.Normal,
                             ),
-                            color = if (upSpeed > 0L) Color(0xFF10B981) else DeckColors.TextSecondary,
+                            color = if (upSpeed > 0L) DeckColors.StatusSuccess else DeckColors.TextSecondary,
                         )
                         Text(
                             "↓ ${formatSpeed(downSpeed)}",
@@ -352,7 +353,7 @@ internal fun LanWebServiceCard(
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = if (downSpeed > 0L) FontWeight.Bold else FontWeight.Normal,
                             ),
-                            color = if (downSpeed > 0L) Color(0xFF0EA5E9) else DeckColors.TextSecondary,
+                            color = if (downSpeed > 0L) DeckColors.StatusInfo else DeckColors.TextSecondary,
                         )
                     }
                 }
@@ -399,7 +400,7 @@ internal fun LanWebServiceCard(
                                     Modifier
                                         .size(7.dp)
                                         .clip(CircleShape)
-                                        .background(if (hasTx) Color(0xFF0EA5E9) else Color(0xFF10B981)),
+                                        .background(if (hasTx) DeckColors.StatusInfo else DeckColors.StatusSuccess),
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Column(Modifier.weight(1f)) {
@@ -433,7 +434,7 @@ internal fun LanWebServiceCard(
                                                     fontFamily = FontFamily.Monospace,
                                                     fontWeight = FontWeight.SemiBold,
                                                 ),
-                                                color = Color(0xFF10B981),
+                                                color = DeckColors.StatusSuccess,
                                             )
                                         }
                                         if (client.downloadSpeedBps > 0L) {
@@ -443,7 +444,7 @@ internal fun LanWebServiceCard(
                                                     fontFamily = FontFamily.Monospace,
                                                     fontWeight = FontWeight.SemiBold,
                                                 ),
-                                                color = Color(0xFF0EA5E9),
+                                                color = DeckColors.StatusInfo,
                                             )
                                         }
                                     }
@@ -461,7 +462,7 @@ internal fun LanWebServiceCard(
                             }
                             client.activeTransfers.forEach { tx ->
                                 val isUp = tx.direction == WebTransferDirection.Upload
-                                val txColor = if (isUp) Color(0xFF10B981) else Color(0xFF0EA5E9)
+                                val txColor = if (isUp) DeckColors.StatusSuccess else DeckColors.StatusInfo
                                 val dirPrefix = if (isUp) "⬆ $uploadingLabel" else "⬇ $downloadingLabel"
                                 val sizePart = if (tx.totalBytes > 0L) {
                                     "${formatSize(tx.bytesTransferred)}/${formatSize(tx.totalBytes)}"
@@ -602,8 +603,8 @@ fun WebTransferHistoryDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 560.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
@@ -661,7 +662,7 @@ fun WebTransferHistoryDialog(
                 ) {
                     items(history, key = { it.id }) { item ->
                         val isUp = item.direction == WebTransferDirection.Upload
-                        val dirColor = if (isUp) Color(0xFF10B981) else Color(0xFF0EA5E9)
+                        val dirColor = if (isUp) DeckColors.StatusSuccess else DeckColors.StatusInfo
                         val dirLabel = if (isUp) {
                             "⬆ ${stringResource(R.string.lan_web_dir_upload)}"
                         } else {
@@ -703,10 +704,10 @@ fun WebTransferHistoryDialog(
                                         Text(
                                             stringResource(R.string.lan_web_tx_failed),
                                             style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
-                                            color = Color(0xFFD97706),
+                                            color = DeckColors.StatusWarning,
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(Color(0xFFF59E0B).copy(alpha = 0.15f))
+                                                .background(DeckColors.StatusWarning.copy(alpha = 0.15f))
                                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                                         )
                                     }

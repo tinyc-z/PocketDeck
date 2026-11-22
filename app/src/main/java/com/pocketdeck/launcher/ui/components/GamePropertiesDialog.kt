@@ -236,8 +236,8 @@ fun GamePropertiesDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 520.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = 600.dp),
             contentPadding = PaddingValues(24.dp),

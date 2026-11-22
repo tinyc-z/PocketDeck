@@ -78,6 +78,7 @@ import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.DialogCloseButton
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.requestFocusSafely
@@ -354,8 +355,8 @@ fun TextFileViewerEditorDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 560.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(min = 320.dp, max = 600.dp),
             swapAbxy = swapAbxy,
@@ -529,8 +530,8 @@ fun ArchivePreviewDialog(
     ) {
         Column(
             Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 500.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = 580.dp)
                 .clip(DeckShapes.menuPanel)
@@ -561,7 +562,7 @@ fun ArchivePreviewDialog(
                 err != null -> Text(
                     err.message ?: "Error",
                     style = DeckType.settingsLabel,
-                    color = Color(0xFFDC2626),
+                    color = DeckColors.StatusDanger,
                 )
                 entries != null -> {
                     val fileCount = entries.count { !it.isDir }
@@ -704,7 +705,9 @@ fun BatchDeleteConfirmDialog(
     ) {
         Column(
             Modifier
-                .width(440.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})
@@ -726,12 +729,12 @@ fun BatchDeleteConfirmDialog(
             Text(
                 stringResource(R.string.lib_batch_delete_yes, count),
                 style = DeckType.menuButton,
-                color = Color(0xFFDC2626),
+                color = DeckColors.StatusDanger,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(DeckShapes.menuButton)
-                    .background(if (delHl) Color(0xFFEF4444).copy(alpha = 0.16f) else DeckColors.Surface)
-                    .border(0.9.dp, if (delHl) Color(0xFFDC2626) else DeckColors.Line, DeckShapes.menuButton)
+                    .background(if (delHl) DeckColors.StatusDanger.copy(alpha = 0.16f) else DeckColors.Surface)
+                    .border(0.9.dp, if (delHl) DeckColors.StatusDanger else DeckColors.Line, DeckShapes.menuButton)
                     .soundClickable(onClick = onConfirm)
                     .padding(horizontal = 16.dp, vertical = 11.dp),
             )
@@ -783,7 +786,7 @@ fun FileOpProgressDialog(
         Column(
             Modifier
                 .padding(horizontal = 24.dp, vertical = 16.dp)
-                .widthIn(max = 400.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
                 .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
@@ -962,7 +965,7 @@ fun AudioPlayerDialog(
             onDismiss = onDismiss,
             modifier = Modifier
                 .padding(horizontal = 24.dp, vertical = 16.dp)
-                .widthIn(max = 460.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
                 .fillMaxWidth(),
             contentPadding = PaddingValues(22.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1007,7 +1010,7 @@ fun AudioPlayerDialog(
                 Text(
                     errorMsg!!,
                     style = DeckType.settingsValue,
-                    color = Color(0xFFDC2626),
+                    color = DeckColors.StatusDanger,
                     modifier = Modifier.padding(vertical = 12.dp),
                 )
             } else if (!prepared) {
@@ -1164,8 +1167,8 @@ fun FontViewerDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 540.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = 520.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1196,7 +1199,7 @@ fun FontViewerDialog(
                 }
             } else if (!state.first || state.second == null) {
                 Box(Modifier.fillMaxWidth().padding(vertical = 28.dp), contentAlignment = Alignment.Center) {
-                    Text(invalidMsg, style = DeckType.settingsValue, color = Color(0xFFDC2626))
+                    Text(invalidMsg, style = DeckType.settingsValue, color = DeckColors.StatusDanger)
                 }
             } else {
                 val previewFamily = state.second!!

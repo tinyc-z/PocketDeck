@@ -265,7 +265,7 @@ internal fun LanActiveTransferCard(
             .background(DeckColors.Surface)
             .border(
                 width = 0.9.dp,
-                color = if (tx.phase == TransferPhase.Failed) Color(0xFFDC2626) else DeckColors.Ruby.copy(alpha = 0.7f),
+                color = if (tx.phase == TransferPhase.Failed) DeckColors.StatusDanger else DeckColors.Ruby.copy(alpha = 0.7f),
                 shape = RoundedCornerShape(12.dp),
             )
             .padding(14.dp),
@@ -275,7 +275,7 @@ internal fun LanActiveTransferCard(
             Text(
                 heading,
                 style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
-                color = if (tx.phase == TransferPhase.Failed) Color(0xFFDC2626) else DeckColors.TextPrimary,
+                color = if (tx.phase == TransferPhase.Failed) DeckColors.StatusDanger else DeckColors.TextPrimary,
                 modifier = Modifier.weight(1f),
             )
             Text(
@@ -289,10 +289,10 @@ internal fun LanActiveTransferCard(
                     stringResource(R.string.lan_tx_clear)
                 },
                 style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                color = if (txActive) Color(0xFFDC2626) else DeckColors.Ruby,
+                color = if (txActive) DeckColors.StatusDanger else DeckColors.Ruby,
                 modifier = Modifier
                     .clip(DeckShapes.tabPill)
-                    .background(if (txActive) Color(0xFFEF4444).copy(alpha = 0.14f) else DeckColors.Ruby.copy(alpha = 0.12f))
+                    .background(if (txActive) DeckColors.StatusDanger.copy(alpha = 0.14f) else DeckColors.Ruby.copy(alpha = 0.12f))
                     .dpadNavItem(nav, "tx_action", shape = DeckShapes.tabPill) {
                         if (txActive) onCancelTransfer() else onDismissTransferBanner()
                     }
@@ -313,7 +313,7 @@ internal fun LanActiveTransferCard(
         )
         ShareTransferProgressSection(tx = tx, formatSize = ::formatSize)
         if (!tx.errorMessage.isNullOrBlank() && tx.phase == TransferPhase.Failed) {
-            Text(tx.errorMessage, style = DeckType.metaLabel, color = Color(0xFFDC2626))
+            Text(tx.errorMessage, style = DeckType.metaLabel, color = DeckColors.StatusDanger)
         }
     }
 }
@@ -330,12 +330,12 @@ internal fun SmallPillButton(
     onClick: () -> Unit,
 ) {
     val fg = when {
-        danger -> Color(0xFFDC2626)
+        danger -> DeckColors.StatusDanger
         accent -> DeckColors.Ruby
         else -> DeckColors.TextPrimary
     }
     val bg = when {
-        danger -> Color(0xFFEF4444).copy(alpha = 0.12f)
+        danger -> DeckColors.StatusDanger.copy(alpha = 0.12f)
         accent -> DeckColors.AccentSoft
         else -> DeckColors.SurfaceAlt
     }
@@ -500,7 +500,7 @@ internal fun FileTaskItemRow(
             }
             if (task.cancellable) {
                 TaskCancelCrossButton(
-                    tint = Color(0xFFDC2626),
+                    tint = DeckColors.StatusDanger,
                     enabled = !task.cancelling,
                     swapAbxy = swapAbxy,
                     keyBindings = keyBindings,

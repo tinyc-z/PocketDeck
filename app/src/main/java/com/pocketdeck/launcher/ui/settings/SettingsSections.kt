@@ -58,6 +58,7 @@ import com.pocketdeck.launcher.data.Category
 import com.pocketdeck.launcher.data.CategorySortOrder
 import com.pocketdeck.launcher.data.CredentialKind
 import com.pocketdeck.launcher.data.GalleryAlign
+import com.pocketdeck.launcher.data.NavBarStyle
 import com.pocketdeck.launcher.data.MetadataDisplayConfig
 import com.pocketdeck.launcher.data.PlatformCatalog
 import com.pocketdeck.launcher.data.ScraperCatalog
@@ -224,6 +225,7 @@ internal fun HomeSettingsSection(
     state: SettingsState,
     onSetViewMode: (ViewMode) -> Unit,
     onCycleGalleryAlign: () -> Unit,
+    onCycleNavBarStyle: () -> Unit,
     onToggleBottomBar: () -> Unit,
     onToggleShowMetadata: () -> Unit,
     onToggleMetaField: (MetaFieldKey) -> Unit,
@@ -276,6 +278,18 @@ internal fun HomeSettingsSection(
             first = false
         }
         if (!first) RowDivider()
+        val navBarStyleLabel = when (state.navBarStyle) {
+            NavBarStyle.Classic -> stringResource(R.string.nav_bar_style_classic)
+            NavBarStyle.GlassDock -> stringResource(R.string.nav_bar_style_glass_dock)
+        }
+        SettingRow(
+            label = stringResource(R.string.settings_nav_bar_style),
+            highlighted = highlightIndex == idx,
+            onClick = onCycleNavBarStyle,
+            trailing = { ValueChevron(navBarStyleLabel) },
+        )
+        idx++
+        RowDivider()
         SettingRow(
             label = stringResource(R.string.settings_show_bottom_bar),
             highlighted = highlightIndex == idx,
@@ -1227,6 +1241,7 @@ internal fun bgStyleLabel(style: BackgroundStyle): String = when (style) {
     BackgroundStyle.RetroGrid -> stringResource(R.string.bg_style_retro_grid)
     BackgroundStyle.CoverGlow -> stringResource(R.string.bg_style_cover_glow)
     BackgroundStyle.Aurora -> stringResource(R.string.bg_style_aurora)
+    BackgroundStyle.Starfield -> stringResource(R.string.bg_style_starfield)
     BackgroundStyle.Image -> stringResource(R.string.bg_style_image)
     BackgroundStyle.None -> stringResource(R.string.bg_style_none)
 }

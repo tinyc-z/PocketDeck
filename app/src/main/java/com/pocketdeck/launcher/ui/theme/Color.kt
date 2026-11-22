@@ -46,6 +46,11 @@ data class DeckPalette(
     val flowA: Color,
     val flowB: Color,
     val flowC: Color,
+    // ── 语义状态色（自动适配浅/深色背景对比度） ──
+    val statusDanger: Color,
+    val statusSuccess: Color,
+    val statusInfo: Color,
+    val statusWarning: Color,
 )
 
 fun deckPalette(accent: ThemeAccent, isDark: Boolean): DeckPalette {
@@ -92,6 +97,10 @@ fun deckPalette(accent: ThemeAccent, isDark: Boolean): DeckPalette {
             flowA = gStart.copy(alpha = 0.42f),
             flowB = gEnd.copy(alpha = 0.40f),
             flowC = violet.copy(alpha = 0.50f),
+            statusDanger = Color(0xFFF87171),
+            statusSuccess = Color(0xFF34D399),
+            statusInfo = Color(0xFF38BDF8),
+            statusWarning = Color(0xFFFBBF24),
         )
     } else {
         DeckPalette(
@@ -127,6 +136,10 @@ fun deckPalette(accent: ThemeAccent, isDark: Boolean): DeckPalette {
             flowA = lerp(gStart, Color.White, 0.35f).copy(alpha = 0.60f),
             flowB = lerp(gEnd, Color.White, 0.45f).copy(alpha = 0.55f),
             flowC = lerp(violet, Color.White, 0.55f).copy(alpha = 0.45f),
+            statusDanger = Color(0xFFDC2626),
+            statusSuccess = Color(0xFF10B981),
+            statusInfo = Color(0xFF0EA5E9),
+            statusWarning = Color(0xFFD97706),
         )
     }
 }
@@ -224,4 +237,16 @@ object DeckColors {
 
     val AccentSoft: Color
         @Composable @ReadOnlyComposable get() = LocalDeckColors.current.accentSoft
+
+    val StatusDanger: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.statusDanger
+
+    val StatusSuccess: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.statusSuccess
+
+    val StatusInfo: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.statusInfo
+
+    val StatusWarning: Color
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.statusWarning
 }

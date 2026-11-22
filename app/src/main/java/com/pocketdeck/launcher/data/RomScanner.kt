@@ -1,11 +1,17 @@
 package com.pocketdeck.launcher.data
 
+import android.util.Xml
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Library
 import com.pocketdeck.launcher.data.model.Platform
+import org.xml.sax.Attributes
+import org.xml.sax.helpers.DefaultHandler
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
+import java.io.BufferedInputStream
 import java.io.File
-import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.parsers.SAXParserFactory
 
 /** 扫描 ROM 根目录：支持多盘自动折叠、`.m3u` 解析、ES-DE/Daijisho/Pegasus 本地媒体与 `gamelist.xml` 导入及目录级增量复用。 */
 object RomScanner {
@@ -60,6 +66,10 @@ object RomScanner {
     private val DISC_TAG_REGEX = Regex(
         """(?i)[\s._-]*(?:\(\s*(?:dis[ck]|cd)\s*([0-9]+|[a-d])\s*(?:of\s*\d+)?\s*\)|\[\s*(?:dis[ck]|cd)\s*([0-9]+|[a-d])\s*\]|(?:dis[ck]|cd)\s*([0-9]+)(?=$|[\s._\-\(\[])|(?:光盘|碟|盘)\s*([0-9]+))""",
     )
+    private val ILLEGAL_FILE_CHARS_REGEX = Regex("""[\\/:*?"<>|]""")
+    private val WHITESPACE_REGEX = Regex("""\s+""")
+    private val QUOTED_PATH_REGEX = Regex("\"([^\"]+)\"")
+    private val PARENT_MEDIA_TOP_DIRS = setOf("media", "downloaded_media", "images", "boxart", "covers", "gamelists")
 
     private data class LocalGamelistEntry(
         val coverPath: String? = null,
@@ -89,7 +99,7 @@ object RomScanner {
         val firstFile = File(discs.first())
         val parent = firstFile.parentFile ?: error("Missing parent directory")
         val base = extractDiscInfo(firstFile.nameWithoutExtension)?.first?.takeIf { it.isNotBlank() }
-            ?: game.title.replace(Regex("""[\\/:*?"<>|]"""), "_").trim().ifEmpty { firstFile.nameWithoutExtension }
+            ?: game.title.replace(ILLEGAL_FILE_CHARS_REGEX, "_").trim().ifEmpty { firstFile.nameWithoutExtension }
         val m3uFile = File(parent, "$base.m3u")
         val lines = discs.map { path ->
             val f = File(path)
@@ -111,7 +121,7 @@ object RomScanner {
             else -> return null
         }
         val stripped = (baseName.substring(0, m.range.first) + baseName.substring(m.range.last + 1))
-            .replace(Regex("""\s+"""), " ")
+            .replace(WHITESPACE_REGEX, " ")
             .trim(' ', '-', '_', '.')
         if (stripped.isEmpty()) return null
         return stripped to order
@@ -169,6 +179,7 @@ object RomScanner {
         val counts = LinkedHashMap<String, Int>()
         val localMeta = HashMap<String, GameMetadata>()
         val dirSnapshots = HashMap<String, Pair<Long, Int>>()
+        val parentEntriesCache = HashMap<String, Set<String>>()
         roots.forEach { counts[it.path] = 0 }
 
         fun addScanned(rootPath: String, plat: Platform, res: PlatformScanResult) {
@@ -184,27 +195,29 @@ object RomScanner {
         }
 
         fun scanOrReuse(dir: File, plat: Platform): PlatformScanResult {
-            val snap = computeDirSnapshot(dir)
+            val snap = computeDirSnapshot(dir, parentEntriesCache)
             dirSnapshots[dir.path] = snap
             if (previousLibrary != null && previousLibrary.dirSnapshots[dir.path] == snap) {
                 val prefix = dir.path + File.separator
                 val cachedGames = previousLibrary.games[plat.id].orEmpty()
                     .filter { it.id.startsWith(prefix) && it.id.indexOf(File.separatorChar, prefix.length) < 0 }
-                if (cachedGames.isNotEmpty() || snap.second == 0) {
-                    val cachedMeta = HashMap<String, GameMetadata>()
-                    for (g in cachedGames) {
-                        previousLibrary.localMetadata[g.id]?.let { cachedMeta[g.id] = it }
-                    }
-                    return PlatformScanResult(cachedGames, cachedMeta)
+                val cachedMeta = HashMap<String, GameMetadata>(cachedGames.size)
+                for (g in cachedGames) {
+                    previousLibrary.localMetadata[g.id]?.let { cachedMeta[g.id] = it }
                 }
+                return PlatformScanResult(cachedGames, cachedMeta)
             }
             return scanPlatform(dir, plat.id)
         }
 
         fun snapshot(): Library {
             val games = HashMap<String, List<Game>>(merged.size * 2)
+            val gameOrder = Comparator<Game> { a, b ->
+                val cmp = String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title)
+                if (cmp != 0) cmp else a.id.compareTo(b.id)
+            }
             for ((pid, m) in merged) {
-                games[pid] = m.values.sortedWith { a, b -> String.CASE_INSENSITIVE_ORDER.compare(a.title, b.title) }
+                games[pid] = m.values.sortedWith(gameOrder)
             }
             val sortedPlats = platforms.values.sortedWith(compareBy({ PlatformCatalog.sortKey(it.id) }, { it.id }))
             return Library(
@@ -258,8 +271,27 @@ object RomScanner {
             }
         }
 
-        // 阶段 3：扫描直接散落在根目录下的 ROM 文件
+        // 阶段 3：扫描直接散落在根目录下的 ROM 文件（同样纳入目录快照以支持增量复用）
         for (root in rootMiscRoots) {
+            val snap = computeDirSnapshot(root, parentEntriesCache)
+            dirSnapshots[root.path] = snap
+            if (previousLibrary != null && previousLibrary.dirSnapshots[root.path] == snap) {
+                val prefix = root.path + File.separator
+                for ((pid, cachedList) in previousLibrary.games) {
+                    val directGames = cachedList.filter {
+                        it.id.startsWith(prefix) && it.id.indexOf(File.separatorChar, prefix.length) < 0
+                    }
+                    if (directGames.isEmpty()) continue
+                    val plat = previousLibrary.platforms.firstOrNull { it.id == pid }
+                        ?: PlatformCatalog.forFolder(pid)
+                    val metaMap = HashMap<String, GameMetadata>(directGames.size)
+                    for (g in directGames) {
+                        previousLibrary.localMetadata[g.id]?.let { metaMap[g.id] = it }
+                    }
+                    addScanned(root.path, plat, PlatformScanResult(directGames, metaMap))
+                }
+                continue
+            }
             val rootRes = scanPlatform(root, "misc")
             for (g in rootRes.games) {
                 val ext = g.fileName.substringAfterLast('.', "").lowercase()
@@ -276,12 +308,79 @@ object RomScanner {
 
     fun scan(root: File): Library = scanAll(listOf(root))
 
-    private fun computeDirSnapshot(dir: File): Pair<Long, Int> {
+    /**
+     * 计算目录增量快照：覆盖主目录本身、内置/外置 `gamelist.xml` 以及全部本地与上级封面子目录的 mtime 与条目数，
+     * 避免新增封面或更新外置 `gamelist.xml` 时因主目录 mtime 不变而被误判为未变更。
+     */
+    internal fun computeDirSnapshot(
+        dir: File,
+        parentEntriesCache: MutableMap<String, Set<String>> = HashMap(),
+    ): Pair<Long, Int> {
         val entries = dir.list()
         val count = entries?.size ?: 0
-        val gamelistMod = File(dir, "gamelist.xml").takeIf { it.isFile }?.lastModified() ?: 0L
-        val combinedMod = dir.lastModified() xor (gamelistMod shl 1)
-        return combinedMod to count
+        var hash = 17L
+        fun mix(value: Long) {
+            hash = hash * 31L + value
+        }
+        fun mixFile(f: File, tag: Long) {
+            if (f.isFile) {
+                mix(tag)
+                mix(f.lastModified())
+                mix(f.length())
+            }
+        }
+        fun mixCoverDir(d: File, tag: Long) {
+            if (d.isDirectory) {
+                mix(tag)
+                mix(d.lastModified())
+                mix((d.list()?.size ?: 0).toLong())
+            }
+        }
+
+        mix(dir.lastModified())
+        mix(count.toLong())
+
+        val entrySet = if (!entries.isNullOrEmpty()) entries.mapTo(HashSet(entries.size)) { it.lowercase() } else emptySet()
+        if ("gamelist.xml" in entrySet) {
+            mixFile(File(dir, "gamelist.xml"), 101L)
+        }
+        if ("media" in entrySet) {
+            mixCoverDir(File(dir, "media/covers"), 201L)
+            mixCoverDir(File(dir, "media/box2dfront"), 202L)
+            mixCoverDir(File(dir, "media/images"), 203L)
+        }
+        if ("downloaded_images" in entrySet) mixCoverDir(File(dir, "downloaded_images"), 204L)
+        if ("images" in entrySet) mixCoverDir(File(dir, "images"), 205L)
+        if ("covers" in entrySet) mixCoverDir(File(dir, "covers"), 206L)
+        if ("boxart" in entrySet) mixCoverDir(File(dir, "boxart"), 207L)
+
+        val parent = dir.parentFile
+        if (parent != null) {
+            val parentPresent = parentEntriesCache.getOrPut(parent.path) {
+                parent.list()?.asSequence()
+                    ?.map { it.lowercase() }
+                    ?.filterTo(HashSet()) { it in PARENT_MEDIA_TOP_DIRS }
+                    ?: emptySet()
+            }
+            if (parentPresent.isNotEmpty()) {
+                val folderName = dir.name
+                if ("gamelists" in parentPresent) {
+                    mixFile(File(parent, "gamelists/$folderName/gamelist.xml"), 102L)
+                }
+                if ("media" in parentPresent) {
+                    mixCoverDir(File(parent, "media/$folderName/covers"), 301L)
+                    mixCoverDir(File(parent, "media/$folderName/box2dfront"), 302L)
+                }
+                if ("downloaded_media" in parentPresent) {
+                    mixCoverDir(File(parent, "downloaded_media/$folderName/covers"), 303L)
+                    mixCoverDir(File(parent, "downloaded_media/$folderName/box2dfront"), 304L)
+                }
+                if ("images" in parentPresent) mixCoverDir(File(parent, "images/$folderName"), 305L)
+                if ("boxart" in parentPresent) mixCoverDir(File(parent, "boxart/$folderName"), 306L)
+                if ("covers" in parentPresent) mixCoverDir(File(parent, "covers/$folderName"), 307L)
+            }
+        }
+        return hash to count
     }
 
     private fun inferPlatformByExt(ext: String): String? = when (ext) {
@@ -393,7 +492,7 @@ object RomScanner {
                         seq.take(256).forEach { rawLine ->
                             val trimmed = rawLine.trim().removePrefix("\uFEFF")
                             if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
-                            val quoted = Regex("\"([^\"]+)\"").find(trimmed)?.groupValues?.getOrNull(1)
+                            val quoted = QUOTED_PATH_REGEX.find(trimmed)?.groupValues?.getOrNull(1)
                             val candidate = (quoted ?: trimmed.substringAfterLast(' '))
                                 .replace('\\', '/')
                                 .substringAfterLast('/')
@@ -485,7 +584,7 @@ object RomScanner {
         )
     }
 
-    /** 解析 ES-DE / EmulationStation 的 `gamelist.xml`，返回 `fileNameLower -> LocalGamelistEntry`。 */
+    /** 流式解析 ES-DE / EmulationStation 的 `gamelist.xml`（零 DOM 建树），返回 `fileNameLower -> LocalGamelistEntry`。 */
     private fun parseGamelistXml(dir: File): Map<String, LocalGamelistEntry> {
         val candidates = listOfNotNull(
             File(dir, "gamelist.xml"),
@@ -495,51 +594,224 @@ object RomScanner {
             ?: return emptyMap()
 
         val result = HashMap<String, LocalGamelistEntry>()
+        fun recordGame(
+            rawPath: String?,
+            image: String?,
+            thumbnail: String?,
+            releaseRaw: String?,
+            genre: String?,
+            developer: String?,
+            publisher: String?,
+            desc: String?,
+        ) {
+            val fileName = rawPath?.replace('\\', '/')?.substringAfterLast('/')?.trim() ?: return
+            if (fileName.isEmpty()) return
+            val imgRel = image ?: thumbnail
+            val resolvedCover = imgRel?.let { rel ->
+                val cleaned = rel.removePrefix("./").replace('\\', '/')
+                val f = if (File(cleaned).isAbsolute) File(cleaned) else File(dir, cleaned)
+                f.takeIf { it.isFile }?.path
+            }
+            val meta = GameMetadata(
+                releaseDate = formatGamelistDate(releaseRaw),
+                genre = genre,
+                developer = developer,
+                publisher = publisher,
+                description = desc,
+            )
+            val entry = LocalGamelistEntry(
+                coverPath = resolvedCover,
+                metadata = meta.takeIf { !it.isEmpty },
+            )
+            result[fileName.lowercase()] = entry
+            val noExt = fileName.substringBeforeLast('.', "").lowercase()
+            if (noExt.isNotEmpty()) {
+                result.putIfAbsent(noExt, entry)
+            }
+        }
+
+        val pullParser = createXmlPullParser()
+        if (pullParser != null) {
+            runCatching {
+                BufferedInputStream(xmlFile.inputStream(), 16 * 1024).use { input ->
+                    pullParser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+                    runCatching { pullParser.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false) }
+                    pullParser.setInput(input, "UTF-8")
+
+                    var inGame = false
+                    var gameDepth = 0
+                    var activeField: String? = null
+                    val buf = StringBuilder(128)
+                    var rawPath: String? = null
+                    var image: String? = null
+                    var thumbnail: String? = null
+                    var releaseRaw: String? = null
+                    var genre: String? = null
+                    var developer: String? = null
+                    var publisher: String? = null
+                    var desc: String? = null
+
+                    var event = pullParser.eventType
+                    while (event != XmlPullParser.END_DOCUMENT) {
+                        when (event) {
+                            XmlPullParser.START_TAG -> {
+                                val tag = pullParser.name
+                                if (!inGame) {
+                                    if (tag.equals("game", ignoreCase = true)) {
+                                        inGame = true
+                                        gameDepth = 0
+                                        activeField = null
+                                        rawPath = null
+                                        image = null
+                                        thumbnail = null
+                                        releaseRaw = null
+                                        genre = null
+                                        developer = null
+                                        publisher = null
+                                        desc = null
+                                    }
+                                } else {
+                                    gameDepth++
+                                    if (gameDepth == 1) {
+                                        val lower = tag.lowercase()
+                                        if (lower in GAMELIST_FIELDS) {
+                                            activeField = lower
+                                            buf.setLength(0)
+                                        }
+                                    }
+                                }
+                            }
+                            XmlPullParser.TEXT, XmlPullParser.CDSECT -> {
+                                if (inGame && gameDepth == 1 && activeField != null) {
+                                    pullParser.text?.let { buf.append(it) }
+                                }
+                            }
+                            XmlPullParser.END_TAG -> {
+                                if (inGame) {
+                                    if (gameDepth == 0) {
+                                        recordGame(rawPath, image, thumbnail, releaseRaw, genre, developer, publisher, desc)
+                                        inGame = false
+                                    } else {
+                                        if (gameDepth == 1 && activeField != null) {
+                                            val value = buf.toString().trim().takeIf { it.isNotEmpty() }
+                                            when (activeField) {
+                                                "path" -> if (rawPath == null) rawPath = value
+                                                "image" -> if (image == null) image = value
+                                                "thumbnail" -> if (thumbnail == null) thumbnail = value
+                                                "releasedate" -> if (releaseRaw == null) releaseRaw = value
+                                                "genre" -> if (genre == null) genre = value
+                                                "developer" -> if (developer == null) developer = value
+                                                "publisher" -> if (publisher == null) publisher = value
+                                                "desc" -> if (desc == null) desc = value
+                                            }
+                                            activeField = null
+                                        }
+                                        gameDepth--
+                                    }
+                                }
+                            }
+                        }
+                        event = pullParser.next()
+                    }
+                }
+            }
+            return result
+        }
+
+        // 纯 JVM 单元测试环境无 Android XmlPullParser 实现时退回同样零 DOM 的 SAX 流式解析
         runCatching {
-            val factory = DocumentBuilderFactory.newInstance().apply {
+            val saxFactory = SAXParserFactory.newInstance().apply {
                 isNamespaceAware = false
                 runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
             }
-            val doc = factory.newDocumentBuilder().parse(xmlFile)
-            val nodes = doc.getElementsByTagName("game")
-            for (i in 0 until nodes.length) {
-                val elem = nodes.item(i) as? org.w3c.dom.Element ?: continue
-                fun childText(tag: String): String? =
-                    elem.getElementsByTagName(tag).item(0)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+            BufferedInputStream(xmlFile.inputStream(), 16 * 1024).use { input ->
+                saxFactory.newSAXParser().parse(
+                    input,
+                    object : DefaultHandler() {
+                        private var inGame = false
+                        private var gameDepth = 0
+                        private var activeField: String? = null
+                        private val buf = StringBuilder(128)
+                        private var rawPath: String? = null
+                        private var image: String? = null
+                        private var thumbnail: String? = null
+                        private var releaseRaw: String? = null
+                        private var genre: String? = null
+                        private var developer: String? = null
+                        private var publisher: String? = null
+                        private var desc: String? = null
 
-                val rawPath = childText("path") ?: continue
-                val fileName = rawPath.replace('\\', '/').substringAfterLast('/').trim()
-                if (fileName.isEmpty()) continue
+                        override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
+                            val tag = qName.orEmpty()
+                            if (!inGame) {
+                                if (tag.equals("game", ignoreCase = true)) {
+                                    inGame = true
+                                    gameDepth = 0
+                                    activeField = null
+                                    rawPath = null
+                                    image = null
+                                    thumbnail = null
+                                    releaseRaw = null
+                                    genre = null
+                                    developer = null
+                                    publisher = null
+                                    desc = null
+                                }
+                            } else {
+                                gameDepth++
+                                if (gameDepth == 1) {
+                                    val lower = tag.lowercase()
+                                    if (lower in GAMELIST_FIELDS) {
+                                        activeField = lower
+                                        buf.setLength(0)
+                                    }
+                                }
+                            }
+                        }
 
-                val imgRel = childText("image") ?: childText("thumbnail")
-                val resolvedCover = imgRel?.let { rel ->
-                    val cleaned = rel.removePrefix("./").replace('\\', '/')
-                    val f = if (File(cleaned).isAbsolute) File(cleaned) else File(dir, cleaned)
-                    f.takeIf { it.isFile }?.path
-                }
+                        override fun characters(ch: CharArray?, start: Int, length: Int) {
+                            if (inGame && gameDepth == 1 && activeField != null && ch != null && length > 0) {
+                                buf.append(ch, start, length)
+                            }
+                        }
 
-                val releaseRaw = childText("releasedate")
-                val releaseDate = formatGamelistDate(releaseRaw)
-                val meta = GameMetadata(
-                    releaseDate = releaseDate,
-                    genre = childText("genre"),
-                    developer = childText("developer"),
-                    publisher = childText("publisher"),
-                    description = childText("desc"),
+                        override fun endElement(uri: String?, localName: String?, qName: String?) {
+                            if (!inGame) return
+                            if (gameDepth == 0) {
+                                recordGame(rawPath, image, thumbnail, releaseRaw, genre, developer, publisher, desc)
+                                inGame = false
+                            } else {
+                                if (gameDepth == 1 && activeField != null) {
+                                    val value = buf.toString().trim().takeIf { it.isNotEmpty() }
+                                    when (activeField) {
+                                        "path" -> if (rawPath == null) rawPath = value
+                                        "image" -> if (image == null) image = value
+                                        "thumbnail" -> if (thumbnail == null) thumbnail = value
+                                        "releasedate" -> if (releaseRaw == null) releaseRaw = value
+                                        "genre" -> if (genre == null) genre = value
+                                        "developer" -> if (developer == null) developer = value
+                                        "publisher" -> if (publisher == null) publisher = value
+                                        "desc" -> if (desc == null) desc = value
+                                    }
+                                    activeField = null
+                                }
+                                gameDepth--
+                            }
+                        }
+                    },
                 )
-                val entry = LocalGamelistEntry(
-                    coverPath = resolvedCover,
-                    metadata = meta.takeIf { !it.isEmpty },
-                )
-                result[fileName.lowercase()] = entry
-                val noExt = fileName.substringBeforeLast('.', "").lowercase()
-                if (noExt.isNotEmpty()) {
-                    result.putIfAbsent(noExt, entry)
-                }
             }
         }
         return result
     }
+
+    private fun createXmlPullParser(): XmlPullParser? =
+        runCatching { Xml.newPullParser() }.getOrNull()
+            ?: runCatching { XmlPullParserFactory.newInstance().newPullParser() }.getOrNull()
+
+    private val GAMELIST_FIELDS = setOf(
+        "path", "image", "thumbnail", "releasedate", "genre", "developer", "publisher", "desc",
+    )
 
     private fun formatGamelistDate(raw: String?): String? {
         if (raw.isNullOrBlank()) return null

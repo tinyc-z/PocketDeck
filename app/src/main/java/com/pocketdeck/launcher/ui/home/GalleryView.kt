@@ -4,6 +4,7 @@ import com.pocketdeck.launcher.data.formatFileSize
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -31,23 +32,23 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -75,6 +76,7 @@ import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.ui.components.BrandHeartBadge
 import com.pocketdeck.launcher.ui.components.GameCoverCard
 import com.pocketdeck.launcher.ui.components.PlatformBadge
+import com.pocketdeck.launcher.ui.components.background.rememberIdleBreathingClock
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
@@ -136,24 +138,30 @@ fun GalleryView(
     val latestGames by rememberUpdatedState(games)
     val latestFocusIndex by rememberUpdatedState(focusIndex)
     val latestOnFocusChange by rememberUpdatedState(onFocusChange)
+    val latestFastScrolling by rememberUpdatedState(fastScrolling)
 
     // 切平台、排序或列表变化时立即对齐焦点
     LaunchedEffect(games.firstOrNull()?.id, games.lastOrNull()?.id, games.size) {
         animatedFocus.snapTo(focusIndex.toFloat())
     }
 
-    // 滚动动画：减少动态效果时立即 snapTo 零帧切换；常规模式用中等刚度弹簧
+    // 滚动动画：减少动态效果时立即 snapTo 零帧切换；常规模式长按连发时夹紧滞后（<=2.2 格）+ 提刚度，避免卡片滑出 ±6 窗口露白
     val reduceMotion = LocalReduceMotion.current
     LaunchedEffect(focusIndex, isDragging, reduceMotion) {
         if (!isDragging) {
             if (reduceMotion) {
                 animatedFocus.snapTo(focusIndex.toFloat())
             } else {
+                val target = focusIndex.toFloat()
+                val diff = target - animatedFocus.value
+                if (abs(diff) > 2.2f) {
+                    animatedFocus.snapTo(target - kotlin.math.sign(diff) * 2.2f)
+                }
                 animatedFocus.animateTo(
-                    focusIndex.toFloat(),
+                    target,
                     spring(
                         dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = 560f,
+                        stiffness = if (latestFastScrolling) 900f else 560f,
                     ),
                     initialVelocity = animatedFocus.velocity,
                 )
@@ -161,23 +169,15 @@ fun GalleryView(
         }
     }
 
-    // 选中焦点卡片停稳 120ms 后的微幅 3D 立体倾斜呼吸（纯 graphicsLayer 零重组，幅度克制自然）
-    val heroIdleSeconds = remember { mutableFloatStateOf(0f) }
-    val heroIdleEnvelope = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(focusIndex, fastScrolling, isDragging, reduceMotion, idlePaused, games.size) {
-        heroIdleSeconds.floatValue = 0f
-        heroIdleEnvelope.floatValue = 0f
-        if (reduceMotion || fastScrolling || isDragging || idlePaused || games.isEmpty()) return@LaunchedEffect
-        delay(120L)
-        val startNs = withFrameNanos { it }
-        while (true) {
-            withFrameNanos { nowNs ->
-                val sec = (nowNs - startNs) / 1_000_000_000f
-                heroIdleSeconds.floatValue = sec
-                heroIdleEnvelope.floatValue = (sec / 0.65f).coerceIn(0f, 1f)
-            }
-        }
-    }
+    // 选中焦点卡片停稳 120ms 后的微幅 3D 立体倾斜呼吸（复用 30Hz 节流 + STARTED 生命周期暂停，零每帧 lambda 与零重组）
+    val heroIdle = rememberIdleBreathingClock(
+        paused = reduceMotion || fastScrolling || isDragging || idlePaused || games.isEmpty(),
+        resetKey = focusIndex to games.size,
+        delayMs = 120L,
+        rampSec = 0.65f,
+    )
+    val heroIdleSeconds = heroIdle.seconds
+    val heroIdleEnvelope = heroIdle.envelope
 
     val dragAlpha by animateFloatAsState(
         targetValue = if (isDragging) 0.45f else 1f,
@@ -186,8 +186,8 @@ fun GalleryView(
     )
     val metaVisible = !isDragging && !fastScrolling
     val metaChipsAlpha by animateFloatAsState(
-        targetValue = if (metaVisible) 1f else 0f,
-        animationSpec = if (reduceMotion) snap() else tween(if (metaVisible) 150 else 80),
+        targetValue = if (metaVisible) 1f else 0.32f,
+        animationSpec = if (reduceMotion) snap() else tween(if (metaVisible) 150 else 100),
         label = "metaChipsAlpha",
     )
     val listKey = remember(games) { games.firstOrNull()?.id }
@@ -274,11 +274,11 @@ fun GalleryView(
             )
         }
 
-        // 副标题：平台全称 · 年份 · 发行商/开发商（固定高度单 Text，实时跟随当前焦点游戏无重排开销）
+        // 副标题：平台全称 · 年份 · 发行商/开发商（快滚期仅显示平台名，避免每次按键查询元数据与正则匹配）
         val focusedPlatform = focusedGame?.let(platformOf)
-        val focusedMeta = focusedGame?.let { metadataMap[it.id] }
-        val subtitle = remember(focusedPlatform?.fullName, focusedMeta, showMetadata, metaDisplay) {
-            gallerySubtitle(focusedPlatform?.fullName, focusedMeta, showMetadata, metaDisplay)
+        val focusedMeta = if (metaVisible) focusedGame?.let { metadataMap[it.id] } else null
+        val subtitle = remember(focusedPlatform?.fullName, focusedMeta, showMetadata, metaVisible, metaDisplay) {
+            gallerySubtitle(focusedPlatform?.fullName, focusedMeta, showMetadata && metaVisible, metaDisplay)
         }
         Text(
             text = subtitle,
@@ -344,11 +344,12 @@ fun GalleryView(
                     )
                 },
         ) {
-            // 按键切换直接以 focusIndex 为窗口中心，避免动画过半时触发全窗口二次重组；仅拖动期实时跟随
+            // 按键切换直接以 focusIndex 为窗口中心（滞后已夹紧 <=2.2 格），保留 [-5..+6] 充足缓冲，
+            // 避免来回滚动时频繁销毁/重建 Composable 节点；zIndex 置于外层、单卡拆出 GalleryCardSlot 以最大化跳过重组
             val windowCenter by remember(focusIndex, isDragging) {
                 derivedStateOf { if (isDragging) animatedFocus.value.roundToInt() else focusIndex }
             }
-            val windowStart = (windowCenter - 6).coerceAtLeast(0)
+            val windowStart = (windowCenter - 5).coerceAtLeast(0)
             val windowEnd = (windowCenter + 6).coerceAtMost(games.size - 1)
             val minScale = smallCardHeight / focusCardHeight
             val alignY = when (align) {
@@ -364,76 +365,39 @@ fun GalleryView(
                     val aspect = plat?.coverAspect ?: 1f
                     val cardFullW = focusCardHeight * aspect
                     val isCardFocused = i == focusIndex
-                    val latestGame by rememberUpdatedState(game)
-                    val cardOnClick = remember(game.id, i, isCardFocused, onLaunch, onFocusChange) {
-                        {
-                            if (isCardFocused) onLaunch(latestGame) else onFocusChange(i)
-                        }
+                    Box(modifier = Modifier.zIndex(if (isCardFocused) 10f else 0f)) {
+                        GalleryCardSlot(
+                            index = i,
+                            game = game,
+                            platform = plat,
+                            covers = covers,
+                            officialName = officialNames[game.id],
+                            cardFullW = cardFullW,
+                            focusCardHeight = focusCardHeight,
+                            isCardFocused = isCardFocused,
+                            isFavorite = game.id in favorites,
+                            fastScrolling = fastScrolling || isDragging,
+                            reduceMotion = reduceMotion,
+                            animatedFocus = animatedFocus,
+                            cardAspects = cardAspects,
+                            prefixSmallW = prefixSmallW,
+                            focusCardHPx = focusCardHPx,
+                            spacingPx = spacingPx,
+                            startXPx = startXPx,
+                            minScale = minScale,
+                            alignY = alignY,
+                            heroIdleEnvelope = heroIdleEnvelope,
+                            heroIdleSeconds = heroIdleSeconds,
+                            onFocusChange = onFocusChange,
+                            onLaunch = onLaunch,
+                            onLongPress = onLongPress,
+                        )
                     }
-                    val cardOnLongPress = remember(game.id, onLongPress) {
-                        onLongPress?.let { cb -> { cb(latestGame) } }
-                    }
-                    val cardModifier = remember(i, isCardFocused, cardAspects, prefixSmallW, focusCardHPx, spacingPx, startXPx, minScale, alignY) {
-                        Modifier
-                            .zIndex(if (isCardFocused) 10f else 0f)
-                            .graphicsLayer {
-                                val cur = animatedFocus.value
-                                val dist = i - cur
-                                val absDist = abs(dist)
-                                val s = if (absDist < 1f) 1f - (1f - minScale) * absDist else minScale
-                                val x = computeCardX(
-                                    index = i,
-                                    cur = cur,
-                                    aspects = cardAspects,
-                                    prefixSmallW = prefixSmallW,
-                                    focusCardHPx = focusCardHPx,
-                                    spacingPx = spacingPx,
-                                    startXPx = startXPx,
-                                )
-                                transformOrigin = TransformOrigin(0f, alignY)
-                                translationX = x
-                                scaleX = s
-                                scaleY = s
-                                alpha = if (absDist > 5.5f) 0f else 1f
-                            }
-                    }
-
-                    val heroTiltMod = if (isCardFocused && !reduceMotion) {
-                        Modifier.graphicsLayer {
-                            val env = heroIdleEnvelope.floatValue
-                            if (env > 0f) {
-                                val t = heroIdleSeconds.floatValue
-                                val omegaY = (2f * PI.toFloat()) / 5.8f
-                                val omegaX = (2f * PI.toFloat()) / 4.6f
-                                rotationY = sin(t * omegaY) * 2.4f * env
-                                rotationX = cos(t * omegaX) * 1.8f * env
-                                translationY = sin(t * omegaX) * 1.0.dp.toPx() * env
-                                cameraDistance = 14f * this.density
-                            }
-                        }
-                    } else {
-                        Modifier
-                    }
-
-                    GameCoverCard(
-                        game = game,
-                        platform = plat,
-                        covers = covers,
-                        officialName = officialNames[game.id],
-                        width = cardFullW,
-                        height = focusCardHeight,
-                        isFocused = isCardFocused,
-                        isFavorite = game.id in favorites,
-                        fastScrolling = fastScrolling || isDragging,
-                        onClick = cardOnClick,
-                        onLongPress = cardOnLongPress,
-                        modifier = cardModifier.then(heroTiltMod),
-                    )
                 }
             }
         }
 
-        // 信息胶囊行：开发商 / 完整发行日期 / 文件大小（快滚/拖动期隐藏，停稳后再同步并淡入）
+        // 信息胶囊行：开发商 / 完整发行日期 / 文件大小（快滚/拖动期以半透明弱化并跳过胶囊投影，停稳后再同步并恢复）
         if (showMetadata) {
             Spacer(Modifier.height(12.dp))
             val settledMeta = settledMetaGame?.let { metadataMap[it.id] }
@@ -442,10 +406,14 @@ fun GalleryView(
             }
             MetaChipRow(
                 chips = chips,
+                fastScrolling = !metaVisible,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = leftMargin, end = 24.dp)
-                    .graphicsLayer { alpha = metaChipsAlpha },
+                    .graphicsLayer {
+                        alpha = metaChipsAlpha
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    },
             )
         }
     }
@@ -496,6 +464,7 @@ internal fun galleryChips(
 @Composable
 private fun MetaChipRow(
     chips: List<String>,
+    fastScrolling: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (chips.isEmpty()) {
@@ -504,10 +473,11 @@ private fun MetaChipRow(
     }
     val p = LocalDeckColors.current
     val reduceMotion = LocalReduceMotion.current
-    val chipBg = if (p.isDark) Color(0xFF2B2138).copy(alpha = if (reduceMotion) 0.92f else 0.74f) else Color.White.copy(alpha = if (reduceMotion) 0.96f else 0.78f)
+    val skipShadow = reduceMotion || fastScrolling
+    val chipBg = if (p.isDark) p.surfaceAlt.copy(alpha = if (reduceMotion) 0.92f else 0.74f) else p.surface.copy(alpha = if (reduceMotion) 0.96f else 0.78f)
     val chipBorder = if (p.isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.85f)
-    val chipShadow = if (p.isDark) Color(0x99000000) else Color(0x45782846)
-    val chipText = if (p.isDark) Color(0xFFDED3E8) else p.textMeta
+    val chipShadow = p.cardShadow
+    val chipText = p.textMeta
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -524,7 +494,7 @@ private fun MetaChipRow(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .then(
-                        if (reduceMotion) {
+                        if (skipShadow) {
                             Modifier
                         } else {
                             Modifier.drawWithCache {
@@ -567,6 +537,95 @@ private fun MetaChipRow(
             }
         }
     }
+}
+
+@Composable
+private fun GalleryCardSlot(
+    index: Int,
+    game: Game,
+    platform: Platform?,
+    covers: CoverSource?,
+    officialName: String?,
+    cardFullW: Dp,
+    focusCardHeight: Dp,
+    isCardFocused: Boolean,
+    isFavorite: Boolean,
+    fastScrolling: Boolean,
+    reduceMotion: Boolean,
+    animatedFocus: Animatable<Float, AnimationVector1D>,
+    cardAspects: FloatArray,
+    prefixSmallW: FloatArray,
+    focusCardHPx: Float,
+    spacingPx: Float,
+    startXPx: Float,
+    minScale: Float,
+    alignY: Float,
+    heroIdleEnvelope: FloatState,
+    heroIdleSeconds: FloatState,
+    onFocusChange: (Int) -> Unit,
+    onLaunch: (Game) -> Unit,
+    onLongPress: ((Game) -> Unit)?,
+) {
+    val latestGame by rememberUpdatedState(game)
+    val latestIsFocused by rememberUpdatedState(isCardFocused)
+    val cardOnClick = remember(game.id, index, onLaunch, onFocusChange) {
+        {
+            if (latestIsFocused) onLaunch(latestGame) else onFocusChange(index)
+        }
+    }
+    val cardOnLongPress = remember(game.id, onLongPress) {
+        onLongPress?.let { cb -> { cb(latestGame) } }
+    }
+    val cardModifier = remember(index, reduceMotion, cardAspects, prefixSmallW, focusCardHPx, spacingPx, startXPx, minScale, alignY) {
+        Modifier.graphicsLayer {
+            val cur = animatedFocus.value
+            val dist = index - cur
+            val absDist = abs(dist)
+            val s = if (absDist < 1f) 1f - (1f - minScale) * absDist else minScale
+            val x = computeCardX(
+                index = index,
+                cur = cur,
+                aspects = cardAspects,
+                prefixSmallW = prefixSmallW,
+                focusCardHPx = focusCardHPx,
+                spacingPx = spacingPx,
+                startXPx = startXPx,
+            )
+            transformOrigin = TransformOrigin(0f, alignY)
+            translationX = x
+            scaleX = s
+            scaleY = s
+            if (!reduceMotion && latestIsFocused) {
+                val env = heroIdleEnvelope.floatValue
+                if (env > 0f) {
+                    val t = heroIdleSeconds.floatValue
+                    val omegaY = (2f * PI.toFloat()) / 5.8f
+                    val omegaX = (2f * PI.toFloat()) / 4.6f
+                    rotationY = sin(t * omegaY) * 2.4f * env
+                    rotationX = cos(t * omegaX) * 1.8f * env
+                    translationY = sin(t * omegaX) * 1.0.dp.toPx() * env
+                    cameraDistance = 14f * this.density
+                }
+            }
+        }
+    }
+
+    GameCoverCard(
+        game = game,
+        platform = platform,
+        covers = covers,
+        officialName = officialName,
+        width = cardFullW,
+        height = focusCardHeight,
+        isFocused = isCardFocused,
+        isFavorite = isFavorite,
+        fastScrolling = fastScrolling,
+        allowDiskDuringFastScroll = false,
+        drawShadow = !fastScrolling,
+        onClick = cardOnClick,
+        onLongPress = cardOnLongPress,
+        modifier = cardModifier,
+    )
 }
 
 private fun computeCardX(

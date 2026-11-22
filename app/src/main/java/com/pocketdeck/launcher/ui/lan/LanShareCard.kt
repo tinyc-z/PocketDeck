@@ -98,6 +98,7 @@ import com.pocketdeck.launcher.lan.TransferDirection
 import com.pocketdeck.launcher.lan.TransferPhase
 import com.pocketdeck.launcher.lan.WebTransferDirection
 import com.pocketdeck.launcher.lan.WebTransferHistoryItem
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.DpadNavController
 import com.pocketdeck.launcher.ui.components.dpadNavItem
@@ -305,7 +306,10 @@ fun ShareMethodDialog(
     ) {
         DialogPanelCard(
             onDismiss = onDismiss,
-            modifier = Modifier.width(460.dp),
+            modifier = Modifier
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
@@ -447,7 +451,9 @@ fun SharePeerPickerDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .width(460.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .heightIn(max = 520.dp),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
@@ -548,7 +554,7 @@ fun SharePeerPickerDialog(
                     )
                     ShareTransferProgressSection(tx = tx, formatSize = ::formatSize)
                     if (!tx.errorMessage.isNullOrBlank() && tx.phase == TransferPhase.Failed) {
-                        Text(tx.errorMessage, style = DeckType.metaLabel, color = Color(0xFFDC2626))
+                        Text(tx.errorMessage, style = DeckType.metaLabel, color = DeckColors.StatusDanger)
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -712,8 +718,9 @@ internal fun LocalSendPinDialog(
     ) {
         Column(
             Modifier
-                .padding(top = 10.dp)
-                .width(420.dp)
+                .padding(horizontal = 24.dp, vertical = 12.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
+                .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
                 .clickable(enabled = false, onClick = {})
@@ -734,7 +741,7 @@ internal fun LocalSendPinDialog(
                 style = DeckType.settingsLabel.copy(
                     fontWeight = if (challenge.wrongPin) FontWeight.SemiBold else FontWeight.Normal,
                 ),
-                color = if (challenge.wrongPin) Color(0xFFDC2626) else DeckColors.TextSecondary,
+                color = if (challenge.wrongPin) DeckColors.StatusDanger else DeckColors.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -840,8 +847,8 @@ fun ShareTransferHistoryDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 560.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = maxHeight),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),

@@ -28,6 +28,25 @@ internal class ReplaceableTaskQueue<T>(
     private val signal = Channel<Unit>(Channel.CONFLATED)
     private var workersStarted = false
     private var debounceJob: Job? = null
+    @Volatile
+    private var paused = false
+
+    fun setPaused(value: Boolean) {
+        val shouldSignal = synchronized(lock) {
+            if (paused == value) return
+            paused = value
+            !paused && pending.isNotEmpty()
+        }
+        if (shouldSignal) signal.trySend(Unit)
+    }
+
+    fun clearPending() {
+        synchronized(lock) {
+            debounceJob?.cancel()
+            debounceJob = null
+            pending.clear()
+        }
+    }
 
     fun scheduleReplace(items: List<Pair<String, T>>, debounceMs: Long = 180L) {
         if (debounceMs <= 0L) {
@@ -87,6 +106,7 @@ internal class ReplaceableTaskQueue<T>(
     }
 
     private fun pollNext(): Pair<String, T>? = synchronized(lock) {
+        if (paused) return@synchronized null
         while (pending.isNotEmpty()) {
             val head = pending.removeFirst()
             if (inFlight.add(head.first)) return@synchronized head

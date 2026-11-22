@@ -27,11 +27,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -303,6 +306,8 @@ fun HeroView(
             contentAlignment = Alignment.Center,
         ) {
             val thumbH = (maxHeight * 0.78f).coerceIn(72.dp, 114.dp)
+            val isTouchScrolling by remember(listState) { derivedStateOf { listState.isScrollInProgress } }
+            val effectiveFastScroll = fastScrolling || isTouchScrolling
 
             LazyRow(
                 state = listState,
@@ -322,7 +327,7 @@ fun HeroView(
 
                     val focusProgress = animateFloatAsState(
                         targetValue = if (isSelected) 1f else 0f,
-                        animationSpec = if (reduceMotion || fastScrolling) snap() else spring(
+                        animationSpec = if (reduceMotion || effectiveFastScroll) snap() else spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
                             stiffness = 620f,
                         ),
@@ -331,13 +336,14 @@ fun HeroView(
 
                     Box(
                         modifier = Modifier.graphicsLayer {
-                            // 仅在绘制阶段读取动画值，切换焦点期间零重组
+                            // 仅在绘制阶段读取动画值，切换焦点期间零重组；ModulateAlpha 避免未选中缩略图触发离屏 RenderTarget
                             val p = focusProgress.value
                             val s = 0.96f + 0.11f * p
                             scaleX = s
                             scaleY = s
                             translationY = (-4f * p) * density.density
                             alpha = 0.84f + 0.16f * p
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
                         },
                     ) {
                         GameCoverCard(
@@ -349,9 +355,9 @@ fun HeroView(
                             height = thumbH,
                             isFocused = isSelected,
                             isFavorite = game.id in favorites,
-                            fastScrolling = fastScrolling,
+                            fastScrolling = effectiveFastScroll,
                             shapeOverride = RoundedCornerShape(10.dp),
-                            prominentFocus = isSelected,
+                            prominentFocus = isSelected && !effectiveFastScroll,
                             onClick = {
                                 if (isSelected) onLaunch(game) else onFocusChange(idx)
                             },

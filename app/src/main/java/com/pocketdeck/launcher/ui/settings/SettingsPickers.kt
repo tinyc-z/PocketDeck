@@ -46,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -73,6 +74,7 @@ import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.launch.CustomLaunchMode
 import com.pocketdeck.launcher.launch.CustomLauncherCodec
 import com.pocketdeck.launcher.launch.GameLauncher
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.requestFocusSafely
@@ -137,7 +139,7 @@ fun CategoryPlatformsDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -185,7 +187,9 @@ fun CategoryPlatformsDialog(
     ) {
         Column(
             Modifier
-                .width(480.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
+                .fillMaxWidth()
                 .heightIn(max = 580.dp)
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
@@ -343,7 +347,7 @@ internal fun InstalledAppPickerDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .onPreviewKeyEvent { ev ->
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when {
@@ -359,7 +363,9 @@ internal fun InstalledAppPickerDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .width(480.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
+                .fillMaxWidth()
                 .heightIn(max = 580.dp),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
@@ -474,13 +480,15 @@ fun HiddenGamesDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss),
+            .scrimTapDismiss(onDismiss),
         contentAlignment = Alignment.Center,
     ) {
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .width(480.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
+                .fillMaxWidth()
                 .heightIn(max = 560.dp),
         ) {
             Text(

@@ -34,6 +34,16 @@ import com.pocketdeck.launcher.ui.theme.brandFocusRing
 import com.pocketdeck.launcher.ui.theme.cardSurface
 
 /**
+ * 全 App 弹窗四级标准宽度常量（遵循 docs/DESIGN_GUIDELINES.md 第 2 节）。
+ */
+object DeckDialogSize {
+    val WidthS = 340.dp   // 快捷菜单 / 轻浮层 HUD
+    val WidthM = 440.dp   // 确认框 / 单表单 / 短选择 / 进度
+    val WidthL = 520.dp   // 复杂属性 / 长列表 / 刮削 / 文件预览
+    val WidthXL = 640.dp  // 双栏图文展示（全 App 上限）
+}
+
+/**
  * 弹窗面板容器：统一圆角底板 + 右上角等距（top == end）关闭（✕）图标按钮。
  */
 @Composable

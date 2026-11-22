@@ -64,19 +64,7 @@ object ScrapeLogStore {
         synchronized(fileLock) {
             if (logFile == null) {
                 val dir = File(context.applicationContext.cacheDir, DIR_NAME)
-                dir.mkdirs()
-                val file = File(dir, FILE_NAME)
-                logFile = file
-                if (file.isFile) {
-                    val loaded = runCatching {
-                        file.readLines().asReversed().take(MAX_MEMORY_LINES)
-                    }.getOrDefault(emptyList())
-                    synchronized(memLock) {
-                        ring.clear()
-                        loaded.forEach { ring.addLast(it) }
-                        _lines.value = loaded
-                    }
-                }
+                logFile = File(dir, FILE_NAME)
             }
         }
         ensureWriterStarted()
@@ -88,6 +76,29 @@ object ScrapeLogStore {
             if (writerStarted) return
             writerStarted = true
             ioScope.launch {
+                // 在后台 IO 线程懒建目录并预载历史日志，彻底避免阻塞 Application.onCreate 主线程
+                val file = logFile
+                if (file != null) {
+                    val loaded = synchronized(fileLock) {
+                        runCatching {
+                            file.parentFile?.mkdirs()
+                            if (file.isFile) {
+                                file.readLines().asReversed().take(MAX_MEMORY_LINES)
+                            } else {
+                                emptyList()
+                            }
+                        }.getOrDefault(emptyList())
+                    }
+                    if (loaded.isNotEmpty()) {
+                        synchronized(memLock) {
+                            if (ring.isEmpty()) {
+                                loaded.forEach { ring.addLast(it) }
+                                _lines.value = ring.toList()
+                            }
+                        }
+                    }
+                }
+
                 val batch = ArrayList<String>(64)
                 while (true) {
                     val first = writeChannel.receive()

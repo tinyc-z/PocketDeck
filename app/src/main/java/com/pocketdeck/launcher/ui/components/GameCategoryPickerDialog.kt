@@ -183,7 +183,7 @@ fun GameCategoryPickerDialog(
         Column(
             Modifier
                 .padding(horizontal = 24.dp, vertical = 16.dp)
-                .widthIn(max = 420.dp)
+                .widthIn(max = DeckDialogSize.WidthM)
                 .fillMaxWidth()
                 .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp)
                 .clip(DeckShapes.menuPanel)

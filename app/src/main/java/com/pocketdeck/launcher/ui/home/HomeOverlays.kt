@@ -14,12 +14,9 @@ import androidx.compose.ui.layout.Layout
 import kotlinx.coroutines.delay
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.AppLocale
-import com.pocketdeck.launcher.data.FileTask
 import com.pocketdeck.launcher.data.PlatformCatalog
 import com.pocketdeck.launcher.data.model.Game
-import com.pocketdeck.launcher.data.model.Library
 import com.pocketdeck.launcher.lan.LanServerManager
-import com.pocketdeck.launcher.lan.LanServerState
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.apps.AppsScreen
 import com.pocketdeck.launcher.ui.components.GamePropertiesDialog
@@ -37,11 +34,7 @@ import java.io.File
 @Composable
 internal fun HomeOverlays(
     state: HomeUiState,
-    fullLibrary: Library?,
-    filesRevision: Long,
-    fileTasks: List<FileTask>,
     lanManager: LanServerManager,
-    lanState: LanServerState,
     vm: HomeViewModel,
     context: Context,
     scope: CoroutineScope,
@@ -50,7 +43,6 @@ internal fun HomeOverlays(
     onCapturingKeyBindChange: (Boolean) -> Unit,
     launchGame: (Game) -> Unit,
 ) {
-    val scrapeProgress by vm.scrapeProgress.collectAsState()
     // 视图切换弹出菜单
     if (state.showViewMenu) {
         ViewModeMenu(
@@ -111,8 +103,9 @@ internal fun HomeOverlays(
 
     // F10 掌机快捷 HUD 浮层（实验性功能）
     if (state.showQuickHud) {
+        val hudLanState by lanManager.state.collectAsState()
         com.pocketdeck.launcher.ui.components.QuickHudOverlay(
-            lanState = lanState,
+            lanState = hudLanState,
             swapAbxy = state.swapAbxy,
             keyBindings = state.keyBindings,
             onToggleQuickShare = { on ->
@@ -255,6 +248,8 @@ internal fun HomeOverlays(
         }
         val frozenStateHolder = remember { mutableStateOf<SettingsState?>(null) }
         val activeSettingsState = if (state.showSettings || frozenStateHolder.value == null) {
+            val settingsLanState = if (state.showSettings) lanManager.state.collectAsState().value else lanManager.state.value
+            val settingsScrapeProgress = if (state.showSettings) vm.scrapeProgress.collectAsState().value else vm.scrapeProgress.value
             SettingsState(
                 romRoot = state.romRoot,
                 clock12h = state.is12h,
@@ -262,6 +257,7 @@ internal fun HomeOverlays(
                 nowTab = state.tabs.any { it.type == TabType.Now },
                 favsTab = state.tabs.any { it.type == TabType.Favs },
                 bottomBar = state.bottomBar,
+                navBarStyle = state.navBarStyle,
                 showMetadata = state.showMetadata,
                 backgroundStyle = state.backgroundStyle,
                 customBackground = state.customBackground,
@@ -299,9 +295,9 @@ internal fun HomeOverlays(
                 systemTabs = state.systemTabs,
                 uncategorizedPlatforms = state.uncategorizedPlatforms,
                 uncategorizedCount = state.uncategorizedCount,
-                lanShareRunning = lanState.shareRunning,
-                lanWebRunning = lanState.webRunning,
-                scrapeProgress = scrapeProgress,
+                lanShareRunning = settingsLanState.shareRunning,
+                lanWebRunning = settingsLanState.webRunning,
+                scrapeProgress = settingsScrapeProgress,
                 quickHudEnabled = state.quickHudEnabled,
             ).also { frozenStateHolder.value = it }
         } else {
@@ -323,6 +319,7 @@ internal fun HomeOverlays(
             onToggleNowTab = { vm.toggleNowTab() },
             onToggleFavsTab = { vm.toggleFavsTab() },
             onToggleBottomBar = { vm.toggleBottomBar() },
+            onCycleNavBarStyle = { vm.cycleNavBarStyle() },
             onToggleShowMetadata = { vm.toggleShowMetadata() },
             onCycleBackground = { vm.cycleBackground() },
             onSetBackgroundStyle = { vm.setBackgroundStyle(it) },
@@ -379,7 +376,7 @@ internal fun HomeOverlays(
                 setPlatformAspect = vm::setPlatformAspect,
                 saveCustomLauncherPreset = vm::saveCustomLauncherPreset,
                 deleteCustomLauncherPreset = vm::deleteCustomLauncherPreset,
-                sampleGameFor = { pid -> fullLibrary?.games?.get(pid)?.firstOrNull() },
+                sampleGameFor = { pid -> vm.fullLibrary.value?.games?.get(pid)?.firstOrNull() },
                 openLibraryHidden = { vm.openLibraryManager(hiddenOnly = true) },
                 openLanService = { onShowLanControlFromStatusBarChange(true) },
                 toggleQuickHudEnabled = vm::toggleQuickHudEnabled,
@@ -406,13 +403,17 @@ internal fun HomeOverlays(
 
     // 游戏库管理器（可从 Apps 中「游戏库」打开，或从「设置 → 游戏库 → 管理已隐藏」直接跳入）
     if (state.showLibraryManager) {
+        val fullLibrary by vm.fullLibrary.collectAsState()
+        val filesRevision by vm.filesRevision.collectAsState()
+        val fileTasks by vm.fileTasks.collectAsState()
+        val libScrapeProgress by vm.scrapeProgress.collectAsState()
         val metaResolutionMap by vm.metaResolutionMap.collectAsState()
         val coverResolutionMap by vm.coverResolutionMap.collectAsState()
         GameLibraryScreen(
             fullLibrary = fullLibrary,
             filesRevision = filesRevision,
             fileTasks = fileTasks,
-            scrapeProgress = scrapeProgress,
+            scrapeProgress = libScrapeProgress,
             onCancelScrape = vm::cancelScrapeMissing,
             onDismissScrapeProgress = vm::dismissScrapeProgress,
             hiddenIds = state.hiddenIds,
@@ -462,11 +463,12 @@ internal fun HomeOverlays(
 
     // 局域网与快传管理弹窗（状态栏 / Apps 抽屉 / 游戏中心统一入口）
     if (showLanControlFromStatusBar) {
+        val dialogLanState by lanManager.state.collectAsState()
         LanServiceControlDialog(
-            state = lanState,
+            state = dialogLanState,
             swapAbxy = state.swapAbxy,
             keyBindings = state.keyBindings,
-            onRefreshInterfaces = { lanManager.refreshInterfaces() },
+            onRefreshInterfaces = lanManager::refreshInterfacesAsync,
             onSelectInterface = lanManager::selectInterface,
             onRenameDevice = lanManager::setDeviceName,
             onRandomizeDeviceName = lanManager::randomizeDeviceName,
@@ -506,8 +508,9 @@ internal fun HomeOverlays(
 
     // 后台刮削任务管理弹窗（置于最顶层，从桌面状态栏或设置页头部点击旋转进度徽章均可直达）
     if (state.showScrapeTaskDialog) {
+        val dialogScrapeProgress by vm.scrapeProgress.collectAsState()
         com.pocketdeck.launcher.ui.components.ScrapeTaskDialog(
-            progress = scrapeProgress,
+            progress = dialogScrapeProgress,
             swapAbxy = state.swapAbxy,
             keyBindings = state.keyBindings,
             onCancel = {

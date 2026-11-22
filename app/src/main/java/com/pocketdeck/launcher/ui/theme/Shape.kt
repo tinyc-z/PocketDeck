@@ -7,7 +7,7 @@ object DeckShapes {
     val focusCard = RoundedCornerShape(9.dp)
     val smallCard = RoundedCornerShape(7.dp)
     val tabPill = RoundedCornerShape(14.dp)
-    val menuPanel = RoundedCornerShape(16.dp)
+    val menuPanel = RoundedCornerShape(DeckBrand.RadiusXL)
     val menuButton = RoundedCornerShape(24.dp)
     val searchBar = RoundedCornerShape(24.dp)
     val viewMenuItem = RoundedCornerShape(12.dp)

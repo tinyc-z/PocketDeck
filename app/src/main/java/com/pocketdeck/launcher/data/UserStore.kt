@@ -47,6 +47,8 @@ data class Category(
 enum class ViewMode { Gallery, List, Grid, Bubbles, CoverFlow, Hero, Wheel, Shelf }
 /** Gallery 模式下小卡相对焦点卡的垂直对齐 */
 enum class GalleryAlign { Top, Center, Bottom }
+/** 顶部分类栏与底部操作栏的配套样式（默认无底透明 / 悬浮磨砂岛）。 */
+enum class NavBarStyle { Classic, GlassDock }
 
 enum class BackgroundStyle {
     SunsetFlow,  // 品牌渐变流光（默认）
@@ -54,6 +56,7 @@ enum class BackgroundStyle {
     RetroGrid,   // 合成波透视网格
     CoverGlow,   // 焦点封面氛围光
     Aurora,      // 极光丝带
+    Starfield,   // 星海漫游（视差星场 + 星云 + 流星）
     Image,       // 自定义静态图片
     None;        // 纯色
 
@@ -155,6 +158,7 @@ data class UserData(
     val backgroundStyle: BackgroundStyle = BackgroundStyle.SunsetFlow,
     val showMetadata: Boolean = true,
     val bottomBar: Boolean = true,
+    val navBarStyle: NavBarStyle = NavBarStyle.Classic,
     val nowTab: Boolean = true,
     val favsTab: Boolean = true,
     val clock12h: Boolean = false,
@@ -245,6 +249,7 @@ class UserStore(context: Context) {
         val background = stringPrefsKey("background_style")
         val showMetadata = booleanPrefsKey("show_metadata")
         val bottomBar = booleanPrefsKey("bottom_bar")
+        val navBarStyle = stringPrefsKey("nav_bar_style")
         val nowTab = booleanPrefsKey("now_tab")
         val favsTab = booleanPrefsKey("favs_tab")
         val clock12h = booleanPrefsKey("clock_12h")
@@ -465,6 +470,7 @@ class UserStore(context: Context) {
             backgroundStyle = BackgroundStyle.fromName(this[K.background]),
             showMetadata = this[K.showMetadata] ?: true,
             bottomBar = this[K.bottomBar] ?: true,
+            navBarStyle = enumOf(this[K.navBarStyle], NavBarStyle.Classic),
             nowTab = this[K.nowTab] ?: true,
             favsTab = this[K.favsTab] ?: true,
             clock12h = this[K.clock12h] ?: false,
@@ -664,6 +670,7 @@ class UserStore(context: Context) {
         p[K.background] = new.backgroundStyle.name
         p[K.showMetadata] = new.showMetadata
         p[K.bottomBar] = new.bottomBar
+        p[K.navBarStyle] = new.navBarStyle.name
         p[K.nowTab] = new.nowTab
         p[K.favsTab] = new.favsTab
         p[K.clock12h] = new.clock12h

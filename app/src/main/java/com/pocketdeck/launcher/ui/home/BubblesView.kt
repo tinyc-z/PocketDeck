@@ -22,14 +22,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +38,7 @@ import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.ui.components.GameCoverCard
+import com.pocketdeck.launcher.ui.components.background.rememberIdleBreathingClock
 import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import kotlin.math.PI
 import kotlin.math.abs
@@ -80,23 +79,15 @@ fun BubblesView(
     val reduceMotion = LocalReduceMotion.current
 
     // 选中气泡停稳 120ms 后的 PSV LiveArea 风格轻盈悬浮与弹性呼吸动画
-    // 相位与包络仅在 graphicsLayer 渲染阶段读取，零重组、零 relayout；开启「减少动态效果」或弹窗覆盖时自动停振
-    val bubbleIdleSeconds = remember { mutableFloatStateOf(0f) }
-    val bubbleIdleEnvelope = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(focusIndex, fastScrolling, reduceMotion, idlePaused, games.size) {
-        bubbleIdleSeconds.floatValue = 0f
-        bubbleIdleEnvelope.floatValue = 0f
-        if (reduceMotion || fastScrolling || idlePaused || games.isEmpty()) return@LaunchedEffect
-        delay(120L)
-        val startNs = withFrameNanos { it }
-        while (true) {
-            withFrameNanos { nowNs ->
-                val sec = (nowNs - startNs) / 1_000_000_000f
-                bubbleIdleSeconds.floatValue = sec
-                bubbleIdleEnvelope.floatValue = (sec / 0.85f).coerceIn(0f, 1f)
-            }
-        }
-    }
+    // 复用 30Hz 节流 + STARTED 生命周期暂停 + 零每帧 lambda，仅在 graphicsLayer 阶段读取，零重组、零 relayout
+    val bubbleIdle = rememberIdleBreathingClock(
+        paused = reduceMotion || fastScrolling || idlePaused || games.isEmpty(),
+        resetKey = focusIndex to games.size,
+        delayMs = 120L,
+        rampSec = 0.85f,
+    )
+    val bubbleIdleSeconds = bubbleIdle.seconds
+    val bubbleIdleEnvelope = bubbleIdle.envelope
     var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(focusedRowIdx, totalRows, reduceMotion) {
         if (focusedRowIdx !in 0 until totalRows) return@LaunchedEffect

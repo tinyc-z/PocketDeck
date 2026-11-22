@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.pocketdeck.launcher.ui.components.scrimTapDismiss
 import androidx.core.graphics.drawable.toBitmap
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.CustomLauncherPreset
@@ -77,6 +78,7 @@ import com.pocketdeck.launcher.ui.components.DeckIcon
 import com.pocketdeck.launcher.ui.components.DeckIcons
 import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.ui.components.DeckSwitch
+import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
 import com.pocketdeck.launcher.ui.components.gamepadClickable
 import com.pocketdeck.launcher.ui.components.requestFocusSafely
@@ -181,7 +183,7 @@ fun LauncherPickerDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(onClick = onDismiss)
+            .scrimTapDismiss(onDismiss)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key != Key.Back &&
                     (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings))
@@ -195,8 +197,8 @@ fun LauncherPickerDialog(
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
-                .padding(horizontal = 32.dp, vertical = 20.dp)
-                .widthIn(max = 520.dp)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = 620.dp),
             swapAbxy = swapAbxy,

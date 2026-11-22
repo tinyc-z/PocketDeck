@@ -24,7 +24,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,16 +41,19 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -60,16 +62,17 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
-import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
-import coil3.compose.AsyncImageModelEqualityDelegate
 import coil3.compose.AsyncImagePainter
-import coil3.compose.LocalAsyncImageModelEqualityDelegate
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.pocketdeck.launcher.data.CoverSource
@@ -126,6 +129,8 @@ fun GameCoverCard(
     focusedScale: Float = 1f,
     unfocusedScale: Float = 1f,
     unfocusedAlpha: Float = 1f,
+    showPlatformBadge: Boolean = true,
+    drawShadow: Boolean = true,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
@@ -184,6 +189,8 @@ fun GameCoverCard(
         focusedScale = focusedScale,
         unfocusedScale = unfocusedScale,
         unfocusedAlpha = unfocusedAlpha,
+        showPlatformBadge = showPlatformBadge,
+        drawShadow = drawShadow,
         onClick = onClick,
         onLongPress = onLongPress,
     )
@@ -194,7 +201,6 @@ fun GameCoverCard(
  *
  * 使用 pointerInput 响应点击和长按，避免抢占主页手柄按键焦点。
  */
-@OptIn(ExperimentalCoilApi::class)
 @Composable
 fun CoverCard(
     candidates: List<Any>,
@@ -216,6 +222,8 @@ fun CoverCard(
     focusedScale: Float = 1f,
     unfocusedScale: Float = 1f,
     unfocusedAlpha: Float = 1f,
+    showPlatformBadge: Boolean = true,
+    drawShadow: Boolean = true,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
@@ -259,7 +267,7 @@ fun CoverCard(
     }
     // 焦点卡由外层 brandFocusRing 绘制渐变环 + 柔和彩色阴影；非焦点卡使用轻量缓存投影，减少动态效果时关闭阴影
     val cardShadowColor = DeckColors.CardShadow
-    val drawSoftShadow = !isFocused && !fastScrolling && !reduceMotion && height >= 64.dp
+    val drawSoftShadow = drawShadow && !isFocused && !fastScrolling && !reduceMotion && height >= 64.dp
 
     val density = LocalDensity.current
     val decodeBucketPx = remember(width, height, density.density) {
@@ -357,7 +365,7 @@ fun CoverCard(
                     Modifier
                 },
             )
-            .brandFocusRing(isFocused, cornerRadius = ringRadius),
+            .brandFocusRing(isFocused, cornerRadius = ringRadius, glow = !fastScrolling),
     ) {
         Box(
             Modifier
@@ -388,59 +396,54 @@ fun CoverCard(
                 )
             }
 
-            // 顶层：快滚期只命中内存缓存（List 预览图支持盘缓存秒显，仅延后联网）；停下解锁后加载完整磁盘/网络封面
+            // 顶层：快滚期禁止联网与候选回退试探（仅查内存/按 allowDiskDuringFastScroll 读盘）；停稳后自动恢复
             val isOnline = LocalIsOnline.current
             if (currentModel != null) {
-                val request = remember(currentModel, isOnline, decodeBucketPx, loadUnlocked, allowDisk) {
+                val allowNetwork = !fastScrolling && loadUnlocked && isOnline
+                val request = remember(currentModel, decodeBucketPx, allowDisk, allowNetwork) {
                     ImageRequest.Builder(context)
                         .data(currentModel)
                         .size(decodeBucketPx, decodeBucketPx)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(if (allowDisk) CachePolicy.ENABLED else CachePolicy.DISABLED)
-                        .networkCachePolicy(if (loadUnlocked && isOnline) CachePolicy.ENABLED else CachePolicy.DISABLED)
+                        .networkCachePolicy(if (allowNetwork) CachePolicy.ENABLED else CachePolicy.DISABLED)
                         .build()
                 }
-                // Coil 3 默认 DefaultModelEqualityDelegate 会忽略 diskCachePolicy / networkCachePolicy，
-                // 导致快滚期（仅查内存缓存失败）停稳解锁或断网重连后 AsyncImage 误判为同一请求而永不重试；
-                // 使用 AllProperties 确保缓存策略放开时立即重新加载磁盘/网络封面。
-                CompositionLocalProvider(
-                    LocalAsyncImageModelEqualityDelegate provides AsyncImageModelEqualityDelegate.AllProperties,
-                ) {
-                    AsyncImage(
-                        model = request,
-                        contentDescription = title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        onState = { state ->
-                            when (state) {
-                                is AsyncImagePainter.State.Success -> {
-                                    loadedSuccess = true
-                                    if (loadUnlocked && knownIndex != candidateIdx) {
-                                        onCandidateResolved?.invoke(candidateIdx)
-                                    }
+                // LocalAsyncImageModelEqualityDelegate 已在 HomeScreen 根部统一提供 AllProperties，免去每张卡片单独包一层 Provider
+                AsyncImage(
+                    model = request,
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    onState = { state ->
+                        when (state) {
+                            is AsyncImagePainter.State.Success -> {
+                                loadedSuccess = true
+                                if (loadUnlocked && !fastScrolling && knownIndex != candidateIdx) {
+                                    onCandidateResolved?.invoke(candidateIdx)
                                 }
-                                is AsyncImagePainter.State.Error -> {
-                                    loadedSuccess = false
-                                    if (loadUnlocked) {
-                                        if (candidateIdx + 1 < candidates.size) {
-                                            candidateIdx += 1
-                                        } else {
-                                            candidateIdx = -1
-                                            if (knownIndex != -1) {
-                                                onCandidateResolved?.invoke(-1)
-                                            }
+                            }
+                            is AsyncImagePainter.State.Error -> {
+                                loadedSuccess = false
+                                if (loadUnlocked && !fastScrolling) {
+                                    if (candidateIdx + 1 < candidates.size) {
+                                        candidateIdx += 1
+                                    } else {
+                                        candidateIdx = -1
+                                        if (knownIndex != -1) {
+                                            onCandidateResolved?.invoke(-1)
                                         }
                                     }
                                 }
-                                else -> Unit
                             }
-                        },
-                    )
-                }
+                            else -> Unit
+                        }
+                    },
+                )
             }
 
             // 左上角平台缩写角标（有封面图与无封面图统一显示，圆形气泡与极小卡片不显示）
-            if (!isCircle && !centeredTitle && !platformLabel.isNullOrBlank() && height >= 76.dp) {
+            if (showPlatformBadge && !isCircle && !centeredTitle && !platformLabel.isNullOrBlank() && height >= 76.dp) {
                 PlatformBadge(
                     label = platformLabel,
                     compact = height < 120.dp,
@@ -533,46 +536,27 @@ fun DefaultCoverArt(
             .drawWithCache {
                 val w = size.width
                 val h = size.height
-                val bg = Brush.linearGradient(
-                    listOf(p.brandStart, p.brandMid, p.brandEnd),
-                    start = Offset.Zero,
-                    end = Offset(w, h),
+                val dstW = w.roundToInt().coerceAtLeast(1)
+                val dstH = h.roundToInt().coerceAtLeast(1)
+                val maxSide = 280f
+                val scale = if (w > maxSide || h > maxSide) maxSide / maxOf(w, h) else 1f
+                val bw = (((w * scale).roundToInt().coerceAtLeast(32) + 7) and 7.inv())
+                val bh = (((h * scale).roundToInt().coerceAtLeast(32) + 7) and 7.inv())
+                val bmp = DefaultCoverArtCache.getOrCreate(
+                    brandStart = p.brandStart,
+                    brandMid = p.brandMid,
+                    brandEnd = p.brandEnd,
+                    widthPx = bw,
+                    heightPx = bh,
+                    tiny = tiny,
+                    compact = compact,
+                    centeredTitle = centeredTitle,
+                    drawIcon = appIcon == null,
+                    strokeDensity = density * scale,
                 )
-                // 手柄图标几何（白色线性），仅在尺寸变化时重算
-                val iconScale = when {
-                    tiny -> 0.56f
-                    compact -> 0.40f
-                    else -> 0.34f
-                }
-                val gw = w * iconScale
-                val gh = gw * 0.62f
-                val gx = (w - gw) / 2f
-                val gy = when {
-                    tiny -> (h - gh) / 2f
-                    centeredTitle -> h * 0.20f
-                    else -> h * 0.30f
-                }
-                val strokeW = (if (compact) 1.6f else 2.4f).dp.toPx()
-                val stroke = Stroke(width = strokeW)
-                val bodyCorner = CornerRadius(gh * 0.48f, gh * 0.48f)
-                val dpadCx = gx + gw * 0.28f
-                val dpadCy = gy + gh * 0.50f
-                val dpadArm = gh * 0.20f
-                val btnR = gh * 0.085f
-                val iconColor = Color.White.copy(alpha = 0.92f)
-                val drawIcon = appIcon == null
+                val dstSize = IntSize(dstW, dstH)
                 onDrawBehind {
-                    drawRect(bg)
-                    // 右上角柔和光晕
-                    drawCircle(Color.White.copy(alpha = 0.10f), radius = w * 0.55f, center = Offset(w * 0.92f, h * 0.08f))
-                    if (drawIcon) {
-                        drawRoundRect(iconColor, Offset(gx, gy), Size(gw, gh), bodyCorner, style = stroke)
-                        drawLine(iconColor, Offset(dpadCx - dpadArm, dpadCy), Offset(dpadCx + dpadArm, dpadCy), strokeW, cap = StrokeCap.Round)
-                        drawLine(iconColor, Offset(dpadCx, dpadCy - dpadArm), Offset(dpadCx, dpadCy + dpadArm), strokeW, cap = StrokeCap.Round)
-                        drawCircle(iconColor, btnR, Offset(gx + gw * 0.68f, gy + gh * 0.60f))
-                        drawCircle(iconColor, btnR, Offset(gx + gw * 0.79f, gy + gh * 0.42f))
-                    }
-                    drawRect(DEFAULT_COVER_SCRIM_BRUSH)
+                    drawImage(image = bmp, dstSize = dstSize)
                 }
             },
     ) {
@@ -640,3 +624,101 @@ private val DEFAULT_COVER_SCRIM_BRUSH = Brush.verticalGradient(
     0.55f to Color.Transparent,
     1f to Color(0xFF24172F).copy(alpha = 0.28f),
 )
+
+private data class DefaultCoverArtKey(
+    val startArgb: Int,
+    val midArgb: Int,
+    val endArgb: Int,
+    val widthPx: Int,
+    val heightPx: Int,
+    val flags: Int,
+)
+
+/**
+ * 离屏预渲染默认封面底图（品牌渐变 + 右上光晕 + 线性手柄图标 + 底部暗角）。
+ * 多张无封面卡片密集出现时共享同一张 GPU 纹理四边形，避免 CoverFlow 3D 透视下每帧重复光栅化描边路径与双渐变。
+ */
+private object DefaultCoverArtCache {
+    private val lru = LruCache<DefaultCoverArtKey, ImageBitmap>(16)
+
+    fun getOrCreate(
+        brandStart: Color,
+        brandMid: Color,
+        brandEnd: Color,
+        widthPx: Int,
+        heightPx: Int,
+        tiny: Boolean,
+        compact: Boolean,
+        centeredTitle: Boolean,
+        drawIcon: Boolean,
+        strokeDensity: Float,
+    ): ImageBitmap {
+        val flags = (if (tiny) 1 else 0) or
+            (if (compact) 2 else 0) or
+            (if (centeredTitle) 4 else 0) or
+            (if (drawIcon) 8 else 0)
+        val key = DefaultCoverArtKey(
+            startArgb = brandStart.toArgb(),
+            midArgb = brandMid.toArgb(),
+            endArgb = brandEnd.toArgb(),
+            widthPx = widthPx,
+            heightPx = heightPx,
+            flags = flags,
+        )
+        synchronized(this) {
+            lru.get(key)?.let { return it }
+        }
+        val bitmap = ImageBitmap(widthPx, heightPx)
+        val canvas = ComposeCanvas(bitmap)
+        val drawScope = CanvasDrawScope()
+        val w = widthPx.toFloat()
+        val h = heightPx.toFloat()
+        val bg = Brush.linearGradient(
+            listOf(brandStart, brandMid, brandEnd),
+            start = Offset.Zero,
+            end = Offset(w, h),
+        )
+        val iconScale = when {
+            tiny -> 0.56f
+            compact -> 0.40f
+            else -> 0.34f
+        }
+        val gw = w * iconScale
+        val gh = gw * 0.62f
+        val gx = (w - gw) / 2f
+        val gy = when {
+            tiny -> (h - gh) / 2f
+            centeredTitle -> h * 0.20f
+            else -> h * 0.30f
+        }
+        val strokeW = (if (compact) 1.6f else 2.4f) * strokeDensity.coerceAtLeast(1f)
+        val stroke = Stroke(width = strokeW)
+        val bodyCorner = CornerRadius(gh * 0.48f, gh * 0.48f)
+        val dpadCx = gx + gw * 0.28f
+        val dpadCy = gy + gh * 0.50f
+        val dpadArm = gh * 0.20f
+        val btnR = gh * 0.085f
+        val iconColor = Color.White.copy(alpha = 0.92f)
+        drawScope.draw(
+            density = Density(strokeDensity.coerceAtLeast(1f)),
+            layoutDirection = LayoutDirection.Ltr,
+            canvas = canvas,
+            size = Size(w, h),
+        ) {
+            drawRect(bg)
+            drawCircle(Color.White.copy(alpha = 0.10f), radius = w * 0.55f, center = Offset(w * 0.92f, h * 0.08f))
+            if (drawIcon) {
+                drawRoundRect(iconColor, Offset(gx, gy), Size(gw, gh), bodyCorner, style = stroke)
+                drawLine(iconColor, Offset(dpadCx - dpadArm, dpadCy), Offset(dpadCx + dpadArm, dpadCy), strokeW, cap = StrokeCap.Round)
+                drawLine(iconColor, Offset(dpadCx, dpadCy - dpadArm), Offset(dpadCx, dpadCy + dpadArm), strokeW, cap = StrokeCap.Round)
+                drawCircle(iconColor, btnR, Offset(gx + gw * 0.68f, gy + gh * 0.60f))
+                drawCircle(iconColor, btnR, Offset(gx + gw * 0.79f, gy + gh * 0.42f))
+            }
+            drawRect(DEFAULT_COVER_SCRIM_BRUSH)
+        }
+        synchronized(this) {
+            lru.put(key, bitmap)
+        }
+        return bitmap
+    }
+}

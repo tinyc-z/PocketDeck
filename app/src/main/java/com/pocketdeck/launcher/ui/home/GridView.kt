@@ -18,14 +18,12 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -35,6 +33,7 @@ import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.ui.components.GameCoverCard
+import com.pocketdeck.launcher.ui.components.background.rememberIdleBreathingClock
 import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import kotlin.math.PI
 import kotlin.math.abs
@@ -69,23 +68,15 @@ fun GridView(
     val gridState = rememberLazyGridState()
     val reduceMotion = LocalReduceMotion.current
 
-    // 选中卡片停稳 120ms 后的微幅 3D 立体倾斜呼吸（纯 graphicsLayer 零重组，幅度克制自然）
-    val cardIdleSeconds = remember { mutableFloatStateOf(0f) }
-    val cardIdleEnvelope = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(focusIndex, fastScrolling, reduceMotion, idlePaused, games.size) {
-        cardIdleSeconds.floatValue = 0f
-        cardIdleEnvelope.floatValue = 0f
-        if (reduceMotion || fastScrolling || idlePaused || games.isEmpty()) return@LaunchedEffect
-        delay(120L)
-        val startNs = withFrameNanos { it }
-        while (true) {
-            withFrameNanos { nowNs ->
-                val sec = (nowNs - startNs) / 1_000_000_000f
-                cardIdleSeconds.floatValue = sec
-                cardIdleEnvelope.floatValue = (sec / 0.65f).coerceIn(0f, 1f)
-            }
-        }
-    }
+    // 选中卡片停稳 120ms 后的微幅 3D 立体倾斜呼吸（复用 30Hz 节流 + STARTED 生命周期暂停，零每帧 lambda 与零重组）
+    val cardIdle = rememberIdleBreathingClock(
+        paused = reduceMotion || fastScrolling || idlePaused || games.isEmpty(),
+        resetKey = focusIndex to games.size,
+        delayMs = 120L,
+        rampSec = 0.65f,
+    )
+    val cardIdleSeconds = cardIdle.seconds
+    val cardIdleEnvelope = cardIdle.envelope
     var lastScrollTriggerMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(focusIndex, games.size, reduceMotion) {
         if (focusIndex !in games.indices) return@LaunchedEffect

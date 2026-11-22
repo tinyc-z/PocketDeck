@@ -67,16 +67,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil3.annotation.ExperimentalCoilApi
+import coil3.compose.AsyncImageModelEqualityDelegate
+import coil3.compose.LocalAsyncImageModelEqualityDelegate
 import com.pocketdeck.launcher.PocketDeckApp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.AppTheme
 import com.pocketdeck.launcher.data.BackgroundStyle
+import com.pocketdeck.launcher.data.NavBarStyle
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.data.PlatformCatalog
+import com.pocketdeck.launcher.data.ScrapeProgress
 import com.pocketdeck.launcher.data.ViewMode
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.KeySound
+import com.pocketdeck.launcher.lan.LanServerState
 import com.pocketdeck.launcher.lan.TransferPhase
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.components.BottomBar
@@ -98,11 +104,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
  * 主屏幕：波浪/气泡背景 + 顶栏 + Gallery/List/Grid/Bubbles + 底栏 + 搜索/菜单/Apps/Edit/Settings。
  */
+@OptIn(ExperimentalCoilApi::class)
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
@@ -111,12 +120,8 @@ fun HomeScreen(
 ) {
     val state by vm.state.collectAsState()
     ReportDrawnWhen { state.libraryLoaded }
-    val fullLibrary by vm.fullLibrary.collectAsState()
-    val filesRevision by vm.filesRevision.collectAsState()
-    val fileTasks by vm.fileTasks.collectAsState()
     val context = LocalContext.current
     val lanManager = remember { (context.applicationContext as PocketDeckApp).container.lanManager }
-    val lanState by lanManager.state.collectAsState()
     var showLanControlFromStatusBar by remember { mutableStateOf(false) }
     LaunchedEffect(state.keySoundEnabled) {
         KeySound.configure(state.keySoundEnabled)
@@ -269,6 +274,12 @@ fun HomeScreen(
         fastScrollingFlow.value = false
     }
 
+    LaunchedEffect(vm, fastScrollingFlow) {
+        fastScrollingFlow.collect { scrolling ->
+            vm.setFastScrolling(scrolling)
+        }
+    }
+
     val currentState by rememberUpdatedState(state)
     val currentImeVisible by rememberUpdatedState(imeVisible)
 
@@ -316,11 +327,15 @@ fun HomeScreen(
     }
 
     val isOnline by NetworkStatus.online.collectAsState()
+    val stablePlatformOf = remember(state.platformsById) {
+        { g: Game -> state.platformsById[g.platformId] ?: PlatformCatalog.forFolder(g.platformId) }
+    }
     CompositionLocalProvider(
         LocalDeckColors provides palette,
         LocalDeckFontFamily provides fontFamily,
         LocalIsOnline provides isOnline,
         LocalReduceMotion provides state.reduceMotion,
+        LocalAsyncImageModelEqualityDelegate provides AsyncImageModelEqualityDelegate.AllProperties,
     ) {
         Box(
             modifier
@@ -332,7 +347,7 @@ fun HomeScreen(
                     handleHomePreviewKeyEvent(
                         event = event,
                         state = state,
-                        lanState = lanState,
+                        lanState = lanManager.state.value,
                         vm = vm,
                         context = context,
                         scope = scope,
@@ -368,7 +383,7 @@ fun HomeScreen(
                 selectedTab = state.selectedTab,
                 games = state.games,
                 officialNames = state.officialNames,
-                platformFor = state::platformFor,
+                platformFor = stablePlatformOf,
                 vm = vm,
                 focusIndexFlow = vm.focusIndex,
                 fastScrollingFlow = fastScrollingFlow,
@@ -395,13 +410,14 @@ fun HomeScreen(
                     }
                 }
                 val stableOpenLanDialog = remember { { showLanControlFromStatusBar = true } }
+                val stableOpenScrapeDialog = remember(vm) { { vm.openScrapeTaskDialog() } }
                 val stableSelectTab = remember(vm) { { idx: Int -> vm.selectTab(idx) } }
                 val stablePrevTab = remember(vm) { { vm.prevTab() } }
                 val stableNextTab = remember(vm) { { vm.nextTab() } }
-                val txNow = lanState.transfer
-                TopBar(
+                HomeTopBarSlot(
                     tabs = tabLabels,
                     selectedIndex = state.selectedTab,
+                    navBarStyle = state.navBarStyle,
                     is12h = state.is12h,
                     showClock = state.showClock,
                     showBattery = state.showBattery,
@@ -411,14 +427,9 @@ fun HomeScreen(
                     showHeadset = state.showHeadset,
                     showAirplane = state.showAirplane,
                     showDnd = state.showDnd,
-                    lanSharingActive = lanState.shareRunning,
-                    lanWebActive = lanState.webRunning,
-                    lanPendingIncoming = lanState.incomingRequest != null,
-                    lanTransferWaiting = txNow?.phase == TransferPhase.WaitingAccept || txNow?.phase == TransferPhase.PinRequired,
-                    lanTaskProgress = lanState.slowestActiveTaskProgress,
-                    scrapeRunning = vm.scrapeProgress.collectAsState().value.running,
-                    scrapePercent = vm.scrapeProgress.collectAsState().value.percent,
-                    onScrapeBadgeClick = remember(vm) { { vm.openScrapeTaskDialog() } },
+                    lanStateFlow = lanManager.state,
+                    scrapeProgressFlow = vm.scrapeProgress,
+                    onScrapeBadgeClick = stableOpenScrapeDialog,
                     onLanBadgeClick = stableOpenLanDialog,
                     onWifiClick = stableOpenLanDialog,
                     onTabClick = stableSelectTab,
@@ -580,9 +591,6 @@ fun HomeScreen(
                         }
 
                         else -> {
-                            val stablePlatformOf = remember(state.platformsById) {
-                                { g: Game -> state.platformsById[g.platformId] ?: PlatformCatalog.forFolder(g.platformId) }
-                            }
                             val stableOnFocusChange = remember(vm) { { idx: Int -> vm.setFocus(idx) } }
                             val stableOnLongPress = remember(vm) { { game: Game -> vm.showMenu(game) } }
                             HomeContentSlot(
@@ -617,6 +625,7 @@ fun HomeScreen(
                     val stableOnPlay = remember(launchGame) { { launchCurrentGame() } }
                     BottomBar(
                         viewMode = state.viewMode,
+                        navBarStyle = state.navBarStyle,
                         searching = state.searching,
                         onApps = stableOnApps,
                         onSettings = stableOnSettings,
@@ -632,11 +641,7 @@ fun HomeScreen(
 
             HomeOverlays(
                 state = state,
-                fullLibrary = fullLibrary,
-                filesRevision = filesRevision,
-                fileTasks = fileTasks,
                 lanManager = lanManager,
-                lanState = lanState,
                 vm = vm,
                 context = context,
                 scope = scope,
@@ -678,6 +683,88 @@ fun HomeScreen(
             }
         }
     }
+}
+
+private data class TopBarLanSnapshot(
+    val shareRunning: Boolean = false,
+    val webRunning: Boolean = false,
+    val pendingIncoming: Boolean = false,
+    val transferWaiting: Boolean = false,
+    /** 按 1% 量化，避免传输字节每次小幅变动都触发顶栏重组。 */
+    val progressPct: Int? = null,
+)
+
+/** 独立顶栏重组边界：仅窄化订阅局域网徽标摘要与刮削进度百分比，绝不波及主屏幕或游戏列表。 */
+@Composable
+private fun HomeTopBarSlot(
+    tabs: List<String>,
+    selectedIndex: Int,
+    navBarStyle: NavBarStyle,
+    is12h: Boolean,
+    showClock: Boolean,
+    showBattery: Boolean,
+    showWifi: Boolean,
+    showBluetooth: Boolean,
+    showMobileSignal: Boolean,
+    showHeadset: Boolean,
+    showAirplane: Boolean,
+    showDnd: Boolean,
+    lanStateFlow: StateFlow<LanServerState>,
+    scrapeProgressFlow: StateFlow<ScrapeProgress>,
+    onScrapeBadgeClick: () -> Unit,
+    onLanBadgeClick: () -> Unit,
+    onWifiClick: () -> Unit,
+    onTabClick: (Int) -> Unit,
+    onPrevTab: () -> Unit,
+    onNextTab: () -> Unit,
+    rapidTabSwitchFlow: StateFlow<Boolean>,
+) {
+    val lanSnap by remember(lanStateFlow) {
+        lanStateFlow.map { s ->
+            val tx = s.transfer
+            val pct = s.slowestActiveTaskProgress?.let { (it * 100f).toInt().coerceIn(0, 100) }
+            TopBarLanSnapshot(
+                shareRunning = s.shareRunning,
+                webRunning = s.webRunning,
+                pendingIncoming = s.incomingRequest != null,
+                transferWaiting = tx?.phase == TransferPhase.WaitingAccept || tx?.phase == TransferPhase.PinRequired,
+                progressPct = pct,
+            )
+        }.distinctUntilChanged()
+    }.collectAsState(initial = TopBarLanSnapshot())
+
+    val scrapeBadge by remember(scrapeProgressFlow) {
+        scrapeProgressFlow.map { it.running to it.percent }.distinctUntilChanged()
+    }.collectAsState(initial = scrapeProgressFlow.value.running to scrapeProgressFlow.value.percent)
+
+    TopBar(
+        tabs = tabs,
+        selectedIndex = selectedIndex,
+        navBarStyle = navBarStyle,
+        is12h = is12h,
+        showClock = showClock,
+        showBattery = showBattery,
+        showWifi = showWifi,
+        showBluetooth = showBluetooth,
+        showMobileSignal = showMobileSignal,
+        showHeadset = showHeadset,
+        showAirplane = showAirplane,
+        showDnd = showDnd,
+        lanSharingActive = lanSnap.shareRunning,
+        lanWebActive = lanSnap.webRunning,
+        lanPendingIncoming = lanSnap.pendingIncoming,
+        lanTransferWaiting = lanSnap.transferWaiting,
+        lanTaskProgress = lanSnap.progressPct?.let { it / 100f },
+        scrapeRunning = scrapeBadge.first,
+        scrapePercent = scrapeBadge.second,
+        onScrapeBadgeClick = onScrapeBadgeClick,
+        onLanBadgeClick = onLanBadgeClick,
+        onWifiClick = onWifiClick,
+        onTabClick = onTabClick,
+        onPrevTab = onPrevTab,
+        onNextTab = onNextTab,
+        rapidTabSwitchFlow = rapidTabSwitchFlow,
+    )
 }
 
 @Composable

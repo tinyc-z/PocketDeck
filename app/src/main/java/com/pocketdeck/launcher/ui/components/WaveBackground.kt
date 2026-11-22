@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -27,9 +29,13 @@ import com.pocketdeck.launcher.ui.components.background.coverGlow
 import com.pocketdeck.launcher.ui.components.background.pixelDrift
 import com.pocketdeck.launcher.ui.components.background.rememberBackgroundClock
 import com.pocketdeck.launcher.ui.components.background.retroGrid
+import com.pocketdeck.launcher.ui.components.background.starfield
 import com.pocketdeck.launcher.ui.components.background.styleCoverColors
 import com.pocketdeck.launcher.ui.components.background.sunsetFlow
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -40,6 +46,7 @@ import java.io.File
  * - RetroGrid：合成波落日 + 透视网格
  * - CoverGlow：取焦点封面主色的氛围光
  * - Aurora：品牌色极光丝带
+ * - Starfield：视差星场 + 星云 + 流星
  * - Image：用户自选静态图片
  * - None：纯色背景（由外层 Box 提供）
  *
@@ -60,9 +67,14 @@ fun WaveBackground(
         BackgroundStyle.Image, BackgroundStyle.None -> false
         else -> true
     }
-    // 网格横线靠近观察者时移动较快，需要逐帧推进；其余慢速效果 30Hz 足够平滑
-    val step = if (style == BackgroundStyle.RetroGrid) 0f else BG_STEP_SLOW
-    val clock = rememberBackgroundClock(paused = paused || !animated, stepSec = step)
+    // 网格横线靠近观察者时移动较快，需要逐帧推进；星海含划过流星用 30Hz；其余慢速效果 20Hz 足够平滑
+    val step = when (style) {
+        BackgroundStyle.RetroGrid -> 0f
+        BackgroundStyle.Starfield -> 1f / 30f
+        else -> BG_STEP_SLOW
+    }
+    val reduceMotion = LocalReduceMotion.current
+    val clock = rememberBackgroundClock(paused = paused || reduceMotion || !animated, stepSec = step)
     val time = remember(clock) { { clock.floatValue } }
     val p = LocalDeckColors.current
 
@@ -72,6 +84,7 @@ fun WaveBackground(
         BackgroundStyle.PixelDrift -> Spacer(modifier.fillMaxSize().pixelDrift(p, time))
         BackgroundStyle.RetroGrid -> Spacer(modifier.fillMaxSize().retroGrid(p, time))
         BackgroundStyle.Aurora -> Spacer(modifier.fillMaxSize().aurora(p, time))
+        BackgroundStyle.Starfield -> Spacer(modifier.fillMaxSize().starfield(p, time))
         BackgroundStyle.CoverGlow -> CoverGlowBackground(
             modifier = modifier,
             coverCandidates = coverCandidates,
@@ -96,6 +109,7 @@ fun BackgroundPreview(style: BackgroundStyle, modifier: Modifier = Modifier) {
         BackgroundStyle.PixelDrift -> Spacer(base.pixelDrift(p) { PREVIEW_T })
         BackgroundStyle.RetroGrid -> Spacer(base.retroGrid(p) { 0.6f })
         BackgroundStyle.Aurora -> Spacer(base.aurora(p) { PREVIEW_T })
+        BackgroundStyle.Starfield -> Spacer(base.starfield(p) { STARFIELD_PREVIEW_T })
         BackgroundStyle.CoverGlow -> {
             val colors = remember(p.isDark) { styleCoverColors(SampleCoverColors, p.isDark) }
             Spacer(base.coverGlow(p, colors, colors, progress = { 1f }, time = { PREVIEW_T }))
@@ -107,6 +121,8 @@ fun BackgroundPreview(style: BackgroundStyle, modifier: Modifier = Modifier) {
 
 /** 缩略图使用的固定时刻（选一个光斑分布均衡的瞬间）。 */
 private const val PREVIEW_T = 6f
+/** 星海漫游缩略图时刻（正好落在一颗流星划过中段的峰值帧）。 */
+private const val STARFIELD_PREVIEW_T = 4.75f
 
 /** 「图片」字形：圆角框 + 山峦 + 太阳。 */
 private fun Modifier.pictureGlyph(ink: Color, accent: Color): Modifier = drawWithCache {
@@ -145,16 +161,25 @@ private fun CustomImageEffect(modifier: Modifier, imagePath: String?) {
     val p = LocalDeckColors.current
     val bgColor = p.background
     val isDark = p.isDark
-    val file = remember(imagePath) {
-        imagePath?.takeIf { it.isNotBlank() }?.let(::File)?.takeIf { it.isFile }
+    // 移出主线程：在 Dispatchers.IO 上校验 File.isFile 与 lastModified()，彻底消除重组期主线程磁盘 stat()
+    val resolvedFile by produceState<Pair<File, Long>?>(initialValue = null, key1 = imagePath) {
+        value = if (imagePath.isNullOrBlank()) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                val f = File(imagePath)
+                if (f.isFile) f to f.lastModified() else null
+            }
+        }
     }
-    val request = remember(file?.path, file?.lastModified()) {
-        file?.let { f ->
+    val request = remember(resolvedFile?.first?.path, resolvedFile?.second) {
+        resolvedFile?.let { (f, mtime) ->
             val dm = context.resources.displayMetrics
             val maxW = dm.widthPixels.coerceIn(640, 1920)
             val maxH = dm.heightPixels.coerceIn(480, 1920)
             coil3.request.ImageRequest.Builder(context)
                 .data(f)
+                .memoryCacheKey("custom_bg:${f.path}:$mtime")
                 .size(maxW, maxH)
                 .precision(coil3.size.Precision.INEXACT)
                 .build()

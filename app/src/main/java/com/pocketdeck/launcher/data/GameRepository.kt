@@ -225,9 +225,12 @@ class GameRepository(
         }
     }
 
+    private val installedAppsFlow = MutableStateFlow<List<CachedAndroidApp>?>(null)
+
     /** 包含已隐藏游戏的完整游戏库（供游戏库管理器查看、搜索、恢复隐藏或管理文件）。 */
     val fullLibrary: StateFlow<Library?> = combine(
         scanned,
+        installedAppsFlow,
         userStore.data.map { u ->
             LibraryUserProjection(
                 renames = u.renames,
@@ -239,11 +242,11 @@ class GameRepository(
                 user = u,
             )
         }.distinctUntilChanged(),
-    ) { lib, proj ->
-        lib?.withAndroidGames(proj.user)?.applyUser(proj.user, includeHidden = true)
+    ) { lib, apps, proj ->
+        lib?.withAndroidGames(proj.user, apps)?.applyUser(proj.user, includeHidden = true)
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, null)
 
-    /** 过滤已隐藏游戏的主页游戏库（直接从 fullLibrary 派生，不再重复扫描 Android 应用或重排序）。 */
+    /** 过滤已隐藏游戏的主页游戏库（直接从 fullLibrary 派生，保留 localMetadata 与 dirSnapshots）。 */
     val library: StateFlow<Library?> = combine(
         fullLibrary,
         userStore.data.map { it.hidden }.distinctUntilChanged(),
@@ -260,20 +263,9 @@ class GameRepository(
                     filteredPlatforms += p
                 }
             }
-            Library(full.root, filteredPlatforms, filteredGames, full.rootCounts)
+            full.copy(platforms = filteredPlatforms, games = filteredGames)
         }
     }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, null)
-
-    @Volatile
-    private var cachedInstalledApps: List<AndroidAppEntry> = emptyList()
-
-    private data class AndroidAppEntry(
-        val packageName: String,
-        val label: String,
-        val isAutoGame: Boolean,
-        val apkSize: Long,
-        val lastModifiedMs: Long,
-    )
 
     private val indexCache = LibraryIndexCache(context)
     private val refreshGen = java.util.concurrent.atomic.AtomicLong(0L)
@@ -297,7 +289,7 @@ class GameRepository(
             try {
                 // 并行启动二进制索引预读与 UserStore 首读，缩短冷启等待
                 val warmCacheDeferred = if (scanned.value == null) {
-                    async(Dispatchers.IO) { indexCache.loadUnchecked() }
+                    async(Dispatchers.IO) { indexCache.loadUncheckedSnapshot() }
                 } else {
                     null
                 }
@@ -305,11 +297,14 @@ class GameRepository(
                 val roots = effectiveRoots(userData)
                 val rootsKey = roots.joinToString(";") { it.path }
 
-                // 阶段 1：冷启动命中本地二进制索引缓存 → < 30ms 秒开首屏
+                // 阶段 1：冷启动命中本地二进制索引缓存 → < 30ms 秒开首屏（同步还原 Android 游戏列表，零 PackageManager IPC）
                 val hadWarmCache = if (scanned.value == null) {
-                    val cached = warmCacheDeferred?.await()?.takeIf { it.root == rootsKey }
-                    if (cached != null && refreshGen.get() == gen) {
-                        scanned.value = cached
+                    val cachedSnap = warmCacheDeferred?.await()?.takeIf { it.library.root == rootsKey }
+                    if (cachedSnap != null && refreshGen.get() == gen) {
+                        if (cachedSnap.installedApps != null) {
+                            installedAppsFlow.value = cachedSnap.installedApps
+                        }
+                        scanned.value = cachedSnap.library
                         true
                     } else {
                         false
@@ -318,25 +313,33 @@ class GameRepository(
                     true
                 }
 
-                // 阶段 2：后台增量/渐进扫描真实磁盘（无缓存时优先扫首个可见标签平台并分段推送）
+                // 阶段 2：后台并行核对真实磁盘与已安装应用（仅查 1 次 PackageManager，无变更时不重写索引文件）
                 val priorityPlats = firstVisiblePlatformIds(userData)
-                val result = withContext(Dispatchers.IO) {
-                    val scannedLib = RomScanner.scanAllProgressive(
+                val prevScanned = scanned.value
+                val prevApps = installedAppsFlow.value
+                val (scannedLib, freshApps) = withContext(Dispatchers.IO) {
+                    val appsDeferred = async { queryInstalledLaunchableApps() }
+                    val lib = RomScanner.scanAllProgressive(
                         roots = roots,
                         priorityPlatformIds = priorityPlats,
-                        previousLibrary = scanned.value,
+                        previousLibrary = prevScanned,
                         onProgress = if (!hadWarmCache) { partial ->
                             if (refreshGen.get() == gen) {
                                 scanned.value = partial
                             }
                         } else null,
                     )
-                    cachedInstalledApps = queryInstalledLaunchableApps()
-                    indexCache.save(rootsKey, scannedLib)
-                    scannedLib
+                    val apps = appsDeferred.await()
+                    val libChanged = !hadWarmCache || prevScanned == null || lib != prevScanned
+                    val appsChanged = !hadWarmCache || prevApps == null || apps != prevApps
+                    if (libChanged || appsChanged) {
+                        indexCache.save(rootsKey, lib, apps)
+                    }
+                    lib to apps
                 }
                 if (refreshGen.get() == gen) {
-                    scanned.value = result
+                    if (freshApps != prevApps) installedAppsFlow.value = freshApps
+                    if (scannedLib != prevScanned) scanned.value = scannedLib
                 }
             } finally {
                 if (refreshGen.get() == gen) {
@@ -346,7 +349,7 @@ class GameRepository(
         }
     }
 
-    private fun queryInstalledLaunchableApps(): List<AndroidAppEntry> = runCatching {
+    private fun queryInstalledLaunchableApps(): List<CachedAndroidApp> = runCatching {
         val pm = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val emuAndLauncherPkgs = buildSet {
@@ -371,15 +374,12 @@ class GameRepository(
             val apkFile = ai.sourceDir?.let(::File)
             val apkSize = runCatching { apkFile?.length() ?: 0L }.getOrDefault(0L)
             val apkMod = runCatching { apkFile?.lastModified() ?: 0L }.getOrDefault(0L)
-            AndroidAppEntry(pkg, label, isAuto, apkSize, apkMod)
-        }
+            CachedAndroidApp(pkg, label, isAuto, apkSize, apkMod)
+        }.sortedBy { it.packageName }
     }.getOrDefault(emptyList())
 
-    private fun Library.withAndroidGames(u: UserData): Library {
-        if (!u.showAndroidGames) return this
-        val apps = cachedInstalledApps.ifEmpty {
-            queryInstalledLaunchableApps().also { cachedInstalledApps = it }
-        }
+    private fun Library.withAndroidGames(u: UserData, apps: List<CachedAndroidApp>?): Library {
+        if (!u.showAndroidGames || apps.isNullOrEmpty()) return this
         val androidGames = apps.asSequence()
             .filter { app ->
                 (app.isAutoGame || app.packageName in u.androidGamePackages) &&

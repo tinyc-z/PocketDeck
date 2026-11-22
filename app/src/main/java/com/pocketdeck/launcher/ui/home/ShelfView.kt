@@ -25,12 +25,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -126,6 +127,8 @@ fun ShelfView(
         val availW = (maxWidth - shelfInnerPad * 2 - horizontalGap * (SHELF_COLUMNS - 1)).coerceAtLeast(200.dp)
         val slotW = availW / SHELF_COLUMNS
         val boxH = (slotW * 1.08f).coerceIn(82.dp, 134.dp)
+        val isTouchScrolling by remember(listState) { derivedStateOf { listState.isScrollInProgress } }
+        val effectiveFastScroll = fastScrolling || isTouchScrolling
 
         LazyColumn(
             state = listState,
@@ -197,9 +200,9 @@ fun ShelfView(
                                             height = cardH,
                                             isFocused = isSelected,
                                             isFavorite = game.id in favorites,
-                                            fastScrolling = fastScrolling,
+                                            fastScrolling = effectiveFastScroll,
                                             shapeOverride = RoundedCornerShape(9.dp),
-                                            prominentFocus = isSelected,
+                                            prominentFocus = isSelected && !effectiveFastScroll,
                                             onClick = {
                                                 if (isSelected) onLaunch(game) else onFocusChange(idx)
                                             },
@@ -213,28 +216,33 @@ fun ShelfView(
                         }
                     }
 
-                    // 磨砂玻璃陈列层板 + 柔和底部投影
+                    // 磨砂玻璃陈列层板 + 柔和底部投影（快滚期跳过层板投影，使用 drawWithCache 避免每帧重建渐变）
                     val shelfShape = RoundedCornerShape(6.dp)
+                    val drawShelfShadow = !effectiveFastScroll && !reduceMotion
+                    val shelfShadowColor = Color.Black.copy(alpha = if (palette.isDark) 0.34f else 0.11f)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(11.dp)
-                            .drawBehind {
-                                // 层板下方柔和环境投影
-                                drawRoundRect(
-                                    brush = Brush.verticalGradient(
-                                        listOf(
-                                            Color.Black.copy(alpha = if (palette.isDark) 0.34f else 0.11f),
-                                            Color.Transparent,
-                                        ),
-                                        startY = size.height * 0.55f,
-                                        endY = size.height + 10.dp.toPx(),
-                                    ),
-                                    topLeft = Offset(8.dp.toPx(), size.height * 0.55f),
-                                    size = Size(size.width - 16.dp.toPx(), 12.dp.toPx()),
-                                    cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
-                                )
-                            }
+                            .then(
+                                if (drawShelfShadow) {
+                                    Modifier.drawWithCache {
+                                        val brush = Brush.verticalGradient(
+                                            listOf(shelfShadowColor, Color.Transparent),
+                                            startY = size.height * 0.55f,
+                                            endY = size.height + 10.dp.toPx(),
+                                        )
+                                        val tl = Offset(8.dp.toPx(), size.height * 0.55f)
+                                        val sz = Size(size.width - 16.dp.toPx(), 12.dp.toPx())
+                                        val cr = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                                        onDrawBehind {
+                                            drawRoundRect(brush = brush, topLeft = tl, size = sz, cornerRadius = cr)
+                                        }
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            )
                             .clip(shelfShape)
                             .background(
                                 Brush.verticalGradient(

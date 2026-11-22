@@ -47,6 +47,9 @@
     <string name="settings_show_metadata">Game info</string>
     <string name="settings_metadata_desc">Show below cover</string>
     <string name="settings_show_bottom_bar">Bottom bar</string>
+    <string name="settings_nav_bar_style">Navigation bar style</string>
+    <string name="nav_bar_style_classic">Default</string>
+    <string name="nav_bar_style_glass_dock">Floating Glass Dock</string>
     <string name="settings_default_view">Default view</string>
     <string name="settings_tabs">Tabs</string>
     <string name="settings_swap_abxy">Swap ABXY</string>
@@ -688,6 +691,7 @@
     <string name="bg_style_pixel_drift">Pixel Drift</string>
     <string name="bg_style_retro_grid">Retro Grid</string>
     <string name="bg_style_cover_glow">Cover Glow</string>
+    <string name="bg_style_starfield">Starfield</string>
     <string name="view_gallery">Gallery</string>
     <string name="view_list">List</string>
     <string name="view_grid">Grid</string>
@@ -767,6 +771,7 @@
     <string name="detail_multi_disc_fmt">%1$d discs</string>
     <string name="detail_action_discs">Discs (%1$d)</string>
     <string name="detail_action_back_info">Details</string>
+    <string name="detail_change_cover">Cover</string>
     <string name="settings_group_experimental">Experimental</string>
     <string name="settings_quick_hud_title">Handheld Quick HUD</string>
     <string name="settings_quick_hud_desc">Toggle brightness, volume, and LAN &amp; Share overlay via hotkey</string>

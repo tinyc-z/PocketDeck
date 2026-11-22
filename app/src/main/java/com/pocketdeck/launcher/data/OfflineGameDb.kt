@@ -2,6 +2,7 @@ package com.pocketdeck.launcher.data
 
 import android.content.Context
 import com.pocketdeck.launcher.data.model.GameMetadata
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * APK 内置的只读离线数据库（打包在 `assets/offline_db/` 下，清理缓存时不会被删除）。
@@ -12,10 +13,9 @@ import com.pocketdeck.launcher.data.model.GameMetadata
  *    的 `CRC32 -> 标准英文名`（`H` 行）与 `标准名 -> 开发商/发行商/类型/发行日`（`M` 行）。
  *
  * 合并策略：
- * - 运行时优先秒读内置底座，不阻塞界面与封面加载；
- * - 远端 `api.github.com` / `libretro-database` 作为后台异步更新拉取后与内置底座合并写缓存，
- *   远端 403/断网时无任何影响；
- * - 用户点击「清理缓存」只清 `cacheDir` 和在线 SQLite 缓存，内置底座永久保留并在下次访问时直接生效；
+ * - 按平台单飞锁加载，并发调用同一平台只读盘解析一次；
+ * - [PlatformTable] 直接持有共享索引行并在 `MetadataRepository` 零拷贝复用，倒排分词索引按需懒建；
+ * - 远端 `api.github.com` / `libretro-database` 作为后台异步更新叠加在内置底座上，不重复拷贝底座；
  * - 内存按 LRU 最多常驻近期使用的少量平台，并在 `onTrimMemory` 时只释放非当前活跃平台。
  */
 object OfflineGameDb {
@@ -26,21 +26,85 @@ object OfflineGameDb {
     @Volatile
     var activeSystems: Set<String> = emptySet()
 
-    data class PlatformTable(
+    data class MetaRow(
+        val name: String,
+        val meta: GameMetadata,
+    )
+
+    class PlatformTable(
         val hashToName: Map<String, String>,
-        val metaByExactName: Map<String, GameMetadata>,
-        val metaByNormTitle: Map<String, GameMetadata>,
-        val metaByRawName: Map<String, GameMetadata> = emptyMap(),
+        val metaByRawName: Map<String, GameMetadata>,
+        val rowByExact: Map<String, MetaRow>,
+        val rowByNorm: Map<String, MetaRow>,
+        val rowByCompact: Map<String, MetaRow>,
     ) {
+        /** 零拷贝只读视图，兼容直接按 `exactKey` 查询元数据。 */
+        val metaByExactName: Map<String, GameMetadata> = RowMetaMapView(rowByExact)
+
+        /** 零拷贝只读视图，兼容直接按 `normalizedTitle` 查询元数据。 */
+        val metaByNormTitle: Map<String, GameMetadata> = RowMetaMapView(rowByNorm)
+
+        @Volatile
+        private var _rowByToken: Map<String, List<MetaRow>>? = null
+
         val isEmpty: Boolean
-            get() = hashToName.isEmpty() && metaByExactName.isEmpty()
+            get() = hashToName.isEmpty() && metaByRawName.isEmpty() && rowByExact.isEmpty()
+
+        /** 仅在模糊降级查询时按需构建倒排分词索引，避免常规 CRC/精确/标题命中时占用内存。 */
+        fun ensureTokenIndexBuilt(): Map<String, List<MetaRow>> {
+            _rowByToken?.let { return it }
+            synchronized(this) {
+                _rowByToken?.let { return it }
+                val map = HashMap<String, MutableList<MetaRow>>(rowByNorm.size + 16)
+                for ((normKey, row) in rowByNorm) {
+                    for (tok in TitleNormalizer.tokenize(normKey)) {
+                        map.getOrPut(tok) { ArrayList(4) }.add(row)
+                    }
+                }
+                _rowByToken = map
+                return map
+            }
+        }
 
         companion object {
-            val EMPTY = PlatformTable(emptyMap(), emptyMap(), emptyMap(), emptyMap())
+            val EMPTY = PlatformTable(
+                hashToName = emptyMap(),
+                metaByRawName = emptyMap(),
+                rowByExact = emptyMap(),
+                rowByNorm = emptyMap(),
+                rowByCompact = emptyMap(),
+            )
         }
     }
 
+    private class RowMetaMapView(
+        private val backing: Map<String, MetaRow>,
+    ) : kotlin.collections.AbstractMap<String, GameMetadata>() {
+        override val size: Int get() = backing.size
+        override fun containsKey(key: String): Boolean = backing.containsKey(key)
+        override fun get(key: String): GameMetadata? = backing[key]?.meta
+        override val entries: Set<Map.Entry<String, GameMetadata>>
+            get() = object : kotlin.collections.AbstractSet<Map.Entry<String, GameMetadata>>() {
+                override val size: Int get() = backing.size
+                override fun iterator(): Iterator<Map.Entry<String, GameMetadata>> {
+                    val it = backing.entries.iterator()
+                    return object : Iterator<Map.Entry<String, GameMetadata>> {
+                        override fun hasNext(): Boolean = it.hasNext()
+                        override fun next(): Map.Entry<String, GameMetadata> {
+                            val e = it.next()
+                            return object : Map.Entry<String, GameMetadata> {
+                                override val key: String = e.key
+                                override val value: GameMetadata = e.value.meta
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
     private val cacheLock = Any()
+    private val boxartLocks = ConcurrentHashMap<String, Any>()
+    private val metaLocks = ConcurrentHashMap<String, Any>()
     private val boxartCache = LinkedHashMap<String, List<String>>(8, 0.75f, true)
     private val metaCache = LinkedHashMap<String, PlatformTable>(8, 0.75f, true)
 
@@ -66,40 +130,52 @@ object OfflineGameDb {
         }
     }
 
-    /** 读取指定平台的内置封面文件名清单（不存在时返回空列表）。 */
+    /** 读取指定平台的内置封面文件名清单（按平台单飞锁防重复读盘解析，不存在时返回空列表）。 */
     fun loadBoxartNames(context: Context, system: String): List<String> {
         synchronized(cacheLock) {
             boxartCache[system]?.let { return it }
         }
-        val assetPath = "offline_db/boxart/${sanitizeSystemName(system)}.txt"
-        val loaded = runCatching {
-            context.assets.open(assetPath).bufferedReader(Charsets.UTF_8).useLines { lines ->
-                lines.map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        val sysLock = boxartLocks.getOrPut(system) { Any() }
+        synchronized(sysLock) {
+            synchronized(cacheLock) {
+                boxartCache[system]?.let { return it }
             }
-        }.getOrDefault(emptyList())
-        synchronized(cacheLock) {
-            boxartCache[system] = loaded
-            evictOldestInactive(boxartCache, MAX_CACHED_PLATFORMS)
+            val assetPath = "offline_db/boxart/${sanitizeSystemName(system)}.txt"
+            val loaded = runCatching {
+                context.assets.open(assetPath).bufferedReader(Charsets.UTF_8).useLines { lines ->
+                    lines.map { it.trim() }.filter { it.isNotEmpty() }.toList()
+                }
+            }.getOrDefault(emptyList())
+            synchronized(cacheLock) {
+                boxartCache[system] = loaded
+                evictOldestInactive(boxartCache, MAX_CACHED_PLATFORMS)
+            }
+            return loaded
         }
-        return loaded
     }
 
-    /** 读取指定平台的内置哈希与元数据表（不存在时返回 [PlatformTable.EMPTY]）。 */
+    /** 读取指定平台的内置哈希与元数据表（按平台单飞锁防并发重复解析，不存在时返回 [PlatformTable.EMPTY]）。 */
     fun loadPlatformTable(context: Context, system: String): PlatformTable {
         synchronized(cacheLock) {
             metaCache[system]?.let { return it }
         }
-        val assetPath = "offline_db/meta/${sanitizeSystemName(system)}.tsv"
-        val loaded = runCatching {
-            context.assets.open(assetPath).bufferedReader(Charsets.UTF_8).useLines { lines ->
-                parseMetaTsv(lines)
+        val sysLock = metaLocks.getOrPut(system) { Any() }
+        synchronized(sysLock) {
+            synchronized(cacheLock) {
+                metaCache[system]?.let { return it }
             }
-        }.getOrDefault(PlatformTable.EMPTY)
-        synchronized(cacheLock) {
-            metaCache[system] = loaded
-            evictOldestInactive(metaCache, MAX_CACHED_PLATFORMS)
+            val assetPath = "offline_db/meta/${sanitizeSystemName(system)}.tsv"
+            val loaded = runCatching {
+                context.assets.open(assetPath).bufferedReader(Charsets.UTF_8).useLines { lines ->
+                    parseMetaTsv(lines)
+                }
+            }.getOrDefault(PlatformTable.EMPTY)
+            synchronized(cacheLock) {
+                metaCache[system] = loaded
+                evictOldestInactive(metaCache, MAX_CACHED_PLATFORMS)
+            }
+            return loaded
         }
-        return loaded
     }
 
     /** 通过 ROM 的 CRC32（8 位十六进制）在内置库中查询官方标准名。 */
@@ -109,12 +185,13 @@ object OfflineGameDb {
         return loadPlatformTable(context, system).hashToName[key]
     }
 
-    /** 纯函数解析 `meta/<system>.tsv`，便于 JVM 单元测试直接验证。 */
+    /** 纯函数解析 `meta/<system>.tsv`，单遍构建全部零重复索引，便于 JVM 单元测试直接验证。 */
     fun parseMetaTsv(lines: Sequence<String>): PlatformTable {
         val hashToName = HashMap<String, String>(2048)
         val metaByRaw = HashMap<String, GameMetadata>(1024)
-        val metaByExact = HashMap<String, GameMetadata>(1024)
-        val metaByNorm = HashMap<String, GameMetadata>(1024)
+        val rowByExact = HashMap<String, MetaRow>(1024)
+        val rowByNorm = HashMap<String, MetaRow>(1024)
+        val rowByCompact = HashMap<String, MetaRow>(1024)
 
         for (raw in lines) {
             if (raw.length < 3) continue
@@ -137,19 +214,36 @@ object OfflineGameDb {
                         releaseDate = parts[5].trim().takeIf { it.isNotEmpty() },
                     )
                     if (meta.isEmpty) continue
-                    metaByRaw[name] = metaByRaw[name]?.let { mergeMeta(it, meta) } ?: meta
+                    val mergedRaw = metaByRaw[name]?.let { mergeMeta(it, meta) } ?: meta
+                    metaByRaw[name] = mergedRaw
+                    val row = MetaRow(name, mergedRaw)
+
                     val exactKey = TitleNormalizer.exactKey(name)
                     if (exactKey.isNotEmpty()) {
-                        metaByExact[exactKey] = metaByExact[exactKey]?.let { mergeMeta(it, meta) } ?: meta
+                        val prev = rowByExact[exactKey]
+                        rowByExact[exactKey] = if (prev == null) row else MetaRow(prev.name, mergeMeta(prev.meta, mergedRaw))
                     }
                     val normKey = TitleNormalizer.normalizedTitle(name)
                     if (normKey.isNotEmpty()) {
-                        metaByNorm[normKey] = metaByNorm[normKey]?.let { mergeMeta(it, meta) } ?: meta
+                        val prev = rowByNorm[normKey]
+                        val nextNormRow = if (prev == null) row else MetaRow(prev.name, mergeMeta(prev.meta, mergedRaw))
+                        rowByNorm[normKey] = nextNormRow
+                        val compKey = TitleNormalizer.compactFromNorm(normKey)
+                        if (compKey.isNotEmpty()) {
+                            val prevC = rowByCompact[compKey]
+                            rowByCompact[compKey] = if (prevC == null) nextNormRow else MetaRow(prevC.name, mergeMeta(prevC.meta, mergedRaw))
+                        }
                     }
                 }
             }
         }
-        return PlatformTable(hashToName, metaByExact, metaByNorm, metaByRaw)
+        return PlatformTable(
+            hashToName = hashToName,
+            metaByRawName = metaByRaw,
+            rowByExact = rowByExact,
+            rowByNorm = rowByNorm,
+            rowByCompact = rowByCompact,
+        )
     }
 
     fun mergeMeta(primary: GameMetadata, fallback: GameMetadata): GameMetadata = GameMetadata(

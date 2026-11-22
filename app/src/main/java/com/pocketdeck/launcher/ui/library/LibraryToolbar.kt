@@ -212,9 +212,9 @@ internal fun LibraryHeaderBar(
         val hasActiveTasks = taskProgress != null
         val lanActive = lanState.anyRunning || hasActiveTasks
         val lanAccent = when {
-            hasActiveTasks -> Color(0xFF0EA5E9)
-            lanState.shareRunning -> Color(0xFF10B981)
-            else -> Color(0xFFF59E0B)
+            hasActiveTasks -> DeckColors.StatusInfo
+            lanState.shareRunning -> DeckColors.StatusSuccess
+            else -> DeckColors.StatusWarning
         }
         val lanHl = focusZone == LibraryZone.Header && headerIdx == 1
         val targetTaskProgress = (taskProgress ?: 0f).coerceIn(0f, 1f)

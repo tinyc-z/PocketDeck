@@ -33,6 +33,7 @@ import coil3.toBitmap
 import com.pocketdeck.launcher.data.NetworkStatus
 import com.pocketdeck.launcher.ui.theme.DeckPalette
 import com.pocketdeck.launcher.ui.theme.LocalDeckColors
+import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -112,6 +113,7 @@ internal fun CoverGlowBackground(
 ) {
     val context = LocalContext.current
     val p = LocalDeckColors.current
+    val reduceMotion = LocalReduceMotion.current
     val isOnline by NetworkStatus.online.collectAsState()
     val online by rememberUpdatedState(isOnline)
 
@@ -136,8 +138,15 @@ internal fun CoverGlowBackground(
     var from by remember { mutableStateOf(display) }
     var to by remember { mutableStateOf(display) }
     val progress = remember { Animatable(1f) }
-    LaunchedEffect(display) {
+    LaunchedEffect(display, reduceMotion) {
         if (display === to) return@LaunchedEffect
+        if (reduceMotion) {
+            // 减少动态效果：零帧直切颜色，跳过 700ms 交叉淡化动画
+            from = display
+            to = display
+            progress.snapTo(1f)
+            return@LaunchedEffect
+        }
         // 以当前混合色为起点，打断中的过渡也不会跳色
         val pr = progress.value
         val f = from
