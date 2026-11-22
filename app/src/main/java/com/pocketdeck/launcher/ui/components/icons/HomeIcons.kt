@@ -159,4 +159,43 @@ object HomeIcons {
             }
         }
     }
+
+    /** 应用抽屉（四宫格圆角方块） */
+    val Apps: ImageVector by lazy {
+        icon("Apps") {
+            strokePath(strokeWidth = 2.1f) {
+                // 左上
+                moveTo(4.5f, 4.5f); lineTo(10f, 4.5f); lineTo(10f, 10f); lineTo(4.5f, 10f); close()
+                // 右上
+                moveTo(14f, 4.5f); lineTo(19.5f, 4.5f); lineTo(19.5f, 10f); lineTo(14f, 10f); close()
+                // 左下
+                moveTo(4.5f, 14f); lineTo(10f, 14f); lineTo(10f, 19.5f); lineTo(4.5f, 19.5f); close()
+                // 右下
+                moveTo(14f, 14f); lineTo(19.5f, 14f); lineTo(19.5f, 19.5f); lineTo(14f, 19.5f); close()
+            }
+        }
+    }
+
+    /** 设置（极简六齿齿轮 + 圆心） */
+    val Settings: ImageVector by lazy {
+        icon("Settings") {
+            strokePath(strokeWidth = 2.1f) {
+                // 中心圆
+                moveTo(12f, 8.8f)
+                arcTo(3.2f, 3.2f, 0f, true, true, 11.99f, 8.8f)
+                close()
+                // 外圈
+                moveTo(12f, 5.2f)
+                arcTo(6.8f, 6.8f, 0f, true, true, 11.99f, 5.2f)
+                close()
+                // 六方向短齿
+                moveTo(12f, 2.6f); lineTo(12f, 5.0f)
+                moveTo(12f, 19.0f); lineTo(12f, 21.4f)
+                moveTo(3.9f, 7.3f); lineTo(6.0f, 8.5f)
+                moveTo(18.0f, 15.5f); lineTo(20.1f, 16.7f)
+                moveTo(3.9f, 16.7f); lineTo(6.0f, 15.5f)
+                moveTo(18.0f, 8.5f); lineTo(20.1f, 7.3f)
+            }
+        }
+    }
 }

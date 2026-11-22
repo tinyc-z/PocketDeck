@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.ViewMode
-import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.icons.HomeIcons
 import com.pocketdeck.launcher.ui.theme.DeckBrand
@@ -53,10 +52,6 @@ fun BottomBar(
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
-    val directPlayBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Menu, swapAbxy)
-    val appsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Apps, swapAbxy)
-    val settingsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Settings, swapAbxy)
-
     BoxWithConstraints(
         modifier
             .fillMaxWidth()
@@ -64,24 +59,32 @@ fun BottomBar(
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
-        // 窄屏（如 1:1 方屏、8:7、4:3 640x480、竖屏）下 View 与 Search 仅保留图标，确保右侧 A Play 完整显示
+        // 窄屏（如 1:1 方屏、8:7、4:3 640x480、竖屏）下 View 与 Search 仅保留图标，确保右侧 Play 完整显示
         val showSecondaryLabels = maxWidth >= 460.dp
 
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // (B) Apps
-            BarButton(badge = appsBtn, label = stringResource(R.string.apps), onClick = onApps)
+            // 应用 —— 统一使用图标徽章（替代过长的 SELECT 文本）
+            BarIconLabeledButton(
+                icon = HomeIcons.Apps,
+                label = stringResource(R.string.apps),
+                onClick = onApps,
+            )
 
             Spacer(Modifier.width(6.dp))
 
-            // (Y) Settings
-            BarButton(badge = settingsBtn, label = stringResource(R.string.settings), onClick = onSettings)
+            // 设置 —— 齿轮图标徽章
+            BarIconLabeledButton(
+                icon = HomeIcons.Settings,
+                label = stringResource(R.string.settings),
+                onClick = onSettings,
+            )
 
             Spacer(Modifier.width(6.dp))
 
-            // 视图切换 —— 使用当前桌面模式的形象图标（不绑快捷键字母）
+            // 视图切换 —— 使用当前桌面模式的形象图标
             BarCustomIconLabeledButton(
                 label = stringResource(R.string.hint_view),
                 showLabel = showSecondaryLabels,
@@ -96,7 +99,7 @@ fun BottomBar(
 
             Spacer(Modifier.width(6.dp))
 
-            // (🔍) Search —— 深色圆形徽标，搜索激活时高亮为品牌渐变关闭徽标
+            // 搜索 —— 搜索图标徽章，搜索激活时高亮为品牌渐变关闭徽标
             BarIconLabeledButton(
                 icon = if (searching) HomeIcons.Close else HomeIcons.Search,
                 label = stringResource(R.string.lib_search_hint),
@@ -107,48 +110,14 @@ fun BottomBar(
 
             Spacer(Modifier.weight(1f))
 
-            // (X) Play —— 主操作直接启动游戏，使用品牌渐变徽标
-            BarButton(
-                badge = directPlayBtn,
+            // 开始游戏 —— 实心三角播放图标 + 品牌渐变徽标
+            BarIconLabeledButton(
+                icon = HomeIcons.Play,
                 label = stringResource(R.string.play),
                 primary = true,
                 onClick = onPlay,
             )
         }
-    }
-}
-
-@Composable
-private fun BarButton(
-    badge: String?,
-    label: String,
-    onClick: () -> Unit,
-    primary: Boolean = false,
-    modifier: Modifier = Modifier,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    Row(
-        modifier
-            .clip(CircleShape)
-            .background(if (pressed) DeckColors.TextPrimary.copy(alpha = 0.10f) else Color.Transparent)
-            .soundClickableNoIndication(interactionSource = interaction, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        if (badge != null) {
-            ButtonBadge(badge, primary = primary, size = 24.dp)
-        }
-        Text(
-            label,
-            style = DeckType.bottomBar.copy(
-                fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
-                fontSize = 14.sp,
-            ),
-            color = DeckColors.TextPrimary,
-            maxLines = 1,
-        )
     }
 }
 
