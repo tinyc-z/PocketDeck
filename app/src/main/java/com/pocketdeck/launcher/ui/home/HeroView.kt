@@ -74,6 +74,7 @@ fun HeroView(
     playStats: Map<String, PlayStats> = emptyMap(),
     onFocusChange: (Int) -> Unit,
     onLaunch: (Game) -> Unit,
+    onDirectLaunch: (Game) -> Unit = onLaunch,
     onLongPress: ((Game) -> Unit)? = null,
     fastScrolling: Boolean = false,
     showMetadata: Boolean = true,
@@ -278,7 +279,7 @@ fun HeroView(
                         modifier = Modifier
                             .clip(CircleShape)
                             .background(DeckBrand.brandBrush, CircleShape)
-                            .soundClickable { onLaunch(focusedGame) }
+                            .soundClickable { onDirectLaunch(focusedGame) }
                             .padding(horizontal = 20.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {

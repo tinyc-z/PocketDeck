@@ -252,7 +252,7 @@ internal fun handleHomePreviewKeyEvent(
             if (!hasStorageAccess && state.games.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 openAllFilesAccess()
             } else {
-                launchCurrentGame()
+                showCurrentGameMenu()
             }
             true
         }
@@ -261,7 +261,7 @@ internal fun handleHomePreviewKeyEvent(
             true
         }
         GamepadKeys.isMenu(event.key, state.swapAbxy, state.keyBindings) -> {
-            showCurrentGameMenu()
+            launchCurrentGame()
             true
         }
         GamepadKeys.isSettings(event.key, state.swapAbxy, state.keyBindings) -> {

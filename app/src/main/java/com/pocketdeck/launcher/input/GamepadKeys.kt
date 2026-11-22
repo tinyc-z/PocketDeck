@@ -33,12 +33,12 @@ object GamepadKeys {
         KeyAction.PrevLetter -> KeyEvent.KEYCODE_BUTTON_L2
         KeyAction.NextLetter -> KeyEvent.KEYCODE_BUTTON_R2
         KeyAction.QuickHud -> KeyEvent.KEYCODE_BUTTON_THUMBL
-        KeyAction.Apps -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_A else KeyEvent.KEYCODE_BUTTON_B
+        KeyAction.Apps -> KeyEvent.KEYCODE_BUTTON_SELECT
         KeyAction.Settings -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_X else KeyEvent.KEYCODE_BUTTON_Y
         KeyAction.Play -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_B else KeyEvent.KEYCODE_BUTTON_A
         KeyAction.Back -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_A else KeyEvent.KEYCODE_BUTTON_B
         KeyAction.Menu -> if (swapAbxy) KeyEvent.KEYCODE_BUTTON_Y else KeyEvent.KEYCODE_BUTTON_X
-        KeyAction.ViewMode -> KeyEvent.KEYCODE_BUTTON_SELECT
+        KeyAction.ViewMode -> KeyEvent.KEYCODE_BUTTON_THUMBR
         KeyAction.Search -> KeyEvent.KEYCODE_BUTTON_START
     }
 
@@ -196,9 +196,6 @@ object GamepadKeys {
      */
     private fun actionsConflict(a: KeyAction, b: KeyAction): Boolean {
         if (a == b) return false
-        if ((a == KeyAction.Apps && b == KeyAction.Back) || (a == KeyAction.Back && b == KeyAction.Apps)) {
-            return false
-        }
         return true
     }
 

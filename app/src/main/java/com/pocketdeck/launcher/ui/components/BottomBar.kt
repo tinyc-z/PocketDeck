@@ -53,7 +53,7 @@ fun BottomBar(
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
-    val playBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Play, swapAbxy)
+    val directPlayBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Menu, swapAbxy)
     val appsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Apps, swapAbxy)
     val settingsBtn = GamepadKeys.badgeLabel(keyBindings, KeyAction.Settings, swapAbxy)
 
@@ -107,9 +107,9 @@ fun BottomBar(
 
             Spacer(Modifier.weight(1f))
 
-            // (A) Play —— 主操作使用品牌渐变徽标
+            // (X) Play —— 主操作直接启动游戏，使用品牌渐变徽标
             BarButton(
-                badge = playBtn,
+                badge = directPlayBtn,
                 label = stringResource(R.string.play),
                 primary = true,
                 onClick = onPlay,
