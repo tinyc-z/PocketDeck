@@ -28,28 +28,51 @@ internal class IdleBreathingClock(
     val envelope: FloatState,
 )
 
+/**
+ * 节流帧时钟累加器（纯逻辑可单测）：
+ * - 对 [stepSec] 引入 2ms 容差（`stepSec - 0.002f`），解决 120Hz 屏幕下 6 帧 49.98ms < 50ms 被判定未到步长而腰斩至 10Hz/15Hz 的拍频问题；
+ * - 单帧最大步进钳位在 50ms，避免后台恢复时动画大跳变。
+ */
+internal class ThrottledClockStepper(
+    private val stepSec: Float,
+) {
+    private val thresholdSec: Float = computeThrottledStepThreshold(stepSec)
+    private var lastNanos: Long = 0L
+    private var accum: Float = 0f
+
+    fun onFrame(nowNanos: Long, onAdvance: (dt: Float) -> Unit) {
+        if (lastNanos != 0L) {
+            accum += ((nowNanos - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
+            if (accum >= thresholdSec) {
+                val dt = accum
+                accum = 0f
+                onAdvance(dt)
+            }
+        }
+        lastNanos = nowNanos
+    }
+
+    companion object {
+        internal const val TOLERANCE_SEC = 0.002f
+
+        internal fun computeThrottledStepThreshold(stepSec: Float): Float =
+            if (stepSec > 0f) (stepSec - TOLERANCE_SEC).coerceAtLeast(0f) else 0f
+
+        internal fun computeThrottledSleepMs(stepSec: Float): Long =
+            if (stepSec > 0f) ((stepSec - 0.008f) * 1000f).toLong().coerceAtLeast(8L) else 0L
+    }
+}
+
 private suspend fun runThrottledFrameClock(
     lifecycle: Lifecycle,
     stepSec: Float,
     onAdvance: (dt: Float) -> Unit,
 ) {
     lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-        var lastNanos = 0L
-        var accum = 0f
+        val stepper = ThrottledClockStepper(stepSec)
         // 帧回调只创建一次，避免每帧分配 lambda
-        val onFrame: (Long) -> Unit = { now ->
-            if (lastNanos != 0L) {
-                // 单帧最多推进 50ms：从暂停/后台恢复时不会突然跳一大段
-                accum += ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.05f)
-                if (accum >= stepSec) {
-                    val dt = accum
-                    accum = 0f
-                    onAdvance(dt)
-                }
-            }
-            lastNanos = now
-        }
-        val sleepMs = if (stepSec > 0f) ((stepSec - 0.008f) * 1000f).toLong().coerceAtLeast(16L) else 0L
+        val onFrame: (Long) -> Unit = { now -> stepper.onFrame(now, onAdvance) }
+        val sleepMs = ThrottledClockStepper.computeThrottledSleepMs(stepSec)
         while (true) {
             withFrameNanos(onFrame)
             if (sleepMs > 0L) delay(sleepMs)

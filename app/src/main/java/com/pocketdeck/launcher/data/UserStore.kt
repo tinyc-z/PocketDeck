@@ -2,7 +2,9 @@ package com.pocketdeck.launcher.data
 
 import android.content.Context
 import com.pocketdeck.launcher.input.KeyAction
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
@@ -454,7 +456,31 @@ class UserStore(context: Context) {
         }.toString()
     }
 
-    val data: Flow<UserData> = store.data.map { p -> p.toUserData() }
+    private val decodedCacheLock = Any()
+    @Volatile
+    private var lastDecodedSnapshot: PrefsSnapshot? = null
+    @Volatile
+    private var lastDecodedData: UserData? = null
+
+    private fun decodeSnapshotCached(snapshot: PrefsSnapshot): UserData {
+        if (lastDecodedSnapshot === snapshot) {
+            lastDecodedData?.let { return it }
+        }
+        synchronized(decodedCacheLock) {
+            if (lastDecodedSnapshot === snapshot) {
+                lastDecodedData?.let { return it }
+            }
+            val decoded = snapshot.toUserData()
+            lastDecodedSnapshot = snapshot
+            lastDecodedData = decoded
+            return decoded
+        }
+    }
+
+    /** 跨多订阅方共享同一快照的解码结果，并将 JSON 解析迁离主线程。 */
+    val data: Flow<UserData> = store.data
+        .map(::decodeSnapshotCached)
+        .flowOn(Dispatchers.Default)
 
     private fun PrefsSnapshot.toUserData(): UserData {
         val rawCategories = decodeCategories(this[K.categories])
@@ -574,44 +600,12 @@ class UserStore(context: Context) {
     /** ROM 文件重命名/移动后，把用户数据中关联的旧路径迁移到新路径。 */
     suspend fun migrateGameId(oldId: String, newId: String) {
         if (oldId == newId) return
-        update { u ->
-            val favs = if (oldId in u.favorites) u.favorites - oldId + newId else u.favorites
-            val recents = u.recents.map { if (it == oldId) newId else it }
-            val renames = u.renames.toMutableMap().apply { remove(oldId)?.let { put(newId, it) } }
-            val covers = u.covers.toMutableMap().apply { remove(oldId)?.let { put(newId, it) } }
-            val hidden = if (oldId in u.hidden) u.hidden - oldId + newId else u.hidden
-            val launchers = u.gameLaunchers.toMutableMap().apply { remove(oldId)?.let { put(newId, it) } }
-            val cats = u.categories.map { c ->
-                if (oldId in c.games) c.copy(games = c.games.map { if (it == oldId) newId else it }.toSet())
-                else c
-            }
-            u.copy(
-                favorites = favs,
-                recents = recents,
-                renames = renames,
-                covers = covers,
-                hidden = hidden,
-                gameLaunchers = launchers,
-                categories = cats,
-            )
-        }
+        update { u -> applyMigrateGameId(u, oldId, newId) }
     }
 
-    /** ROM 文件被永久删除后，清理其关联的收藏、最近、改名、封面、隐藏与分类条目。 */
+    /** ROM 文件被永久删除后，清理其关联的收藏、最近、改名、封面、隐藏、游玩统计与分类条目。 */
     suspend fun removeGameData(id: String) {
-        update { u ->
-            u.copy(
-                favorites = u.favorites - id,
-                recents = u.recents.filter { it != id },
-                renames = u.renames - id,
-                covers = u.covers - id,
-                hidden = u.hidden - id,
-                gameLaunchers = u.gameLaunchers - id,
-                categories = u.categories.map { c ->
-                    if (id in c.games) c.copy(games = c.games - id) else c
-                },
-            )
-        }
+        update { u -> applyRemoveGameData(u, id) }
     }
 
     /** 文件夹重命名或移动后，将目录下所有游戏的关联路径前缀从 [oldDir] 迁移到 [newDir]。 */
@@ -619,43 +613,91 @@ class UserStore(context: Context) {
         val oldPrefix = if (oldDir.endsWith("/")) oldDir else "$oldDir/"
         val newPrefix = if (newDir.endsWith("/")) newDir else "$newDir/"
         if (oldPrefix == newPrefix) return
-        fun remap(id: String): String =
-            if (id.startsWith(oldPrefix)) newPrefix + id.removePrefix(oldPrefix) else id
-        update { u ->
-            u.copy(
-                favorites = u.favorites.map(::remap).toSet(),
-                recents = u.recents.map(::remap),
-                renames = u.renames.entries.associate { (k, v) -> remap(k) to v },
-                covers = u.covers.entries.associate { (k, v) -> remap(k) to v },
-                hidden = u.hidden.map(::remap).toSet(),
-                gameLaunchers = u.gameLaunchers.entries.associate { (k, v) -> remap(k) to v },
-                categories = u.categories.map { c ->
-                    if (c.games.any { it.startsWith(oldPrefix) }) {
-                        c.copy(games = c.games.map(::remap).toSet())
-                    } else c
-                },
-            )
-        }
+        update { u -> applyMigratePathPrefix(u, oldPrefix, newPrefix) }
     }
 
     /** 文件夹被删除后，清理该目录下所有游戏的关联用户数据。 */
     suspend fun removePathPrefix(dirPath: String) {
         val prefix = if (dirPath.endsWith("/")) dirPath else "$dirPath/"
-        update { u ->
-            u.copy(
-                favorites = u.favorites.filterNot { it.startsWith(prefix) }.toSet(),
-                recents = u.recents.filterNot { it.startsWith(prefix) },
-                renames = u.renames.filterKeys { !it.startsWith(prefix) },
-                covers = u.covers.filterKeys { !it.startsWith(prefix) },
-                hidden = u.hidden.filterNot { it.startsWith(prefix) }.toSet(),
-                gameLaunchers = u.gameLaunchers.filterKeys { !it.startsWith(prefix) },
-                categories = u.categories.map { c ->
-                    if (c.games.any { it.startsWith(prefix) }) {
-                        c.copy(games = c.games.filterNot { it.startsWith(prefix) }.toSet())
-                    } else c
-                },
-            )
+        update { u -> applyRemovePathPrefix(u, prefix) }
+    }
+
+    internal fun applyMigrateGameId(u: UserData, oldId: String, newId: String): UserData {
+        if (oldId == newId) return u
+        val favs = if (oldId in u.favorites) u.favorites - oldId + newId else u.favorites
+        val recents = u.recents.map { if (it == oldId) newId else it }
+        val renames = u.renames.toMutableMap().apply { remove(oldId)?.let { put(newId, it) } }
+        val covers = u.covers.toMutableMap().apply { remove(oldId)?.let { put(newId, it) } }
+        val hidden = if (oldId in u.hidden) u.hidden - oldId + newId else u.hidden
+        val launchers = u.gameLaunchers.toMutableMap().apply { remove(oldId)?.let { put(newId, it) } }
+        val stats = u.playStats.toMutableMap().apply { remove(oldId)?.let { put(newId, it) } }
+        val cats = u.categories.map { c ->
+            if (oldId in c.games) c.copy(games = c.games.map { if (it == oldId) newId else it }.toSet())
+            else c
         }
+        return u.copy(
+            favorites = favs,
+            recents = recents,
+            renames = renames,
+            covers = covers,
+            hidden = hidden,
+            gameLaunchers = launchers,
+            playStats = stats,
+            categories = cats,
+        )
+    }
+
+    internal fun applyRemoveGameData(u: UserData, id: String): UserData = u.copy(
+        favorites = u.favorites - id,
+        recents = u.recents.filter { it != id },
+        renames = u.renames - id,
+        covers = u.covers - id,
+        hidden = u.hidden - id,
+        gameLaunchers = u.gameLaunchers - id,
+        playStats = u.playStats - id,
+        categories = u.categories.map { c ->
+            if (id in c.games) c.copy(games = c.games - id) else c
+        },
+    )
+
+    internal fun applyMigratePathPrefix(u: UserData, oldDir: String, newDir: String): UserData {
+        val oldPrefix = if (oldDir.endsWith("/")) oldDir else "$oldDir/"
+        val newPrefix = if (newDir.endsWith("/")) newDir else "$newDir/"
+        if (oldPrefix == newPrefix) return u
+        fun remap(id: String): String =
+            if (id.startsWith(oldPrefix)) newPrefix + id.removePrefix(oldPrefix) else id
+        return u.copy(
+            favorites = u.favorites.map(::remap).toSet(),
+            recents = u.recents.map(::remap),
+            renames = u.renames.entries.associate { (k, v) -> remap(k) to v },
+            covers = u.covers.entries.associate { (k, v) -> remap(k) to v },
+            hidden = u.hidden.map(::remap).toSet(),
+            gameLaunchers = u.gameLaunchers.entries.associate { (k, v) -> remap(k) to v },
+            playStats = u.playStats.entries.associate { (k, v) -> remap(k) to v },
+            categories = u.categories.map { c ->
+                if (c.games.any { it.startsWith(oldPrefix) }) {
+                    c.copy(games = c.games.map(::remap).toSet())
+                } else c
+            },
+        )
+    }
+
+    internal fun applyRemovePathPrefix(u: UserData, dirPath: String): UserData {
+        val prefix = if (dirPath.endsWith("/")) dirPath else "$dirPath/"
+        return u.copy(
+            favorites = u.favorites.filterNot { it.startsWith(prefix) }.toSet(),
+            recents = u.recents.filterNot { it.startsWith(prefix) },
+            renames = u.renames.filterKeys { !it.startsWith(prefix) },
+            covers = u.covers.filterKeys { !it.startsWith(prefix) },
+            hidden = u.hidden.filterNot { it.startsWith(prefix) }.toSet(),
+            gameLaunchers = u.gameLaunchers.filterKeys { !it.startsWith(prefix) },
+            playStats = u.playStats.filterKeys { !it.startsWith(prefix) },
+            categories = u.categories.map { c ->
+                if (c.games.any { it.startsWith(prefix) }) {
+                    c.copy(games = c.games.filterNot { it.startsWith(prefix) }.toSet())
+                } else c
+            },
+        )
     }
 
     suspend fun update(transform: (UserData) -> UserData) = store.edit { p ->

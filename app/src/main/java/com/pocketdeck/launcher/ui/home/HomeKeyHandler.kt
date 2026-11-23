@@ -148,21 +148,27 @@ internal fun handleHomePreviewKeyEvent(
                 true
             }
             GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
-                vm.setViewMode(ViewMode.entries[state.viewMenuIndex])
+                if (event.nativeKeyEvent.repeatCount == 0) {
+                    vm.setViewMode(ViewMode.entries[state.viewMenuIndex])
+                }
                 true
             }
             else -> true
         }
     }
 
-    // 搜索模式：键盘开启时支持 B/Back 收起键盘保留结果；键盘收起后方向键/A 直接操作搜索结果
+    val isInitialPress = event.nativeKeyEvent.repeatCount == 0
+
+    // 搜索模式：键盘开启时支持 B/Back 收起键盘保留结果；外接键盘输入文本键时不强行失焦，仅导航/手柄键切回结果列表
     if (state.searching) {
         if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
-            if ((imeVisible || searchFieldFocused) && state.searchQuery.isNotBlank()) {
-                dismissSearchKeyboard()
-            } else {
-                dismissSearchKeyboard()
-                vm.toggleSearch()
+            if (isInitialPress) {
+                if ((imeVisible || searchFieldFocused) && state.searchQuery.isNotBlank()) {
+                    dismissSearchKeyboard()
+                } else {
+                    dismissSearchKeyboard()
+                    vm.toggleSearch()
+                }
             }
             return true
         }
@@ -174,7 +180,18 @@ internal fun handleHomePreviewKeyEvent(
             return false
         }
         if (searchFieldFocused) {
-            // 键盘已隐藏但输入框仍残留焦点：交给主页并继续执行方向键/确认键
+            val isNavOrGamepadKey = isGameScrollKey ||
+                event.key == Key.DirectionUp ||
+                event.key == Key.DirectionDown ||
+                event.key == Key.DirectionLeft ||
+                event.key == Key.DirectionRight ||
+                GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) ||
+                GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings) ||
+                GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings)
+            if (!isNavOrGamepadKey) {
+                return false
+            }
+            // 仅在按下方向键/手柄导航键时把焦点从已隐藏键盘的输入框交回游戏列表
             dismissSearchKeyboard()
         }
     }
@@ -217,7 +234,7 @@ internal fun handleHomePreviewKeyEvent(
             true
         }
         state.quickHudEnabled && GamepadKeys.isQuickHud(event.key, state.swapAbxy, state.keyBindings) -> {
-            vm.toggleQuickHud()
+            if (isInitialPress) vm.toggleQuickHud()
             true
         }
         event.key == Key.DirectionRight -> {
@@ -249,39 +266,43 @@ internal fun handleHomePreviewKeyEvent(
             true
         }
         GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
-            if (!hasStorageAccess && state.games.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                openAllFilesAccess()
-            } else {
-                showCurrentGameMenu()
+            if (isInitialPress) {
+                if (!hasStorageAccess && state.games.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    openAllFilesAccess()
+                } else {
+                    showCurrentGameMenu()
+                }
             }
             true
         }
         GamepadKeys.isApps(event.key, state.swapAbxy, state.keyBindings) -> {
-            vm.openApps()
+            if (isInitialPress) vm.openApps()
             true
         }
         GamepadKeys.isMenu(event.key, state.swapAbxy, state.keyBindings) -> {
-            launchCurrentGame()
+            if (isInitialPress) launchCurrentGame()
             true
         }
         GamepadKeys.isFavorite(event.key, state.swapAbxy, state.keyBindings) -> {
-            state.games.getOrNull(vm.focusIndex.value)?.let { vm.toggleFavorite(it.id) }
+            if (isInitialPress) {
+                state.games.getOrNull(vm.focusIndex.value)?.let { vm.toggleFavorite(it.id) }
+            }
             true
         }
         GamepadKeys.isSettings(event.key, state.swapAbxy, state.keyBindings) -> {
-            vm.toggleSettings()
+            if (isInitialPress) vm.toggleSettings()
             true
         }
         GamepadKeys.isViewMode(event.key, state.swapAbxy, state.keyBindings) -> {
-            vm.openViewMenu()
+            if (isInitialPress) vm.openViewMenu()
             true
         }
         GamepadKeys.isSearch(event.key, state.swapAbxy, state.keyBindings) -> {
-            vm.toggleSearch()
+            if (isInitialPress) vm.toggleSearch()
             true
         }
         event.key == Key.F6 && (lanState.anyRunning || lanState.incomingRequest != null || lanState.transfer != null) -> {
-            openLanControlFromStatusBar()
+            if (isInitialPress) openLanControlFromStatusBar()
             true
         }
         else -> false

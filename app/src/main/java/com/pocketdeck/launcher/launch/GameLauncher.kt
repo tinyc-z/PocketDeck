@@ -250,9 +250,7 @@ object GameLauncher {
             return launchStandalone(context, game, emu, usePkg)
         }
         if (preferredEmulatorId != null && preferredEmulatorId != RETROARCH_ID) {
-            val standaloneResult = launchWithStandalone(context, game, preferredEmulatorId)
-            if (standaloneResult is Result.Ok) return standaloneResult
-            return standaloneResult
+            return launchWithStandalone(context, game, preferredEmulatorId)
         }
 
         // 4. 用户显式指定 RetroArch
@@ -263,19 +261,27 @@ object GameLauncher {
         // 5. 自动模式（preferredEmulatorId == null）：按平台智能优先级（3D/现代机种优先独立模拟器，2D 复古优先 RetroArch）
         val preferStandalone = resolvedPlatform.id in STANDALONE_PREFERRED_PLATFORMS
         val standalone = EmulatorRegistry.availableForPlatform(context, resolvedPlatform.id).firstOrNull()
+        var firstError: Result.Error? = null
         if (preferStandalone && standalone != null) {
             val res = launchStandalone(context, game, standalone.first, standalone.second)
             if (res is Result.Ok) return res
+            if (res is Result.Error && firstError == null) firstError = res
         }
 
-        val raResult = launchWithRetroArch(context, game, resolvedPlatform)
-        if (raResult is Result.Ok) return raResult
+        val raInstalled = isRetroArchInstalled(context)
+        if (raInstalled) {
+            val raResult = launchWithRetroArch(context, game, resolvedPlatform)
+            if (raResult is Result.Ok) return raResult
+            if (raResult is Result.Error && firstError == null) firstError = raResult
+        }
 
         if (!preferStandalone && standalone != null) {
-            return launchStandalone(context, game, standalone.first, standalone.second)
+            val res = launchStandalone(context, game, standalone.first, standalone.second)
+            if (res is Result.Ok) return res
+            if (res is Result.Error && firstError == null) firstError = res
         }
 
-        return Result.Error("No emulator found for ${resolvedPlatform.fullName}")
+        return firstError ?: Result.Error("No emulator found for ${resolvedPlatform.fullName}")
     }
 
     private fun launchWithCustomApp(
@@ -286,56 +292,65 @@ object GameLauncher {
         if (!isInstalled(context, spec.packageName)) {
             return Result.Error("App not installed: ${spec.packageName}")
         }
-        val intent = when (spec.mode) {
-            CustomLaunchMode.ViewContentUri -> Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(CustomLauncherCodec.uriForFile(context, game.id, useContentUri = true), "application/octet-stream")
-                if (spec.activityClass.isNotBlank()) setClassName(spec.packageName, spec.activityClass)
-                else setPackage(spec.packageName)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            CustomLaunchMode.ViewFileUri -> Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(CustomLauncherCodec.uriForFile(context, game.id, useContentUri = false), "application/octet-stream")
-                if (spec.activityClass.isNotBlank()) setClassName(spec.packageName, spec.activityClass)
-                else setPackage(spec.packageName)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            CustomLaunchMode.MainWithExtra -> {
-                val base = if (spec.activityClass.isNotBlank()) {
-                    Intent(Intent.ACTION_MAIN).setClassName(spec.packageName, spec.activityClass)
-                } else {
-                    context.packageManager.getLaunchIntentForPackage(spec.packageName)
-                        ?: Intent(Intent.ACTION_MAIN).setPackage(spec.packageName)
+        val intent = runCatching {
+            when (spec.mode) {
+                CustomLaunchMode.ViewContentUri, CustomLaunchMode.ViewFileUri -> Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(CustomLauncherCodec.uriForFile(context, game.id, useContentUri = true), "application/octet-stream")
+                    if (spec.activityClass.isNotBlank()) setClassName(spec.packageName, spec.activityClass)
+                    else setPackage(spec.packageName)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                val key = spec.extraKey.ifBlank { "ROM" }
-                base.apply {
-                    putExtra(key, game.id)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            }
-            CustomLaunchMode.AppOnly -> {
-                if (spec.activityClass.isNotBlank()) {
-                    Intent(Intent.ACTION_MAIN).setClassName(spec.packageName, spec.activityClass)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                } else {
-                    context.packageManager.getLaunchIntentForPackage(spec.packageName)?.apply {
+                CustomLaunchMode.MainWithExtra -> {
+                    val base = if (spec.activityClass.isNotBlank()) {
+                        Intent(Intent.ACTION_MAIN).setClassName(spec.packageName, spec.activityClass)
+                    } else {
+                        context.packageManager.getLaunchIntentForPackage(spec.packageName)
+                            ?: Intent(Intent.ACTION_MAIN).setPackage(spec.packageName)
+                    }
+                    val key = spec.extraKey.ifBlank { "ROM" }
+                    base.apply {
+                        putExtra(key, game.id)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    } ?: Intent(Intent.ACTION_MAIN).setPackage(spec.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                }
+                CustomLaunchMode.AppOnly -> {
+                    if (spec.activityClass.isNotBlank()) {
+                        Intent(Intent.ACTION_MAIN).setClassName(spec.packageName, spec.activityClass)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    } else {
+                        context.packageManager.getLaunchIntentForPackage(spec.packageName)?.apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        } ?: Intent(Intent.ACTION_MAIN).setPackage(spec.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
                 }
             }
+        }.getOrElse { err ->
+            return Result.Error("Cannot prepare launch for ${spec.packageName}: ${err.message}")
         }
-        val res = startSafely(context, intent, spec.packageName)
-        if (res is Result.Error && spec.mode == CustomLaunchMode.ViewFileUri) {
-            val contentIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(CustomLauncherCodec.uriForFile(context, game.id, useContentUri = true), "application/octet-stream")
-                if (spec.activityClass.isNotBlank()) setClassName(spec.packageName, spec.activityClass)
-                else setPackage(spec.packageName)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            val fallback = startSafely(context, contentIntent, spec.packageName)
-            if (fallback is Result.Ok) return fallback
-        }
-        return res
+        return startSafely(context, intent, spec.packageName)
     }
+
+    private val SAFE_CORE_NAME_REGEX = Regex("^[a-zA-Z0-9._-]+$")
+    internal val PLAYLIST_CORE_REGEX = Regex("""/([a-z0-9_-]+)_libretro_android\.so""", RegexOption.IGNORE_CASE)
+
+    /** 归一化并校验 RetroArch 核心名（剥离重复 `_libretro_android.so` 后缀，拦截路径穿越/非法字符）。 */
+    internal fun normalizeRetroArchCore(raw: String): String? {
+        var name = raw.trim()
+        if (name.isEmpty()) return null
+        while (name.endsWith("_libretro_android.so", ignoreCase = true)) {
+            name = name.dropLast("_libretro_android.so".length)
+        }
+        while (name.endsWith("_libretro.so", ignoreCase = true)) {
+            name = name.dropLast("_libretro.so".length)
+        }
+        if (name.isEmpty() || name.contains("..") || name.contains('/') || name.contains('\\')) return null
+        if (!SAFE_CORE_NAME_REGEX.matches(name)) return null
+        return name
+    }
+
+    /** 从 RetroArch `.lpl` 播放列表行中提取核心 ID（支持含连字符如 `mesen-s` 的核心）。 */
+    internal fun extractCoreFromPlaylistLine(line: String): String? =
+        PLAYLIST_CORE_REGEX.find(line)?.groupValues?.getOrNull(1)?.lowercase()
 
     private fun launchWithRetroArch(
         context: Context,
@@ -345,8 +360,10 @@ object GameLauncher {
     ): Result {
         val pkg = RETROARCH_PACKAGES.firstOrNull { isInstalled(context, it) }
             ?: return Result.Error("RetroArch is not installed")
-        val core = coreOverride ?: resolveInstalledCore(pkg, platform)
+        val rawCore = coreOverride ?: resolveInstalledCore(pkg, platform)
             ?: return Result.Error("No RetroArch core mapped for ${platform.shortName}")
+        val core = normalizeRetroArchCore(rawCore)
+            ?: return Result.Error("Invalid RetroArch core: $rawCore")
 
         val sd = Environment.getExternalStorageDirectory().path
         val external = "$sd/Android/data/$pkg/files"
@@ -355,14 +372,23 @@ object GameLauncher {
             "$sd/RetroArch/retroarch.cfg",
         )
         val cfgFile = cfgCandidates.firstOrNull { File(it).exists() } ?: cfgCandidates.first()
+        val dataDir = runCatching {
+            context.packageManager.getApplicationInfo(pkg, 0).dataDir
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "/data/data/$pkg"
+        val coreFileName = "${core}_libretro_android.so"
+        val customCorePath = RetroArchCoreCatalog.readLibretroDirectory(pkg)
+            ?.let { File(it, coreFileName) }
+            ?.takeIf { it.isFile }
+            ?.absolutePath
+        val libretroPath = customCorePath ?: "$dataDir/cores/$coreFileName"
 
         val intent = Intent(Intent.ACTION_MAIN).apply {
             setClassName(pkg, "com.retroarch.browser.retroactivity.RetroActivityFuture")
             putExtra("ROM", game.id)
-            putExtra("LIBRETRO", "/data/data/$pkg/cores/${core}_libretro_android.so")
+            putExtra("LIBRETRO", libretroPath)
             putExtra("CONFIGFILE", cfgFile)
             putExtra("IME", Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD))
-            putExtra("DATADIR", "/data/data/$pkg")
+            putExtra("DATADIR", dataDir)
             putExtra("SDCARD", sd)
             putExtra("EXTERNAL", external)
             putExtra("QUITFOCUS", true)
@@ -384,14 +410,18 @@ object GameLauncher {
     }
 
     private fun launchStandalone(context: Context, game: Game, emu: EmulatorDef, pkg: String): Result {
-        val primary = emu.intentBuilder(context, pkg, game)
-        val res = startSafely(context, primary, emu.displayName)
-        if (res is Result.Error && emu.fallbackIntentBuilder != null) {
-            val fallback = emu.fallbackIntentBuilder.invoke(context, pkg, game)
-            val fbRes = startSafely(context, fallback, emu.displayName)
+        val primaryRes = runCatching { emu.intentBuilder(context, pkg, game) }.fold(
+            onSuccess = { startSafely(context, it, emu.displayName) },
+            onFailure = { Result.Error("Cannot start ${emu.displayName}: ${it.message}") },
+        )
+        if (primaryRes is Result.Error && emu.fallbackIntentBuilder != null) {
+            val fbRes = runCatching { emu.fallbackIntentBuilder.invoke(context, pkg, game) }.fold(
+                onSuccess = { startSafely(context, it, emu.displayName) },
+                onFailure = { Result.Error("Cannot start ${emu.displayName}: ${it.message}") },
+            )
             if (fbRes is Result.Ok) return fbRes
         }
-        return res
+        return primaryRes
     }
 
     private fun startSafely(context: Context, intent: Intent, targetName: String): Result = try {
@@ -442,13 +472,12 @@ object GameLauncher {
             File(sd, "RetroArch/playlists"),
             File(sd, "Android/data/$pkg/files/playlists"),
         )
-        val coreRegex = Regex("""/([a-z0-9_]+)_libretro_android\.so""")
         for (dir in playlistDirs) {
             dir.walkTopDown().maxDepth(2).forEach { f ->
                 if (f.isFile && f.extension.equals("lpl", ignoreCase = true) && f.length() < 2_000_000) {
                     runCatching {
                         f.forEachLine { line ->
-                            coreRegex.find(line)?.let { m -> found += m.groupValues[1].lowercase() }
+                            extractCoreFromPlaylistLine(line)?.let { found += it }
                         }
                     }
                 }

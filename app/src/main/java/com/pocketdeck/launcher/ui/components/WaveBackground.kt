@@ -67,9 +67,9 @@ fun WaveBackground(
         BackgroundStyle.Image, BackgroundStyle.None -> false
         else -> true
     }
-    // 网格横线靠近观察者时移动较快，需要逐帧推进；星海含划过流星用 30Hz；其余慢速效果 20Hz 足够平滑
+    // 网格横线锁 60Hz 上限（60Hz 屏等效逐帧、120Hz 掌机立省 50% 空闲 GPU）；星海 30Hz；其余慢速效果 20Hz
     val step = when (style) {
-        BackgroundStyle.RetroGrid -> 0f
+        BackgroundStyle.RetroGrid -> 1f / 60f
         BackgroundStyle.Starfield -> 1f / 30f
         else -> BG_STEP_SLOW
     }
@@ -91,6 +91,7 @@ fun WaveBackground(
             knownCoverIndex = knownCoverIndex,
             apkPackage = apkPackage,
             time = time,
+            paused = paused,
         )
         BackgroundStyle.Image -> CustomImageEffect(modifier, customBackground)
     }

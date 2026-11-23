@@ -537,20 +537,27 @@ internal fun FileTaskItemRow(
 internal fun TaskCancelCrossButton(
     tint: Color,
     enabled: Boolean = true,
+    nav: DpadNavController? = null,
+    navId: String? = null,
     swapAbxy: Boolean,
     keyBindings: Map<KeyAction, Int>,
     onClick: () -> Unit,
 ) {
     val activeTint = if (enabled) tint else DeckColors.TextSecondary.copy(alpha = 0.5f)
+    val clickMod = if (nav != null && navId != null && enabled) {
+        Modifier.dpadNavItem(nav, navId, shape = CircleShape) { onClick() }
+    } else {
+        Modifier.gamepadClickable(swapAbxy, keyBindings, shape = CircleShape) {
+            if (enabled) onClick()
+        }
+    }
     Box(
         Modifier
             .size(22.dp)
             .clip(CircleShape)
             .background(activeTint.copy(alpha = 0.12f))
             .border(0.6.dp, activeTint.copy(alpha = 0.45f), CircleShape)
-            .gamepadClickable(swapAbxy, keyBindings, shape = CircleShape) {
-                if (enabled) onClick()
-            },
+            .then(clickMod),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(9.dp)) {

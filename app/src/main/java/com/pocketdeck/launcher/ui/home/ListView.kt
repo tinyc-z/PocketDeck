@@ -13,7 +13,6 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -32,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -49,10 +49,12 @@ import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.MetadataDisplayConfig
@@ -179,7 +181,7 @@ fun ListView(
                 // 单一动画驱动缩放 / 位移 / 胶囊背景（仅在 graphicsLayer / drawBehind 读取，避免逐帧重组合）
                 val focusProgressState = animateFloatAsState(
                     targetValue = if (focused) 1f else 0f,
-                    animationSpec = if (fastScrolling) {
+                    animationSpec = if (fastScrolling || reduceMotion) {
                         snap()
                     } else {
                         spring(
@@ -291,13 +293,20 @@ fun ListView(
                 emptyList()
             }
 
-            BoxWithConstraints(
+            val density = LocalDensity.current
+            var previewAreaSize by remember { mutableStateOf(IntSize.Zero) }
+
+            Box(
                 Modifier
                     .weight(1.1f)
                     .fillMaxHeight()
-                    .padding(top = 2.dp, bottom = 4.dp),
+                    .padding(top = 2.dp, bottom = 4.dp)
+                    .onSizeChanged { if (it != previewAreaSize) previewAreaSize = it },
                 contentAlignment = Alignment.TopCenter,
             ) {
+                if (previewAreaSize.width > 0 && previewAreaSize.height > 0) {
+                val maxWidth = with(density) { previewAreaSize.width.toDp() }
+                val maxHeight = with(density) { previewAreaSize.height.toDp() }
                 val aspect = focusedPlatform?.coverAspect ?: 1f
                 val infoReserve = when {
                     fields.isEmpty() -> 8.dp
@@ -324,7 +333,7 @@ fun ListView(
                         isFocused = false,
                         isFavorite = focusedGame.id in favorites,
                         fastScrolling = fastScrolling,
-                        allowDiskDuringFastScroll = true,
+                        allowDiskDuringFastScroll = false,
                         onClick = { onLaunch(focusedGame) },
                         onLongPress = onLongPress?.let { cb -> { cb(focusedGame) } },
                     )
@@ -356,6 +365,7 @@ fun ListView(
                             }
                         }
                     }
+                }
                 }
             }
         }

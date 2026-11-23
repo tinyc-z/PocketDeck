@@ -3,6 +3,7 @@ package com.pocketdeck.launcher.ui.theme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import com.pocketdeck.launcher.data.ThemeAccent
@@ -51,7 +52,12 @@ data class DeckPalette(
     val statusSuccess: Color,
     val statusInfo: Color,
     val statusWarning: Color,
-)
+) {
+    /** 缓存在当前调色板上的三色品牌渐变画刷，避免组合期重复构造 LinearGradient。 */
+    val brandBrush: Brush by lazy(LazyThreadSafetyMode.NONE) {
+        Brush.linearGradient(listOf(brandStart, brandMid, brandEnd))
+    }
+}
 
 fun deckPalette(accent: ThemeAccent, isDark: Boolean): DeckPalette {
     val primary = Color(if (isDark) accent.darkPrimary else accent.lightPrimary)

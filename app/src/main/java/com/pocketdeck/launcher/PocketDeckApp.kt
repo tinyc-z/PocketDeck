@@ -24,6 +24,7 @@ import com.pocketdeck.launcher.data.ScraperClient
 import com.pocketdeck.launcher.data.UserStore
 import com.pocketdeck.launcher.input.KeySound
 import com.pocketdeck.launcher.lan.LanServerManager
+import com.pocketdeck.launcher.ui.components.trimCoverCardUiCaches
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,26 @@ class AppContainer(app: Application) {
 
     init {
         covers.searchNameResolver = metadata::bestSearchNameFor
+        repository.onGameMigrated = { oldId, newId ->
+            covers.migrateGameId(oldId, newId)
+            metadata.migrateGameId(oldId, newId)
+            scraperClient.migrateGameId(oldId, newId)
+        }
+        repository.onGameRemoved = { gameId ->
+            covers.forget(gameId)
+            metadata.forgetGame(gameId)
+            scraperClient.forgetGame(gameId)
+        }
+        repository.onPathPrefixMigrated = { oldDir, newDir ->
+            covers.migratePathPrefix(oldDir, newDir)
+            metadata.migratePathPrefix(oldDir, newDir)
+            scraperClient.migratePathPrefix(oldDir, newDir)
+        }
+        repository.onPathPrefixRemoved = { dirPath ->
+            covers.forgetPathPrefix(dirPath)
+            metadata.forgetPathPrefix(dirPath)
+            scraperClient.forgetPathPrefix(dirPath)
+        }
         appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             kotlinx.coroutines.delay(5_000L)
             scraperClient.database.pruneExpired()
@@ -114,9 +135,11 @@ class PocketDeckApp : Application(), SingletonImageLoader.Factory {
         super.onTrimMemory(level)
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             runCatching { SingletonImageLoader.get(this).memoryCache?.clear() }
-            // 只释放当前未在使用的平台索引与元数据表，保护正在浏览的活跃平台不被清掉
-            val keep = OfflineGameDb.activeSystems
+            trimCoverCardUiCaches()
+            // 退后台（如启动重型模拟器，UI_HIDDEN=20）或严重内存紧张（RUNNING_CRITICAL=15）时全量释放平台表；
+            // 前台轻度吃紧时仅保留当前焦点附近的活跃平台。
             val aggressive = level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+            val keep = if (aggressive) emptySet() else OfflineGameDb.activeSystems
             OfflineGameDb.trimMemory(keep)
             if (::container.isInitialized) {
                 container.covers.trimMemory(keep)

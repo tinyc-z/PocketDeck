@@ -2,6 +2,7 @@ package com.pocketdeck.launcher.lan
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -10,8 +11,10 @@ import kotlinx.coroutines.launch
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
+import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.Inet4Address
@@ -21,13 +24,16 @@ import java.net.Socket
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLServerSocket
 
 /**
  * 轻量级纯 Kotlin 协程 HTTP/1.1 服务端：
  * - 严格绑定指定物理网卡 IP，支持首选端口被占用时自动递增端口
- * - 支持大文件流式上传/下载（不占用大内存，支持 HTTP Range 断点/分段下载）
+ * - 限制最大并发连接数与专用有界 IO 调度器，避免慢连接耗尽全局 `Dispatchers.IO`
+ * - 强制请求头行长/条数/总字节上限与短读取超时，阻断 Header 洪流 OOM
+ * - 支持大文件流式上传/下载（不占用大内存，支持 HTTP Range 断点/分段下载及严格 Chunked 完整性校验）
  * - 可选传入 [sslContext] 启用原生 TLS/HTTPS 服务（用于 LocalSend v2 HTTPS 协议兼容）
  */
 class HttpMiniServer(
@@ -35,12 +41,17 @@ class HttpMiniServer(
     private val preferredPort: Int,
     private val portScanCount: Int = 20,
     private val sslContext: SSLContext? = null,
+    private val maxConcurrentConnections: Int = MAX_CONCURRENT_CONNECTIONS,
     private val handler: suspend (HttpRequest, HttpResponseWriter) -> Unit,
 ) {
     private var serverSocket: ServerSocket? = null
     private var scope: CoroutineScope? = null
     private var acceptJob: Job? = null
     private val activeSockets = ConcurrentHashMap.newKeySet<Socket>()
+    private val connectionSlots = Semaphore(maxConcurrentConnections.coerceAtLeast(1))
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val serverDispatcher = Dispatchers.IO.limitedParallelism(MAX_SERVER_WORKERS)
 
     var boundPort: Int = -1
         private set
@@ -72,12 +83,26 @@ class HttpMiniServer(
         val activeSocket = ss ?: error("Cannot bind port $preferredPort..${preferredPort + portScanCount - 1} on ${bindAddress.hostAddress}")
         serverSocket = activeSocket
         boundPort = chosen
-        val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val s = CoroutineScope(SupervisorJob() + serverDispatcher)
         scope = s
         acceptJob = s.launch {
             while (isActive && !activeSocket.isClosed) {
                 val client = runCatching { activeSocket.accept() }.getOrNull() ?: break
-                s.launch { handleClient(client) }
+                if (!connectionSlots.tryAcquire()) {
+                    runCatching {
+                        client.soTimeout = 2_000
+                        HttpResponseWriter(client.getOutputStream()).sendText(503, "Too many connections")
+                    }
+                    runCatching { client.close() }
+                    continue
+                }
+                s.launch {
+                    try {
+                        handleClient(client)
+                    } finally {
+                        connectionSlots.release()
+                    }
+                }
             }
         }
         return chosen
@@ -116,94 +141,103 @@ class HttpMiniServer(
         activeSockets.add(socket)
         try {
             socket.use { activeSocket ->
-            runCatching {
-                activeSocket.soTimeout = 100_000
-                val rawRemoteIp = activeSocket.inetAddress?.hostAddress.orEmpty()
-                val rawIn = BufferedInputStream(activeSocket.getInputStream(), 64 * 1024)
-                val rawOut = BufferedOutputStream(activeSocket.getOutputStream(), 64 * 1024)
+                runCatching {
+                    activeSocket.soTimeout = HEADER_TIMEOUT_MS
+                    val rawRemoteIp = activeSocket.inetAddress?.hostAddress.orEmpty()
+                    val rawIn = BufferedInputStream(activeSocket.getInputStream(), 32 * 1024)
+                    val rawOut = BufferedOutputStream(activeSocket.getOutputStream(), 32 * 1024)
+                    val writer = HttpResponseWriter(rawOut)
 
-                val requestLine = readAsciiLine(rawIn) ?: return
-                val parts = requestLine.split(' ')
-                if (parts.size < 2) return
-                val method = parts[0].uppercase()
-                val fullTarget = parts[1]
-                val qIdx = fullTarget.indexOf('?')
-                val rawPath = if (qIdx >= 0) fullTarget.substring(0, qIdx) else fullTarget
-                val rawQuery = if (qIdx >= 0) fullTarget.substring(qIdx + 1) else ""
+                    val requestLine = try {
+                        readBoundedAsciiLine(rawIn, MAX_HEADER_LINE_BYTES)
+                    } catch (_: HeaderLimitException) {
+                        writer.sendText(431, "Request line too large")
+                        rawOut.flush()
+                        return
+                    } ?: return
 
-                val headers = LinkedHashMap<String, String>()
-                while (true) {
-                    val line = readAsciiLine(rawIn) ?: break
-                    if (line.isEmpty()) break
-                    val colon = line.indexOf(':')
-                    if (colon > 0) {
-                        val k = line.substring(0, colon).trim().lowercase()
-                        val v = line.substring(colon + 1).trim()
-                        headers[k] = v
+                    val parts = requestLine.split(' ')
+                    if (parts.size < 2) {
+                        writer.sendText(400, "Bad request")
+                        rawOut.flush()
+                        return
                     }
-                }
+                    val method = parts[0].uppercase()
+                    val fullTarget = parts[1]
+                    val qIdx = fullTarget.indexOf('?')
+                    val rawPath = if (qIdx >= 0) fullTarget.substring(0, qIdx) else fullTarget
+                    val rawQuery = if (qIdx >= 0) fullTarget.substring(qIdx + 1) else ""
 
-                val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
-                val isChunked = headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true
-                val cookies = parseCookies(headers["cookie"].orEmpty())
-                val queryParams = parseQuery(rawQuery)
-                val req = HttpRequest(
-                    method = method,
-                    path = urlDecode(rawPath.replace("+", "%2B")),
-                    query = queryParams,
-                    headers = headers,
-                    cookies = cookies,
-                    contentLength = contentLength,
-                    isChunked = isChunked,
-                    bodyStream = rawIn,
-                    remoteIp = rawRemoteIp,
-                    cancelConnection = { runCatching { activeSocket.close() } },
-                    isPeerClosed = {
-                        if (activeSocket.isClosed || activeSocket.isInputShutdown) {
-                            true
-                        } else {
-                            val prevTimeout = runCatching { activeSocket.soTimeout }.getOrDefault(0)
-                            try {
-                                activeSocket.soTimeout = 120
-                                rawIn.mark(1)
-                                val b = rawIn.read()
-                                if (b == -1) {
-                                    true
-                                } else {
-                                    runCatching { rawIn.reset() }
-                                    false
-                                }
-                            } catch (_: java.net.SocketTimeoutException) {
-                                false
-                            } catch (_: Throwable) {
-                                true
-                            } finally {
-                                runCatching { activeSocket.soTimeout = prevTimeout }
-                            }
+                    val headers = try {
+                        readBoundedHeaders(rawIn)
+                    } catch (_: HeaderLimitException) {
+                        writer.sendText(431, "Request header fields too large")
+                        rawOut.flush()
+                        return
+                    }
+
+                    val rawContentLength = headers["content-length"]
+                    val contentLength = if (rawContentLength != null) {
+                        val parsed = rawContentLength.toLongOrNull()
+                        if (parsed == null || parsed < 0L) {
+                            writer.sendText(400, "Invalid Content-Length")
+                            rawOut.flush()
+                            return
                         }
-                    },
-                )
-                val writer = HttpResponseWriter(rawOut)
-                handler(req, writer)
-                rawOut.flush()
+                        parsed
+                    } else {
+                        0L
+                    }
+                    val isChunked = headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true
+                    val cookies = parseCookies(headers["cookie"].orEmpty())
+                    val queryParams = parseQuery(rawQuery)
+
+                    // 请求头校验通过后放宽为传输超时，支持大文件流式上传与 SSE 长连接
+                    activeSocket.soTimeout = TRANSFER_TIMEOUT_MS
+
+                    val req = HttpRequest(
+                        method = method,
+                        path = urlDecode(rawPath.replace("+", "%2B")),
+                        query = queryParams,
+                        headers = headers,
+                        cookies = cookies,
+                        contentLength = contentLength,
+                        isChunked = isChunked,
+                        bodyStream = rawIn,
+                        remoteIp = rawRemoteIp,
+                        cancelConnection = { runCatching { activeSocket.close() } },
+                        isPeerClosed = {
+                            if (activeSocket.isClosed || activeSocket.isInputShutdown) {
+                                true
+                            } else {
+                                val prevTimeout = runCatching { activeSocket.soTimeout }.getOrDefault(0)
+                                try {
+                                    activeSocket.soTimeout = 120
+                                    rawIn.mark(1)
+                                    val b = rawIn.read()
+                                    if (b == -1) {
+                                        true
+                                    } else {
+                                        runCatching { rawIn.reset() }
+                                        false
+                                    }
+                                } catch (_: java.net.SocketTimeoutException) {
+                                    false
+                                } catch (_: Throwable) {
+                                    true
+                                } finally {
+                                    runCatching { activeSocket.soTimeout = prevTimeout }
+                                }
+                            }
+                        },
+                    )
+                    handler(req, writer)
+                    rawOut.flush()
+                }
             }
-        }
         } finally {
             activeSockets.remove(socket)
         }
-    }
-
-    private fun readAsciiLine(input: InputStream): String? {
-        val buf = ByteArrayOutputStream(128)
-        var b = input.read()
-        if (b == -1) return null
-        while (b != -1) {
-            if (b == '\n'.code) break
-            if (b != '\r'.code) buf.write(b)
-            if (buf.size() > 16 * 1024) break
-            b = input.read()
-        }
-        return buf.toString(StandardCharsets.UTF_8.name())
     }
 
     private fun parseQuery(raw: String): Map<String, String> {
@@ -235,6 +269,65 @@ class HttpMiniServer(
 
     private fun urlDecode(s: String): String =
         runCatching { URLDecoder.decode(s, StandardCharsets.UTF_8.name()) }.getOrDefault(s)
+
+    internal class HeaderLimitException(message: String) : IOException(message)
+
+    companion object {
+        const val MAX_CONCURRENT_CONNECTIONS = 32
+        const val MAX_SERVER_WORKERS = 16
+        const val HEADER_TIMEOUT_MS = 10_000
+        const val TRANSFER_TIMEOUT_MS = 100_000
+        const val MAX_HEADER_LINE_BYTES = 8 * 1024
+        const val MAX_HEADER_COUNT = 64
+        const val MAX_TOTAL_HEADER_BYTES = 32 * 1024
+
+        internal fun readBoundedAsciiLine(input: InputStream, maxBytes: Int = MAX_HEADER_LINE_BYTES): String? {
+            val buf = ByteArrayOutputStream(128)
+            var b = input.read()
+            if (b == -1) return null
+            while (b != -1) {
+                if (b == '\n'.code) break
+                if (b != '\r'.code) {
+                    if (buf.size() >= maxBytes) {
+                        throw HeaderLimitException("Header line exceeds $maxBytes bytes")
+                    }
+                    buf.write(b)
+                }
+                b = input.read()
+            }
+            return buf.toString(StandardCharsets.UTF_8.name())
+        }
+
+        internal fun readBoundedHeaders(
+            input: InputStream,
+            maxCount: Int = MAX_HEADER_COUNT,
+            maxTotalBytes: Int = MAX_TOTAL_HEADER_BYTES,
+            maxLineBytes: Int = MAX_HEADER_LINE_BYTES,
+        ): LinkedHashMap<String, String> {
+            val headers = LinkedHashMap<String, String>()
+            var totalBytes = 0
+            var count = 0
+            while (true) {
+                val line = readBoundedAsciiLine(input, maxLineBytes) ?: break
+                if (line.isEmpty()) break
+                count++
+                if (count > maxCount) {
+                    throw HeaderLimitException("Header count exceeds $maxCount")
+                }
+                totalBytes += line.length + 2
+                if (totalBytes > maxTotalBytes) {
+                    throw HeaderLimitException("Total header bytes exceed $maxTotalBytes")
+                }
+                val colon = line.indexOf(':')
+                if (colon > 0) {
+                    val k = line.substring(0, colon).trim().lowercase()
+                    val v = line.substring(colon + 1).trim()
+                    headers[k] = v
+                }
+            }
+            return headers
+        }
+    }
 }
 
 class HttpRequest(
@@ -250,32 +343,43 @@ class HttpRequest(
     val cancelConnection: () -> Unit = {},
     val isPeerClosed: () -> Boolean = { false },
 ) {
+    /** 按 16KB 分块动态增长读取请求体，避免按未验证的宣称 `Content-Length` 预先分配大数组 OOM。 */
     fun readBodyBytes(maxBytes: Int = 2 * 1024 * 1024): ByteArray {
+        val cap = maxBytes.coerceAtLeast(0)
+        if (cap == 0) return ByteArray(0)
         if (isChunked) {
-            val out = ByteArrayOutputStream()
-            copyChunkedTo(out, maxBytes.toLong())
+            val out = ByteArrayOutputStream(minOf(cap, 4096))
+            copyChunkedTo(out, cap.toLong())
             return out.toByteArray()
         }
-        val len = contentLength.coerceIn(0L, maxBytes.toLong()).toInt()
-        if (len <= 0) return ByteArray(0)
-        val out = ByteArray(len)
-        var readTotal = 0
-        while (readTotal < len) {
-            val n = bodyStream.read(out, readTotal, len - readTotal)
+        val target = contentLength.coerceIn(0L, cap.toLong()).toInt()
+        if (target <= 0) return ByteArray(0)
+        val out = ByteArrayOutputStream(minOf(target, 16 * 1024))
+        val chunk = ByteArray(minOf(target, 16 * 1024))
+        var remaining = target
+        while (remaining > 0) {
+            val n = bodyStream.read(chunk, 0, minOf(chunk.size, remaining))
             if (n <= 0) break
-            readTotal += n
+            out.write(chunk, 0, n)
+            remaining -= n
         }
-        return if (readTotal == len) out else out.copyOf(readTotal)
+        return out.toByteArray()
     }
 
     fun readBodyUtf8(maxBytes: Int = 2 * 1024 * 1024): String =
         String(readBodyBytes(maxBytes), StandardCharsets.UTF_8)
 
-    /** 将请求体流式写入 [OutputStream]，精确读取 [contentLength] 字节（支持 chunked 与大文件无 OOM）。 */
-    fun copyBodyTo(out: OutputStream, onProgress: (Long) -> Unit = {}): Long {
+    /** 将请求体流式写入 [OutputStream]，精确读取 [contentLength] 字节（支持 chunked 完整性校验与最大字节上限）。 */
+    fun copyBodyTo(
+        out: OutputStream,
+        maxBytes: Long = Long.MAX_VALUE,
+        onProgress: (Long) -> Unit = {},
+    ): Long {
         if (isChunked) {
-            return copyChunkedTo(out, Long.MAX_VALUE, onProgress)
+            return copyChunkedTo(out, maxBytes, onProgress)
         }
+        if (contentLength < 0L) throw IOException("Invalid contentLength: $contentLength")
+        if (contentLength > maxBytes) throw IOException("Body exceeds maxBytes limit ($maxBytes)")
         var remaining = contentLength
         if (remaining <= 0L) return 0L
         val buf = ByteArray(64 * 1024)
@@ -300,33 +404,42 @@ class HttpRequest(
     ): Long {
         var copied = 0L
         val buf = ByteArray(64 * 1024)
+        var sawTerminator = false
         while (true) {
-            val sizeLine = readChunkLine() ?: break
+            val sizeLine = readChunkLine()
+                ?: throw EOFException("Truncated chunked body before chunk size")
             val hex = sizeLine.substringBefore(';').trim()
-            val chunkSize = hex.toLongOrNull(16) ?: break
+            val chunkSize = hex.toLongOrNull(16)
+            if (chunkSize == null || chunkSize < 0L) {
+                throw IOException("Invalid chunk size: $hex")
+            }
             if (chunkSize == 0L) {
                 // Consume trailing headers until empty line
                 while (true) {
                     val t = readChunkLine() ?: break
                     if (t.isEmpty()) break
                 }
+                sawTerminator = true
                 break
             }
             var rem = chunkSize
             while (rem > 0L) {
                 val toRead = minOf(buf.size.toLong(), rem).toInt()
                 val n = bodyStream.read(buf, 0, toRead)
-                if (n <= 0) return copied
-                val writable = minOf(n.toLong(), (maxBytes - copied).coerceAtLeast(0L)).toInt()
-                if (writable > 0) {
-                    out.write(buf, 0, writable)
-                    copied += writable
-                    onProgress(copied)
+                if (n <= 0) throw EOFException("Truncated chunk payload ($rem bytes remaining)")
+                if (copied + n > maxBytes) {
+                    throw IOException("Chunked body exceeds maxBytes limit ($maxBytes)")
                 }
+                out.write(buf, 0, n)
+                copied += n
+                onProgress(copied)
                 rem -= n
             }
             // Consume CRLF after chunk data
-            readChunkLine()
+            readChunkLine() ?: throw EOFException("Truncated chunk trailer CRLF")
+        }
+        if (!sawTerminator) {
+            throw EOFException("Missing terminating zero-length chunk")
         }
         out.flush()
         return copied
@@ -338,8 +451,12 @@ class HttpRequest(
         if (b == -1) return null
         while (b != -1) {
             if (b == '\n'.code) break
-            if (b != '\r'.code) baos.write(b)
-            if (baos.size() > 4096) break
+            if (b != '\r'.code) {
+                if (baos.size() >= 4096) {
+                    throw IOException("Chunk header line exceeds 4096 bytes")
+                }
+                baos.write(b)
+            }
             b = bodyStream.read()
         }
         return baos.toString(StandardCharsets.US_ASCII.name())
@@ -390,7 +507,10 @@ class HttpResponseWriter(private val out: OutputStream) {
             .append("Connection: close\r\n")
             .append("X-Accel-Buffering: no\r\n")
         for ((k, v) in defaultHeaders) {
-            sb.append(k).append(": ").append(v).append("\r\n")
+            val safeKey = sanitizeHeaderToken(k)
+            if (safeKey.isNotEmpty()) {
+                sb.append(safeKey).append(": ").append(sanitizeHeaderValue(v)).append("\r\n")
+            }
         }
         sb.append("\r\n")
         out.write(sb.toString().toByteArray(StandardCharsets.ISO_8859_1))
@@ -421,7 +541,10 @@ class HttpResponseWriter(private val out: OutputStream) {
         extra["Accept-Ranges"] = "bytes"
         if (!attachmentName.isNullOrBlank()) {
             val encoded = java.net.URLEncoder.encode(attachmentName, "UTF-8").replace("+", "%20")
-            val ascii = attachmentName.replace(Regex("""[^\x20-\x7E]"""), "_").replace("\"", "_")
+            val ascii = attachmentName
+                .replace(Regex("""[^\x20-\x7E]"""), "_")
+                .replace("\"", "_")
+                .replace("\\", "_")
             extra["Content-Disposition"] = "attachment; filename=\"$ascii\"; filename*=UTF-8''$encoded"
         }
 
@@ -501,12 +624,15 @@ class HttpResponseWriter(private val out: OutputStream) {
             413 -> "Payload Too Large"
             422 -> "Unprocessable Entity"
             429 -> "Too Many Requests"
+            431 -> "Request Header Fields Too Large"
             500 -> "Internal Server Error"
+            503 -> "Service Unavailable"
+            507 -> "Insufficient Storage"
             else -> "Error"
         }
         val sb = StringBuilder()
         sb.append("HTTP/1.1 ").append(status).append(' ').append(reason).append("\r\n")
-        sb.append("Content-Type: ").append(contentType).append("\r\n")
+        sb.append("Content-Type: ").append(sanitizeHeaderValue(contentType)).append("\r\n")
         sb.append("Content-Length: ").append(contentLength).append("\r\n")
         if (extraHeaders.keys.none { it.equals("Cache-Control", ignoreCase = true) }) {
             sb.append("Cache-Control: no-store\r\n")
@@ -517,13 +643,39 @@ class HttpResponseWriter(private val out: OutputStream) {
         sb.append("Connection: close\r\n")
         for ((k, v) in defaultHeaders) {
             if (k !in extraHeaders) {
-                sb.append(k).append(": ").append(v).append("\r\n")
+                val safeKey = sanitizeHeaderToken(k)
+                if (safeKey.isNotEmpty()) {
+                    sb.append(safeKey).append(": ").append(sanitizeHeaderValue(v)).append("\r\n")
+                }
             }
         }
         for ((k, v) in extraHeaders) {
-            sb.append(k).append(": ").append(v).append("\r\n")
+            val safeKey = sanitizeHeaderToken(k)
+            if (safeKey.isNotEmpty()) {
+                sb.append(safeKey).append(": ").append(sanitizeHeaderValue(v)).append("\r\n")
+            }
         }
         sb.append("\r\n")
         out.write(sb.toString().toByteArray(StandardCharsets.US_ASCII))
+    }
+
+    companion object {
+        /** 剥离 HTTP 响应头名称中的 CRLF/控制字符/冒号，阻断响应拆分注入。 */
+        internal fun sanitizeHeaderToken(raw: String): String {
+            val sb = StringBuilder(raw.length)
+            for (ch in raw) {
+                if (ch.code in 0x21..0x7E && ch != ':') sb.append(ch)
+            }
+            return sb.toString()
+        }
+
+        /** 剥离 HTTP 响应头值中的 CR/LF/NUL，阻断 CRLF 响应拆分注入。 */
+        internal fun sanitizeHeaderValue(raw: String): String {
+            val sb = StringBuilder(raw.length)
+            for (ch in raw) {
+                if (ch != '\r' && ch != '\n' && ch != '\u0000') sb.append(ch)
+            }
+            return sb.toString()
+        }
     }
 }

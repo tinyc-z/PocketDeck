@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Environment
 import android.widget.Toast
 import com.pocketdeck.launcher.data.listExternalStorageVolumes
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -323,6 +324,8 @@ class DirBrowserState(private val appContext: Context? = null) {
 @Composable
 fun DirBrowser(
     state: DirBrowserState,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -511,9 +514,12 @@ fun DirBrowser(
             }
         }
         if (state.showAutoCreate) {
+            BackHandler { state.showAutoCreate = false }
             val baseDir = state.current ?: Environment.getExternalStorageDirectory()
             AutoCreateRomDirsOverlay(
                 baseDir = baseDir,
+                swapAbxy = swapAbxy,
+                keyBindings = keyBindings,
                 onCreated = { targetPath ->
                     state.showAutoCreate = false
                     onPick(targetPath)
@@ -538,6 +544,8 @@ private val EXCLUDED_AUTO_CREATE_IDS = setOf(
 @Composable
 private fun AutoCreateRomDirsOverlay(
     baseDir: File,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
     onCreated: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -594,6 +602,8 @@ private fun AutoCreateRomDirsOverlay(
                 .blockOverlayTouchThrough(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             closeInset = 10.dp,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
             onDismiss = { if (!creating) onDismiss() },
         ) {
             // 标题（右侧避让 DialogPanelCard 自带关闭按钮）
@@ -946,16 +956,34 @@ class NameDialogState(spec: NameDialogSpec) {
 fun NameDialog(
     spec: NameDialogSpec,
     state: NameDialogState,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(spec) { fr.requestFocusSafely() }
+    BackHandler { onDismiss() }
     Box(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .scrimTapDismiss(onDismiss),
+            .scrimTapDismiss(onDismiss)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
+                when {
+                    GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
+                        if (isInitialPress) onDismiss()
+                        true
+                    }
+                    GamepadKeys.isConfirmGamepadOnly(event.key, swapAbxy, keyBindings) -> {
+                        if (isInitialPress) onConfirm()
+                        true
+                    }
+                    else -> false
+                }
+            },
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(
@@ -965,7 +993,7 @@ fun NameDialog(
                 .fillMaxWidth()
                 .clip(DeckShapes.menuPanel)
                 .background(DeckColors.DialogBg)
-                .clickable(enabled = false, onClick = {})
+                .blockOverlayTouchThrough()
                 .padding(20.dp),
         ) {
             Text(spec.title, style = DeckType.menuTitle, color = DeckColors.TextPrimary)
@@ -995,7 +1023,8 @@ fun NameDialog(
                     style = DeckType.menuButton,
                     color = DeckColors.TextSecondary,
                     modifier = Modifier
-                        .clickable(onClick = onDismiss)
+                        .clip(DeckShapes.menuButton)
+                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.menuButton) { onDismiss() }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 Spacer(Modifier.width(8.dp))
@@ -1006,7 +1035,7 @@ fun NameDialog(
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
                         .brandBackground(DeckShapes.menuButton)
-                        .clickable(onClick = onConfirm)
+                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.menuButton) { onConfirm() }
                         .padding(horizontal = 20.dp, vertical = 8.dp),
                 )
             }
@@ -1022,6 +1051,8 @@ fun NameDialog(
 fun ScraperCredentialDialog(
     kind: CredentialKind,
     current: ScraperCredentials,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
     onSave: (ScraperCredentials) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1144,7 +1175,7 @@ fun ScraperCredentialDialog(
                     color = DeckColors.Ruby,
                     modifier = Modifier
                         .clip(DeckShapes.settingsDropdown)
-                        .gamepadClickable(shape = DeckShapes.settingsDropdown) { applySave(clear = true) }
+                        .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) { applySave(clear = true) }
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                 )
                 Spacer(Modifier.weight(1f))
@@ -1154,7 +1185,7 @@ fun ScraperCredentialDialog(
                     color = DeckColors.TextSecondary,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .gamepadClickable { onDismiss() }
+                        .gamepadClickable(swapAbxy, keyBindings) { onDismiss() }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 Spacer(Modifier.width(8.dp))
@@ -1165,7 +1196,7 @@ fun ScraperCredentialDialog(
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
                         .brandBackground(DeckShapes.menuButton)
-                        .gamepadClickable { applySave(clear = false) }
+                        .gamepadClickable(swapAbxy, keyBindings) { applySave(clear = false) }
                         .padding(horizontal = 20.dp, vertical = 8.dp),
                 )
             }
@@ -1418,6 +1449,8 @@ fun SystemTabEditDialog(
     defaultLabel: String,
     initialCustomName: String,
     initialFollowSystem: Boolean,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
     onConfirm: (customName: String, followSystemLanguage: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1488,7 +1521,7 @@ fun SystemTabEditDialog(
                     .fillMaxWidth()
                     .clip(DeckShapes.settingsDropdown)
                     .background(DeckColors.Surface)
-                    .gamepadClickable(shape = DeckShapes.settingsDropdown) { followSystem = !followSystem }
+                    .gamepadClickable(swapAbxy, keyBindings, shape = DeckShapes.settingsDropdown) { followSystem = !followSystem }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1515,7 +1548,7 @@ fun SystemTabEditDialog(
                     color = DeckColors.TextSecondary,
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
-                        .gamepadClickable { onDismiss() }
+                        .gamepadClickable(swapAbxy, keyBindings) { onDismiss() }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 Spacer(Modifier.width(8.dp))
@@ -1526,7 +1559,7 @@ fun SystemTabEditDialog(
                     modifier = Modifier
                         .clip(DeckShapes.menuButton)
                         .brandBackground(DeckShapes.menuButton)
-                        .gamepadClickable {
+                        .gamepadClickable(swapAbxy, keyBindings) {
                             val trimmed = name.trim()
                             onConfirm(trimmed, if (trimmed.isEmpty()) true else followSystem)
                         }

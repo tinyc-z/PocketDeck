@@ -12,6 +12,7 @@ import com.pocketdeck.launcher.launch.EmulatorRegistry
 import com.pocketdeck.launcher.launch.GameLauncher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -269,6 +271,21 @@ class GameRepository(
 
     private val indexCache = LibraryIndexCache(context)
     private val refreshGen = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile
+    private var refreshJob: Job? = null
+
+    /** 文件改名/移动/删除后的内存缓存联动回调（在 AppContainer 挂载，同步通知封面/元数据/抓取缓存）。 */
+    @Volatile var onGameMigrated: ((oldId: String, newId: String) -> Unit)? = null
+    @Volatile var onGameRemoved: ((gameId: String) -> Unit)? = null
+    @Volatile var onPathPrefixMigrated: ((oldDir: String, newDir: String) -> Unit)? = null
+    @Volatile var onPathPrefixRemoved: ((dirPath: String) -> Unit)? = null
+
+    private data class RefreshScanOutcome(
+        val library: Library,
+        val apps: List<CachedAndroidApp>,
+        val libChanged: Boolean,
+        val appsChanged: Boolean,
+    )
 
     /** 推断用户首页第一个可见分类涉及的平台 ID，用于无缓存冷启动时优先扫描首屏平台。 */
     private fun firstVisiblePlatformIds(user: UserData): Set<String> {
@@ -284,7 +301,8 @@ class GameRepository(
 
     fun refresh() {
         val gen = refreshGen.incrementAndGet()
-        scope.launch {
+        refreshJob?.cancel()
+        refreshJob = scope.launch {
             _scanning.value = true
             try {
                 // 并行启动二进制索引预读与 UserStore 首读，缩短冷启等待
@@ -313,11 +331,11 @@ class GameRepository(
                     true
                 }
 
-                // 阶段 2：后台并行核对真实磁盘与已安装应用（仅查 1 次 PackageManager，无变更时不重写索引文件）
+                // 阶段 2：后台并行核对真实磁盘与已安装应用（仅查 1 次 PackageManager，所有深比较均在 IO 线程完成）
                 val priorityPlats = firstVisiblePlatformIds(userData)
                 val prevScanned = scanned.value
                 val prevApps = installedAppsFlow.value
-                val (scannedLib, freshApps) = withContext(Dispatchers.IO) {
+                val outcome = withContext(Dispatchers.IO) {
                     val appsDeferred = async { queryInstalledLaunchableApps() }
                     val lib = RomScanner.scanAllProgressive(
                         roots = roots,
@@ -330,16 +348,17 @@ class GameRepository(
                         } else null,
                     )
                     val apps = appsDeferred.await()
-                    val libChanged = !hadWarmCache || prevScanned == null || lib != prevScanned
-                    val appsChanged = !hadWarmCache || prevApps == null || apps != prevApps
-                    if (libChanged || appsChanged) {
+                    val libChanged = prevScanned == null || lib != prevScanned
+                    val appsChanged = prevApps == null || apps != prevApps
+                    // 仅当本轮扫描仍为最新代际时才写盘，防止过期慢扫描覆写新目录/删除结果
+                    if (refreshGen.get() == gen && (!hadWarmCache || libChanged || appsChanged)) {
                         indexCache.save(rootsKey, lib, apps)
                     }
-                    lib to apps
+                    RefreshScanOutcome(lib, apps, libChanged, appsChanged)
                 }
                 if (refreshGen.get() == gen) {
-                    if (freshApps != prevApps) installedAppsFlow.value = freshApps
-                    if (scannedLib != prevScanned) scanned.value = scannedLib
+                    if (outcome.appsChanged) installedAppsFlow.value = outcome.apps
+                    if (outcome.libChanged) scanned.value = outcome.library
                 }
             } finally {
                 if (refreshGen.get() == gen) {
@@ -436,15 +455,17 @@ class GameRepository(
             games
         } else {
             games.mapValues { (_, list) ->
-                list.asSequence()
-                    .filter { includeHidden || it.id !in u.hidden }
-                    .map { g ->
-                        val name = u.renames[g.id]
-                        val cover = u.covers[g.id]
-                        if (name == null && cover == null) g else g.copy(title = name ?: g.title, customCover = cover)
-                    }
-                    .sortedBy { it.title.lowercase() }
-                    .toList()
+                var anyRenamed = false
+                val out = ArrayList<Game>(list.size)
+                for (g in list) {
+                    if (!includeHidden && g.id in u.hidden) continue
+                    val name = u.renames[g.id]
+                    val cover = u.covers[g.id]
+                    if (name != null) anyRenamed = true
+                    out += if (name == null && cover == null) g else g.copy(title = name ?: g.title, customCover = cover)
+                }
+                if (anyRenamed) out.sortBy { it.title.lowercase() }
+                out
             }.filterValues { it.isNotEmpty() }
         }
         val adjustedPlatforms = platforms
@@ -490,9 +511,11 @@ class GameRepository(
             if (wasDir) {
                 userStore.migratePathPrefix(file.path, target.path)
                 scrapeDb?.migratePathPrefix(file.path, target.path)
+                onPathPrefixMigrated?.invoke(file.path, target.path)
             } else {
                 userStore.migrateGameId(file.path, target.path)
                 scrapeDb?.migrateGameId(file.path, target.path)
+                onGameMigrated?.invoke(file.path, target.path)
             }
             target
         }.also {
@@ -619,20 +642,32 @@ class GameRepository(
         val wasDir = entry.isDirectory
         if (!entry.renameTo(target)) {
             if (wasDir) {
-                copyDirRecursive(entry, target, cancelFlag, onChunk)
+                try {
+                    copyDirRecursive(entry, target, cancelFlag, onChunk)
+                } catch (t: Throwable) {
+                    runCatching { target.deleteRecursively() }
+                    throw t
+                }
                 check(entry.deleteRecursively()) { "Failed to remove source folder after copy" }
             } else {
-                copyFileChunked(entry, target, cancelFlag) { delta -> onChunk(entry.name, delta) }
-                check(target.isFile && target.length() == entry.length()) { "Copy verification failed" }
+                try {
+                    copyFileChunked(entry, target, cancelFlag) { delta -> onChunk(entry.name, delta) }
+                    check(target.isFile && target.length() == entry.length()) { "Copy verification failed" }
+                } catch (t: Throwable) {
+                    runCatching { target.delete() }
+                    throw t
+                }
                 check(entry.delete()) { "Failed to remove source after copy" }
             }
         }
         if (wasDir) {
             userStore.migratePathPrefix(entry.path, target.path)
             scrapeDb?.migratePathPrefix(entry.path, target.path)
+            onPathPrefixMigrated?.invoke(entry.path, target.path)
         } else {
             userStore.migrateGameId(entry.path, target.path)
             scrapeDb?.migrateGameId(entry.path, target.path)
+            onGameMigrated?.invoke(entry.path, target.path)
         }
         return target
     }
@@ -662,30 +697,46 @@ class GameRepository(
         }
     }
 
+    private fun isSymlink(file: File): Boolean =
+        runCatching { Files.isSymbolicLink(file.toPath()) }.getOrDefault(false)
+
     private fun copyDirRecursive(
         src: File,
         dst: File,
         cancelFlag: AtomicBoolean,
         onChunk: (entryName: String, deltaBytes: Long) -> Unit,
+        visitedDirs: MutableSet<String> = HashSet(),
+        depth: Int = 0,
     ) {
         if (cancelFlag.get()) error("Cancelled")
+        if (depth > 32 || isSymlink(src)) return
+        val srcCanon = runCatching { src.canonicalPath }.getOrNull() ?: return
+        if (!visitedDirs.add(srcCanon)) return
         if (!dst.exists()) check(dst.mkdirs()) { "Cannot create ${dst.path}" }
         src.listFiles().orEmpty().forEach { child ->
             if (cancelFlag.get()) error("Cancelled")
+            if (isSymlink(child)) return@forEach
             val childDst = File(dst, child.name)
             if (child.isDirectory) {
-                copyDirRecursive(child, childDst, cancelFlag, onChunk)
+                copyDirRecursive(child, childDst, cancelFlag, onChunk, visitedDirs, depth + 1)
             } else {
                 copyFileChunked(child, childDst, cancelFlag) { delta -> onChunk(child.name, delta) }
             }
         }
     }
 
-    private fun measureEntrySize(entry: File): Long {
+    private fun measureEntrySize(
+        entry: File,
+        visitedDirs: MutableSet<String> = HashSet(),
+        depth: Int = 0,
+    ): Long {
+        if (depth > 32 || isSymlink(entry)) return 0L
         if (entry.isFile) return entry.length()
         if (!entry.isDirectory) return 0L
+        val canon = runCatching { entry.canonicalPath }.getOrNull() ?: return 0L
+        if (!visitedDirs.add(canon)) return 0L
         var sum = 0L
-        entry.listFiles()?.forEach { sum += measureEntrySize(it) }
+        entry.listFiles()?.forEach { sum += measureEntrySize(it, visitedDirs, depth + 1) }
         return sum
     }
 
@@ -1007,10 +1058,12 @@ class GameRepository(
             check(entry.deleteRecursively()) { "Failed to delete folder" }
             userStore.removePathPrefix(entry.path)
             scrapeDb?.deletePathPrefix(entry.path)
+            onPathPrefixRemoved?.invoke(entry.path)
         } else {
             check(entry.delete()) { "Failed to delete file" }
             userStore.removeGameData(entry.path)
             scrapeDb?.deleteGameData(entry.path)
+            onGameRemoved?.invoke(entry.path)
         }
     }
 }

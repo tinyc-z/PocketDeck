@@ -91,6 +91,8 @@ import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 import com.pocketdeck.launcher.ui.theme.brandFocusRing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import kotlin.math.roundToInt
 
 /** 全局网络连通性 CompositionLocal，由顶层 HomeScreen 统一订阅一次，避免每张封面卡片各自订阅 StateFlow。 */
 val LocalIsOnline = staticCompositionLocalOf { true }
@@ -106,6 +108,16 @@ internal object AppIconCache {
             context.packageManager.getApplicationIcon(pkg).toBitmap(192, 192).asImageBitmap()
         }.getOrNull()?.also { cache.put(pkg, it) }
     }
+
+    fun trimMemory() {
+        cache.evictAll()
+    }
+}
+
+/** 系统内存紧张或退后台时回收 UI 位图缓存（AppIconCache + DefaultCoverArtCache）。 */
+internal fun trimCoverCardUiCaches() {
+    AppIconCache.trimMemory()
+    DefaultCoverArtCache.trimMemory()
 }
 
 /**
@@ -136,13 +148,16 @@ fun GameCoverCard(
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
-    var candidatesUnlocked by remember(game.id) { mutableStateOf(!fastScrolling) }
-    if (!fastScrolling && !candidatesUnlocked) {
-        candidatesUnlocked = true
+    val candidatesUnlockedHolder = remember(game.id) { BooleanArray(1) }
+    if (!fastScrolling) {
+        candidatesUnlockedHolder[0] = true
     }
+    val candidatesUnlocked = candidatesUnlockedHolder[0]
 
+    val isOnline = LocalIsOnline.current
     val candidates: List<Any>
     val knownIdx: Int?
+    var offlineLocalFallback = false
     if (!candidatesUnlocked) {
         candidates = remember(game.id, game.customCover, game.localCover) {
             covers?.fastMemoryCandidates(game)
@@ -151,9 +166,22 @@ fun GameCoverCard(
         knownIdx = if (candidates.isNotEmpty()) 0 else null
     } else {
         val indexVer = covers?.indexVersion?.collectAsState()?.value ?: 0
-        candidates = remember(game.id, game.customCover, game.localCover, game.title, platform?.libretroSystem, officialName, indexVer) {
+        val baseCandidates = remember(game.id, game.customCover, game.localCover, game.title, platform?.libretroSystem, officialName, indexVer) {
             covers?.candidates(game, platform, officialName)
                 ?: listOfNotNull(game.customCover, game.localCover)
+        }
+        val localPath = game.localCover
+        if (!isOnline && game.customCover == null && localPath != null &&
+            baseCandidates.size == 1 && baseCandidates[0] is String &&
+            (baseCandidates[0] as String).startsWith("http", ignoreCase = true)
+        ) {
+            offlineLocalFallback = true
+            candidates = remember(baseCandidates, localPath, covers) {
+                val localModel: Any = covers?.preferredLocalCoverFile(localPath) ?: File(localPath)
+                listOf(baseCandidates[0], localModel)
+            }
+        } else {
+            candidates = baseCandidates
         }
         knownIdx = remember(game.id, game.customCover, platform?.libretroSystem, officialName, indexVer) {
             if (game.customCover != null) 0 else covers?.knownIndex(game.id, platform)
@@ -162,12 +190,22 @@ fun GameCoverCard(
     val apkPackage = remember(game.id) {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) game.id.removePrefix(GameLauncher.APK_PREFIX) else null
     }
-    val stableOnCandidateResolved: (Int) -> Unit = remember(game.id, covers, candidates, platform) {
+    val stableOnCandidateResolved: (Int) -> Unit = remember(game.id, covers, candidates, platform, offlineLocalFallback) {
         { idx: Int ->
             if (idx >= 0) {
-                covers?.rememberSuccess(game.id, candidates.getOrNull(idx))
+                // 离线临时回退到本地图展示时，不覆盖已缓存的在线封面来源信息
+                if (!(offlineLocalFallback && idx > 0)) {
+                    covers?.rememberSuccess(game.id, candidates.getOrNull(idx))
+                }
             } else {
                 covers?.rememberFailure(game.id, platform)
+            }
+        }
+    }
+    val stableOnFileCandidateError: (File) -> Unit = remember(game.id, covers) {
+        { failedFile: File ->
+            if (covers?.isWebCacheFile(game.id, failedFile) == true) {
+                covers.invalidateWebCacheFile(game.id, failedFile)
             }
         }
     }
@@ -175,6 +213,7 @@ fun GameCoverCard(
         candidates = candidates,
         knownIndex = knownIdx,
         onCandidateResolved = stableOnCandidateResolved,
+        onFileCandidateError = stableOnFileCandidateError,
         width = width,
         height = height,
         isFocused = isFocused,
@@ -213,6 +252,7 @@ fun CoverCard(
     height: Dp,
     isFocused: Boolean,
     title: String,
+    onFileCandidateError: ((File) -> Unit)? = null,
     isFavorite: Boolean = false,
     platformLabel: String? = null,
     apkPackage: String? = null,
@@ -295,11 +335,11 @@ fun CoverCard(
     }
     val currentModel = candidates.getOrNull(candidateIdx)
     var loadedSuccess by remember(currentModel) { mutableStateOf(false) }
-    var loadUnlocked by remember(currentModel) { mutableStateOf(!fastScrolling) }
-    if (!fastScrolling && !loadedSuccess && !loadUnlocked) {
-        loadUnlocked = true
+    val loadUnlockedHolder = remember(currentModel) { BooleanArray(1) }
+    if (!fastScrolling) {
+        loadUnlockedHolder[0] = true
     }
-    val allowDisk = loadUnlocked || allowDiskDuringFastScroll
+    val loadUnlocked = loadUnlockedHolder[0]
 
     val currentOnClick by androidx.compose.runtime.rememberUpdatedState(onClick)
     val currentOnLongPress by androidx.compose.runtime.rememberUpdatedState(onLongPress)
@@ -401,17 +441,28 @@ fun CoverCard(
                 )
             }
 
-            // 顶层：快滚期禁止联网与候选回退试探（仅查内存/按 allowDiskDuringFastScroll 读盘）；停稳后自动恢复
+            // 顶层：快滚期禁止联网与候选回退试探；已加载成功（loadedSuccess）后锁存策略，杜绝快滚起停触发双重 Coil 重载
             val isOnline = LocalIsOnline.current
             if (currentModel != null) {
-                val allowNetwork = !fastScrolling && loadUnlocked && isOnline
-                val request = remember(currentModel, decodeBucketPx, allowDisk, allowNetwork) {
+                val latchedPolicy = remember(currentModel) { BooleanArray(2) }
+                val effectiveAllowDisk: Boolean
+                val effectiveAllowNetwork: Boolean
+                if (loadedSuccess) {
+                    effectiveAllowDisk = latchedPolicy[0]
+                    effectiveAllowNetwork = latchedPolicy[1]
+                } else {
+                    effectiveAllowDisk = loadUnlocked || allowDiskDuringFastScroll
+                    effectiveAllowNetwork = !fastScrolling && loadUnlocked && isOnline
+                    latchedPolicy[0] = effectiveAllowDisk
+                    latchedPolicy[1] = effectiveAllowNetwork
+                }
+                val request = remember(currentModel, decodeBucketPx, effectiveAllowDisk, effectiveAllowNetwork) {
                     ImageRequest.Builder(context)
                         .data(currentModel)
                         .size(decodeBucketPx, decodeBucketPx)
                         .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(if (allowDisk) CachePolicy.ENABLED else CachePolicy.DISABLED)
-                        .networkCachePolicy(if (allowNetwork) CachePolicy.ENABLED else CachePolicy.DISABLED)
+                        .diskCachePolicy(if (effectiveAllowDisk) CachePolicy.ENABLED else CachePolicy.DISABLED)
+                        .networkCachePolicy(if (effectiveAllowNetwork) CachePolicy.ENABLED else CachePolicy.DISABLED)
                         .build()
                 }
                 // LocalAsyncImageModelEqualityDelegate 已在 HomeScreen 根部统一提供 AllProperties，免去每张卡片单独包一层 Provider
@@ -431,11 +482,19 @@ fun CoverCard(
                             is AsyncImagePainter.State.Error -> {
                                 loadedSuccess = false
                                 if (loadUnlocked && !fastScrolling) {
+                                    val failedModel = currentModel
+                                    if (failedModel is File) {
+                                        onFileCandidateError?.invoke(failedModel)
+                                    }
                                     if (candidateIdx + 1 < candidates.size) {
                                         candidateIdx += 1
                                     } else {
                                         candidateIdx = -1
-                                        if (knownIndex != -1) {
+                                        val isOfflineHttpMiss = !isOnline &&
+                                            failedModel is String &&
+                                            (failedModel.startsWith("http://", ignoreCase = true) ||
+                                                failedModel.startsWith("https://", ignoreCase = true))
+                                        if (knownIndex != -1 && !isOfflineHttpMiss) {
                                             onCandidateResolved?.invoke(-1)
                                         }
                                     }
@@ -640,21 +699,61 @@ private val DEFAULT_COVER_SCRIM_BRUSH = Brush.verticalGradient(
     1f to Color(0xFF24172F).copy(alpha = 0.28f),
 )
 
-private data class DefaultCoverArtKey(
+internal data class DefaultCoverArtKey(
     val startArgb: Int,
     val midArgb: Int,
     val endArgb: Int,
     val widthPx: Int,
     val heightPx: Int,
     val flags: Int,
+    val strokeBucket: Int = 10,
 )
 
 /**
  * 离屏预渲染默认封面底图（品牌渐变 + 右上光晕 + 线性手柄图标 + 底部暗角）。
- * 多张无封面卡片密集出现时共享同一张 GPU 纹理四边形，避免 CoverFlow 3D 透视下每帧重复光栅化描边路径与双渐变。
+ * 按 4MB 字节预算管理 LRU（自动区分描边密度桶），并接入 `PocketDeckApp.onTrimMemory` 回收。
  */
-private object DefaultCoverArtCache {
-    private val lru = LruCache<DefaultCoverArtKey, ImageBitmap>(16)
+internal object DefaultCoverArtCache {
+    private const val MAX_BYTES = 4 * 1024 * 1024
+    private val lru = object : LruCache<DefaultCoverArtKey, ImageBitmap>(MAX_BYTES) {
+        override fun sizeOf(key: DefaultCoverArtKey, value: ImageBitmap): Int =
+            (value.width * value.height * 4).coerceAtLeast(1)
+    }
+
+    fun trimMemory() {
+        synchronized(this) {
+            lru.evictAll()
+        }
+    }
+
+    internal fun cachedSizeBytes(): Int = synchronized(this) { lru.size() }
+
+    internal fun buildKey(
+        brandStart: Color,
+        brandMid: Color,
+        brandEnd: Color,
+        widthPx: Int,
+        heightPx: Int,
+        tiny: Boolean,
+        compact: Boolean,
+        centeredTitle: Boolean,
+        drawIcon: Boolean,
+        strokeDensity: Float,
+    ): DefaultCoverArtKey {
+        val flags = (if (tiny) 1 else 0) or
+            (if (compact) 2 else 0) or
+            (if (centeredTitle) 4 else 0) or
+            (if (drawIcon) 8 else 0)
+        return DefaultCoverArtKey(
+            startArgb = brandStart.toArgb(),
+            midArgb = brandMid.toArgb(),
+            endArgb = brandEnd.toArgb(),
+            widthPx = widthPx,
+            heightPx = heightPx,
+            flags = flags,
+            strokeBucket = (strokeDensity.coerceAtLeast(1f) * 10f).roundToInt(),
+        )
+    }
 
     fun getOrCreate(
         brandStart: Color,
@@ -668,17 +767,17 @@ private object DefaultCoverArtCache {
         drawIcon: Boolean,
         strokeDensity: Float,
     ): ImageBitmap {
-        val flags = (if (tiny) 1 else 0) or
-            (if (compact) 2 else 0) or
-            (if (centeredTitle) 4 else 0) or
-            (if (drawIcon) 8 else 0)
-        val key = DefaultCoverArtKey(
-            startArgb = brandStart.toArgb(),
-            midArgb = brandMid.toArgb(),
-            endArgb = brandEnd.toArgb(),
+        val key = buildKey(
+            brandStart = brandStart,
+            brandMid = brandMid,
+            brandEnd = brandEnd,
             widthPx = widthPx,
             heightPx = heightPx,
-            flags = flags,
+            tiny = tiny,
+            compact = compact,
+            centeredTitle = centeredTitle,
+            drawIcon = drawIcon,
+            strokeDensity = strokeDensity,
         )
         synchronized(this) {
             lru.get(key)?.let { return it }

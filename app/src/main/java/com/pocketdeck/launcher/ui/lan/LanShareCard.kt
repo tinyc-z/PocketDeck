@@ -1,6 +1,7 @@
 package com.pocketdeck.launcher.ui.lan
 
 import android.os.Environment
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -409,6 +410,15 @@ fun SharePeerPickerDialog(
         }
     }
 
+    BackHandler(enabled = state.pinChallenge != null) {
+        onCancelPin()
+    }
+
+    val maxPickerH = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f)
+        .coerceAtMost(520f)
+        .coerceAtLeast(240f)
+        .dp
+
     Box(
         Modifier
             .fillMaxSize()
@@ -419,9 +429,14 @@ fun SharePeerPickerDialog(
             .onPreviewKeyEvent { event ->
                 if (state.pinChallenge != null) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (isInitialPress) onDismiss()
+                        true
+                    }
+                    GamepadKeys.isMenu(event.key, swapAbxy, keyBindings) && state.shareRunning -> {
+                        if (isInitialPress) onScanPeers()
                         true
                     }
                     event.key == Key.DirectionUp && peers.isNotEmpty() -> {
@@ -433,12 +448,14 @@ fun SharePeerPickerDialog(
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        if (!state.shareRunning) {
-                            onEnableQuickShare()
-                        } else {
-                            peers.getOrNull(focusIdx)?.let { peer ->
-                                transferStartedHere = true
-                                onPickPeer(peer)
+                        if (isInitialPress) {
+                            if (!state.shareRunning) {
+                                onEnableQuickShare()
+                            } else {
+                                peers.getOrNull(focusIdx)?.let { peer ->
+                                    transferStartedHere = true
+                                    onPickPeer(peer)
+                                }
                             }
                         }
                         true
@@ -454,7 +471,7 @@ fun SharePeerPickerDialog(
                 .padding(horizontal = 24.dp, vertical = 16.dp)
                 .widthIn(max = DeckDialogSize.WidthM)
                 .fillMaxWidth()
-                .heightIn(max = 520.dp),
+                .heightIn(max = maxPickerH),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
         ) {
@@ -599,6 +616,8 @@ fun SharePeerPickerDialog(
                     SmallPillButton(
                         label = stringResource(R.string.lan_share_scan),
                         accent = true,
+                        swapAbxy = swapAbxy,
+                        keyBindings = keyBindings,
                         onClick = onScanPeers,
                     )
                 }

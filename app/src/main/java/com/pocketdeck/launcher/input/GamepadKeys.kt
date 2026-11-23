@@ -200,13 +200,10 @@ object GamepadKeys {
     }
 
     /**
-     * 两个操作是否在相同交互上下文中运行（会彼此冲突）。
-     * 仅 [KeyAction.Apps]（仅主桌面生效）与 [KeyAction.Back]（仅子页面/弹窗生效）天然互斥，允许共用同一按键。
+     * 两个操作是否在按键设置中视为冲突。
+     * 当前全部可自定义操作保持 1 对 1 互斥绑定，避免同一物理按键在主桌面/搜索态/弹窗切换时产生歧义。
      */
-    private fun actionsConflict(a: KeyAction, b: KeyAction): Boolean {
-        if (a == b) return false
-        return true
-    }
+    private fun actionsConflict(a: KeyAction, b: KeyAction): Boolean = a != b
 
     /** 检查将 [target] 绑定到 [keyCode] 时，与哪些现有操作发生按键冲突。 */
     fun findConflicts(

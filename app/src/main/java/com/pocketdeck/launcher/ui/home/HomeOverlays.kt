@@ -97,7 +97,15 @@ internal fun HomeOverlays(
             } else null,
             onProperties = { vm.openProperties(game) },
             onDismiss = { vm.closeDetail() },
-            isTopmost = state.propertiesGame == null && state.manualScrapeGame == null && state.editingGame == null,
+            isTopmost = !state.showQuickHud &&
+                state.propertiesGame == null &&
+                state.editingGame == null &&
+                state.manualScrapeGame == null &&
+                !state.showApps &&
+                !state.showSettings &&
+                !state.showLibraryManager &&
+                !showLanControlFromStatusBar &&
+                !state.showScrapeTaskDialog,
         )
     }
 
@@ -194,6 +202,12 @@ internal fun HomeOverlays(
             onManualScrape = if (!game.id.startsWith(GameLauncher.APK_PREFIX)) {
                 { vm.openManualScrape(game) }
             } else null,
+            isTopmost = state.manualScrapeGame == null &&
+                !state.showApps &&
+                !state.showSettings &&
+                !state.showLibraryManager &&
+                !showLanControlFromStatusBar &&
+                !state.showScrapeTaskDialog,
         )
     }
 
@@ -226,7 +240,10 @@ internal fun HomeOverlays(
             onToggleInGameLibrary = { pkg, add -> vm.toggleAppInGameLibrary(pkg, add) },
             onOpenGameLibrary = { vm.openLibraryManager(hiddenOnly = false) },
             onOpenQuickShare = { onShowLanControlFromStatusBarChange(true) },
-            hasTopOverlay = state.showLibraryManager || showLanControlFromStatusBar,
+            hasTopOverlay = state.showSettings ||
+                state.showLibraryManager ||
+                showLanControlFromStatusBar ||
+                state.showScrapeTaskDialog,
             onDismiss = { vm.closeApps() },
         )
     }
@@ -304,44 +321,40 @@ internal fun HomeOverlays(
             frozenStateHolder.value!!
         }
         val showSettingsNow = state.showSettings
-        Layout(
-            content = {
-                SettingsScreen(
-                    state = activeSettingsState,
-            onDismiss = {
+        // 缓存全部回调对象，防止冷启保活隐藏态 SettingsScreen 随主页 state 每次变化触发整树重组
+        val stableOnDismiss = remember(vm, onCapturingKeyBindChange) {
+            {
                 onCapturingKeyBindChange(false)
                 vm.toggleSettings()
-            },
-            onToggleClock12h = { vm.toggleClock12h() },
-            onToggleSwapAbxy = { vm.toggleSwapAbxy() },
-            onToggleKeySound = { vm.toggleKeySound() },
-            onToggleReduceMotion = { vm.toggleReduceMotion() },
-            onToggleNowTab = { vm.toggleNowTab() },
-            onToggleFavsTab = { vm.toggleFavsTab() },
-            onToggleBottomBar = { vm.toggleBottomBar() },
-            onCycleNavBarStyle = { vm.cycleNavBarStyle() },
-            onToggleShowMetadata = { vm.toggleShowMetadata() },
-            onCycleBackground = { vm.cycleBackground() },
-            onSetBackgroundStyle = { vm.setBackgroundStyle(it) },
-            onSetCustomBackground = vm::setCustomBackground,
-            onUpdateKeyBindings = vm::updateKeyBindings,
-            onResetKeyBindings = vm::resetKeyBindings,
-            onCapturingKeyBindChange = onCapturingKeyBindChange,
-            onCycleViewMode = { vm.cycleViewMode() },
-            onSetViewMode = { vm.setViewMode(it) },
-            onCycleTheme = { vm.cycleTheme() },
-            onRescan = { vm.refresh() },
-            onToggleShowClock = { vm.toggleShowClock() },
-            onToggleShowBattery = { vm.toggleShowBattery() },
-            onToggleShowWifi = { vm.toggleShowWifi() },
-            onToggleShowBluetooth = { vm.toggleShowBluetooth() },
-            onToggleShowMobileSignal = { vm.toggleShowMobileSignal() },
-            onToggleShowHeadset = { vm.toggleShowHeadset() },
-            onToggleShowAirplane = { vm.toggleShowAirplane() },
-            onToggleShowDnd = { vm.toggleShowDnd() },
-            onSetPlatformLauncher = { pid, eid -> vm.setPlatformLauncher(pid, eid) },
-            onCycleGalleryAlign = { vm.cycleGalleryAlign() },
-            manage = ManageCallbacks(
+            }
+        }
+        val stableToggleClock12h = remember(vm) { { vm.toggleClock12h() } }
+        val stableToggleSwapAbxy = remember(vm) { { vm.toggleSwapAbxy() } }
+        val stableToggleKeySound = remember(vm) { { vm.toggleKeySound() } }
+        val stableToggleReduceMotion = remember(vm) { { vm.toggleReduceMotion() } }
+        val stableToggleNowTab = remember(vm) { { vm.toggleNowTab() } }
+        val stableToggleFavsTab = remember(vm) { { vm.toggleFavsTab() } }
+        val stableToggleBottomBar = remember(vm) { { vm.toggleBottomBar() } }
+        val stableCycleNavBarStyle = remember(vm) { { vm.cycleNavBarStyle() } }
+        val stableToggleShowMetadata = remember(vm) { { vm.toggleShowMetadata() } }
+        val stableCycleBackground = remember(vm) { { vm.cycleBackground() } }
+        val stableSetBackgroundStyle = remember(vm) { { style: com.pocketdeck.launcher.data.BackgroundStyle -> vm.setBackgroundStyle(style) } }
+        val stableCycleViewMode = remember(vm) { { vm.cycleViewMode() } }
+        val stableSetViewMode = remember(vm) { { mode: com.pocketdeck.launcher.data.ViewMode -> vm.setViewMode(mode) } }
+        val stableCycleTheme = remember(vm) { { vm.cycleTheme() } }
+        val stableRescan = remember(vm) { { vm.refresh() } }
+        val stableToggleShowClock = remember(vm) { { vm.toggleShowClock() } }
+        val stableToggleShowBattery = remember(vm) { { vm.toggleShowBattery() } }
+        val stableToggleShowWifi = remember(vm) { { vm.toggleShowWifi() } }
+        val stableToggleShowBluetooth = remember(vm) { { vm.toggleShowBluetooth() } }
+        val stableToggleShowMobileSignal = remember(vm) { { vm.toggleShowMobileSignal() } }
+        val stableToggleShowHeadset = remember(vm) { { vm.toggleShowHeadset() } }
+        val stableToggleShowAirplane = remember(vm) { { vm.toggleShowAirplane() } }
+        val stableToggleShowDnd = remember(vm) { { vm.toggleShowDnd() } }
+        val stableSetPlatformLauncher = remember(vm) { { pid: String, eid: String? -> vm.setPlatformLauncher(pid, eid) } }
+        val stableCycleGalleryAlign = remember(vm) { { vm.cycleGalleryAlign() } }
+        val stableManageCallbacks = remember(vm, onShowLanControlFromStatusBarChange) {
+            ManageCallbacks(
                 addDir = vm::addRomDir,
                 toggleDir = vm::toggleRomDir,
                 removeDir = vm::removeRomDir,
@@ -380,14 +393,53 @@ internal fun HomeOverlays(
                 openLibraryHidden = { vm.openLibraryManager(hiddenOnly = true) },
                 openLanService = { onShowLanControlFromStatusBarChange(true) },
                 toggleQuickHudEnabled = vm::toggleQuickHudEnabled,
-            ),
-            isVisible = showSettingsNow,
-            isCovered = state.showLibraryManager || showLanControlFromStatusBar,
-            onLanguageChange = { code ->
+            )
+        }
+        val stableLanguageChange: (String) -> Unit = remember(context) {
+            { code: String ->
                 AppLocale.set(context, code)
                 (context as? Activity)?.recreate()
-            },
-        )
+            }
+        }
+        Layout(
+            content = {
+                SettingsScreen(
+                    state = activeSettingsState,
+                    onDismiss = stableOnDismiss,
+                    onToggleClock12h = stableToggleClock12h,
+                    onToggleSwapAbxy = stableToggleSwapAbxy,
+                    onToggleKeySound = stableToggleKeySound,
+                    onToggleReduceMotion = stableToggleReduceMotion,
+                    onToggleNowTab = stableToggleNowTab,
+                    onToggleFavsTab = stableToggleFavsTab,
+                    onToggleBottomBar = stableToggleBottomBar,
+                    onCycleNavBarStyle = stableCycleNavBarStyle,
+                    onToggleShowMetadata = stableToggleShowMetadata,
+                    onCycleBackground = stableCycleBackground,
+                    onSetBackgroundStyle = stableSetBackgroundStyle,
+                    onSetCustomBackground = vm::setCustomBackground,
+                    onUpdateKeyBindings = vm::updateKeyBindings,
+                    onResetKeyBindings = vm::resetKeyBindings,
+                    onCapturingKeyBindChange = onCapturingKeyBindChange,
+                    onCycleViewMode = stableCycleViewMode,
+                    onSetViewMode = stableSetViewMode,
+                    onCycleTheme = stableCycleTheme,
+                    onRescan = stableRescan,
+                    onToggleShowClock = stableToggleShowClock,
+                    onToggleShowBattery = stableToggleShowBattery,
+                    onToggleShowWifi = stableToggleShowWifi,
+                    onToggleShowBluetooth = stableToggleShowBluetooth,
+                    onToggleShowMobileSignal = stableToggleShowMobileSignal,
+                    onToggleShowHeadset = stableToggleShowHeadset,
+                    onToggleShowAirplane = stableToggleShowAirplane,
+                    onToggleShowDnd = stableToggleShowDnd,
+                    onSetPlatformLauncher = stableSetPlatformLauncher,
+                    onCycleGalleryAlign = stableCycleGalleryAlign,
+                    manage = stableManageCallbacks,
+                    isVisible = showSettingsNow,
+                    isCovered = state.showLibraryManager || showLanControlFromStatusBar || state.showScrapeTaskDialog,
+                    onLanguageChange = stableLanguageChange,
+                )
             },
         ) { measurables, constraints ->
             if (!showSettingsNow) {
@@ -409,6 +461,12 @@ internal fun HomeOverlays(
         val libScrapeProgress by vm.scrapeProgress.collectAsState()
         val metaResolutionMap by vm.metaResolutionMap.collectAsState()
         val coverResolutionMap by vm.coverResolutionMap.collectAsState()
+        val stablePlatformFor = remember(state.platformsById) {
+            { g: Game -> state.platformsById[g.platformId] ?: com.pocketdeck.launcher.data.PlatformCatalog.forFolder(g.platformId) }
+        }
+        val stableEffectiveLauncherFor = remember(state.gameLaunchers, state.platformLaunchers) {
+            { g: Game -> state.gameLaunchers[g.id] ?: state.platformLaunchers[g.platformId] }
+        }
         GameLibraryScreen(
             fullLibrary = fullLibrary,
             filesRevision = filesRevision,
@@ -432,8 +490,8 @@ internal fun HomeOverlays(
             initialFocusFilePath = state.libraryManagerInitialFocusFile,
             swapAbxy = state.swapAbxy,
             keyBindings = state.keyBindings,
-            platformFor = state::platformFor,
-            effectiveLauncherFor = state::effectiveLauncherFor,
+            platformFor = stablePlatformFor,
+            effectiveLauncherFor = stableEffectiveLauncherFor,
             computeCrc32 = vm::computeCrc32,
             onRefreshMetadata = vm::refreshGameMetadata,
             onLaunchGame = launchGame,

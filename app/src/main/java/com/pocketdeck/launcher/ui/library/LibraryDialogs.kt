@@ -572,6 +572,8 @@ internal fun LibraryOverlayDialogs(
         NameDialog(
             spec = spec,
             state = s,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
             onConfirm = { spec.onConfirm(s.value.text); onDismissNameDialog() },
             onDismiss = { onDismissNameDialog() },
         )
@@ -757,6 +759,8 @@ internal fun LibraryOverlayDialogs(
         FileOpProgressDialog(
             title = title,
             detail = detail,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
             onCancel = onCancelOpProgress,
         )
     }

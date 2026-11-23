@@ -3,6 +3,10 @@ package com.pocketdeck.launcher.lan
 import com.pocketdeck.launcher.data.ArchiveManager
 import com.pocketdeck.launcher.data.sanitizeUploadFileName
 import java.io.File
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
+import java.net.URI
 
 /**
  * Web 管理端文件写入与目录创建安全校验工具：
@@ -133,4 +137,93 @@ internal object WebFileSecurity {
         }
         return AutoCreateTargetResult.Ok(target, allowAddAsRomRoot = true)
     }
+
+    /** 校验 [file] 的规范路径严格位于 [dir] 目录之内（防同前缀目录与 `..`/符号链接逃逸）。 */
+    fun isInsideDir(file: File, dir: File): Boolean {
+        val dirCanon = runCatching { dir.canonicalPath }.getOrNull() ?: return false
+        val fileCanon = runCatching { file.canonicalPath }.getOrNull() ?: return false
+        val prefix = if (dirCanon.endsWith(File.separator)) dirCanon else "$dirCanon${File.separator}"
+        return fileCanon.startsWith(prefix)
+    }
+
+    /** 允许通过 Web 管理端 `sourceUrl` 由掌机代下载封面的可信公开 CDN 域名白名单。 */
+    private val ALLOWED_COVER_EXACT_HOSTS = setOf(
+        "thumbnails.libretro.com",
+        "cdn.jsdelivr.net",
+        "raw.githubusercontent.com",
+        "art.gametdb.com",
+        "images.igdb.com",
+        "hasheous.org",
+        "upload.wikimedia.org",
+        "commons.wikimedia.org",
+        "adb.arcadeitalia.net",
+    )
+
+    private val ALLOWED_COVER_SUFFIX_HOSTS = setOf(
+        ".thegamesdb.net",
+        ".steamgriddb.com",
+        ".screenscraper.fr",
+        ".hasheous.org",
+        ".igdb.com",
+        ".gametdb.com",
+        ".libretro.com",
+        ".arcadeitalia.net",
+    )
+
+    /** 校验封面代下载 `sourceUrl`：仅放行 HTTPS、标准端口、无 userInfo 且命中可信封面域名白名单。 */
+    fun isAllowedCoverSourceUrl(urlStr: String): Boolean {
+        val trimmed = urlStr.trim()
+        if (trimmed.isEmpty() || trimmed.length > 2048) return false
+        val uri = runCatching { URI(trimmed) }.getOrNull() ?: return false
+        if (!uri.scheme.equals("https", ignoreCase = true)) return false
+        if (uri.userInfo != null) return false
+        if (uri.port != -1 && uri.port != 443) return false
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
+        if (host.isEmpty()) return false
+        if (host in ALLOWED_COVER_EXACT_HOSTS) return true
+        return ALLOWED_COVER_SUFFIX_HOSTS.any { suffix -> host.endsWith(suffix) && host.length > suffix.length }
+    }
+
+    /** 校验解析后的 IP 地址属于公网可达地址（拒绝回环、内网、链路本地、多播、CGNAT 与 IPv6 ULA）。 */
+    fun isPublicInetAddress(addr: InetAddress): Boolean {
+        if (addr.isAnyLocalAddress ||
+            addr.isLoopbackAddress ||
+            addr.isLinkLocalAddress ||
+            addr.isSiteLocalAddress ||
+            addr.isMulticastAddress
+        ) {
+            return false
+        }
+        val raw = addr.address
+        when (addr) {
+            is Inet4Address -> {
+                val b0 = raw[0].toInt() and 0xFF
+                val b1 = raw[1].toInt() and 0xFF
+                // 0.0.0.0/8, 100.64.0.0/10 (CGNAT), 192.0.0.0/24, 198.18.0.0/15, 240.0.0.0/4
+                if (b0 == 0) return false
+                if (b0 == 100 && b1 in 64..127) return false
+                if (b0 == 192 && b1 == 0 && (raw[2].toInt() and 0xFF) == 0) return false
+                if (b0 == 198 && (b1 == 18 || b1 == 19)) return false
+                if (b0 >= 240) return false
+            }
+            is Inet6Address -> {
+                val b0 = raw[0].toInt() and 0xFF
+                // fc00::/7 (Unique Local Address)
+                if ((b0 and 0xFE) == 0xFC) return false
+                // ::ffff:0:0/96 IPv4-mapped IPv6
+                val isV4Mapped = (0 until 10).all { raw[it].toInt() == 0 } &&
+                    (raw[10].toInt() and 0xFF) == 0xFF &&
+                    (raw[11].toInt() and 0xFF) == 0xFF
+                if (isV4Mapped) {
+                    val v4 = InetAddress.getByAddress(raw.copyOfRange(12, 16))
+                    return isPublicInetAddress(v4)
+                }
+            }
+        }
+        return true
+    }
+
+    /** 校验快传/Web 平台目录 ID 仅含安全字符（防斜杠与 `..` 目录逃逸）。 */
+    private val SAFE_PLATFORM_ID_REGEX = Regex("^[a-zA-Z0-9_-]{1,40}$")
+    fun isSafePlatformId(raw: String?): Boolean = !raw.isNullOrEmpty() && SAFE_PLATFORM_ID_REGEX.matches(raw)
 }

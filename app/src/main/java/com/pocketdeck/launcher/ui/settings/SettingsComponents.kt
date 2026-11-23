@@ -516,7 +516,7 @@ internal fun BackgroundThumbs(
                 Text(
                     label(style),
                     style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp, lineHeight = 12.sp),
-                    color = if (light) Color(0xFF24172F) else Color.White,
+                    color = if (light) Color.Black.copy(alpha = 0.86f) else Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier

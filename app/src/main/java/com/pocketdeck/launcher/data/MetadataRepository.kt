@@ -142,6 +142,8 @@ class MetadataRepository(
 
     @Volatile
     private var missingScrapeJob: Job? = null
+    private val scrapeStartMutex = Mutex()
+    private val scrapeRunSeq = AtomicLong(0L)
 
     // 批量合并增量更新，避免高频 resolveFocusGame 引发 O(N²) Map 拷贝
     private val batchLock = Any()
@@ -290,8 +292,8 @@ class MetadataRepository(
             }
         }
         if (metaUpdates.isNotEmpty()) {
-            _metadata.value = _metadata.value + metaUpdates
-            _resolutionInfo.value = _resolutionInfo.value + infoUpdates
+            _metadata.update { it + metaUpdates }
+            _resolutionInfo.update { it + infoUpdates }
         }
     }
 
@@ -497,23 +499,65 @@ class MetadataRepository(
 
     fun configure(providers: List<SourceItemConfig>, cred: ScraperCredentials) {
         val normalized = ScraperCatalog.normalizeMetadataConfigs(providers)
-        val changed = normalized != providerConfigs || cred != credentials
+        val prevProviders = providerConfigs
+        val prevCred = credentials
+        val providersChanged = normalized != prevProviders
+        val metaCredChanged = cred.ssUser != prevCred.ssUser ||
+            cred.ssPass != prevCred.ssPass ||
+            cred.tgdbKey != prevCred.tgdbKey ||
+            cred.igdbClientId != prevCred.igdbClientId ||
+            cred.igdbClientSecret != prevCred.igdbClientSecret
         providerConfigs = normalized
         credentials = cred
         if (!configuredOnce) {
             configuredOnce = true
             return
         }
-        if (changed) {
+        if (providersChanged || metaCredChanged) {
             ensureLoadedJob?.cancel()
             ensureLoadedJob = null
-            gameCache.clear()
             metaMissStates.clear()
             focusApiResolved.clear()
             clearPendingBatch()
-            _metadata.value = emptyMap()
-            _officialNames.value = emptyMap()
-            _resolutionInfo.value = emptyMap()
+
+            val prevEnabled = prevProviders.filter { it.enabled }.map { it.id }.toSet()
+            val curEnabled = normalized.filter { it.enabled }.map { it.id }.toSet()
+            val disabledProviders = prevEnabled - curEnabled
+
+            // 仅剔除被禁用元数据节点产出的自动解析条目，完整保留手动刮削（manualMetaIds）与本地 gamelist.xml（localSeedMap）
+            if (disabledProviders.isNotEmpty()) {
+                val curInfo = _resolutionInfo.value
+                val toRemove = HashSet<String>()
+                val restoredMeta = HashMap<String, GameMetadata>()
+                val restoredInfo = HashMap<String, MetadataResolutionInfo>()
+                for ((gid, info) in curInfo) {
+                    if (gid in manualMetaIds) continue
+                    if (info.providers.isNotEmpty() && info.providers.all { it in disabledProviders }) {
+                        val localMeta = localSeedMap[gid]
+                        if (localMeta != null && !localMeta.isEmpty) {
+                            gameCache[gid] = localMeta
+                            restoredMeta[gid] = localMeta
+                            restoredInfo[gid] = MetadataResolutionInfo(
+                                providers = listOf("local"),
+                                matchModes = listOf(MetaMatchMode.LocalFile),
+                            )
+                        } else {
+                            gameCache.remove(gid)
+                            toRemove.add(gid)
+                        }
+                    }
+                }
+                if (toRemove.isNotEmpty()) {
+                    _metadata.update { cur -> cur.filterKeys { it !in toRemove } }
+                    _officialNames.update { cur -> cur.filterKeys { it !in toRemove } }
+                    _resolutionInfo.update { cur -> cur.filterKeys { it !in toRemove } }
+                }
+                if (restoredMeta.isNotEmpty()) {
+                    _metadata.update { it + restoredMeta }
+                    _resolutionInfo.update { it + restoredInfo }
+                }
+            }
+
             scope.launch(Dispatchers.IO) {
                 client.database.clearResolvedMetadataMisses()
             }
@@ -586,10 +630,13 @@ class MetadataRepository(
         games: List<Game>,
         platformResolver: (Game) -> Platform?,
         covers: CoverSource,
-    ): Int {
+    ): Int = scrapeStartMutex.withLock {
         if (missingScrapeJob?.isActive == true) {
-            return _scrapeProgress.value.total
+            return@withLock _scrapeProgress.value.total
         }
+        initialCacheReady.await()
+        covers.awaitInitialReady()
+
         val metaSnap = _metadata.value
         val pending = withContext(Dispatchers.IO) {
             val romGames = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
@@ -601,7 +648,7 @@ class MetadataRepository(
         }
         if (pending.isEmpty()) {
             _scrapeProgress.value = ScrapeProgress()
-            return 0
+            return@withLock 0
         }
 
         val total = pending.size
@@ -609,6 +656,9 @@ class MetadataRepository(
         val cred = credentials
         val useLibretroDb = enabled.any { it.id == ScraperCatalog.MetaIds.LIBRETRO_DB }
         val useArcadeItalia = enabled.any { it.id == ScraperCatalog.MetaIds.ARCADEITALIA }
+        val runId = scrapeRunSeq.incrementAndGet()
+        val flushBatchSize = if (total > 200) SCRAPE_FLUSH_LARGE_BATCH_SIZE else SCRAPE_FLUSH_BATCH_SIZE
+        val flushIntervalMs = if (total > 200) SCRAPE_FLUSH_LARGE_INTERVAL_MS else SCRAPE_FLUSH_INTERVAL_MS
 
         _scrapeProgress.value = ScrapeProgress(
             running = true,
@@ -629,6 +679,7 @@ class MetadataRepository(
             val updates = HashMap<String, GameMetadata>()
             val nameUpdates = HashMap<String, String>()
             val infoUpdates = HashMap<String, MetadataResolutionInfo>()
+            val persistBatch = ArrayList<ScrapeDatabase.ManualMetaRow>(flushBatchSize)
             var lastFlushMs = System.currentTimeMillis()
             var accSinceFlush = 0
 
@@ -637,11 +688,12 @@ class MetadataRepository(
                 val mCopy: HashMap<String, GameMetadata>
                 val nCopy: HashMap<String, String>
                 val iCopy: HashMap<String, MetadataResolutionInfo>
+                val dbCopy: ArrayList<ScrapeDatabase.ManualMetaRow>
                 synchronized(accLock) {
-                    if (!force && accSinceFlush < SCRAPE_FLUSH_BATCH_SIZE && (now - lastFlushMs) < SCRAPE_FLUSH_INTERVAL_MS) {
+                    if (!force && accSinceFlush < flushBatchSize && (now - lastFlushMs) < flushIntervalMs) {
                         return
                     }
-                    if (updates.isEmpty() && nameUpdates.isEmpty() && infoUpdates.isEmpty()) {
+                    if (updates.isEmpty() && nameUpdates.isEmpty() && infoUpdates.isEmpty() && persistBatch.isEmpty()) {
                         accSinceFlush = 0
                         lastFlushMs = now
                         return
@@ -649,20 +701,29 @@ class MetadataRepository(
                     mCopy = HashMap(updates)
                     nCopy = HashMap(nameUpdates)
                     iCopy = HashMap(infoUpdates)
+                    dbCopy = ArrayList(persistBatch)
                     updates.clear()
                     nameUpdates.clear()
                     infoUpdates.clear()
+                    persistBatch.clear()
                     accSinceFlush = 0
                     lastFlushMs = now
                 }
-                enqueueBatchUpdate(mCopy, nCopy, iCopy, immediate = true)
+                if (dbCopy.isNotEmpty()) {
+                    client.database.putResolvedMetadataBatch(dbCopy)
+                }
+                if (mCopy.isNotEmpty() || nCopy.isNotEmpty() || iCopy.isNotEmpty()) {
+                    enqueueBatchUpdate(mCopy, nCopy, iCopy, immediate = true)
+                }
             }
 
             fun publishProgress(title: String, platName: String, force: Boolean = false) {
+                if (scrapeRunSeq.get() != runId) return
                 val now = System.currentTimeMillis()
                 val prev = lastProgressEmitMs.get()
                 if (!force && (now - prev) < SCRAPE_PROGRESS_THROTTLE_MS) return
                 if (force || lastProgressEmitMs.compareAndSet(prev, now)) {
+                    if (scrapeRunSeq.get() != runId) return
                     _scrapeProgress.value = ScrapeProgress(
                         running = true,
                         done = doneCount.get(),
@@ -755,22 +816,19 @@ class MetadataRepository(
                                             canonicalNames[g.id] = effSearch
                                             searchName = effSearch
                                         }
+                                        var rowToPersist: ScrapeDatabase.ManualMetaRow? = null
                                         if (!res.meta.isEmpty) {
                                             gameCache[g.id] = res.meta
                                             metaMissStates.remove(g.id)
-                                            client.database.putResolvedMetadataBatch(
-                                                listOf(
-                                                    ScrapeDatabase.ManualMetaRow(
-                                                        gameId = g.id,
-                                                        providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
-                                                        officialName = res.officialName,
-                                                        canonicalName = effSearch,
-                                                        meta = res.meta,
-                                                        status = ScrapeDatabase.STATUS_HIT,
-                                                        expiresAtMs = 0L,
-                                                        focusChecked = true,
-                                                    ),
-                                                ),
+                                            rowToPersist = ScrapeDatabase.ManualMetaRow(
+                                                gameId = g.id,
+                                                providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
+                                                officialName = res.officialName,
+                                                canonicalName = effSearch,
+                                                meta = res.meta,
+                                                status = ScrapeDatabase.STATUS_HIT,
+                                                expiresAtMs = 0L,
+                                                focusChecked = true,
                                             )
                                         } else {
                                             gameCache.putIfAbsent(g.id, res.meta)
@@ -784,19 +842,15 @@ class MetadataRepository(
                                                 )
                                                 val persistedOff = res.officialName?.takeIf { it.isNotBlank() } ?: _officialNames.value[g.id]
                                                 val persistedCanon = effSearch ?: persistedOff ?: canonicalNames[g.id]
-                                                client.database.putResolvedMetadataBatch(
-                                                    listOf(
-                                                        ScrapeDatabase.ManualMetaRow(
-                                                            gameId = g.id,
-                                                            providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
-                                                            officialName = persistedOff,
-                                                            canonicalName = persistedCanon,
-                                                            meta = res.meta,
-                                                            status = ScrapeDatabase.STATUS_MISS,
-                                                            expiresAtMs = missState.expiresAtMs,
-                                                            focusChecked = missState.focusChecked,
-                                                        ),
-                                                    ),
+                                                rowToPersist = ScrapeDatabase.ManualMetaRow(
+                                                    gameId = g.id,
+                                                    providerId = res.info?.providers?.firstOrNull() ?: ScrapeDatabase.RESOLVED_META_PROVIDER,
+                                                    officialName = persistedOff,
+                                                    canonicalName = persistedCanon,
+                                                    meta = res.meta,
+                                                    status = ScrapeDatabase.STATUS_MISS,
+                                                    expiresAtMs = missState.expiresAtMs,
+                                                    focusChecked = missState.focusChecked,
                                                 )
                                             }
                                         }
@@ -809,6 +863,9 @@ class MetadataRepository(
                                                 nameUpdates[g.id] = res.officialName
                                             }
                                             res.info?.let { infoUpdates[g.id] = it }
+                                            if (rowToPersist != null) {
+                                                persistBatch += rowToPersist
+                                            }
                                             accSinceFlush++
                                         }
                                     }
@@ -833,26 +890,88 @@ class MetadataRepository(
                 throw e
             } finally {
                 flushPartial(force = true)
-                _scrapeProgress.value = ScrapeProgress(
-                    running = false,
-                    done = doneCount.get(),
-                    total = total,
-                    currentTitle = "",
-                    currentPlatform = "",
-                    updatedCount = updatedCount.get(),
-                    failedCount = failCount.get(),
-                    cancelled = wasCancelled,
-                    finishedAtMs = System.currentTimeMillis(),
-                )
+                if (scrapeRunSeq.get() == runId) {
+                    _scrapeProgress.value = ScrapeProgress(
+                        running = false,
+                        done = doneCount.get(),
+                        total = total,
+                        currentTitle = "",
+                        currentPlatform = "",
+                        updatedCount = updatedCount.get(),
+                        failedCount = failCount.get(),
+                        cancelled = wasCancelled,
+                        finishedAtMs = System.currentTimeMillis(),
+                    )
+                }
             }
         }
-        return total
+        total
     }
 
     /** 立即终止正在运行的增量刮削任务（已刮削的数据全部保留）。 */
     fun cancelScrapeMissing() {
         missingScrapeJob?.cancel()
         missingScrapeJob = null
+    }
+
+    /** ROM 重命名或移动后，同步迁移内存元数据缓存。 */
+    fun migrateGameId(oldId: String, newId: String) {
+        if (oldId == newId) return
+        localSeedMap.remove(oldId)?.let { localSeedMap[newId] = it }
+        gameCache.remove(oldId)?.let { gameCache[newId] = it }
+        metaMissStates.remove(oldId)?.let { metaMissStates[newId] = it }
+        if (manualMetaIds.remove(oldId)) manualMetaIds.add(newId)
+        canonicalNames.remove(oldId)?.let { canonicalNames[newId] = it }
+        focusApiResolved.remove(oldId)?.let { focusApiResolved[newId] = it }
+        _metadata.update { cur ->
+            val v = cur[oldId] ?: return@update cur
+            (cur - oldId) + (newId to v)
+        }
+        _officialNames.update { cur ->
+            val v = cur[oldId] ?: return@update cur
+            (cur - oldId) + (newId to v)
+        }
+        _resolutionInfo.update { cur ->
+            val v = cur[oldId] ?: return@update cur
+            (cur - oldId) + (newId to v)
+        }
+    }
+
+    /** ROM 永久删除后，同步清理内存元数据缓存。 */
+    fun forgetGame(gameId: String) {
+        localSeedMap.remove(gameId)
+        gameCache.remove(gameId)
+        metaMissStates.remove(gameId)
+        manualMetaIds.remove(gameId)
+        canonicalNames.remove(gameId)
+        focusApiResolved.remove(gameId)
+        _metadata.update { if (gameId in it) it - gameId else it }
+        _officialNames.update { if (gameId in it) it - gameId else it }
+        _resolutionInfo.update { if (gameId in it) it - gameId else it }
+    }
+
+    /** 目录重命名或移动后，批量迁移该前缀下全部内存元数据缓存。 */
+    fun migratePathPrefix(oldDir: String, newDir: String) {
+        val oldPrefix = if (oldDir.endsWith("/")) oldDir else "$oldDir/"
+        val newPrefix = if (newDir.endsWith("/")) newDir else "$newDir/"
+        if (oldPrefix == newPrefix) return
+        val matchedIds = (gameCache.keys + localSeedMap.keys + canonicalNames.keys + manualMetaIds + metaMissStates.keys)
+            .filter { it.startsWith(oldPrefix) }
+            .distinct()
+        for (oldId in matchedIds) {
+            migrateGameId(oldId, newPrefix + oldId.removePrefix(oldPrefix))
+        }
+    }
+
+    /** 目录永久删除后，批量清理该前缀下全部内存元数据缓存。 */
+    fun forgetPathPrefix(dirPath: String) {
+        val prefix = if (dirPath.endsWith("/")) dirPath else "$dirPath/"
+        val matchedIds = (gameCache.keys + localSeedMap.keys + canonicalNames.keys + manualMetaIds + metaMissStates.keys)
+            .filter { it.startsWith(prefix) }
+            .distinct()
+        for (gid in matchedIds) {
+            forgetGame(gid)
+        }
     }
 
     /** 收起已完成/已终止的任务进度横幅。 */
@@ -1109,7 +1228,8 @@ class MetadataRepository(
 
         fun getIdentity(): RomIdentityExtractor.Identity {
             identity?.let { return it }
-            val ext = client.extractIdentity(File(g.id), platform?.id)
+            // 静默浏览（queryApi=false）仅读头部 Serial/压缩包目录 CRC，避免切大分类时流式读 GB 级全文件 CRC32
+            val ext = client.extractIdentity(File(g.id), platform?.id, skipFullFileCrc = !queryApi)
             identity = ext
             return ext
         }
@@ -1412,6 +1532,19 @@ class MetadataRepository(
                     }
                 }
                 doneCount++
+                // 浏览大分类时每 48 款增量刷出一次内存与 SQLite 批次，避免等 3k+ 款全部跑完才出现元数据
+                if (pending.size > RESOLVE_INCREMENTAL_BATCH && doneCount % RESOLVE_INCREMENTAL_BATCH == 0) {
+                    if (persistRows.isNotEmpty()) {
+                        client.database.putResolvedMetadataBatch(ArrayList(persistRows))
+                        persistRows.clear()
+                    }
+                    if (updates.isNotEmpty() || nameUpdates.isNotEmpty() || infoUpdates.isNotEmpty()) {
+                        enqueueBatchUpdate(HashMap(updates), HashMap(nameUpdates), HashMap(infoUpdates), immediate = true)
+                        updates.clear()
+                        nameUpdates.clear()
+                        infoUpdates.clear()
+                    }
+                }
             }
         } finally {
             if (trackProgress) {
@@ -1838,7 +1971,7 @@ class MetadataRepository(
                 batchFlushJob = null
                 flushBatchLocked(emitNewlyResolved = emitNewlyResolved)
             } else if (batchFlushJob?.isActive != true) {
-                batchFlushJob = scope.launch {
+                batchFlushJob = scope.launch(Dispatchers.Default) {
                     delay(140L)
                     synchronized(batchLock) {
                         batchFlushJob = null
@@ -2206,6 +2339,9 @@ class MetadataRepository(
         const val SCRAPE_CONCURRENCY = 4
         const val SCRAPE_FLUSH_BATCH_SIZE = 16
         const val SCRAPE_FLUSH_INTERVAL_MS = 450L
+        const val SCRAPE_FLUSH_LARGE_BATCH_SIZE = 64
+        const val SCRAPE_FLUSH_LARGE_INTERVAL_MS = 1_000L
+        const val RESOLVE_INCREMENTAL_BATCH = 48
         const val SCRAPE_PROGRESS_THROTTLE_MS = 200L
         val NAME_SEARCH_META_PROVIDERS = setOf(
             ScraperCatalog.MetaIds.THEGAMESDB,

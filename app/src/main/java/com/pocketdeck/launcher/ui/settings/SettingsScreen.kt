@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -367,6 +368,7 @@ fun SettingsScreen(
     var checkingUpdate by remember { mutableStateOf(false) }
     var availableRelease by remember { mutableStateOf<com.pocketdeck.launcher.data.ReleaseInfo?>(null) }
     var updateDownloadProgress by remember { mutableStateOf<Float?>(null) }
+    var updateChoiceIdx by remember { mutableIntStateOf(1) } // 0 = Cancel, 1 = Download & Install
     fun triggerCheckUpdate() {
         if (checkingUpdate) return
         if (!NetworkStatus.isOnline(context)) {
@@ -420,14 +422,39 @@ fun SettingsScreen(
     LaunchedEffect(
         nameSpec, browsing, credDialogKind, showScrapeLogs, bindingCategorySpec,
         launcherPickerPlatform, showHiddenDialog, showFontPicker, editingSystemTab,
-        capturingAction, pendingKeyConflict, showResetBindingsConfirm, effectiveCovered,
+        capturingAction, pendingKeyConflict, showResetBindingsConfirm, availableRelease, effectiveCovered,
     ) {
         if (nameSpec == null && !browsing && credDialogKind == null && !showScrapeLogs &&
             bindingCategorySpec == null && launcherPickerPlatform == null && !showHiddenDialog &&
             !showFontPicker && editingSystemTab == null && capturingAction == null &&
-            pendingKeyConflict == null && !showResetBindingsConfirm && !effectiveCovered
+            pendingKeyConflict == null && !showResetBindingsConfirm && availableRelease == null && !effectiveCovered
         ) {
             focusRequester.requestFocusSafely()
+        }
+    }
+
+    val hasInternalOverlay = availableRelease != null || showScrapeLogs || nameSpec != null ||
+        credDialogKind != null || editingSystemTab != null || showHiddenDialog ||
+        capturingAction != null || pendingKeyConflict != null || showResetBindingsConfirm ||
+        bindingCategorySpec != null || launcherPickerPlatform != null || showFontPicker ||
+        browsing || menu != null
+
+    androidx.activity.compose.BackHandler(enabled = isVisible && !effectiveCovered && hasInternalOverlay) {
+        when {
+            availableRelease != null -> if (updateDownloadProgress == null) availableRelease = null
+            showScrapeLogs -> showScrapeLogs = false
+            nameSpec != null -> nameSpec = null
+            credDialogKind != null -> credDialogKind = null
+            editingSystemTab != null -> editingSystemTab = null
+            showHiddenDialog -> showHiddenDialog = false
+            capturingAction != null -> { capturingAction = null; keyBindError = null }
+            pendingKeyConflict != null -> pendingKeyConflict = null
+            showResetBindingsConfirm -> showResetBindingsConfirm = false
+            bindingCategorySpec != null -> bindingCategorySpec = null
+            launcherPickerPlatform != null -> launcherPickerPlatform = null
+            showFontPicker -> showFontPicker = false
+            browsing -> browsing = false
+            menu != null -> menu = null
         }
     }
 
@@ -853,14 +880,64 @@ fun SettingsScreen(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (effectiveCovered || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
+
+                availableRelease?.let { rel ->
+                    when {
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> {
+                            if (isInitialPress && updateDownloadProgress == null) availableRelease = null
+                        }
+                        event.key == Key.DirectionLeft || event.key == Key.DirectionUp -> updateChoiceIdx = 0
+                        event.key == Key.DirectionRight || event.key == Key.DirectionDown -> updateChoiceIdx = 1
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
+                            if (isInitialPress && updateDownloadProgress == null) {
+                                if (updateChoiceIdx == 0) {
+                                    availableRelease = null
+                                } else {
+                                    val url = rel.apkUrl
+                                    if (url.isNullOrBlank()) {
+                                        runCatching {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(rel.htmlUrl)))
+                                        }
+                                        availableRelease = null
+                                    } else {
+                                        updateDownloadProgress = 0f
+                                        scope.launch {
+                                            val res = com.pocketdeck.launcher.data.UpdateChecker.downloadApk(context, url) { p ->
+                                                updateDownloadProgress = p
+                                            }
+                                            updateDownloadProgress = null
+                                            res.onSuccess { apk ->
+                                                availableRelease = null
+                                                com.pocketdeck.launcher.data.UpdateChecker.installApk(context, apk)
+                                            }.onFailure { err ->
+                                                Toast.makeText(
+                                                    context,
+                                                    context.getString(R.string.update_download_failed, err.message.orEmpty()),
+                                                    Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return@onPreviewKeyEvent true
+                }
 
                 nameSpec?.let { spec ->
                     return@onPreviewKeyEvent when {
                         GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> {
-                            nameSpec = null; true
+                            if (isInitialPress) nameSpec = null
+                            true
                         }
                         GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
-                            spec.onConfirm(nameState?.value?.text.orEmpty()); nameSpec = null; true
+                            if (isInitialPress) {
+                                spec.onConfirm(nameState?.value?.text.orEmpty())
+                                nameSpec = null
+                            }
+                            true
                         }
                         else -> false
                     }
@@ -870,21 +947,25 @@ fun SettingsScreen(
                 }
                 if (credDialogKind != null) {
                     return@onPreviewKeyEvent if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
-                        credDialogKind = null; true
+                        if (isInitialPress) credDialogKind = null
+                        true
                     } else false
                 }
                 if (editingSystemTab != null) {
                     return@onPreviewKeyEvent if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
-                        editingSystemTab = null; true
+                        if (isInitialPress) editingSystemTab = null
+                        true
                     } else false
                 }
                 if (showHiddenDialog) {
                     if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
-                        showHiddenDialog = false; return@onPreviewKeyEvent true
+                        if (isInitialPress) showHiddenDialog = false
+                        return@onPreviewKeyEvent true
                     }
                     return@onPreviewKeyEvent false
                 }
                 capturingAction?.let { action ->
+                    if (!isInitialPress) return@onPreviewKeyEvent true
                     if (event.key == Key.Back || event.key == Key.Escape) {
                         capturingAction = null; keyBindError = null; return@onPreviewKeyEvent true
                     }
@@ -904,8 +985,8 @@ fun SettingsScreen(
                     when {
                         event.key == Key.DirectionUp -> conflictChoiceIdx = (conflictChoiceIdx - 1 + optCount) % optCount
                         event.key == Key.DirectionDown -> conflictChoiceIdx = (conflictChoiceIdx + 1) % optCount
-                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> pendingKeyConflict = null
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> if (isInitialPress) pendingKeyConflict = null
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> if (isInitialPress) {
                             val idx = conflictChoiceIdx; pendingKeyConflict = null
                             if (canSwap && idx == 0) {
                                 val oldKey = GamepadKeys.resolvedKeyCode(conflict.action, state.keyBindings, state.swapAbxy)
@@ -925,8 +1006,8 @@ fun SettingsScreen(
                     when {
                         event.key == Key.DirectionUp || event.key == Key.DirectionLeft -> resetConfirmChoiceIdx = 0
                         event.key == Key.DirectionDown || event.key == Key.DirectionRight -> resetConfirmChoiceIdx = 1
-                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> showResetBindingsConfirm = false
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> if (isInitialPress) showResetBindingsConfirm = false
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> if (isInitialPress) {
                             val confirm = resetConfirmChoiceIdx == 0
                             showResetBindingsConfirm = false
                             if (confirm) onResetKeyBindings()
@@ -936,8 +1017,8 @@ fun SettingsScreen(
                 }
                 if (browsing) {
                     if (browser.showAutoCreate) {
-                        if (GamepadKeys.isBack(event.key)) {
-                            browser.showAutoCreate = false
+                        if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
+                            if (isInitialPress) browser.showAutoCreate = false
                             return@onPreviewKeyEvent true
                         }
                         return@onPreviewKeyEvent false
@@ -945,10 +1026,16 @@ fun SettingsScreen(
                     when {
                         event.key == Key.DirectionUp -> browser.move(-1)
                         event.key == Key.DirectionDown -> browser.move(1)
+                        GamepadKeys.isMenu(event.key, state.swapAbxy, state.keyBindings) ->
+                            if (isInitialPress) browser.showAutoCreate = true
                         GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionRight ->
-                            browser.confirm()?.let { manage.addDir(it); browsing = false }
+                            if (isInitialPress || event.key == Key.DirectionRight) {
+                                browser.confirm()?.let { manage.addDir(it); browsing = false }
+                            }
                         GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionLeft ->
-                            if (!browser.up()) browsing = false
+                            if (isInitialPress || event.key == Key.DirectionLeft) {
+                                if (!browser.up()) browsing = false
+                            }
                     }
                     return@onPreviewKeyEvent true
                 }
@@ -956,10 +1043,11 @@ fun SettingsScreen(
                     when {
                         event.key == Key.DirectionUp -> m.move(-1)
                         event.key == Key.DirectionDown -> m.move(1)
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> if (isInitialPress) {
                             val item = m.items.getOrNull(m.index); menu = null; item?.action?.invoke()
                         }
-                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionLeft -> menu = null
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionLeft ->
+                            if (isInitialPress || event.key == Key.DirectionLeft) menu = null
                     }
                     return@onPreviewKeyEvent true
                 }
@@ -1076,19 +1164,20 @@ fun SettingsScreen(
                 switchHint = stringResource(R.string.settings_switch_section),
                 prevKey = prevKeyBadge,
                 nextKey = nextKeyBadge,
-                scrapeRunning = state.scrapeProgress.running,
+                scrapeRunning = isVisible && state.scrapeProgress.running,
                 scrapePercent = state.scrapeProgress.percent,
                 onScrapeBadgeClick = manage.openScrapeTask,
                 onBack = onDismiss,
             )
 
+            val railWidth = if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 460) 124.dp else 164.dp
             Row(Modifier.fillMaxSize()) {
                 SettingsRailSlot(
                     nav = nav,
                     items = railItems,
                     onSelect = { selectSection(it) },
                     modifier = Modifier
-                        .width(164.dp)
+                        .width(railWidth)
                         .fillMaxHeight(),
                 )
 
@@ -1257,13 +1346,21 @@ fun SettingsScreen(
             ActionMenuDialog(state = m, onPick = { item -> menu = null; item.action() }, onDismiss = { menu = null })
         }
         if (browsing) {
-            DirBrowser(state = browser, onPick = { manage.addDir(it); browsing = false }, onDismiss = { browsing = false })
+            DirBrowser(
+                state = browser,
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
+                onPick = { manage.addDir(it); browsing = false },
+                onDismiss = { browsing = false },
+            )
         }
         val spec = nameSpec
         if (spec != null && nameState != null) {
             NameDialog(
                 spec = spec,
                 state = nameState,
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
                 onConfirm = { spec.onConfirm(nameState.value.text); nameSpec = null },
                 onDismiss = { nameSpec = null },
             )
@@ -1329,13 +1426,16 @@ fun SettingsScreen(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
                         ) {
+                            val cancelSelected = updateChoiceIdx == 0
+                            val dlSelected = updateChoiceIdx == 1
                             Text(
                                 text = stringResource(android.R.string.cancel),
                                 style = DeckType.menuButton,
-                                color = DeckColors.TextSecondary,
+                                color = if (cancelSelected) DeckColors.Ruby else DeckColors.TextSecondary,
                                 modifier = Modifier
                                     .clip(DeckShapes.menuButton)
-                                    .background(DeckColors.Surface)
+                                    .background(if (cancelSelected) DeckColors.AccentSoft else DeckColors.Surface)
+                                    .then(if (cancelSelected) Modifier.border(1.5.dp, com.pocketdeck.launcher.ui.theme.DeckBrand.brandBrush, DeckShapes.menuButton) else Modifier)
                                     .clickable { availableRelease = null }
                                     .padding(horizontal = 14.dp, vertical = 8.dp),
                             )
@@ -1346,6 +1446,7 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .clip(DeckShapes.menuButton)
                                     .background(com.pocketdeck.launcher.ui.theme.DeckBrand.brandBrush)
+                                    .then(if (dlSelected) Modifier.border(1.5.dp, Color.White.copy(alpha = 0.85f), DeckShapes.menuButton) else Modifier)
                                     .clickable {
                                         val url = rel.apkUrl
                                         if (url.isNullOrBlank()) {
@@ -1384,6 +1485,8 @@ fun SettingsScreen(
             ScraperCredentialDialog(
                 kind = kind,
                 current = state.scraperCredentials,
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
                 onSave = { updated -> manage.saveCredentials(updated); credDialogKind = null },
                 onDismiss = { credDialogKind = null },
             )
@@ -1456,6 +1559,8 @@ fun SettingsScreen(
                 defaultLabel = defLabel,
                 initialCustomName = cfg.customName,
                 initialFollowSystem = cfg.followSystemLanguage,
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
                 onConfirm = { name, follow -> manage.updateSystemTab(tab.id, name, follow); editingSystemTab = null },
                 onDismiss = { editingSystemTab = null },
             )

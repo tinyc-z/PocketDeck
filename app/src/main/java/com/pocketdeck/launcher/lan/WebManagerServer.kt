@@ -178,6 +178,75 @@ class WebManagerServer(
         private const val GLOBAL_WINDOW_MS = 5 * 60_000L
         private const val MAX_GLOBAL_FAILURES = 15
         private const val GLOBAL_LOCKOUT_MS = 120_000L
+        private const val MIN_FREE_DISK_BYTES = 64L * 1024 * 1024
+        private const val MAX_SESSIONS = 64
+        private const val MAX_IP_AUTH_STATES = 256
+        private const val SSE_WRITE_STALL_TIMEOUT_MS = 20_000L
+        internal val HTML_SECURITY_HEADERS: Map<String, String> = mapOf(
+            "Content-Security-Policy" to "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; font-src 'self' data:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+            "X-Content-Type-Options" to "nosniff",
+            "X-Frame-Options" to "DENY",
+            "Referrer-Policy" to "same-origin",
+        )
+
+        /** 校验请求 `Host` 头匹配当前绑定的网卡 IP:Port（防 DNS Rebinding 与 HTTP/1.0 空 Host 绕过）。 */
+        internal fun isAllowedHostHeader(
+            hostHeader: String,
+            boundIp: String?,
+            boundPort: Int,
+            remoteIp: String = "",
+        ): Boolean {
+            val host = hostHeader.trim().lowercase()
+            if (host.isEmpty() || boundIp.isNullOrBlank() || boundPort <= 0) return false
+            val ip = boundIp.trim().lowercase()
+            if (host == "$ip:$boundPort") return true
+            if (boundPort == 80 && host == ip) return true
+            // 仅当客户端本身来自回环地址（如 adb forward 调试）时放行 127.0.0.1 / localhost
+            val isLoopbackPeer = remoteIp == "127.0.0.1" || remoteIp == "::1" || remoteIp == "0:0:0:0:0:0:0:1"
+            if (isLoopbackPeer) {
+                if (host == "127.0.0.1:$boundPort" || host == "localhost:$boundPort") return true
+                if (host.startsWith("127.0.0.1:") || host.startsWith("localhost:")) {
+                    val portPart = host.substringAfter(':').toIntOrNull()
+                    if (portPart != null && portPart in 1..65535) return true
+                }
+            }
+            return false
+        }
+
+        /** 校验 POST 请求的 Host + Origin/Referer 严格同源，阻断跨站请求与 DNS Rebinding。 */
+        internal fun isAllowedPostOriginHeader(
+            hostHeader: String,
+            originHeader: String,
+            refererHeader: String,
+            boundIp: String?,
+            boundPort: Int,
+            remoteIp: String = "",
+        ): Boolean {
+            if (!isAllowedHostHeader(hostHeader, boundIp, boundPort, remoteIp)) return false
+            val host = hostHeader.trim().lowercase()
+            val origin = originHeader.trim()
+            if (origin.isNotEmpty()) {
+                val auth = runCatching { URI(origin).authority?.lowercase() }.getOrNull() ?: return false
+                if (auth != host) return false
+            } else {
+                val referer = refererHeader.trim()
+                if (referer.isNotEmpty()) {
+                    val auth = runCatching { URI(referer).authority?.lowercase() }.getOrNull() ?: return false
+                    if (auth != host) return false
+                }
+            }
+            return true
+        }
+
+        internal fun hasEnoughDiskSpace(dir: File, incomingBytes: Long): Boolean {
+            var cur: File? = dir
+            while (cur != null && !cur.exists()) {
+                cur = cur.parentFile
+            }
+            val usable = runCatching { cur?.usableSpace ?: 0L }.getOrDefault(0L)
+            if (usable <= 0L) return true
+            return usable >= incomingBytes.coerceAtLeast(0L) + MIN_FREE_DISK_BYTES
+        }
         private const val MAX_COVER_UPLOAD_BYTES = 8 * 1024 * 1024L
         private const val MAX_WEB_HISTORY_ITEMS = 100
         private const val STALL_ZERO_MS = 1_500L
@@ -439,7 +508,7 @@ class WebManagerServer(
                     if (!g.customCover.isNullOrBlank()) {
                         val dir = File(context.filesDir, "custom_covers")
                         val prevCover = repo.user.value?.covers?.get(g.id)
-                        if (prevCover != null && prevCover.startsWith(dir.absolutePath)) {
+                        if (prevCover != null && WebFileSecurity.isInsideDir(File(prevCover), dir)) {
                             runCatching { File(prevCover).delete() }
                         }
                         val existingName = repo.user.value?.renames?.get(g.id)
@@ -747,6 +816,15 @@ class WebManagerServer(
         random.nextBytes(bytes)
         val token = bytes.joinToString("") { "%02x".format(it) }
         val now = System.currentTimeMillis()
+        // 清理已过期会话并限制并发会话上限，防止内存无界增长
+        val it = sessions.entries.iterator()
+        while (it.hasNext()) {
+            if (now > it.next().value.expiresAtMs) it.remove()
+        }
+        while (sessions.size >= MAX_SESSIONS) {
+            val oldestKey = sessions.entries.minByOrNull { it.value.lastActiveMs }?.key ?: break
+            sessions.remove(oldestKey)
+        }
         sessions[token] = SessionRecord(
             token = token,
             ip = req.remoteIp.ifBlank { "unknown" },
@@ -1049,24 +1127,21 @@ class WebManagerServer(
         return if (os.isNotEmpty() && browser != os) "$browser · $os" else browser
     }
 
-    private fun isAllowedPostOrigin(req: HttpRequest): Boolean {
-        val host = req.headers["host"].orEmpty().trim().lowercase()
-        val origin = req.headers["origin"].orEmpty().trim()
-        if (origin.isNotEmpty() && host.isNotEmpty()) {
-            val auth = runCatching { URI(origin).authority?.lowercase() }.getOrNull() ?: return false
-            if (auth != host) return false
-        } else if (origin.isEmpty()) {
-            val referer = req.headers["referer"].orEmpty().trim()
-            if (referer.isNotEmpty() && host.isNotEmpty()) {
-                val auth = runCatching { URI(referer).authority?.lowercase() }.getOrNull() ?: return false
-                if (auth != host) return false
-            }
-        }
-        return true
-    }
+    private fun isAllowedPostOrigin(req: HttpRequest): Boolean = isAllowedPostOriginHeader(
+        hostHeader = req.headers["host"].orEmpty(),
+        originHeader = req.headers["origin"].orEmpty(),
+        refererHeader = req.headers["referer"].orEmpty(),
+        boundIp = activeInterface?.ipAddress,
+        boundPort = boundPort,
+        remoteIp = req.remoteIp,
+    )
 
     private suspend fun handleRequest(req: HttpRequest, res: HttpResponseWriter) {
         res.onBytesSent = { sent -> recordHttpTx(req.remoteIp, sent) }
+        if (!isAllowedHostHeader(req.headers["host"].orEmpty(), activeInterface?.ipAddress, boundPort, req.remoteIp)) {
+            res.sendJson(403, """{"ok":false,"error":"invalid_host"}""")
+            return
+        }
         if (req.method == "POST" && !isAllowedPostOrigin(req)) {
             res.sendJson(403, """{"ok":false,"error":"cross_origin_forbidden"}""")
             return
@@ -1074,9 +1149,9 @@ class WebManagerServer(
 
         if (req.method == "GET" && req.path == "/") {
             if (isAuthenticated(req)) {
-                res.sendText(200, WebManagerUi.renderAppHtml(context, themeConfig), "text/html; charset=utf-8")
+                res.sendText(200, WebManagerUi.renderAppHtml(context, themeConfig), "text/html; charset=utf-8", HTML_SECURITY_HEADERS)
             } else {
-                res.sendText(200, WebManagerUi.renderLoginHtml(context, themeConfig), "text/html; charset=utf-8")
+                res.sendText(200, WebManagerUi.renderLoginHtml(context, themeConfig), "text/html; charset=utf-8", HTML_SECURITY_HEADERS)
             }
             return
         }
@@ -1222,6 +1297,24 @@ class WebManagerServer(
         }
     }
 
+    private fun pruneIpAuthStatesLocked(now: Long, incomingIp: String) {
+        if (ipAuthStates.size < MAX_IP_AUTH_STATES || incomingIp in ipAuthStates) return
+        val iter = ipAuthStates.entries.iterator()
+        while (iter.hasNext()) {
+            val st = iter.next().value
+            val lastAttempt = st.attemptTimestamps.lastOrNull() ?: 0L
+            if (now >= st.lockedUntilMs && now - lastAttempt > ATTEMPT_WINDOW_MS) {
+                iter.remove()
+            }
+        }
+        if (ipAuthStates.size >= MAX_IP_AUTH_STATES) {
+            val evictKey = ipAuthStates.entries.minByOrNull { (_, st) ->
+                maxOf(st.lockedUntilMs, st.attemptTimestamps.lastOrNull() ?: 0L)
+            }?.key
+            if (evictKey != null) ipAuthStates.remove(evictKey)
+        }
+    }
+
     private fun handleLogin(req: HttpRequest, res: HttpResponseWriter) {
         val ip = req.remoteIp.ifBlank { "unknown" }
         val now = System.currentTimeMillis()
@@ -1231,6 +1324,7 @@ class WebManagerServer(
                 res.sendJson(429, """{"ok":false,"error":"locked","retryAfterSec":$sec}""")
                 return
             }
+            pruneIpAuthStatesLocked(now, ip)
             val ipState = ipAuthStates.getOrPut(ip) { IpAuthState() }
             if (now < ipState.lockedUntilMs) {
                 val sec = ((ipState.lockedUntilMs - now + 999L) / 1000L).coerceAtLeast(1L)
@@ -1261,6 +1355,7 @@ class WebManagerServer(
             var remaining = 0
             synchronized(authLock) {
                 val failNow = System.currentTimeMillis()
+                pruneIpAuthStatesLocked(failNow, ip)
                 val ipState = ipAuthStates.getOrPut(ip) { IpAuthState() }
                 ipState.consecutiveFailures++
                 while (globalFailures.isNotEmpty() && failNow - globalFailures.first() > GLOBAL_WINDOW_MS) {
@@ -1400,9 +1495,12 @@ class WebManagerServer(
             if (!res.sendSseRaw("event: scrape_progress\ndata: ${buildScrapePayload()}\n\n")) return
 
             kotlinx.coroutines.coroutineScope {
+                val writeStartedAtMs = java.util.concurrent.atomic.AtomicLong(0L)
                 val writerJob = launch(Dispatchers.IO) {
                     for (payload in outChannel) {
+                        writeStartedAtMs.set(System.currentTimeMillis())
                         val ok = res.sendSseRaw(payload)
+                        writeStartedAtMs.set(0L)
                         if (!ok) {
                             req.cancelConnection()
                             this@coroutineScope.cancel()
@@ -1414,6 +1512,12 @@ class WebManagerServer(
                     while (isActive) {
                         delay(SSE_PING_INTERVAL_MS)
                         if (!isRunning) {
+                            this@coroutineScope.cancel()
+                            return@launch
+                        }
+                        val stalledAt = writeStartedAtMs.get()
+                        if (stalledAt > 0L && System.currentTimeMillis() - stalledAt > SSE_WRITE_STALL_TIMEOUT_MS) {
+                            req.cancelConnection()
                             this@coroutineScope.cancel()
                             return@launch
                         }
@@ -1958,14 +2062,19 @@ class WebManagerServer(
         }
         val existingPlatDir = roots.asSequence()
             .map { File(it, platformId) }
-            .firstOrNull { it.isDirectory }
-        val targetDir = existingPlatDir ?: File(primaryRoot, platformId).apply { mkdirs() }
-        if (!targetDir.isDirectory) {
-            res.sendJson(500, """{"ok":false,"error":"mkdir_failed"}""")
+            .firstOrNull { it.isDirectory && resolveAllowedDir(it.absolutePath, roots) != null }
+        val candidateTargetDir = existingPlatDir ?: File(primaryRoot, platformId).apply { mkdirs() }
+        val targetDir = resolveAllowedDir(candidateTargetDir.absolutePath, roots)
+        if (targetDir == null || !targetDir.isDirectory) {
+            res.sendJson(403, """{"ok":false,"error":"forbidden_dir"}""")
             return
         }
         if (req.contentLength < 0L && !req.isChunked) {
             res.sendJson(400, """{"ok":false,"error":"empty_body"}""")
+            return
+        }
+        if (!hasEnoughDiskSpace(targetDir, req.contentLength)) {
+            res.sendJson(507, """{"ok":false,"error":"insufficient_storage"}""")
             return
         }
         val finalTarget = uniqueFile(targetDir, cleanName)
@@ -1988,12 +2097,21 @@ class WebManagerServer(
             totalBytes = req.contentLength.coerceAtLeast(0L),
         )
         var writtenBytes = 0L
+        var diskFull = false
         var ok = false
         try {
             ok = runCatching {
+                var nextSpaceCheckAt = 8L * 1024 * 1024
                 partFile.outputStream().use { out ->
                     val written = req.copyBodyTo(out) { copied ->
                         writtenBytes = copied
+                        if (copied >= nextSpaceCheckAt) {
+                            nextSpaceCheckAt = copied + 8L * 1024 * 1024
+                            if (!hasEnoughDiskSpace(targetDir, 0L)) {
+                                diskFull = true
+                                throw IllegalStateException("Insufficient storage")
+                            }
+                        }
                         if (tracker.onProgress(copied, tracker.totalBytes)) {
                             repo.updateFileTask(uploadTask.id, bytesDone = copied, totalBytes = tracker.totalBytes)
                             publishClients()
@@ -2014,7 +2132,11 @@ class WebManagerServer(
             repo.endFileTask(uploadTask.id)
         }
         if (!ok) {
-            res.sendJson(500, """{"ok":false,"error":"upload_failed"}""")
+            if (diskFull) {
+                res.sendJson(507, """{"ok":false,"error":"insufficient_storage"}""")
+            } else {
+                res.sendJson(500, """{"ok":false,"error":"upload_failed"}""")
+            }
             return
         }
         repo.notifyFilesChanged()
@@ -2100,7 +2222,7 @@ class WebManagerServer(
         if (coverUpdated && !game.customCover.isNullOrBlank()) {
             val dir = File(context.filesDir, "custom_covers")
             val prevCover = repo.user.value?.covers?.get(id)
-            if (prevCover != null && prevCover.startsWith(dir.absolutePath)) {
+            if (prevCover != null && WebFileSecurity.isInsideDir(File(prevCover), dir)) {
                 runCatching { File(prevCover).delete() }
             }
             val existingName = repo.user.value?.renames?.get(id)
@@ -2132,7 +2254,11 @@ class WebManagerServer(
             return
         }
         val sourceUrl = req.query["sourceUrl"]?.trim().orEmpty()
-        val hasSourceUrl = sourceUrl.startsWith("http://", ignoreCase = true) || sourceUrl.startsWith("https://", ignoreCase = true)
+        val hasSourceUrl = sourceUrl.isNotEmpty()
+        if (hasSourceUrl && !WebFileSecurity.isAllowedCoverSourceUrl(sourceUrl)) {
+            res.sendJson(400, """{"ok":false,"error":"invalid_source_url"}""")
+            return
+        }
         if (req.contentLength > MAX_COVER_UPLOAD_BYTES) {
             res.sendJson(400, """{"ok":false,"error":"invalid_image_size"}""")
             return
@@ -2141,8 +2267,8 @@ class WebManagerServer(
         val bytes = if (bodyBytes.isNotEmpty()) {
             bodyBytes
         } else if (hasSourceUrl) {
-            // 若外链不允许浏览器 CORS 直读（如 hasheous.org），回退由掌机直接下载该 URL
-            covers.downloadImageBytes(sourceUrl)?.second ?: ByteArray(0)
+            // 仅允许经白名单域名 + 公网 IP 校验的安全 HTTPS 代下载（阻断局域网/回环 SSRF）
+            covers.downloadImageBytes(sourceUrl, strictPublicCoverHost = true)?.second ?: ByteArray(0)
         } else {
             ByteArray(0)
         }
@@ -2168,7 +2294,7 @@ class WebManagerServer(
             res.sendJson(500, """{"ok":false,"error":"save_failed"}""")
             return
         }
-        if (prevCover != null && prevCover.startsWith(dir.absolutePath) && prevCover != target.absolutePath) {
+        if (prevCover != null && WebFileSecurity.isInsideDir(File(prevCover), dir) && prevCover != target.absolutePath) {
             runCatching { File(prevCover).delete() }
         }
         covers.forget(id)
@@ -2194,7 +2320,7 @@ class WebManagerServer(
         }
         val dir = File(context.filesDir, "custom_covers")
         val prevCover = repo.user.value?.covers?.get(id)
-        if (prevCover != null && prevCover.startsWith(dir.absolutePath)) {
+        if (prevCover != null && WebFileSecurity.isInsideDir(File(prevCover), dir)) {
             runCatching { File(prevCover).delete() }
         }
         covers.forget(id)
@@ -2829,6 +2955,10 @@ class WebManagerServer(
             res.sendJson(400, """{"ok":false,"error":"empty_body"}""")
             return
         }
+        if (!hasEnoughDiskSpace(targetDir, req.contentLength)) {
+            res.sendJson(507, """{"ok":false,"error":"insufficient_storage"}""")
+            return
+        }
 
         val finalTarget = uniqueFile(targetDir, cleanName)
         val partFile = File(targetDir, ".upload_${System.currentTimeMillis()}_${finalTarget.name}.part")
@@ -2850,12 +2980,21 @@ class WebManagerServer(
             totalBytes = req.contentLength.coerceAtLeast(0L),
         )
         var writtenBytes = 0L
+        var diskFull = false
         var ok = false
         try {
             ok = runCatching {
+                var nextSpaceCheckAt = 8L * 1024 * 1024
                 partFile.outputStream().use { out ->
                     val written = req.copyBodyTo(out) { copied ->
                         writtenBytes = copied
+                        if (copied >= nextSpaceCheckAt) {
+                            nextSpaceCheckAt = copied + 8L * 1024 * 1024
+                            if (!hasEnoughDiskSpace(targetDir, 0L)) {
+                                diskFull = true
+                                throw IllegalStateException("Insufficient storage")
+                            }
+                        }
                         if (tracker.onProgress(copied, tracker.totalBytes)) {
                             repo.updateFileTask(uploadTask.id, bytesDone = copied, totalBytes = tracker.totalBytes)
                             publishClients()
@@ -2882,7 +3021,11 @@ class WebManagerServer(
             )
         }
         if (!ok) {
-            res.sendJson(500, """{"ok":false,"error":"upload_failed"}""")
+            if (diskFull) {
+                res.sendJson(507, """{"ok":false,"error":"insufficient_storage"}""")
+            } else {
+                res.sendJson(500, """{"ok":false,"error":"upload_failed"}""")
+            }
             return
         }
         repo.notifyFilesChanged()

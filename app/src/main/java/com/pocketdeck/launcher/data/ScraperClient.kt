@@ -201,8 +201,76 @@ class ScraperClient(
     fun hasFastFingerprint(file: File, platformId: String? = null): Boolean =
         identityExtractor.hasFastFingerprint(file, platformId)
 
-    fun extractIdentity(file: File, platformId: String? = null): RomIdentityExtractor.Identity =
-        identityExtractor.extract(file, platformId)
+    fun extractIdentity(
+        file: File,
+        platformId: String? = null,
+        skipFullFileCrc: Boolean = false,
+    ): RomIdentityExtractor.Identity =
+        identityExtractor.extract(file, platformId, skipFullFileCrc = skipFullFileCrc)
+
+    fun migrateGameId(oldId: String, newId: String) {
+        if (oldId == newId) return
+        identityExtractor.migratePath(oldId, newId)
+        val suffix = "::$oldId"
+        val moved = ArrayList<Pair<String, CacheEntry>>()
+        for (key in memHits.keysSnapshot()) {
+            if (key.endsWith(suffix)) {
+                val entry = memHits.remove(key)
+                if (entry != null) {
+                    moved += (key.removeSuffix(suffix) + "::$newId") to entry
+                }
+            }
+        }
+        for ((newKey, entry) in moved) {
+            memHits[newKey] = entry
+        }
+    }
+
+    fun forgetGame(gameId: String) {
+        identityExtractor.forgetPath(gameId)
+        val suffix = "::$gameId"
+        for (key in memHits.keysSnapshot()) {
+            if (key.endsWith(suffix)) {
+                memHits.remove(key)
+            }
+        }
+    }
+
+    fun migratePathPrefix(oldDir: String, newDir: String) {
+        val oldPrefix = if (oldDir.endsWith("/")) oldDir else "$oldDir/"
+        val newPrefix = if (newDir.endsWith("/")) newDir else "$newDir/"
+        if (oldPrefix == newPrefix) return
+        val marker = "::$oldPrefix"
+        val moved = ArrayList<Pair<String, CacheEntry>>()
+        for (key in memHits.keysSnapshot()) {
+            val idx = key.indexOf(marker)
+            if (idx >= 0) {
+                val oldId = key.substring(idx + 2)
+                val newId = newPrefix + oldId.removePrefix(oldPrefix)
+                identityExtractor.migratePath(oldId, newId)
+                val entry = memHits.remove(key)
+                if (entry != null) {
+                    moved += (key.substring(0, idx + 2) + newId) to entry
+                }
+            }
+        }
+        for ((newKey, entry) in moved) {
+            memHits[newKey] = entry
+        }
+    }
+
+    fun forgetPathPrefix(dirPath: String) {
+        val prefix = if (dirPath.endsWith("/")) dirPath else "$dirPath/"
+        val marker = "::$prefix"
+        for (key in memHits.keysSnapshot()) {
+            val idx = key.indexOf(marker)
+            if (idx >= 0) {
+                val gid = key.substring(idx + 2)
+                identityExtractor.forgetPath(gid)
+                memHits.remove(key)
+            }
+        }
+    }
 
     fun computeRomCrc32(file: File, platformId: String? = null): String? =
         identityExtractor.extract(file, platformId).crc32
@@ -522,7 +590,9 @@ class ScraperClient(
             val chosenLabel = label ?: fallbackLabel
 
             val entRes = httpGet("https://www.wikidata.org/w/api.php?action=wbgetentities&ids=$chosenQid&props=claims&format=json")
-            if (entRes.body == null) return@runCatching ScrapeHit()
+            if (entRes.transientError || entRes.body == null) {
+                return QueryOutcome(null, transientError = true)
+            }
             val claims = JSONObject(entRes.body).optJSONObject("entities")
                 ?.optJSONObject(chosenQid)?.optJSONObject("claims") ?: return@runCatching ScrapeHit()
             // 兜底候选必须带有 P400（游戏平台）属性才确认是游戏词条，防止误配非游戏百科条目
@@ -540,7 +610,14 @@ class ScraperClient(
             }.distinct()
 
             val idsToResolve = listOfNotNull(devId, pubId, genreId).distinct()
-            val labels = if (idsToResolve.isEmpty()) emptyMap() else resolveWikidataLabels(idsToResolve)
+            val (labels, labelsTransientErr) = if (idsToResolve.isEmpty()) {
+                emptyMap<String, String>() to false
+            } else {
+                resolveWikidataLabels(idsToResolve)
+            }
+            if (labelsTransientErr && release == null && coverUrls.isEmpty()) {
+                return QueryOutcome(null, transientError = true)
+            }
 
             ScrapeHit(
                 coverUrls = coverUrls,
@@ -556,12 +633,13 @@ class ScraperClient(
         return QueryOutcome(hit)
     }
 
-    private fun resolveWikidataLabels(ids: List<String>): Map<String, String> {
+    private fun resolveWikidataLabels(ids: List<String>): Pair<Map<String, String>, Boolean> {
         val res = httpGet(
             "https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${ids.joinToString("|")}&props=labels&languages=en|zh&format=json",
         )
-        val body = res.body ?: return emptyMap()
-        return runCatching {
+        if (res.transientError || res.body == null) return emptyMap<String, String>() to true
+        val body = res.body
+        val parsed = runCatching {
             val entities = JSONObject(body).optJSONObject("entities") ?: return@runCatching emptyMap()
             val preferZh = Locale.getDefault().language.equals("zh", ignoreCase = true)
             val map = HashMap<String, String>(ids.size)
@@ -578,6 +656,7 @@ class ScraperClient(
             }
             map
         }.getOrDefault(emptyMap())
+        return parsed to false
     }
 
     // ───────────────────────── ScreenScraper.fr ─────────────────────────

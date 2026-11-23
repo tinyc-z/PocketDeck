@@ -5,6 +5,7 @@ import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Library
 import com.pocketdeck.launcher.data.model.Platform
+import com.pocketdeck.launcher.lan.WebFileSecurity
 import org.xml.sax.Attributes
 import org.xml.sax.helpers.DefaultHandler
 import org.xmlpull.v1.XmlPullParser
@@ -146,7 +147,10 @@ object RomScanner {
         return sample.lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() && !it.startsWith("#") }
-            .any { line -> File(parent, line).isFile }
+            .any { line ->
+                val target = File(parent, line)
+                target.isFile && WebFileSecurity.isInsideDir(target, parent)
+            }
     }
 
     /** 常见的 ROM 根目录，按顺序取第一个存在的。 */
@@ -460,6 +464,7 @@ object RomScanner {
                             val line = rawLine.trim().removePrefix("\uFEFF")
                             if (line.isEmpty() || line.startsWith("#")) return@forEach
                             val target = File(dir, line)
+                            if (!WebFileSecurity.isInsideDir(target, dir)) return@forEach
                             if (target.isFile) {
                                 refs += target.path
                                 m3uReferencedNames += target.name.lowercase()

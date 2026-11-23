@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="localsend_rsa.key" />
+        <exclude domain="file" path="user_prefs.json" />
+        <exclude domain="file" path="user_prefs.json.bak" />
+        <exclude domain="file" path="web_covers" />
+        <exclude domain="file" path="cover_thumbs_webp" />
+        <exclude domain="database" path="scrape_cache.db" />
+        <exclude domain="database" path="scrape_cache.db-wal" />
+        <exclude domain="database" path="scrape_cache.db-shm" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="localsend_rsa.key" />
+        <exclude domain="file" path="web_covers" />
+        <exclude domain="file" path="cover_thumbs_webp" />
+        <exclude domain="database" path="scrape_cache.db" />
+        <exclude domain="database" path="scrape_cache.db-wal" />
+        <exclude domain="database" path="scrape_cache.db-shm" />
+    </device-transfer>
+</data-extraction-rules>

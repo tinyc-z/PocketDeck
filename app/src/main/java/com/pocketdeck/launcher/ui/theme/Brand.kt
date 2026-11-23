@@ -38,10 +38,7 @@ object DeckBrand {
     val RadiusXL = 22.dp
 
     val brandBrush: Brush
-        @Composable @ReadOnlyComposable get() {
-            val p = LocalDeckColors.current
-            return Brush.linearGradient(listOf(p.brandStart, p.brandMid, p.brandEnd))
-        }
+        @Composable @ReadOnlyComposable get() = LocalDeckColors.current.brandBrush
 
     fun brush(p: DeckPalette, start: Offset = Offset.Zero, end: Offset = Offset.Infinite): Brush =
         Brush.linearGradient(listOf(p.brandStart, p.brandMid, p.brandEnd), start = start, end = end)

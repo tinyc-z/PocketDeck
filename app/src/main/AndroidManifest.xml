@@ -50,6 +50,8 @@
         <package android:name="org.ppsspp.ppssppgold" />
         <package android:name="com.dsemu.drastic" />
         <package android:name="me.magnum.melonds" />
+        <package android:name="com.sky.SkyEmu" />
+        <package android:name="com.skylersaleh.skyemu" />
         <package android:name="com.github.stenzek.duckstation" />
         <package android:name="com.epsxe.ePSXe" />
         <package android:name="com.emulator.fpse64" />
@@ -57,6 +59,7 @@
         <package android:name="xyz.aethersx2.android" />
         <package android:name="com.nethersx2.emulator" />
         <package android:name="com.tahlreth.aethersx2" />
+        <package android:name="com.virtualapplications.play" />
         <package android:name="org.dolphinemu.dolphinemu" />
         <package android:name="org.dolphinemu.handheld" />
         <package android:name="org.dolphinemu.mmjr" />
@@ -73,6 +76,9 @@
         <package android:name="org.yuzu.yuzu_emu" />
         <package android:name="dev.suyu.suyu_emu" />
         <package android:name="org.ryujinx.android" />
+        <package android:name="org.kenjinx.android" />
+        <package android:name="com.seleuco.mame4d2024" />
+        <package android:name="com.seleuco.mame4droid" />
         <package android:name="info.cemu.cemu" />
         <package android:name="org.vita3k.emulator" />
         <package android:name="com.flycast.emulator" />
@@ -91,6 +97,18 @@
         <package android:name="com.fastemulator.gbafree" />
         <package android:name="com.fastemulator.gbc" />
         <package android:name="com.fastemulator.gbcfree" />
+        <package android:name="com.explusalpha.Snes9xPlus" />
+        <package android:name="com.explusalpha.NesEmu" />
+        <package android:name="com.explusalpha.GbaEmu" />
+        <package android:name="com.explusalpha.GbcEmu" />
+        <package android:name="com.explusalpha.MdEmu" />
+        <package android:name="com.explusalpha.PceEmu" />
+        <package android:name="com.explusalpha.MsxEmu" />
+        <package android:name="com.explusalpha.NgpEmu" />
+        <package android:name="com.explusalpha.A2600Emu" />
+        <package android:name="com.explusalpha.C64Emu" />
+        <package android:name="com.explusalpha.SaturnEmu" />
+        <package android:name="com.explusalpha.LynxEmu" />
         <package android:name="com.johnemulators.johnness" />
         <package android:name="com.johnemulators.johngbac" />
         <package android:name="bruenor.magicbox" />
@@ -111,6 +129,8 @@
     <application
         android:name=".PocketDeckApp"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

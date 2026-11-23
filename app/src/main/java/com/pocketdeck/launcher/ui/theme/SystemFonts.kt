@@ -255,7 +255,7 @@ object SystemFonts {
             id.startsWith(CUSTOM_PREFIX) -> {
                 val payload = id.removePrefix(CUSTOM_PREFIX)
                 val label = payload.substringBefore('|').ifBlank { "Custom Font" }
-                if (missingFmt != null && !isFontAvailable(id) && familyCache[id] == null) {
+                if (missingFmt != null && familyCache[id] == null && !isFontAvailable(id)) {
                     missingFmt.format(label)
                 } else {
                     label
@@ -264,7 +264,7 @@ object SystemFonts {
             id.startsWith(FILE_PREFIX) -> {
                 val file = File(id.removePrefix(FILE_PREFIX))
                 val name = cleanFontLabel(file.name, file.nameWithoutExtension)
-                if (missingFmt != null && !isFontAvailable(id) && familyCache[id] == null) {
+                if (missingFmt != null && familyCache[id] == null && !isFontAvailable(id)) {
                     missingFmt.format(name)
                 } else {
                     name

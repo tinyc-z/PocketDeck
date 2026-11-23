@@ -454,6 +454,8 @@ internal fun LanWebServiceCard(
                                     SmallPillButton(
                                         label = stringResource(R.string.lan_web_client_kick),
                                         danger = true,
+                                        nav = nav,
+                                        navId = "web_kick_${client.ip}",
                                         swapAbxy = swapAbxy,
                                         keyBindings = keyBindings,
                                         onClick = { onKickWebClient(client.ip) },
@@ -463,7 +465,7 @@ internal fun LanWebServiceCard(
                             client.activeTransfers.forEach { tx ->
                                 val isUp = tx.direction == WebTransferDirection.Upload
                                 val txColor = if (isUp) DeckColors.StatusSuccess else DeckColors.StatusInfo
-                                val dirPrefix = if (isUp) "⬆ $uploadingLabel" else "⬇ $downloadingLabel"
+                                val dirPrefix = if (isUp) "↑ $uploadingLabel" else "↓ $downloadingLabel"
                                 val sizePart = if (tx.totalBytes > 0L) {
                                     "${formatSize(tx.bytesTransferred)}/${formatSize(tx.totalBytes)}"
                                 } else {
@@ -503,6 +505,8 @@ internal fun LanWebServiceCard(
                                         )
                                         TaskCancelCrossButton(
                                             tint = txColor,
+                                            nav = nav,
+                                            navId = "web_tx_cancel_${tx.id}",
                                             swapAbxy = swapAbxy,
                                             keyBindings = keyBindings,
                                             onClick = { onCancelWebTransfer(tx.id) },

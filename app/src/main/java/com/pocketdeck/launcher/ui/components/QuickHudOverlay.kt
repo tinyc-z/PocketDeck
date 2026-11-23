@@ -17,10 +17,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +54,7 @@ import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.brandBorder
 import com.pocketdeck.launcher.ui.theme.cardSurface
 
@@ -121,11 +125,12 @@ fun QuickHudOverlay(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) ||
                         GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) ||
                         GamepadKeys.isQuickHud(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (isInitialPress) onDismiss()
                         true
                     }
                     event.key == Key.DirectionDown -> {
@@ -155,9 +160,11 @@ fun QuickHudOverlay(
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        when (selectedRow) {
-                            2 -> onToggleQuickShare(!lanState.shareRunning)
-                            3 -> onToggleWebServer(!lanState.webRunning)
+                        if (isInitialPress) {
+                            when (selectedRow) {
+                                2 -> onToggleQuickShare(!lanState.shareRunning)
+                                3 -> onToggleWebServer(!lanState.webRunning)
+                            }
                         }
                         true
                     }
@@ -167,12 +174,18 @@ fun QuickHudOverlay(
         contentAlignment = Alignment.TopEnd,
     ) {
         val shape = RoundedCornerShape(DeckBrand.RadiusXL)
+        val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+        val topOffset = if (screenH < 340) 20.dp else 56.dp
+        val maxHudH = (screenH - if (screenH < 340) 36 else 72).coerceAtLeast(180).dp
         Column(
             Modifier
-                .padding(start = 16.dp, top = 56.dp, end = 20.dp)
+                .padding(start = 16.dp, top = topOffset, end = 20.dp, bottom = 16.dp)
                 .widthIn(min = 280.dp, max = DeckDialogSize.WidthS)
+                .heightIn(max = maxHudH)
                 .cardSurface(shape = shape, elevation = 14.dp)
                 .border(0.8.dp, DeckColors.Line, shape)
+                .blockOverlayTouchThrough()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {

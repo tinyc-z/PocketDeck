@@ -8,7 +8,6 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -27,6 +26,9 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.pocketdeck.launcher.data.CoverSource
@@ -139,8 +141,17 @@ fun GridView(
         }
     }
 
+    val localDensity = LocalDensity.current
+    var gridAreaSize by remember { mutableStateOf(IntSize.Zero) }
+
     Box(modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onSizeChanged { if (it != gridAreaSize) gridAreaSize = it },
+        ) {
+            if (gridAreaSize.width > 0) {
+            val maxWidth = with(localDensity) { gridAreaSize.width.toDp() }
             val hPadding = 18.dp
             val spacing = 14.dp
             val cellWidth = (maxWidth - hPadding * 2 - spacing * (GRID_COLUMNS - 1)) / GRID_COLUMNS
@@ -209,6 +220,7 @@ fun GridView(
                     )
                 }
             }
+            }
         }
 
         FocusedGameFloatingPill(
@@ -219,6 +231,7 @@ fun GridView(
             total = games.size,
             placeAtTop = placePillAtTop,
             fastScrolling = fastScrolling,
+            idlePaused = idlePaused,
             showPlatformBadge = false,
             showFavoriteBadge = false,
         )

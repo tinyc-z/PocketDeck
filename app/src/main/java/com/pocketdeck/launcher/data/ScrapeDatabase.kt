@@ -46,6 +46,7 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         val crc32: String? = null,
         val sha1: String? = null,
         val serial: String? = null,
+        val romSize: Long? = null,
     ) {
         val isEmpty: Boolean get() = crc32 == null && sha1 == null && serial == null
     }
@@ -104,6 +105,7 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                 crc32 TEXT,
                 sha1 TEXT,
                 serial TEXT,
+                rom_size INTEGER NOT NULL DEFAULT 0,
                 updated_at_ms INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
@@ -111,11 +113,14 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // 后续版本在此按序追加渐进式 ALTER TABLE 迁移：
-        // if (oldVersion < 2) { ... }
         Log.i(TAG, "Upgrading scrape_cache.db from v$oldVersion to v$newVersion")
         runCatching {
             onCreate(db)
+            if (oldVersion < 2) {
+                runCatching {
+                    db.execSQL("ALTER TABLE rom_identity ADD COLUMN rom_size INTEGER NOT NULL DEFAULT 0")
+                }
+            }
         }.onFailure { err ->
             Log.w(TAG, "Upgrade failed (v$oldVersion -> v$newVersion), rebuilding cache tables", err)
             rebuildAllTables(db)
@@ -278,8 +283,20 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         val expiresAtMs: Long,
     )
 
-    private fun parseExtraJson(raw: String?): JSONObject? =
-        if (raw.isNullOrBlank()) null else runCatching { JSONObject(raw) }.getOrNull()
+    private fun parseExtraJson(raw: String?): JSONObject? {
+        if (raw.isNullOrBlank() || raw[0] != '{') return null
+        return runCatching { JSONObject(raw) }.getOrNull()
+    }
+
+    internal fun encodeExtraForTest(
+        hit: ScrapeHit,
+        manualProvider: String? = null,
+        focusChecked: Boolean = false,
+    ): String? = buildExtraJson(hit, manualProvider, focusChecked)
+
+    internal fun decodeExtraProviderForTest(raw: String?, fallbackProvider: String): String =
+        if (!raw.isNullOrBlank() && raw[0] != '{') raw
+        else parseExtraJson(raw)?.optString("manualProvider")?.takeIf { it.isNotBlank() } ?: fallbackProvider
 
     private fun buildExtraJson(
         hit: ScrapeHit,
@@ -289,6 +306,10 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         val hasCanonical = !hit.canonicalName.isNullOrBlank() && hit.canonicalName != hit.officialName
         val hasDesc = !hit.meta.description.isNullOrBlank()
         if (!hit.matchedBySerial && !hasCanonical && !hasDesc && manualProvider.isNullOrBlank() && !focusChecked) return null
+        // 高频快路径：仅存来源节点名时直接写纯字符串，冷启动加载万级元数据跳过 10k 次 JSONObject 分配与解析
+        if (!hit.matchedBySerial && !hasCanonical && !hasDesc && !focusChecked && !manualProvider.isNullOrBlank() && manualProvider[0] != '{') {
+            return manualProvider
+        }
         return JSONObject().apply {
             if (hit.matchedBySerial) put("matchedBySerial", true)
             if (hasCanonical) put("canonicalName", hit.canonicalName)
@@ -492,11 +513,23 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                 val status = c.getInt(7)
                 val expiresAtMs = c.getLong(8)
                 if (nowMs > 0L && expiresAtMs > 0L && expiresAtMs < nowMs) continue
-                val extraObj = parseExtraJson(if (c.isNull(6)) null else c.getString(6))
-                val prov = extraObj?.optString("manualProvider")?.takeIf { it.isNotBlank() } ?: providerKey
-                val canonical = extraObj?.optString("canonicalName")?.takeIf { it.isNotBlank() }
-                val desc = extraObj?.optString("description")?.takeIf { it.isNotBlank() }
-                val focusChecked = extraObj?.optBoolean("focusChecked", false) ?: false
+                val rawExtra = if (c.isNull(6)) null else c.getString(6)
+                val prov: String
+                val canonical: String?
+                val desc: String?
+                val focusChecked: Boolean
+                if (!rawExtra.isNullOrBlank() && rawExtra[0] != '{') {
+                    prov = rawExtra
+                    canonical = null
+                    desc = null
+                    focusChecked = false
+                } else {
+                    val extraObj = parseExtraJson(rawExtra)
+                    prov = extraObj?.optString("manualProvider")?.takeIf { it.isNotBlank() } ?: providerKey
+                    canonical = extraObj?.optString("canonicalName")?.takeIf { it.isNotBlank() }
+                    desc = extraObj?.optString("description")?.takeIf { it.isNotBlank() }
+                    focusChecked = extraObj?.optBoolean("focusChecked", false) ?: false
+                }
                 val meta = GameMetadata(
                     releaseDate = if (c.isNull(2)) null else c.getString(2).takeIf { it.isNotBlank() },
                     genre = if (c.isNull(3)) null else c.getString(3).takeIf { it.isNotBlank() },
@@ -529,7 +562,7 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
 
     fun getRomIdentity(path: String, size: Long, mtime: Long): RomIdentityRow? = safeDb("getRomIdentity", null) {
         readableDatabase.rawQuery(
-            "SELECT size, mtime, crc32, sha1, serial FROM rom_identity WHERE path = ?",
+            "SELECT size, mtime, crc32, sha1, serial, rom_size FROM rom_identity WHERE path = ?",
             arrayOf(path),
         ).use { c ->
             if (!c.moveToFirst()) return@safeDb null
@@ -538,19 +571,21 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
                 crc32 = if (c.isNull(2)) null else c.getString(2),
                 sha1 = if (c.isNull(3)) null else c.getString(3),
                 serial = if (c.isNull(4)) null else c.getString(4),
+                romSize = if (c.isNull(5)) null else c.getLong(5).takeIf { it > 0L },
             )
         }
     }
 
     fun putRomIdentity(path: String, size: Long, mtime: Long, row: RomIdentityRow) {
         safeDbUnit("putRomIdentity") {
-            val cv = ContentValues(7).apply {
+            val cv = ContentValues(8).apply {
                 put("path", path)
                 put("size", size)
                 put("mtime", mtime)
                 put("crc32", row.crc32)
                 put("sha1", row.sha1)
                 put("serial", row.serial)
+                put("rom_size", row.romSize ?: 0L)
                 put("updated_at_ms", System.currentTimeMillis())
             }
             writableDatabase.insertWithOnConflict("rom_identity", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
@@ -665,7 +700,7 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
     companion object {
         private const val TAG = "ScrapeDatabase"
         private const val DB_NAME = "scrape_cache.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
 
         const val STATUS_HIT = 1
         const val STATUS_MISS = 0

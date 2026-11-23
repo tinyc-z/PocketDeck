@@ -197,6 +197,27 @@ class HomeViewModel(
     private val stateDispatcher = Dispatchers.Default.limitedParallelism(1)
     private var cachedUncatKey: Triple<Int, List<Category>, Map<String, Float>>? = null
     private var cachedUncatResult: Pair<List<UncategorizedPlatformInfo>, Int> = emptyList<UncategorizedPlatformInfo>() to 0
+    private data class ManageTabsCacheKey(
+        val libIdentity: Int,
+        val categories: List<Category>,
+        val systemTabs: Map<String, SystemTabConfig>,
+        val nowTab: Boolean,
+        val favsTab: Boolean,
+        val hiddenTabs: Set<String>,
+        val tabOrder: List<String>,
+        val recents: List<String>,
+        val favorites: Set<String>,
+    )
+    private var cachedManageTabsKey: ManageTabsCacheKey? = null
+    private var cachedManageTabs: List<TabEntry> = emptyList()
+    private data class PreloadSignature(
+        val gamesIdentity: Int,
+        val focusIdx: Int,
+        val coverSources: List<SourceItemConfig>,
+        val metadataSources: List<SourceItemConfig>,
+        val scraperCredentials: ScraperCredentials,
+    )
+    private var lastPreloadSig: PreloadSignature? = null
     private var activeSessionGameId: String? = null
     private var activeSessionStartElapsedMs: Long = 0L
 
@@ -341,7 +362,25 @@ class HomeViewModel(
         officialNames: Map<String, String>,
         stateOverride: HomeUiState? = null,
     ) {
-        val manage = buildManageTabs(lib, user)
+        val manageKey = ManageTabsCacheKey(
+            libIdentity = System.identityHashCode(lib),
+            categories = user.categories,
+            systemTabs = user.systemTabs,
+            nowTab = user.nowTab,
+            favsTab = user.favsTab,
+            hiddenTabs = user.hiddenTabs,
+            tabOrder = user.tabOrder,
+            recents = user.recents,
+            favorites = user.favorites,
+        )
+        val manage = if (cachedManageTabsKey == manageKey) {
+            cachedManageTabs
+        } else {
+            buildManageTabs(lib, user).also {
+                cachedManageTabsKey = manageKey
+                cachedManageTabs = it
+            }
+        }
         val tabs = manage.filter { !it.hidden }.map {
             TabInfo(it.id, it.label, it.type, it.followSystemLanguage)
         }
@@ -369,13 +408,12 @@ class HomeViewModel(
         val filteredGames = if (current.searching) {
             if (current.searchQuery.isBlank()) {
                 emptyList()
+            } else if (effectiveSearchAll) {
+                // 先过滤再对命中子集排序，避免万级游戏库每输入 1 字都做 O(N log N) 全量排序
+                val pool = lib.byId.values.filter { it.id !in user.hidden }
+                applySearch(pool, current.searchQuery).sortedBy { it.title.lowercase() }
             } else {
-                val searchPool = if (effectiveSearchAll) {
-                    lib.byId.values.filter { it.id !in user.hidden }.sortedBy { it.title.lowercase() }
-                } else {
-                    rawGames
-                }
-                applySearch(searchPool, current.searchQuery)
+                applySearch(rawGames, current.searchQuery)
             }
         } else {
             rawGames
@@ -497,7 +535,17 @@ class HomeViewModel(
             ).also { committedState = it }
         }
         val finalState = committedState ?: return
-        preloadAssets(filteredGames, focusIdx, finalState::platformFor)
+        val preloadSig = PreloadSignature(
+            gamesIdentity = System.identityHashCode(filteredGames),
+            focusIdx = focusIdx,
+            coverSources = user.coverSources,
+            metadataSources = user.metadataSources,
+            scraperCredentials = user.scraperCredentials,
+        )
+        if (lastPreloadSig != preloadSig) {
+            lastPreloadSig = preloadSig
+            preloadAssets(filteredGames, focusIdx, finalState::platformFor)
+        }
     }
 
     private fun preloadAssets(
@@ -613,7 +661,7 @@ class HomeViewModel(
             TabType.Favs -> user.favorites.hashCode()
             TabType.Custom -> user.categories.firstOrNull { it.id == tab.id }.hashCode()
             TabType.Other -> user.categories.hashCode()
-        } * 31 + (if (needsMeta) metaMap.size else 0) + (if (needsPlayStats) user.playStats.hashCode() else 0)
+        } * 31 + (if (needsMeta) System.identityHashCode(metaMap) else 0) + (if (needsPlayStats) user.playStats.hashCode() else 0)
         val cacheKey = TabGamesCacheKey(
             tabId = tab.id,
             tabType = tab.type,

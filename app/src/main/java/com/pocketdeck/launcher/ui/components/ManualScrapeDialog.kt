@@ -74,6 +74,7 @@ import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
 import com.pocketdeck.launcher.ui.theme.DeckType
+import com.pocketdeck.launcher.ui.theme.blockOverlayTouchThrough
 import com.pocketdeck.launcher.ui.theme.brandBackground
 import com.pocketdeck.launcher.ui.theme.brandBorder
 import kotlinx.coroutines.Job
@@ -529,6 +530,11 @@ fun ManualScrapeDialog(
         }
     }
 
+    val searchFieldFr = remember { FocusRequester() }
+    androidx.activity.compose.BackHandler(enabled = previewPair != null) {
+        previewPair = null
+    }
+
     LaunchedEffect(game.id) {
         focusRequester.requestFocusSafely()
         runSearch()
@@ -543,19 +549,37 @@ fun ManualScrapeDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
+                if (fieldFocused) {
+                    return@onPreviewKeyEvent when {
+                        GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
+                            if (isInitialPress) dismissKeyboard()
+                            true
+                        }
+                        event.key == Key.DirectionDown -> {
+                            dismissKeyboard()
+                            true
+                        }
+                        else -> false // 放行键盘输入与 Enter 提交搜索，避免误应用旧结果
+                    }
+                }
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        if (previewPair != null) {
-                            previewPair = null
-                        } else {
-                            onDismiss()
+                        if (isInitialPress) {
+                            if (previewPair != null) {
+                                previewPair = null
+                            } else {
+                                onDismiss()
+                            }
                         }
                         true
                     }
                     previewPair != null && GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        val idx = previewPair?.first ?: selectedIdx
-                        previewPair = null
-                        applyAt(idx)
+                        if (isInitialPress) {
+                            val idx = previewPair?.first ?: selectedIdx
+                            previewPair = null
+                            applyAt(idx)
+                        }
                         true
                     }
                     previewPair != null -> true
@@ -563,12 +587,16 @@ fun ManualScrapeDialog(
                         selectedIdx = (selectedIdx + 1).coerceAtMost(results.lastIndex)
                         true
                     }
-                    event.key == Key.DirectionUp && results.isNotEmpty() -> {
-                        selectedIdx = (selectedIdx - 1).coerceAtLeast(0)
+                    event.key == Key.DirectionUp -> {
+                        if (results.isEmpty() || selectedIdx <= 0) {
+                            searchFieldFr.requestFocusSafely()
+                        } else {
+                            selectedIdx = (selectedIdx - 1).coerceAtLeast(0)
+                        }
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) && results.isNotEmpty() -> {
-                        applyAt(selectedIdx)
+                        if (isInitialPress) applyAt(selectedIdx)
                         true
                     }
                     else -> false
@@ -618,6 +646,7 @@ fun ManualScrapeDialog(
                         keyboardActions = KeyboardActions(onSearch = { runSearch() }),
                         modifier = Modifier
                             .fillMaxWidth()
+                            .focusRequester(searchFieldFr)
                             .onFocusChanged { fieldFocused = it.isFocused },
                     )
                 }
@@ -932,6 +961,7 @@ fun ManualScrapeDialog(
                         .clip(previewShape)
                         .background(DeckColors.DialogBg)
                         .border(0.8.dp, DeckColors.Line, previewShape)
+                        .blockOverlayTouchThrough()
                         .padding(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp),

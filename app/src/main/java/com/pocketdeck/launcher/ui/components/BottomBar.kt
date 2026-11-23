@@ -5,7 +5,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +14,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,14 +27,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.NavBarStyle
-import com.pocketdeck.launcher.data.ViewMode
-import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.icons.HomeIcons
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -48,17 +50,13 @@ import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
  */
 @Composable
 fun BottomBar(
-    viewMode: ViewMode = ViewMode.Gallery,
     navBarStyle: NavBarStyle = NavBarStyle.Classic,
     searching: Boolean = false,
     onApps: () -> Unit = {},
     onSettings: () -> Unit = {},
-    onOptions: (() -> Unit)? = null,
     onViewSwitch: () -> Unit = {},
     onSearch: () -> Unit = {},
     onPlay: () -> Unit = {},
-    swapAbxy: Boolean = false,
-    keyBindings: Map<KeyAction, Int> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     val isGlassDock = navBarStyle == NavBarStyle.GlassDock
@@ -71,18 +69,28 @@ fun BottomBar(
     val searchLabel = stringResource(R.string.lib_search_hint)
     val playLabel = stringResource(R.string.play)
 
-    BoxWithConstraints(
+    val density = LocalDensity.current
+    val fallbackWidthDp = LocalConfiguration.current.screenWidthDp.dp
+    var measuredWidthDp by remember(fallbackWidthDp) { mutableStateOf(fallbackWidthDp) }
+
+    Box(
         modifier
             .fillMaxWidth()
             .height(if (isGlassDock) 56.dp else 48.dp)
             .padding(
                 horizontal = if (isGlassDock) 12.dp else 14.dp,
                 vertical = if (isGlassDock) 4.dp else 0.dp,
-            ),
+            )
+            .onSizeChanged { sz ->
+                if (sz.width > 0) {
+                    val w = with(density) { sz.width.toDp() }
+                    if (w != measuredWidthDp) measuredWidthDp = w
+                }
+            },
         contentAlignment = if (isGlassDock) Alignment.Center else Alignment.CenterStart,
     ) {
         // 窄屏（如 1:1 方屏、8:7、4:3 640x480、竖屏）下 View 与 Search 仅保留图标，确保右侧 Play 完整显示
-        val showSecondaryLabels = maxWidth >= 460.dp
+        val showSecondaryLabels = measuredWidthDp >= 460.dp
 
         if (isGlassDock) {
             Row(

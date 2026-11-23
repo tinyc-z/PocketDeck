@@ -106,6 +106,7 @@ internal class LocalPrefsStore(
                 val mutable = MutablePrefs(LinkedHashMap(current))
                 transform(mutable)
                 val updated = mutable.rawMap()
+                if (updated == current) return@withLock
                 writeJsonAtomic(targetFile, updated)
                 state.value = PrefsSnapshot(HashMap(updated))
             }
@@ -153,7 +154,22 @@ internal class LocalPrefsStore(
     private fun readJsonAtomic(file: File): Map<String, Any> = runCatching {
         val bytes = AtomicFile(file).readFully()
         decodeJson(String(bytes, StandardCharsets.UTF_8))
-    }.getOrDefault(emptyMap())
+    }.getOrElse {
+        backupCorruptFile(file)
+        emptyMap()
+    }
+
+    internal fun backupCorruptFile(file: File) {
+        runCatching {
+            val src = when {
+                file.isFile -> file
+                File(file.path + ".bak").isFile -> File(file.path + ".bak")
+                else -> return
+            }
+            val dst = File(file.parentFile, "${file.name}.corrupt.${System.currentTimeMillis()}")
+            src.copyTo(dst, overwrite = true)
+        }
+    }
 
     private fun writeJsonAtomic(file: File, map: Map<String, Any>) {
         file.parentFile?.mkdirs()
@@ -224,14 +240,16 @@ internal class LocalPrefsStore(
                 val it = obj.keys()
                 while (it.hasNext()) {
                     val k = it.next()
-                    out[k] = obj.getBoolean(k)
+                    val v = obj.opt(k)
+                    if (v is Boolean) out[k] = v
                 }
             }
             root.optJSONObject("s")?.let { obj ->
                 val it = obj.keys()
                 while (it.hasNext()) {
                     val k = it.next()
-                    out[k] = obj.getString(k)
+                    val v = obj.opt(k)
+                    if (v is String) out[k] = v
                 }
             }
             root.optJSONObject("ss")?.let { obj ->
@@ -241,7 +259,8 @@ internal class LocalPrefsStore(
                     val arr = obj.optJSONArray(k) ?: continue
                     val set = LinkedHashSet<String>(arr.length() * 2)
                     for (i in 0 until arr.length()) {
-                        set.add(arr.getString(i))
+                        val item = arr.opt(i)
+                        if (item is String) set.add(item)
                     }
                     out[k] = set
                 }
@@ -255,7 +274,8 @@ internal class LocalPrefsStore(
                     val mkIt = sub.keys()
                     while (mkIt.hasNext()) {
                         val mk = mkIt.next()
-                        m[mk] = sub.getString(mk)
+                        val mv = sub.opt(mk)
+                        if (mv is String) m[mk] = mv
                     }
                     out[k] = m
                 }

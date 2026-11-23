@@ -8,7 +8,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,7 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -47,9 +46,11 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -110,6 +111,7 @@ fun WheelView(
     val latestGames by rememberUpdatedState(games)
     val latestFocusIndex by rememberUpdatedState(focusIndex)
     val latestOnFocusChange by rememberUpdatedState(onFocusChange)
+    val latestFastScrolling by rememberUpdatedState(fastScrolling)
 
     LaunchedEffect(games.firstOrNull()?.id, games.lastOrNull()?.id, games.size) {
         animatedFocus.snapTo(focusIndex.toFloat())
@@ -120,11 +122,17 @@ fun WheelView(
             if (reduceMotion) {
                 animatedFocus.snapTo(focusIndex.toFloat())
             } else {
+                val target = focusIndex.toFloat()
+                // 连发快滚时将动画起点夹紧在目标 1.5 格内，避免滞后脱节与多余空窗
+                val diff = target - animatedFocus.value
+                if (abs(diff) > 1.5f) {
+                    animatedFocus.snapTo(target - kotlin.math.sign(diff) * 1.5f)
+                }
                 animatedFocus.animateTo(
-                    focusIndex.toFloat(),
+                    target,
                     spring(
                         dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = 560f,
+                        stiffness = if (latestFastScrolling) 900f else 560f,
                     ),
                     initialVelocity = animatedFocus.velocity,
                 )
@@ -136,6 +144,8 @@ fun WheelView(
     val focusedGame = games[safeFocus]
     val focusedPlatform = platformOf(focusedGame)
     val focusedMeta = metadataMap[focusedGame.id]
+    var wheelAreaSize by remember { mutableStateOf(IntSize.Zero) }
+    var coverAreaSize by remember { mutableStateOf(IntSize.Zero) }
 
     Row(
         modifier = modifier
@@ -143,14 +153,14 @@ fun WheelView(
             .padding(horizontal = 24.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 左侧弧形转盘
-        BoxWithConstraints(
+        // 左侧弧形转盘（普通 Box + onSizeChanged + drawWithCache 零每帧分配）
+        Box(
             modifier = Modifier
                 .weight(0.54f)
                 .fillMaxHeight()
                 .clipToBounds()
-                .drawBehind {
-                    // 绘制与胶囊左缘同心的 C 形弧轨与当前进度弧段
+                .onSizeChanged { if (it != wheelAreaSize) wheelAreaSize = it }
+                .drawWithCache {
                     val trackW = size.width * 0.44f
                     val arcRect = Size(trackW, size.height * 0.82f)
                     val topLeft = Offset(-trackW * 0.64f, size.height * 0.09f)
@@ -159,27 +169,36 @@ fun WheelView(
                     } else {
                         Color.White.copy(alpha = 0.62f)
                     }
-                    drawArc(
-                        color = trackColor,
-                        startAngle = -56f,
-                        sweepAngle = 112f,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = arcRect,
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                    val trackStroke = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                    val thumbStroke = Stroke(width = 4.5.dp.toPx(), cap = StrokeCap.Round)
+                    val thumbBrush = Brush.verticalGradient(
+                        listOf(palette.brandStart, palette.brandMid, palette.brandEnd),
                     )
-                    val ratio = if (games.size <= 1) 0.5f else (animatedFocus.value / games.lastIndex.toFloat()).coerceIn(0f, 1f)
-                    val thumbSweep = 24f
-                    val thumbStart = -56f + (112f - thumbSweep) * ratio
-                    drawArc(
-                        brush = Brush.verticalGradient(listOf(palette.brandStart, palette.brandMid, palette.brandEnd)),
-                        startAngle = thumbStart,
-                        sweepAngle = thumbSweep,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = arcRect,
-                        style = Stroke(width = 4.5.dp.toPx(), cap = StrokeCap.Round),
-                    )
+                    val totalLastIndex = games.lastIndex
+                    val singleItem = games.size <= 1
+                    onDrawBehind {
+                        drawArc(
+                            color = trackColor,
+                            startAngle = -56f,
+                            sweepAngle = 112f,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcRect,
+                            style = trackStroke,
+                        )
+                        val ratio = if (singleItem) 0.5f else (animatedFocus.value / totalLastIndex.toFloat()).coerceIn(0f, 1f)
+                        val thumbSweep = 24f
+                        val thumbStart = -56f + (112f - thumbSweep) * ratio
+                        drawArc(
+                            brush = thumbBrush,
+                            startAngle = thumbStart,
+                            sweepAngle = thumbSweep,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcRect,
+                            style = thumbStroke,
+                        )
+                    }
                 }
                 .pointerInput(Unit) {
                     val tracker = VelocityTracker()
@@ -221,6 +240,9 @@ fun WheelView(
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
+            if (wheelAreaSize.width > 0 && wheelAreaSize.height > 0) {
+            val maxWidth = with(density) { wheelAreaSize.width.toDp() }
+            val maxHeight = with(density) { wheelAreaSize.height.toDp() }
             val stepYPx = with(density) { (maxHeight * 0.20f).coerceIn(48.dp, 62.dp).toPx() }
             val arcDepthPx = with(density) { 44.dp.toPx() }
             val baseLeftPx = with(density) { 26.dp.toPx() }
@@ -271,7 +293,7 @@ fun WheelView(
                                     Modifier
                                         .cardSurface(
                                             shape = pillShape,
-                                            elevation = if (effectiveFastScroll) 0.dp else 8.dp,
+                                            elevation = if (effectiveFastScroll) 0.dp else 4.dp,
                                         )
                                         .border(2.dp, focusBorderBrush, pillShape)
                                 } else {
@@ -333,16 +355,21 @@ fun WheelView(
                     }
                 }
             }
+            }
         }
 
-        // 右侧大封面陈列区
-        BoxWithConstraints(
+        // 右侧大封面陈列区（普通 Box + onSizeChanged 替代 BoxWithConstraints；快滚不读 512px 磁盘）
+        Box(
             modifier = Modifier
                 .weight(0.46f)
                 .fillMaxHeight()
-                .padding(start = 10.dp, end = 6.dp),
+                .padding(start = 10.dp, end = 6.dp)
+                .onSizeChanged { if (it != coverAreaSize) coverAreaSize = it },
             contentAlignment = Alignment.Center,
         ) {
+            if (coverAreaSize.width > 0 && coverAreaSize.height > 0) {
+            val maxWidth = with(density) { coverAreaSize.width.toDp() }
+            val maxHeight = with(density) { coverAreaSize.height.toDp() }
             val coverH = (maxHeight * 0.76f).coerceIn(140.dp, 250.dp)
             val aspect = (focusedPlatform?.coverAspect ?: 0.85f).coerceIn(0.65f, 1.32f)
             val coverW = (coverH * aspect).coerceAtMost(maxWidth * 0.92f)
@@ -361,7 +388,7 @@ fun WheelView(
                     isFocused = true,
                     isFavorite = focusedGame.id in favorites,
                     fastScrolling = fastScrolling || isDragging,
-                    allowDiskDuringFastScroll = true,
+                    allowDiskDuringFastScroll = false,
                     prominentFocus = false,
                     onClick = { onLaunch(focusedGame) },
                     onLongPress = onLongPress?.let { cb -> { cb(focusedGame) } },
@@ -409,6 +436,7 @@ fun WheelView(
                         }
                     }
                 }
+            }
             }
         }
     }

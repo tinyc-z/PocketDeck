@@ -1,5 +1,6 @@
 package com.pocketdeck.launcher.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -171,6 +172,10 @@ fun GameDetailDialog(
     }
     if (actionIdx >= actions.size) actionIdx = 0
 
+    BackHandler(enabled = isTopmost && pickingDisc) {
+        pickingDisc = false
+    }
+
     LaunchedEffect(game.id, isTopmost) {
         if (isTopmost) focusRequester.requestFocusSafely()
     }
@@ -184,12 +189,15 @@ fun GameDetailDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        if (pickingDisc) {
-                            pickingDisc = false
-                        } else {
-                            onDismiss()
+                        if (isInitialPress) {
+                            if (pickingDisc) {
+                                pickingDisc = false
+                            } else {
+                                onDismiss()
+                            }
                         }
                         true
                     }
@@ -202,7 +210,9 @@ fun GameDetailDialog(
                         true
                     }
                     pickingDisc && GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        game.discFiles.getOrNull(discIdx)?.let { onLaunchDisc?.invoke(it) }
+                        if (isInitialPress) {
+                            game.discFiles.getOrNull(discIdx)?.let { onLaunchDisc?.invoke(it) }
+                        }
                         true
                     }
                     !pickingDisc && event.key == Key.DirectionDown -> {
@@ -246,10 +256,12 @@ fun GameDetailDialog(
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        when (focusZone) {
-                            DetailFocusZone.Properties -> onProperties()
-                            DetailFocusZone.CoverEdit -> onManualScrape?.invoke()
-                            DetailFocusZone.Actions -> actions.getOrNull(actionIdx)?.onClick?.invoke()
+                        if (isInitialPress) {
+                            when (focusZone) {
+                                DetailFocusZone.Properties -> onProperties()
+                                DetailFocusZone.CoverEdit -> onManualScrape?.invoke()
+                                DetailFocusZone.Actions -> actions.getOrNull(actionIdx)?.onClick?.invoke()
+                            }
                         }
                         true
                     }
@@ -600,7 +612,7 @@ fun GameDetailDialog(
                 HorizontalDivider(thickness = 0.8.dp, color = DeckColors.Line)
                 Spacer(Modifier.height(if (isShort) 8.dp else 10.dp))
                 val longFavLabel = actions.any { it.isFavoriteToggle && it.label.length > 6 }
-                if (isNarrow && actions.size > 3) {
+                if ((isNarrow || isCompact) && actions.size > 3) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ActionPill(actions[0], 0, Modifier.fillMaxWidth())
                         Row(

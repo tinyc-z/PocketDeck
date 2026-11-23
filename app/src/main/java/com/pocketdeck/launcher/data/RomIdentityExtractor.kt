@@ -26,36 +26,59 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
     )
 
     private val memCache = BoundedLruCache<String, Identity>(MAX_MEM_CACHE)
+    /** 仅读头部 Serial 的快速缓存（与全量 memCache 分离，避免跳过 CRC32 后污染完整指纹查询）。 */
+    private val fastSerialCache = BoundedLruCache<String, Identity>(MAX_MEM_CACHE)
 
     fun clearMemoryCache() {
         memCache.clear()
+        fastSerialCache.clear()
     }
 
     fun trimMemory(targetSize: Int = 256) {
         memCache.trimToSize(targetSize)
+        fastSerialCache.trimToSize(targetSize)
+    }
+
+    fun migratePath(oldPath: String, newPath: String) {
+        if (oldPath == newPath) return
+        memCache.remove(oldPath)?.let { memCache[newPath] = it }
+        fastSerialCache.remove(oldPath)?.let { fastSerialCache[newPath] = it }
+    }
+
+    fun forgetPath(path: String) {
+        memCache.remove(path)
+        fastSerialCache.remove(path)
     }
 
     internal fun memoryCacheSize(): Int = memCache.size
 
     /** 判断该 ROM 是否能以极低开销（<1ms：内存缓存命中、压缩包目录、头部读取或 CHD SHA1）获取精确指纹。 */
     fun hasFastFingerprint(file: File, platformId: String? = null): Boolean {
-        if (memCache.containsKey(file.path)) return true
+        if (memCache.containsKey(file.path) || fastSerialCache.containsKey(file.path)) return true
         val ext = file.extension.lowercase()
         if (ext in FAST_FINGERPRINT_EXT) return true
         val pid = platformId?.lowercase()
         return pid in FAST_FINGERPRINT_PLATFORMS
     }
 
-    fun extract(file: File, platformId: String? = null): Identity {
+    fun extract(
+        file: File,
+        platformId: String? = null,
+        skipFullFileCrc: Boolean = false,
+    ): Identity {
         if (!file.isFile) return Identity()
         val path = file.path
         memCache[path]?.let { return it }
+        if (skipFullFileCrc) {
+            fastSerialCache[path]?.let { return it }
+        }
 
         val size = file.length()
         val mtime = file.lastModified()
         db.getRomIdentity(path, size, mtime)?.let { cached ->
-            val id = Identity(cached.crc32, cached.sha1, cached.serial)
+            val id = Identity(cached.crc32, cached.sha1, cached.serial, cached.romSize)
             memCache[path] = id
+            fastSerialCache[path] = id
             return id
         }
 
@@ -64,19 +87,22 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
         var sha1: String? = null
         var serial: String? = extractSerialFromFileName(file.name, platformId)
         var romSize: Long? = null
+        var skippedCrc = false
 
         when (ext) {
             "zip" -> {
-                val zipRes = inspectZip(file, platformId)
+                val zipRes = inspectZip(file, platformId, skipStreamCrc = skipFullFileCrc)
                 crc32 = zipRes.crc32
                 if (serial == null) serial = zipRes.serial
                 romSize = zipRes.romSize
+                skippedCrc = zipRes.skippedCrc
             }
             "7z" -> {
-                val szRes = inspectSevenZip(file, platformId)
+                val szRes = inspectSevenZip(file, platformId, skipStreamCrc = skipFullFileCrc)
                 crc32 = szRes.crc32
                 if (serial == null) serial = szRes.serial
                 romSize = szRes.romSize
+                skippedCrc = szRes.skippedCrc
             }
             "chd" -> {
                 sha1 = extractChdSha1(file)
@@ -89,15 +115,24 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
                     serial = extractHeaderSerial(file, ext, platformId)
                 }
                 if (size in 1L..MAX_CRC_SIZE) {
-                    crc32 = computeHeaderlessCrc32(file, ext, size)
+                    if (skipFullFileCrc) {
+                        skippedCrc = true
+                    } else {
+                        crc32 = computeHeaderlessCrc32(file, ext, size)
+                    }
                 }
                 romSize = size.takeIf { it > 0L }
             }
         }
 
         val identity = Identity(crc32 = crc32, sha1 = sha1, serial = serial, romSize = romSize)
-        memCache[path] = identity
-        db.putRomIdentity(path, size, mtime, ScrapeDatabase.RomIdentityRow(crc32, sha1, serial))
+        if (skippedCrc) {
+            fastSerialCache[path] = identity
+        } else {
+            memCache[path] = identity
+            fastSerialCache[path] = identity
+            db.putRomIdentity(path, size, mtime, ScrapeDatabase.RomIdentityRow(crc32, sha1, serial, romSize))
+        }
         return identity
     }
 
@@ -107,6 +142,7 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
         val crc32: String? = null,
         val serial: String? = null,
         val romSize: Long? = null,
+        val skippedCrc: Boolean = false,
     )
 
     internal fun isBetterArchiveCandidate(
@@ -119,7 +155,11 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
         return size > bestSize
     }
 
-    private fun inspectZip(file: File, platformId: String?): ArchiveInspectResult = runCatching {
+    private fun inspectZip(
+        file: File,
+        platformId: String?,
+        skipStreamCrc: Boolean = false,
+    ): ArchiveInspectResult = runCatching {
         ZipFile(file).use { zip ->
             var bestEntry: ZipEntry? = null
             var bestKnown = false
@@ -144,9 +184,15 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
             val entryFileName = entry.name.substringAfterLast('/')
             val entryExt = entryFileName.substringAfterLast('.', "").lowercase()
             val headerSize = detectHeaderSizeForExt(entryExt, entry.size)
+            var skippedCrc = false
             val crc = if (headerSize > 0 && entry.size in 1L..MAX_CRC_SIZE) {
-                zip.getInputStream(entry).use { stream ->
-                    computeStreamCrc32WithHeaderCheck(stream, entryExt, entry.size)
+                if (skipStreamCrc) {
+                    skippedCrc = true
+                    null
+                } else {
+                    zip.getInputStream(entry).use { stream ->
+                        computeStreamCrc32WithHeaderCheck(stream, entryExt, entry.size)
+                    }
                 }
             } else if (entry.crc >= 0) {
                 "%08X".format(entry.crc)
@@ -161,11 +207,16 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
                 crc32 = crc,
                 serial = serial,
                 romSize = entry.size.takeIf { it > 0L },
+                skippedCrc = skippedCrc,
             )
         }
     }.getOrDefault(ArchiveInspectResult())
 
-    private fun inspectSevenZip(file: File, platformId: String?): ArchiveInspectResult = runCatching {
+    private fun inspectSevenZip(
+        file: File,
+        platformId: String?,
+        skipStreamCrc: Boolean = false,
+    ): ArchiveInspectResult = runCatching {
         SevenZFile.Builder().setFile(file).get().use { sz ->
             var bestEntry: org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry? = null
             var bestKnown = false
@@ -190,13 +241,19 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
             val headerSize = detectHeaderSizeForExt(entryExt, entry.size)
             val needNdsCode = (entryExt == "nds" || entryExt == "dsi" || platformId == "nds" || platformId == "dsi") && entry.size >= 0x14
             var serial = extractSerialFromFileName(entryFileName, platformId)
+            var skippedCrc = false
 
             val crc = if (headerSize > 0 && entry.size in 1L..MAX_CRC_SIZE) {
-                runCatching {
-                    sz.getInputStream(entry).use { stream ->
-                        computeStreamCrc32WithHeaderCheck(stream, entryExt, entry.size)
-                    }
-                }.getOrNull() ?: if (entry.hasCrc) "%08X".format(entry.crcValue and 0xFFFFFFFFL) else null
+                if (skipStreamCrc) {
+                    skippedCrc = true
+                    null
+                } else {
+                    runCatching {
+                        sz.getInputStream(entry).use { stream ->
+                            computeStreamCrc32WithHeaderCheck(stream, entryExt, entry.size)
+                        }
+                    }.getOrNull() ?: if (entry.hasCrc) "%08X".format(entry.crcValue and 0xFFFFFFFFL) else null
+                }
             } else if (entry.hasCrc) {
                 "%08X".format(entry.crcValue and 0xFFFFFFFFL)
             } else {
@@ -211,6 +268,7 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
                 crc32 = crc,
                 serial = serial,
                 romSize = entry.size.takeIf { it > 0L },
+                skippedCrc = skippedCrc,
             )
         }
     }.getOrDefault(ArchiveInspectResult())

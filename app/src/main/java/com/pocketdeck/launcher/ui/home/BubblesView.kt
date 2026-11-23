@@ -8,7 +8,6 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +31,9 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.pocketdeck.launcher.data.CoverSource
@@ -150,8 +152,17 @@ fun BubblesView(
         }
     }
 
+    val density = LocalDensity.current
+    var bubblesAreaSize by remember { mutableStateOf(IntSize.Zero) }
+
     Box(modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onSizeChanged { if (it != bubblesAreaSize) bubblesAreaSize = it },
+        ) {
+            if (bubblesAreaSize.width > 0) {
+            val maxWidth = with(density) { bubblesAreaSize.width.toDp() }
             val hGap = 14.dp
             val bubbleSize = ((maxWidth - 36.dp - hGap * 3) / 4).coerceIn(88.dp, 120.dp)
             val gridWidth = bubbleSize * 4 + hGap * 3
@@ -261,6 +272,7 @@ fun BubblesView(
                     }
                 }
             }
+            }
         }
 
         FocusedGameFloatingPill(
@@ -271,6 +283,7 @@ fun BubblesView(
             total = games.size,
             placeAtTop = placePillAtTop,
             fastScrolling = fastScrolling,
+            idlePaused = idlePaused,
             showFavoriteBadge = false,
         )
     }

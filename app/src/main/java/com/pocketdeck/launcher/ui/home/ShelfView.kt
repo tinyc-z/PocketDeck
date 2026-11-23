@@ -6,9 +6,9 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -25,9 +25,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,10 +40,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -101,15 +105,17 @@ fun ShelfView(
         listState.scrollToItem(focusedRow)
     }
 
-    // 焦点切层时平滑滚动到可见区
-    LaunchedEffect(focusedRow, fastScrolling, reduceMotion) {
+    val latestFastScrolling by rememberUpdatedState(fastScrolling)
+
+    // 焦点切层时平滑滚动到可见区（不将 fastScrolling 放入 key，避免打断在途平滑滚动）
+    LaunchedEffect(focusedRow, reduceMotion) {
         val visible = listState.layoutInfo.visibleItemsInfo
         val alreadyComfortablyVisible = visible.any {
             it.index == focusedRow && it.offset >= 0 &&
                 it.offset + it.size <= listState.layoutInfo.viewportEndOffset
         }
         if (!alreadyComfortablyVisible) {
-            if (fastScrolling || reduceMotion) {
+            if (latestFastScrolling || reduceMotion) {
                 listState.scrollToItem(focusedRow)
             } else {
                 listState.animateScrollToItem(focusedRow)
@@ -117,18 +123,23 @@ fun ShelfView(
         }
     }
 
-    BoxWithConstraints(
+    var shelfAreaSize by remember { mutableStateOf(IntSize.Zero) }
+    val isTouchDragging by listState.interactionSource.collectIsDraggedAsState()
+    val effectiveFastScroll = fastScrolling || isTouchDragging
+
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = 24.dp)
+            .onSizeChanged { if (it != shelfAreaSize) shelfAreaSize = it },
     ) {
+        if (shelfAreaSize.width > 0) {
+        val maxWidth = with(density) { shelfAreaSize.width.toDp() }
         val horizontalGap = 14.dp
         val shelfInnerPad = 14.dp
         val availW = (maxWidth - shelfInnerPad * 2 - horizontalGap * (SHELF_COLUMNS - 1)).coerceAtLeast(200.dp)
         val slotW = availW / SHELF_COLUMNS
         val boxH = (slotW * 1.08f).coerceIn(82.dp, 134.dp)
-        val isTouchScrolling by remember(listState) { derivedStateOf { listState.isScrollInProgress } }
-        val effectiveFastScroll = fastScrolling || isTouchScrolling
 
         LazyColumn(
             state = listState,
@@ -202,7 +213,7 @@ fun ShelfView(
                                             isFavorite = game.id in favorites,
                                             fastScrolling = effectiveFastScroll,
                                             shapeOverride = RoundedCornerShape(9.dp),
-                                            prominentFocus = isSelected && !effectiveFastScroll,
+                                            prominentFocus = false,
                                             onClick = {
                                                 if (isSelected) onLaunch(game) else onFocusChange(idx)
                                             },
@@ -269,6 +280,7 @@ fun ShelfView(
                 }
             }
         }
+        }
 
         // 悬浮聚焦信息胶囊（独立于 LazyColumn 行外，保证每层架子高度恒定，上下切层零重排跳动）
         val focusedGame = games[safeFocus]
@@ -288,7 +300,7 @@ fun ShelfView(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 8.dp)
-                .cardSurface(shape = CircleShape, elevation = 6.dp)
+                .cardSurface(shape = CircleShape, elevation = 4.dp)
                 .border(0.8.dp, DeckColors.Line, CircleShape)
                 .padding(horizontal = 16.dp, vertical = 5.dp),
         ) {

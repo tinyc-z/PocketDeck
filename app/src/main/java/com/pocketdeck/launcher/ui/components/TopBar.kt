@@ -64,6 +64,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -80,6 +82,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -134,10 +137,11 @@ import java.util.Locale
 fun ScrapeStatusPill(
     percent: Int,
     onClick: () -> Unit,
+    paused: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val reduceMotion = LocalReduceMotion.current
-    val spinAngleState = if (!reduceMotion) {
+    val spinAngleState = if (!reduceMotion && !paused) {
         val inf = rememberInfiniteTransition(label = "scrape_spin")
         inf.animateFloat(
             initialValue = 0f,
@@ -185,26 +189,38 @@ internal fun Modifier.glassDockCapsule(
     backgroundColor: Color,
     reduceMotion: Boolean = false,
 ): Modifier = this
-    .drawBehind {
-        if (!reduceMotion && size.width > 0f && size.height > 0f) {
-            val r = size.height / 2f
-            val yOff = 3.dp.toPx()
-            val shadowBase = if (isDark) Color.Black else Color(0xFF3E2040)
-            val maxAlpha = if (isDark) 0.24f else 0.085f
-            for (step in 3 downTo 1) {
+    .drawWithCache {
+        val drawShadow = !reduceMotion && size.width > 0f && size.height > 0f
+        val r = size.height / 2f
+        val yOff = 3.dp.toPx()
+        val maxAlpha = if (isDark) 0.24f else 0.085f
+        val layers = if (drawShadow) {
+            (3 downTo 1).map { step ->
                 val spread = step * 2.4.dp.toPx()
+                Triple(
+                    Color.Black.copy(alpha = maxAlpha * (4 - step) / 3f),
+                    Offset(-spread * 0.35f, yOff - spread * 0.15f),
+                    Size(size.width + spread * 0.7f, size.height + spread * 0.55f) to
+                        CornerRadius(r + spread * 0.35f, r + spread * 0.35f),
+                )
+            }
+        } else {
+            emptyList()
+        }
+        onDrawBehind {
+            for ((color, topLeft, szCorner) in layers) {
                 drawRoundRect(
-                    color = shadowBase.copy(alpha = maxAlpha * (4 - step) / 3f),
-                    topLeft = Offset(-spread * 0.35f, yOff - spread * 0.15f),
-                    size = Size(size.width + spread * 0.7f, size.height + spread * 0.55f),
-                    cornerRadius = CornerRadius(r + spread * 0.35f, r + spread * 0.35f),
+                    color = color,
+                    topLeft = topLeft,
+                    size = szCorner.first,
+                    cornerRadius = szCorner.second,
                 )
             }
         }
     }
     .clip(CircleShape)
-    .background(
-        brush = if (isDark) {
+    .drawWithCache {
+        val fillBrush = if (isDark) {
             Brush.verticalGradient(
                 listOf(
                     surfaceColor.copy(alpha = 0.88f),
@@ -218,12 +234,8 @@ internal fun Modifier.glassDockCapsule(
                     Color.White.copy(alpha = 0.68f),
                 ),
             )
-        },
-        shape = CircleShape,
-    )
-    .border(
-        width = 1.dp,
-        brush = if (isDark) {
+        }
+        val borderBrush = if (isDark) {
             Brush.verticalGradient(
                 listOf(
                     Color.White.copy(alpha = 0.20f),
@@ -237,9 +249,28 @@ internal fun Modifier.glassDockCapsule(
                     Color.White.copy(alpha = 0.55f),
                 ),
             )
-        },
-        shape = CircleShape,
-    )
+        }
+        val strokeW = 1.dp.toPx()
+        val halfStroke = strokeW / 2f
+        val r = (size.height - strokeW).coerceAtLeast(0f) / 2f
+        val borderCr = CornerRadius(r, r)
+        val borderStroke = Stroke(width = strokeW)
+        val borderTl = Offset(halfStroke, halfStroke)
+        val borderSz = Size((size.width - strokeW).coerceAtLeast(0f), (size.height - strokeW).coerceAtLeast(0f))
+        onDrawWithContent {
+            drawRect(brush = fillBrush)
+            drawContent()
+            if (borderSz.width > 0f && borderSz.height > 0f) {
+                drawRoundRect(
+                    brush = borderBrush,
+                    topLeft = borderTl,
+                    size = borderSz,
+                    cornerRadius = borderCr,
+                    style = borderStroke,
+                )
+            }
+        }
+    }
 
 @Composable
 fun TopBar(
@@ -269,6 +300,7 @@ fun TopBar(
     onPrevTab: () -> Unit = {},
     onNextTab: () -> Unit = {},
     rapidTabSwitchFlow: StateFlow<Boolean>? = null,
+    animationsPaused: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isGlassDock = navBarStyle == NavBarStyle.GlassDock
@@ -312,6 +344,7 @@ fun TopBar(
             lanTaskProgress = lanTaskProgress,
             scrapeRunning = scrapeRunning,
             scrapePercent = scrapePercent,
+            animationsPaused = animationsPaused,
             onScrapeBadgeClick = onScrapeBadgeClick,
             onLanBadgeClick = onLanBadgeClick,
             onWifiClick = onWifiClick,
@@ -464,14 +497,14 @@ private fun TopBarTabsSection(
                     tabs.forEachIndexed { i, tab ->
                         val selected = i == safeSelected
                         val targetTextColor = if (selected) Color.White else inactiveTabColor
-                        val textColor = if (noTabAnim) {
-                            targetTextColor
+                        val textColorState = if (noTabAnim) {
+                            null
                         } else {
                             animateColorAsState(
                                 targetValue = targetTextColor,
                                 animationSpec = tween(durationMillis = 180),
                                 label = "tabTextColor",
-                            ).value
+                            )
                         }
                         Box(
                             Modifier
@@ -498,10 +531,11 @@ private fun TopBarTabsSection(
                                 ),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                tab,
+                            // 延迟至绘制期通过 ColorProducer 读取颜色动画值，切 Tab 期间实现 0 重组文字变色
+                            BasicText(
+                                text = tab,
                                 style = if (selected) tabSelectedStyle else tabInactiveStyle,
-                                color = textColor,
+                                color = ColorProducer { textColorState?.value ?: targetTextColor },
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
                             )
@@ -562,6 +596,7 @@ private fun TopBarStatusCluster(
     lanTaskProgress: Float?,
     scrapeRunning: Boolean,
     scrapePercent: Int,
+    animationsPaused: Boolean,
     onScrapeBadgeClick: () -> Unit,
     onLanBadgeClick: () -> Unit,
     onWifiClick: () -> Unit,
@@ -834,6 +869,7 @@ private fun TopBarStatusCluster(
                 ScrapeStatusPill(
                     percent = scrapePercent,
                     onClick = onScrapeBadgeClick,
+                    paused = animationsPaused,
                 )
             }
 
@@ -856,14 +892,14 @@ private fun TopBarStatusCluster(
                 val showTextOnly = curShowTextOnly
                 val isDarkTheme = DeckColors.isDark
                 val targetProgress = (lanTaskProgress ?: 0f).coerceIn(0f, 1f)
-                val animProgress = if (reduceMotion) {
-                    targetProgress
+                val animProgressState = if (reduceMotion) {
+                    null
                 } else {
                     animateFloatAsState(
                         targetValue = targetProgress,
                         animationSpec = tween(durationMillis = 200),
                         label = "lan_task_progress",
-                    ).value
+                    )
                 }
                 val isColored = lanPendingIncoming || hasTask || lanTransferWaiting
                 val accent = when {
@@ -882,10 +918,11 @@ private fun TopBarStatusCluster(
                         .clip(DeckShapes.tabPill)
                         .background(bgTint)
                         .drawBehind {
-                            if (!showTextOnly && hasTask && animProgress > 0f) {
+                            val progress = animProgressState?.value ?: targetProgress
+                            if (!showTextOnly && hasTask && progress > 0f) {
                                 drawRect(
                                     color = accent.copy(alpha = if (isDarkTheme) 0.36f else 0.25f),
-                                    size = Size(size.width * animProgress, size.height),
+                                    size = Size(size.width * progress, size.height),
                                 )
                             }
                         }

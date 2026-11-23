@@ -330,9 +330,16 @@ fun TextFileViewerEditorDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        if (editing) editing = false else onDismiss()
+                        if (isInitialPress) {
+                            if (editing) editing = false else onDismiss()
+                        }
+                        true
+                    }
+                    editing && !truncated && GamepadKeys.isMenu(event.key, swapAbxy, keyBindings) -> {
+                        if (isInitialPress) saveNow()
                         true
                     }
                     !editing && event.key == Key.DirectionDown -> {
@@ -344,7 +351,7 @@ fun TextFileViewerEditorDialog(
                         true
                     }
                     !editing && !truncated && GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        editing = true
+                        if (isInitialPress) editing = true
                         true
                     }
                     else -> false
@@ -352,13 +359,16 @@ fun TextFileViewerEditorDialog(
             },
         contentAlignment = Alignment.Center,
     ) {
+        val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+        val minPanelH = (screenH * 0.55f).coerceAtMost(320f).coerceAtLeast(180f).dp
+        val maxPanelH = (screenH * 0.86f).coerceAtMost(600f).coerceAtLeast(minPanelH.value).dp
         DialogPanelCard(
             onDismiss = onDismiss,
             modifier = Modifier
                 .padding(horizontal = 24.dp, vertical = 16.dp)
                 .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
-                .heightIn(min = 320.dp, max = 600.dp),
+                .heightIn(min = minPanelH, max = maxPanelH),
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
         ) {
@@ -630,7 +640,7 @@ fun ArchivePreviewDialog(
                     label,
                     style = DeckType.menuButton,
                     color = when {
-                        primary && hl -> DeckColors.Background
+                        primary && hl -> Color.White
                         hl -> DeckColors.Ruby
                         else -> DeckColors.TextPrimary
                     },
@@ -763,6 +773,8 @@ fun BatchDeleteConfirmDialog(
 fun FileOpProgressDialog(
     title: String,
     detail: String,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
     onCancel: () -> Unit,
 ) {
     val progressFr = remember { FocusRequester() }
@@ -771,13 +783,14 @@ fun FileOpProgressDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .clickable(enabled = true, onClick = {})
+            .blockOverlayTouchThrough()
             .focusRequester(progressFr)
             .focusable()
             .onPreviewKeyEvent { ev ->
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (GamepadKeys.isBack(ev.key) || ev.key == Key.ButtonB) {
-                    onCancel()
+                val isInitialPress = ev.nativeKeyEvent.repeatCount == 0
+                if (GamepadKeys.isBack(ev.key) || GamepadKeys.isCancelOrApps(ev.key, swapAbxy, keyBindings)) {
+                    if (isInitialPress) onCancel()
                     true
                 } else true
             },
@@ -938,14 +951,22 @@ fun AudioPlayerDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (isInitialPress) onDismiss()
                         true
                     }
                     event.key == Key.Spacebar || event.key == Key.MediaPlayPause ||
                         GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        togglePlay()
+                        if (isInitialPress) togglePlay()
+                        true
+                    }
+                    event.key == Key.DirectionUp || GamepadKeys.isFavorite(event.key, swapAbxy, keyBindings) -> {
+                        if (isInitialPress) {
+                            looping = !looping
+                            runCatching { playerRef?.isLooping = looping }
+                        }
                         true
                     }
                     event.key == Key.DirectionLeft -> {
@@ -1051,7 +1072,7 @@ fun AudioPlayerDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "⏪ -5s",
+                        "-5s",
                         style = DeckType.settingsLabel,
                         color = DeckColors.TextPrimary,
                         modifier = Modifier
@@ -1061,9 +1082,9 @@ fun AudioPlayerDialog(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                     Text(
-                        if (playing) "⏸ ${stringResource(R.string.lib_audio_pause)}" else "▶ ${stringResource(R.string.lib_audio_play)}",
+                        if (playing) stringResource(R.string.lib_audio_pause) else stringResource(R.string.lib_audio_play),
                         style = DeckType.menuButton,
-                        color = DeckColors.Background,
+                        color = Color.White,
                         modifier = Modifier
                             .clip(DeckShapes.menuButton)
                             .brandBackground(DeckShapes.tabPill)
@@ -1071,7 +1092,7 @@ fun AudioPlayerDialog(
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                     Text(
-                        "+5s ⏩",
+                        "+5s",
                         style = DeckType.settingsLabel,
                         color = DeckColors.TextPrimary,
                         modifier = Modifier
@@ -1137,6 +1158,23 @@ fun FontViewerDialog(
 
     LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
+    fun applyFontNow() {
+        val cb = onApplyFontId ?: return
+        if (applying || loadedState?.first != true) return
+        applying = true
+        scope.launch {
+            val res = SystemFonts.importFromFile(context, file)
+            applying = false
+            res.onSuccess { id ->
+                cb(id)
+                Toast.makeText(context, appliedMsg, Toast.LENGTH_SHORT).show()
+                onDismiss()
+            }.onFailure {
+                Toast.makeText(context, invalidMsg, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -1146,9 +1184,14 @@ fun FontViewerDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (isInitialPress) onDismiss()
+                        true
+                    }
+                    GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) && onApplyFontId != null -> {
+                        if (isInitialPress) applyFontNow()
                         true
                     }
                     event.key == Key.DirectionUp -> {
@@ -1264,25 +1307,11 @@ fun FontViewerDialog(
                         Text(
                             if (applying) "..." else stringResource(R.string.lib_font_apply_ui),
                             style = DeckType.menuButton,
-                            color = DeckColors.Background,
+                            color = Color.White,
                             modifier = Modifier
                                 .clip(DeckShapes.menuButton)
                                 .brandBackground(DeckShapes.tabPill)
-                                .gamepadClickable(swapAbxy, keyBindings) {
-                                    if (applying) return@gamepadClickable
-                                    applying = true
-                                    scope.launch {
-                                        val res = SystemFonts.importFromFile(context, file)
-                                        applying = false
-                                        res.onSuccess { id ->
-                                            onApplyFontId(id)
-                                            Toast.makeText(context, appliedMsg, Toast.LENGTH_SHORT).show()
-                                            onDismiss()
-                                        }.onFailure {
-                                            Toast.makeText(context, invalidMsg, Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
+                                .gamepadClickable(swapAbxy, keyBindings) { applyFontNow() }
                                 .padding(horizontal = 16.dp, vertical = 9.dp),
                         )
                     }

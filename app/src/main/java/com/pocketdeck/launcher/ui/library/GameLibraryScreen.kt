@@ -331,6 +331,39 @@ fun GameLibraryScreen(
     var opJob by remember { mutableStateOf<Job?>(null) }
     val opCancelled = remember { AtomicBoolean(false) }
 
+    val hasInternalOverlay = opProgress != null || nameSpec != null || deleteConfirm != null ||
+        batchDeleteFiles != null || moveTarget != null || actionMenu != null ||
+        shareMethodTarget != null || shareTarget != null || archivePreviewFile != null ||
+        imageViewerFile != null || textEditorFile != null || audioPlayerFile != null ||
+        fontViewerFile != null || categoryTargetGame != null || propertiesGame != null ||
+        editingGame != null || showLanDialog
+
+    androidx.activity.compose.BackHandler(enabled = hasInternalOverlay) {
+        when {
+            showLanDialog -> showLanDialog = false
+            opProgress != null -> {
+                opCancelled.set(true)
+                opJob?.cancel()
+                opProgress = null
+            }
+            fontViewerFile != null -> fontViewerFile = null
+            audioPlayerFile != null -> audioPlayerFile = null
+            textEditorFile != null -> textEditorFile = null
+            imageViewerFile != null -> imageViewerFile = null
+            archivePreviewFile != null -> archivePreviewFile = null
+            shareTarget != null -> shareTarget = null
+            shareMethodTarget != null -> shareMethodTarget = null
+            batchDeleteFiles != null -> batchDeleteFiles = null
+            deleteConfirm != null -> deleteConfirm = null
+            moveTarget != null -> moveTarget = null
+            nameSpec != null -> nameSpec = null
+            categoryTargetGame != null -> categoryTargetGame = null
+            editingGame != null -> editingGame = null
+            propertiesGame != null -> propertiesGame = null
+            actionMenu != null -> actionMenu = null
+        }
+    }
+
     val lanState by lanManager.state.collectAsState()
 
     val allGames = remember(fullLibrary) {

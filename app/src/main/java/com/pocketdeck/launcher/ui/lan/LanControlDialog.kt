@@ -128,8 +128,9 @@ fun LanServiceControlDialog(
     }
     var nicExpanded by remember { mutableStateOf(false) }
 
-    androidx.activity.compose.BackHandler(enabled = editingName || showWebHistory || showShareHistory) {
+    androidx.activity.compose.BackHandler(enabled = editingName || showWebHistory || showShareHistory || state.pinChallenge != null) {
         when {
+            state.pinChallenge != null -> onCancelPin()
             editingName -> editingName = false
             showWebHistory -> showWebHistory = false
             else -> showShareHistory = false
@@ -142,7 +143,8 @@ fun LanServiceControlDialog(
         if (editingName) NameDialogSpec(renameTitle, state.deviceName) { onRenameDevice(it) } else null
     }
     val nameState = remember(nameSpec) { nameSpec?.let { NameDialogState(it) } }
-    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.94f).dp
+    val screenH = LocalConfiguration.current.screenHeightDp
+    val maxHeight = (screenH * if (screenH < 420) 0.90f else 0.86f).dp
     val scrollState = rememberScrollState()
 
     val view = LocalView.current
@@ -181,9 +183,10 @@ fun LanServiceControlDialog(
             .onPreviewKeyEvent { event ->
                 if (editingName || showWebHistory || showShareHistory || state.pinChallenge != null) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (isInitialPress) onDismiss()
                         true
                     }
                     GamepadKeys.isPrevTab(event.key, swapAbxy, keyBindings) -> {
@@ -205,7 +208,7 @@ fun LanServiceControlDialog(
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        nav.triggerCurrent()
+                        if (isInitialPress) nav.triggerCurrent() else true
                     }
                     else -> false
                 }
@@ -540,6 +543,8 @@ fun LanServiceControlDialog(
         NameDialog(
             spec = nameSpec,
             state = nameState,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
             onConfirm = {
                 nameSpec.onConfirm(nameState.value.text)
                 editingName = false

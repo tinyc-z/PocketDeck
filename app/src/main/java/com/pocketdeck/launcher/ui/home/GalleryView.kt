@@ -179,7 +179,8 @@ fun GalleryView(
     val heroIdleSeconds = heroIdle.seconds
     val heroIdleEnvelope = heroIdle.envelope
 
-    val dragAlpha by animateFloatAsState(
+    // 延迟至 graphicsLayer 绘制期读取 dragAlphaState.value，拖动淡入淡出期间零重组
+    val dragAlphaState = animateFloatAsState(
         targetValue = if (isDragging) 0.45f else 1f,
         animationSpec = if (reduceMotion) snap() else tween(120),
         label = "titleDragAlpha",
@@ -244,7 +245,7 @@ fun GalleryView(
                     .weight(1f)
                     .graphicsLayer {
                         translationX = titleOffsetX.value
-                        alpha = dragAlpha * titleAlpha.value
+                        alpha = dragAlphaState.value * titleAlpha.value
                     },
             ) {
                 Text(
@@ -280,7 +281,7 @@ fun GalleryView(
                 .fillMaxWidth()
                 .padding(start = leftMargin + 1.dp, end = 22.dp)
                 .height(20.dp)
-                .graphicsLayer { alpha = dragAlpha },
+                .graphicsLayer { alpha = dragAlphaState.value },
         )
 
         Spacer(Modifier.height(12.dp))
@@ -720,6 +721,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
     total: Int,
     placeAtTop: Boolean,
     fastScrolling: Boolean = false,
+    idlePaused: Boolean = false,
     showPlatformBadge: Boolean = true,
     showFavoriteBadge: Boolean = true,
     modifier: Modifier = Modifier,
@@ -749,7 +751,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
                         val r = size.height / 2f
                         val corner = CornerRadius(r, r)
                         val dy = 3.dp.toPx()
-                        val sh = if (p.isDark) Color(0x55000000) else Color(0x28782846)
+                        val sh = if (p.isDark) Color.Black.copy(alpha = 0.34f) else p.brandEnd.copy(alpha = 0.16f)
                         onDrawBehind {
                             drawRoundRect(sh, topLeft = Offset(0f, dy), size = size, cornerRadius = corner)
                         }
@@ -776,7 +778,7 @@ internal fun BoxScope.FocusedGameFloatingPill(
             color = DeckColors.TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = if (fastScrolling || reduceMotion) {
+            modifier = if (fastScrolling || reduceMotion || idlePaused) {
                 Modifier.weight(1f, fill = false)
             } else {
                 Modifier

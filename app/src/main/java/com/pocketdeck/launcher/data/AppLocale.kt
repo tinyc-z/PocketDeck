@@ -58,7 +58,7 @@ object AppLocale {
         val locales = localeOf(get(base))?.let { LocaleList(it) }
             ?: Resources.getSystem().configuration.locales
         Locale.setDefault(locales[0])
-        val config = Configuration(base.resources.configuration)
+        val config = Configuration()
         config.setLocales(locales)
         return base.createConfigurationContext(config)
     }

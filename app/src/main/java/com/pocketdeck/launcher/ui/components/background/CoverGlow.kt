@@ -110,6 +110,7 @@ internal fun CoverGlowBackground(
     knownCoverIndex: Int?,
     apkPackage: String?,
     time: () -> Float,
+    paused: Boolean = false,
 ) {
     val context = LocalContext.current
     val p = LocalDeckColors.current
@@ -117,9 +118,10 @@ internal fun CoverGlowBackground(
     val isOnline by NetworkStatus.online.collectAsState()
     val online by rememberUpdatedState(isOnline)
 
-    // 当前封面的原始主色（null = 无封面，回退主题色）
+    // 当前封面的原始主色（null = 无封面，回退主题色）；被弹窗/设置遮挡时暂停取色解码
     var raw by remember { mutableStateOf<IntArray?>(null) }
-    LaunchedEffect(coverCandidates, knownCoverIndex, apkPackage) {
+    LaunchedEffect(coverCandidates, knownCoverIndex, apkPackage, paused) {
+        if (paused) return@LaunchedEffect
         val cached = CoverColorCache.peek(coverCandidates, knownCoverIndex, apkPackage)
         if (cached != null) {
             raw = cached
@@ -138,10 +140,10 @@ internal fun CoverGlowBackground(
     var from by remember { mutableStateOf(display) }
     var to by remember { mutableStateOf(display) }
     val progress = remember { Animatable(1f) }
-    LaunchedEffect(display, reduceMotion) {
+    LaunchedEffect(display, reduceMotion, paused) {
         if (display === to) return@LaunchedEffect
-        if (reduceMotion) {
-            // 减少动态效果：零帧直切颜色，跳过 700ms 交叉淡化动画
+        if (reduceMotion || paused) {
+            // 减少动态效果或被浮层遮挡时零帧直切颜色，跳过 700ms 后台交叉淡化动画
             from = display
             to = display
             progress.snapTo(1f)

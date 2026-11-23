@@ -13,8 +13,11 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
+import java.io.FilterInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.nio.charset.Charset
+import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -31,6 +34,8 @@ data class ArchiveEntryInfo(
 object ArchiveManager {
     private const val MAX_EXTRACT_FILES = 10_000
     private const val MAX_EXTRACT_BYTES = 16L * 1024L * 1024L * 1024L
+    private const val MAX_INSPECT_TAR_BYTES = 64L * 1024L * 1024L
+    private const val MAX_WALK_DEPTH = 32
 
     private val ARCHIVE_SINGLE_EXTS = setOf(
         "zip", "cbz", "7z", "rar", "tar", "tgz", "tbz2", "txz", "gz", "bz2", "xz",
@@ -142,9 +147,13 @@ object ArchiveManager {
                     }
                 }
                 isTarArchive(lower) -> {
-                    openTarStream(file, lower).use { tis ->
+                    openTarStream(file, lower, maxUncompressedBytes = MAX_INSPECT_TAR_BYTES).use { tis ->
                         while (out.size < 5000) {
-                            val e = tis.nextEntry ?: break
+                            val e = try {
+                                tis.nextEntry
+                            } catch (_: TarInspectLimitException) {
+                                break
+                            } ?: break
                             out += ArchiveEntryInfo(e.name, e.isDirectory, e.size.coerceAtLeast(0L))
                         }
                     }
@@ -242,6 +251,8 @@ object ArchiveManager {
                             val target = resolveSafeTarget(e.name)
                             if (skipHiddenEntries && isHiddenEntry(e.name)) continue
                             if (e.isDirectory) {
+                                count++
+                                require(count <= MAX_EXTRACT_FILES) { "Too many archive entries (limit $MAX_EXTRACT_FILES)" }
                                 target.mkdirs()
                             } else {
                                 count++
@@ -260,6 +271,8 @@ object ArchiveManager {
                             val safeTarget = resolveSafeTarget(e.name)
                             if (skipHiddenEntries && isHiddenEntry(e.name)) continue
                             if (e.isDirectory) {
+                                count++
+                                require(count <= MAX_EXTRACT_FILES) { "Too many archive entries" }
                                 safeTarget.mkdirs()
                             } else {
                                 count++
@@ -293,6 +306,8 @@ object ArchiveManager {
                             val safeTarget = resolveSafeTarget(cleanName)
                             if (skipHiddenEntries && isHiddenEntry(cleanName)) continue
                             if (fh.isDirectory) {
+                                count++
+                                require(count <= MAX_EXTRACT_FILES) { "Too many archive entries" }
                                 safeTarget.mkdirs()
                             } else {
                                 count++
@@ -338,6 +353,8 @@ object ArchiveManager {
                             val target = resolveSafeTarget(e.name)
                             if (skipHiddenEntries && isHiddenEntry(e.name)) continue
                             if (e.isDirectory) {
+                                count++
+                                require(count <= MAX_EXTRACT_FILES) { "Too many archive entries (limit $MAX_EXTRACT_FILES)" }
                                 target.mkdirs()
                             } else {
                                 count++
@@ -413,25 +430,30 @@ object ArchiveManager {
                     zos.closeEntry()
                 }
 
-                fun walk(entry: File, prefix: String) {
+                val visitedDirs = HashSet<String>()
+                fun walk(entry: File, prefix: String, depth: Int) {
                     if (isCancelled()) error("Cancelled")
+                    if (depth > MAX_WALK_DEPTH) return
+                    // 跳过符号链接，阻断借 ROM 目录内软链越权打包应用私密文件（如密钥/数据库）或循环递归
+                    if (isSymlink(entry)) return
                     val entryCanon = runCatching { entry.canonicalPath }.getOrDefault(entry.absolutePath)
                     if (entryCanon == partCanon || entryCanon == destCanon) return
                     val name = if (prefix.isEmpty()) entry.name else "$prefix/${entry.name}"
                     if (entry.isDirectory) {
+                        if (!visitedDirs.add(entryCanon)) return
                         val children = entry.listFiles().orEmpty()
                         if (children.isEmpty()) {
                             zos.putNextEntry(ZipEntry("$name/"))
                             zos.closeEntry()
                         } else {
-                            children.forEach { walk(it, name) }
+                            children.forEach { walk(it, name, depth + 1) }
                         }
                     } else if (entry.isFile) {
                         writeFile(entry, name)
                     }
                 }
 
-                for (s in sources) walk(s, "")
+                for (s in sources) walk(s, "", 0)
             }
             if (destZip.exists()) destZip.delete()
             check(part.renameTo(destZip)) { "Cannot finalize zip file" }
@@ -441,11 +463,21 @@ object ArchiveManager {
         }
     }
 
-    private fun measureEntrySize(entry: File): Long {
+    private fun isSymlink(file: File): Boolean =
+        runCatching { Files.isSymbolicLink(file.toPath()) }.getOrDefault(false)
+
+    private fun measureEntrySize(
+        entry: File,
+        visitedDirs: MutableSet<String> = HashSet(),
+        depth: Int = 0,
+    ): Long {
+        if (depth > MAX_WALK_DEPTH || isSymlink(entry)) return 0L
         if (entry.isFile) return entry.length()
         if (!entry.isDirectory) return 0L
+        val canon = runCatching { entry.canonicalPath }.getOrNull() ?: return 0L
+        if (!visitedDirs.add(canon)) return 0L
         var sum = 0L
-        entry.listFiles()?.forEach { sum += measureEntrySize(it) }
+        entry.listFiles()?.forEach { sum += measureEntrySize(it, visitedDirs, depth + 1) }
         return sum
     }
 
@@ -454,7 +486,9 @@ object ArchiveManager {
             lower.endsWith(".tbz2") || lower.endsWith(".tar.bz2") ||
             lower.endsWith(".txz") || lower.endsWith(".tar.xz")
 
-    private fun openTarStream(file: File, lower: String): TarArchiveInputStream {
+    private class TarInspectLimitException : IOException("Tar preview byte limit exceeded")
+
+    private fun openTarStream(file: File, lower: String, maxUncompressedBytes: Long = Long.MAX_VALUE): TarArchiveInputStream {
         val base = BufferedInputStream(FileInputStream(file), 64 * 1024)
         val unwrapped: InputStream = when {
             lower.endsWith(".tgz") || lower.endsWith(".tar.gz") -> GzipCompressorInputStream(base)
@@ -462,7 +496,30 @@ object ArchiveManager {
             lower.endsWith(".txz") || lower.endsWith(".tar.xz") -> XZCompressorInputStream(base)
             else -> base
         }
-        return TarArchiveInputStream(unwrapped)
+        val guarded = if (maxUncompressedBytes < Long.MAX_VALUE) {
+            object : FilterInputStream(unwrapped) {
+                private var readTotal = 0L
+                override fun read(): Int {
+                    val b = super.read()
+                    if (b >= 0) {
+                        readTotal++
+                        if (readTotal > maxUncompressedBytes) throw TarInspectLimitException()
+                    }
+                    return b
+                }
+                override fun read(b: ByteArray, off: Int, len: Int): Int {
+                    val n = super.read(b, off, len)
+                    if (n > 0) {
+                        readTotal += n
+                        if (readTotal > maxUncompressedBytes) throw TarInspectLimitException()
+                    }
+                    return n
+                }
+            }
+        } else {
+            unwrapped
+        }
+        return TarArchiveInputStream(guarded)
     }
 
     private inline fun <T> openZipWithFallback(file: File, block: (ZipFile) -> T): T {

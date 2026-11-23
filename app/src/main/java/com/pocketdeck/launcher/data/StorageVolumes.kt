@@ -31,7 +31,7 @@ internal fun listExternalStorageVolumes(
         if (dir == null || !dir.isDirectory) return
         if (requireReadable && !dir.canRead()) return
         val canon = runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath)
-        if (canon == primaryCanon) return
+        if (canon == "/" || canon == "/storage" || canon == "/mnt" || canon == primaryCanon) return
         if (seen.add(canon)) {
             out += ExternalStorageVolume(dir, desc.ifBlank { dir.name.ifBlank { fallbackLabel } })
         }

@@ -6,9 +6,9 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,19 +27,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketdeck.launcher.R
@@ -104,8 +108,10 @@ fun HeroView(
         listState.scrollToItem(safeFocus)
     }
 
-    // 焦点变化时平滑居中滚动，连发快滚或减少动态效果时零动画直达
-    LaunchedEffect(safeFocus, fastScrolling, reduceMotion) {
+    val latestFastScrolling by rememberUpdatedState(fastScrolling)
+
+    // 焦点变化时平滑居中滚动，连发快滚或减少动态效果时零动画直达（不将 fastScrolling 放入 key，避免打断在途滚动）
+    LaunchedEffect(safeFocus, reduceMotion) {
         val visible = listState.layoutInfo.visibleItemsInfo
         val viewportW = listState.layoutInfo.viewportSize.width
         val targetItem = visible.firstOrNull { it.index == safeFocus }
@@ -113,48 +119,55 @@ fun HeroView(
             val itemW = targetItem?.size ?: with(density) { 86.dp.roundToPx() }
             -((viewportW - itemW) / 2).coerceAtLeast(0)
         } else 0
-        if (fastScrolling || reduceMotion) {
+        if (latestFastScrolling || reduceMotion) {
             listState.scrollToItem(safeFocus, offsetPx)
         } else {
             listState.animateScrollToItem(safeFocus, offsetPx)
         }
     }
 
+    var heroAreaSize by remember { mutableStateOf(IntSize.Zero) }
+    var filmstripAreaSize by remember { mutableStateOf(IntSize.Zero) }
+
     Column(
         modifier = modifier.fillMaxSize(),
     ) {
-        // 上半屏：沉浸焦点海报区
-        BoxWithConstraints(
+        // 上半屏：沉浸焦点海报区（普通 Box + onSizeChanged 替代 BoxWithConstraints，消除 SubcomposeLayout 开销）
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.62f)
-                .padding(horizontal = 36.dp, vertical = 6.dp),
+                .padding(horizontal = 36.dp, vertical = 6.dp)
+                .onSizeChanged { if (it != heroAreaSize) heroAreaSize = it },
             contentAlignment = Alignment.CenterStart,
         ) {
-            val heroCoverH = (maxHeight * 0.90f).coerceIn(130.dp, 224.dp)
-            val heroAspect = (focusedPlatform?.coverAspect ?: 0.82f).coerceIn(0.65f, 1.35f)
-            val heroCoverW = (heroCoverH * heroAspect).coerceAtMost(maxWidth * 0.36f)
+            if (heroAreaSize.width > 0 && heroAreaSize.height > 0) {
+                val maxWidth = with(density) { heroAreaSize.width.toDp() }
+                val maxHeight = with(density) { heroAreaSize.height.toDp() }
+                val heroCoverH = (maxHeight * 0.90f).coerceIn(130.dp, 224.dp)
+                val heroAspect = (focusedPlatform?.coverAspect ?: 0.82f).coerceIn(0.65f, 1.35f)
+                val heroCoverW = (heroCoverH * heroAspect).coerceAtMost(maxWidth * 0.36f)
 
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(28.dp),
-            ) {
-                GameCoverCard(
-                    game = focusedGame,
-                    platform = focusedPlatform,
-                    covers = covers,
-                    officialName = officialNames[focusedGame.id],
-                    width = heroCoverW,
-                    height = heroCoverH,
-                    isFocused = true,
-                    isFavorite = focusedGame.id in favorites,
-                    fastScrolling = fastScrolling,
-                    allowDiskDuringFastScroll = true,
-                    prominentFocus = false,
-                    onClick = { onLaunch(focusedGame) },
-                    onLongPress = onLongPress?.let { cb -> { cb(focusedGame) } },
-                )
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(28.dp),
+                ) {
+                    GameCoverCard(
+                        game = focusedGame,
+                        platform = focusedPlatform,
+                        covers = covers,
+                        officialName = officialNames[focusedGame.id],
+                        width = heroCoverW,
+                        height = heroCoverH,
+                        isFocused = true,
+                        isFavorite = focusedGame.id in favorites,
+                        fastScrolling = fastScrolling,
+                        allowDiskDuringFastScroll = false,
+                        prominentFocus = false,
+                        onClick = { onLaunch(focusedGame) },
+                        onLongPress = onLongPress?.let { cb -> { cb(focusedGame) } },
+                    )
 
                 Column(
                     modifier = Modifier
@@ -292,77 +305,82 @@ fun HeroView(
                             color = Color.White,
                         )
                     }
+                    }
                 }
             }
         }
 
-        // 下半屏：横向胶片条底座（LazyRow 严格虚拟化）
-        BoxWithConstraints(
+        // 下半屏：横向胶片条底座（LazyRow 严格虚拟化；仅真实手势拖拽触发 effectiveFastScroll，避免单键滚动误翻转）
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.38f)
                 .background(palette.surface.copy(alpha = if (palette.isDark) 0.28f else 0.36f))
-                .padding(top = 6.dp, bottom = 6.dp),
+                .padding(top = 6.dp, bottom = 6.dp)
+                .onSizeChanged { if (it != filmstripAreaSize) filmstripAreaSize = it },
             contentAlignment = Alignment.Center,
         ) {
-            val thumbH = (maxHeight * 0.78f).coerceIn(72.dp, 114.dp)
-            val isTouchScrolling by remember(listState) { derivedStateOf { listState.isScrollInProgress } }
-            val effectiveFastScroll = fastScrolling || isTouchScrolling
+            if (filmstripAreaSize.height > 0) {
+                val maxHeight = with(density) { filmstripAreaSize.height.toDp() }
+                val thumbH = (maxHeight * 0.78f).coerceIn(72.dp, 114.dp)
+                val isTouchDragging by listState.interactionSource.collectIsDraggedAsState()
+                val effectiveFastScroll = fastScrolling || isTouchDragging
 
-            LazyRow(
-                state = listState,
-                contentPadding = PaddingValues(horizontal = 36.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                itemsIndexed(
-                    items = games,
-                    key = { _, g -> g.id },
-                ) { idx, game ->
-                    val isSelected = idx == safeFocus
-                    val plat = platformOf(game)
-                    val aspect = (plat?.coverAspect ?: 0.85f).coerceIn(0.68f, 1.30f)
-                    val thumbW = (thumbH * aspect).coerceIn(58.dp, 124.dp)
+                LazyRow(
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 36.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    itemsIndexed(
+                        items = games,
+                        key = { _, g -> g.id },
+                    ) { idx, game ->
+                        val isSelected = idx == safeFocus
+                        val plat = platformOf(game)
+                        val aspect = (plat?.coverAspect ?: 0.85f).coerceIn(0.68f, 1.30f)
+                        val thumbW = (thumbH * aspect).coerceIn(58.dp, 124.dp)
 
-                    val focusProgress = animateFloatAsState(
-                        targetValue = if (isSelected) 1f else 0f,
-                        animationSpec = if (reduceMotion || effectiveFastScroll) snap() else spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = 620f,
-                        ),
-                        label = "heroThumbFocus",
-                    )
-
-                    Box(
-                        modifier = Modifier.graphicsLayer {
-                            // 仅在绘制阶段读取动画值，切换焦点期间零重组；ModulateAlpha 避免未选中缩略图触发离屏 RenderTarget
-                            val p = focusProgress.value
-                            val s = 0.96f + 0.11f * p
-                            scaleX = s
-                            scaleY = s
-                            translationY = (-4f * p) * density.density
-                            alpha = 0.84f + 0.16f * p
-                            compositingStrategy = CompositingStrategy.ModulateAlpha
-                        },
-                    ) {
-                        GameCoverCard(
-                            game = game,
-                            platform = plat,
-                            covers = covers,
-                            officialName = officialNames[game.id],
-                            width = thumbW,
-                            height = thumbH,
-                            isFocused = isSelected,
-                            isFavorite = game.id in favorites,
-                            fastScrolling = effectiveFastScroll,
-                            shapeOverride = RoundedCornerShape(10.dp),
-                            prominentFocus = isSelected && !effectiveFastScroll,
-                            onClick = {
-                                if (isSelected) onLaunch(game) else onFocusChange(idx)
-                            },
-                            onLongPress = onLongPress?.let { cb -> { cb(game) } },
+                        val focusProgress = animateFloatAsState(
+                            targetValue = if (isSelected) 1f else 0f,
+                            animationSpec = if (reduceMotion || effectiveFastScroll) snap() else spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = 620f,
+                            ),
+                            label = "heroThumbFocus",
                         )
+
+                        Box(
+                            modifier = Modifier.graphicsLayer {
+                                // 仅在绘制阶段读取动画值，切换焦点期间零重组；ModulateAlpha 避免未选中缩略图触发离屏 RenderTarget
+                                val p = focusProgress.value
+                                val s = 0.96f + 0.11f * p
+                                scaleX = s
+                                scaleY = s
+                                translationY = (-4f * p) * density.density
+                                alpha = 0.84f + 0.16f * p
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
+                            },
+                        ) {
+                            GameCoverCard(
+                                game = game,
+                                platform = plat,
+                                covers = covers,
+                                officialName = officialNames[game.id],
+                                width = thumbW,
+                                height = thumbH,
+                                isFocused = isSelected,
+                                isFavorite = game.id in favorites,
+                                fastScrolling = effectiveFastScroll,
+                                shapeOverride = RoundedCornerShape(10.dp),
+                                prominentFocus = false,
+                                onClick = {
+                                    if (isSelected) onLaunch(game) else onFocusChange(idx)
+                                },
+                                onLongPress = onLongPress?.let { cb -> { cb(game) } },
+                            )
+                        }
                     }
                 }
             }

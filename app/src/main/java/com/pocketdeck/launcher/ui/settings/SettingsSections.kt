@@ -133,18 +133,55 @@ internal fun LookSection(
             trailing = { ValueChevron(themeLabel) },
         )
         RowDivider()
-        SettingRow(
-            label = stringResource(R.string.settings_theme_accent),
-            highlighted = highlightIndex == 1 && accentCursor == null,
-            onClick = onToggleAccentPicker,
-            trailing = {
+        val narrowScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 460
+        if (narrowScreen) {
+            val accentHl = highlightIndex == 1 && accentCursor == null
+            val accentPalette = LocalDeckColors.current
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .bringIntoViewWhen(accentHl || accentCursor != null)
+                    .clip(RoundedCornerShape(DeckBrand.RadiusS))
+                    .then(
+                        if (accentHl) {
+                            Modifier
+                                .background(accentPalette.accentSoft, RoundedCornerShape(DeckBrand.RadiusS))
+                                .border(1.5.dp, accentPalette.brandBrush, RoundedCornerShape(DeckBrand.RadiusS))
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .soundClickable(onClick = onToggleAccentPicker)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    stringResource(R.string.settings_theme_accent),
+                    style = DeckType.settingsValue,
+                    color = DeckColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
                 AccentDots(
                     selected = themeAccent,
                     cursor = accentCursor,
                     onPick = onSelectThemeAccent,
                 )
-            },
-        )
+            }
+        } else {
+            SettingRow(
+                label = stringResource(R.string.settings_theme_accent),
+                highlighted = highlightIndex == 1 && accentCursor == null,
+                onClick = onToggleAccentPicker,
+                trailing = {
+                    AccentDots(
+                        selected = themeAccent,
+                        cursor = accentCursor,
+                        onPick = onSelectThemeAccent,
+                    )
+                },
+            )
+        }
     }
 
     Spacer(Modifier.height(14.dp))
@@ -1295,7 +1332,7 @@ internal fun fontDisplayName(fontId: String): String = SystemFonts.displayName(
 )
 
 internal fun computeScrapeCacheBytes(cacheDir: File): Long {
-    val dirs = listOf("covers", "web_covers", "boxart_index", "metadata")
+    val dirs = listOf("covers", "web_covers", "cover_thumbs_webp", "boxart_index", "metadata", "gametdb")
     var total = 0L
     for (name in dirs) {
         val dir = File(cacheDir, name)

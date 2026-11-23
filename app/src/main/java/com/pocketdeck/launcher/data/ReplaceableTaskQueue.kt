@@ -1,5 +1,7 @@
 package com.pocketdeck.launcher.data
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -95,6 +97,10 @@ internal class ReplaceableTaskQueue<T>(
                 withTimeoutOrNull(taskTimeoutMs) {
                     worker(payload)
                 }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                Log.w("ReplaceableTaskQueue", "Worker task failed: $key", t)
             } finally {
                 val hasMore = synchronized(lock) {
                     inFlight.remove(key)
@@ -105,12 +111,25 @@ internal class ReplaceableTaskQueue<T>(
         }
     }
 
-    private fun pollNext(): Pair<String, T>? = synchronized(lock) {
-        if (paused) return@synchronized null
-        while (pending.isNotEmpty()) {
-            val head = pending.removeFirst()
-            if (inFlight.add(head.first)) return@synchronized head
+    private fun pollNext(): Pair<String, T>? {
+        var shouldWakePeer = false
+        val chosen = synchronized(lock) {
+            if (paused) return null
+            var result: Pair<String, T>? = null
+            while (pending.isNotEmpty()) {
+                val head = pending.removeFirst()
+                if (inFlight.add(head.first)) {
+                    result = head
+                    break
+                }
+            }
+            if (result != null && pending.isNotEmpty()) {
+                shouldWakePeer = true
+            }
+            result
         }
-        null
+        // CONFLATED 通道仅保留单令牌：出队后队列仍有剩余任务时立刻唤醒另一个空闲 Worker，恢复满并发
+        if (shouldWakePeer) signal.trySend(Unit)
+        return chosen
     }
 }

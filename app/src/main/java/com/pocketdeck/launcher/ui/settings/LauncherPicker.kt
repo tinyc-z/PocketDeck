@@ -1071,7 +1071,7 @@ private fun ActionButtons(
         Text(
             confirmLabel,
             style = DeckType.menuButton,
-            color = DeckColors.Background,
+            color = Color.White,
             modifier = Modifier
                 .clip(DeckShapes.menuButton)
                 .brandBackground(DeckShapes.menuButton)

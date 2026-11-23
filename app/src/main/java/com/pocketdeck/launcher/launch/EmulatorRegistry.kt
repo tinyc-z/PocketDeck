@@ -83,12 +83,26 @@ object CustomLauncherCodec {
         return CustomAppSpec(pkg, mode, extra, activity)
     }
 
+    /**
+     * 为 ROM 路径生成供外部模拟器打开的 URI。
+     * Android 8.0+ (minSdk = 26) 上使用 `content://` 绝不静默降级到必抛 `FileUriExposedException` 的 `file://`，
+     * 若路径不在 FileProvider 授权范围内直接抛出明确异常供启动器兜底提示。
+     */
     fun uriForFile(context: Context, path: String, useContentUri: Boolean): Uri {
         val file = File(path)
-        if (!useContentUri) return Uri.fromFile(file)
+        if (!useContentUri) {
+            // minSdk = 26 上 file:// 会直接触发 FileUriExposedException，优先走 FileProvider content://
+            return runCatching {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            }.getOrElse {
+                throw IllegalArgumentException("File path is outside shareable storage: $path", it)
+            }
+        }
         return runCatching {
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        }.getOrElse { Uri.fromFile(file) }
+        }.getOrElse {
+            throw IllegalArgumentException("File path is outside shareable storage: $path", it)
+        }
     }
 }
 

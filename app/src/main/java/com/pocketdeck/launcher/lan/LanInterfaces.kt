@@ -122,7 +122,8 @@ object LanInterfaces {
     }
 
     /**
-     * 打开绑定到指定物理网卡的 TLS Socket（用于 LocalSend HTTPS 通信）。
+     * 打开绑定到指定物理网卡的 TLS Socket（用于 LocalSend HTTPS 通信）；
+     * 若传入 [expectedFingerprint]，握手后强制执行 X.509 SHA-256 证书指纹校验，阻断局域网 MITM。
      */
     fun openBoundTlsSocket(
         lan: LanInterface,
@@ -131,15 +132,20 @@ object LanInterfaces {
         targetPort: Int,
         connectTimeoutMs: Int = 5000,
         readTimeoutMs: Int = 15000,
+        expectedFingerprint: String? = null,
     ): SSLSocket {
         val raw = openBoundSocket(lan, targetIp, targetPort, connectTimeoutMs, readTimeoutMs)
+        var tls: SSLSocket? = null
         return try {
-            val tls = sslContext.socketFactory.createSocket(raw, targetIp, targetPort, true) as SSLSocket
-            tls.useClientMode = true
-            tls.soTimeout = readTimeoutMs
-            tls.startHandshake()
-            tls
+            val sock = sslContext.socketFactory.createSocket(raw, targetIp, targetPort, true) as SSLSocket
+            tls = sock
+            sock.useClientMode = true
+            sock.soTimeout = readTimeoutMs
+            sock.startHandshake()
+            LanHttpClient.verifyPeerCertificateFingerprint(sock, expectedFingerprint)
+            sock
         } catch (t: Throwable) {
+            runCatching { tls?.close() }
             runCatching { raw.close() }
             throw t
         }

@@ -115,12 +115,17 @@ object RetroArchCoreCatalog {
     }
 
     /** 解析可读的 retroarch.cfg 中的 libretro_directory 配置。 */
-    private fun parseLibretroDirsFromCfg(sd: File?): List<File> {
+    private fun parseLibretroDirsFromCfg(sd: File?, preferredPkg: String? = null): List<File> {
         if (sd == null) return emptyList()
         val cfgFiles = buildList {
+            if (preferredPkg != null) {
+                add(File(sd, "Android/data/$preferredPkg/files/retroarch.cfg"))
+            }
             add(File(sd, "RetroArch/retroarch.cfg"))
             for (pkg in RETROARCH_PKGS) {
-                add(File(sd, "Android/data/$pkg/files/retroarch.cfg"))
+                if (pkg != preferredPkg) {
+                    add(File(sd, "Android/data/$pkg/files/retroarch.cfg"))
+                }
             }
         }
         val out = ArrayList<File>()
@@ -145,6 +150,12 @@ object RetroArchCoreCatalog {
             }
         }
         return out
+    }
+
+    /** 读取指定 RetroArch 包名对应的有效自定义 libretro_directory（若存在）。 */
+    internal fun readLibretroDirectory(pkg: String): File? {
+        val sd = runCatching { Environment.getExternalStorageDirectory() }.getOrNull() ?: return null
+        return parseLibretroDirsFromCfg(sd, preferredPkg = pkg).firstOrNull()
     }
 
     /** 构造 SAF OpenDocumentTree 的建议初始目录 Uri，减少用户逐层翻找。 */

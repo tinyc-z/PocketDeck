@@ -10,6 +10,7 @@ import androidx.core.graphics.drawable.toBitmap
 import coil3.SingletonImageLoader
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
+import com.pocketdeck.launcher.lan.WebFileSecurity
 import com.pocketdeck.launcher.launch.GameLauncher
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -32,15 +33,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.Dns
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.io.Reader
+import java.net.InetAddress
 import java.net.URLDecoder
+import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 data class ScrapedCoverCandidate(
     val url: String,
@@ -128,7 +135,37 @@ class CoverSource(
     private var githubIndexBlockedUntilMs: Long = 0L
     private val scrapingInFlight = ConcurrentHashMap<String, Boolean>()
     private val webCacheFilesById = ConcurrentHashMap<String, File>()
+    /** `web_covers/` 目录下已存在文件名集合（冷启动仅一次 `dir.list()`，零 `stat()` 与零预哈希）。 */
+    private val webCacheExistingNames = ConcurrentHashMap.newKeySet<String>()
+    private val manualCoverIds = ConcurrentHashMap.newKeySet<String>()
     private val thumbExistingNames = ConcurrentHashMap.newKeySet<String>()
+    private val diskWritesSincePrune = AtomicInteger(0)
+    private val lastDiskPruneMs = AtomicLong(0L)
+
+    /** 专用于 Web 端代下载的公网安全 OkHttpClient（复用共享连接池，强校验 DNS 解析 IP 拒绝私网/回环与跳转 SSRF）。 */
+    private val safePublicHttp: OkHttpClient by lazy {
+        client.http.newBuilder()
+            .dns(
+                object : Dns {
+                    override fun lookup(hostname: String): List<InetAddress> {
+                        val all = Dns.SYSTEM.lookup(hostname)
+                        val publicOnly = all.filter { WebFileSecurity.isPublicInetAddress(it) }
+                        if (publicOnly.isEmpty()) {
+                            throw UnknownHostException("Blocked non-public address for host: $hostname")
+                        }
+                        return publicOnly
+                    }
+                },
+            )
+            .addNetworkInterceptor { chain ->
+                val url = chain.request().url
+                if (!url.isHttps) {
+                    throw IOException("Blocked non-HTTPS cover download URL")
+                }
+                chain.proceed(chain.request())
+            }
+            .build()
+    }
 
     // 有界 LRU，避免上万游戏时候选来源映射无限增长
     private val candidateOrigins: MutableMap<String, Pair<String, CoverMatchMode>> =
@@ -163,6 +200,10 @@ class CoverSource(
     @Volatile
     private var pendingIndexBump = false
     private val initialCoversReady = CompletableDeferred<Unit>()
+
+    suspend fun awaitInitialReady() {
+        initialCoversReady.await()
+    }
 
     /** 快滚期间暂停后台窗口刮削队列与 indexVersion 广播，停稳后再统一恢复，避免无封面卡片密集时抢占 CPU/IO 并引发全屏重组。 */
     fun setFastScrolling(scrolling: Boolean) {
@@ -221,11 +262,13 @@ class CoverSource(
                 indexDir.mkdirs()
             webCacheDir.mkdirs()
             thumbDir.mkdirs()
-            migrateLegacyPrefsIfNeeded()
-            val metaPrefs = appCtx.getSharedPreferences("cover_matcher_meta", Context.MODE_PRIVATE)
-            if (metaPrefs.getInt("matcher_ver", 0) < MATCHER_VERSION) {
-                db.clearAllCoverFailures()
-                metaPrefs.edit().putInt("matcher_ver", MATCHER_VERSION).apply()
+            runCatching { migrateLegacyPrefsIfNeeded() }
+            runCatching {
+                val metaPrefs = appCtx.getSharedPreferences("cover_matcher_meta", Context.MODE_PRIVATE)
+                if (metaPrefs != null && metaPrefs.getInt("matcher_ver", 0) < MATCHER_VERSION) {
+                    db.clearAllCoverFailures()
+                    metaPrefs.edit().putInt("matcher_ver", MATCHER_VERSION).apply()
+                }
             }
             val rows = db.loadAllCovers()
             val now = System.currentTimeMillis()
@@ -242,6 +285,9 @@ class CoverSource(
                         inferOrigin(r.url, r.url)
                     }
                     resolvedOrigins[r.gameId] = origin
+                    if (origin.first == WEB_PICKER_PROVIDER || r.provider?.startsWith(MANUAL_PROVIDER_PREFIX) == true) {
+                        manualCoverIds.add(r.gameId)
+                    }
                     infoBatch[r.gameId] = CoverResolutionInfo(origin.first, origin.second, r.url)
                     loadedUrls++
                 } else if (r.failedUntilMs > now) {
@@ -250,35 +296,38 @@ class CoverSource(
                 }
             }
             if (infoBatch.isNotEmpty()) {
-                _coverInfo.value = infoBatch
-            }
-            // 启动时后台扫描已下载到本地的离线封面缓存文件，供主线程 O(1) 零 I/O 直接命中
-            val existingNames = webCacheDir.listFiles()
-                ?.asSequence()
-                ?.filter { it.isFile && it.length() > 0L }
-                ?.map { it.name }
-                ?.toHashSet()
-                .orEmpty()
-            if (existingNames.isNotEmpty()) {
-                for (gameId in resolvedUrls.keys) {
-                    val wf = webCacheFile(gameId)
-                    if (wf.name in existingNames) {
-                        webCacheFilesById[gameId] = wf
+                _coverInfo.update { cur ->
+                    if (cur.isEmpty()) infoBatch
+                    else HashMap<String, CoverResolutionInfo>(infoBatch.size + cur.size).apply {
+                        putAll(infoBatch)
+                        putAll(cur)
                     }
                 }
             }
-            // 启动时后台扫描已有 WebP 缩略图文件名，避免主线程 preferredThumbOrOriginal() 触发磁盘 stat()
-            thumbDir.listFiles()?.forEach { f ->
-                if (f.isFile && f.length() > 0L) {
-                    thumbExistingNames.add(f.name)
+            // DB 封面加载完毕后立即通知首屏渲染（无需等待目录枚举与磁盘统计）
+            if (loadedUrls > 0) {
+                bumpIndexVersion(immediate = true)
+            }
+            // 纯 readdir 收集离线封面与缩略图文件名（0 次 stat()、0 次万级 SHA-256，按需懒解析）
+            webCacheDir.list()?.forEach { name ->
+                if (name.endsWith(".img")) {
+                    webCacheExistingNames.add(name)
                 }
             }
-            if (loadedUrls > 0 || webCacheFilesById.isNotEmpty()) {
+            thumbDir.list()?.forEach { name ->
+                if (name.endsWith(".webp")) {
+                    thumbExistingNames.add(name)
+                }
+            }
+            if (loadedUrls == 0 && webCacheExistingNames.isNotEmpty()) {
                 bumpIndexVersion(immediate = true)
             }
             } finally {
                 initialCoversReady.complete(Unit)
             }
+            // 启动后延迟检查一次离线封面与缩略图磁盘上限（512MB / 128MB），按 LRU 自动清理超额文件
+            delay(15_000L)
+            pruneDiskCachesIfNeeded(force = true)
         }
 
         scope.launch {
@@ -362,11 +411,14 @@ class CoverSource(
         prefs.edit().clear().apply()
     }
 
-    private fun normalizeLegacyProvider(raw: String?): String? = when (raw) {
-        ScraperCatalog.CoverIds.LEGACY_LIBRETRO_CDN,
-        ScraperCatalog.CoverIds.LEGACY_LIBRETRO_JSDELIVR,
-        ScraperCatalog.CoverIds.LEGACY_LIBRETRO_GITHUB -> ScraperCatalog.CoverIds.LIBRETRO_BOXARTS
-        else -> raw
+    private fun normalizeLegacyProvider(raw: String?): String? {
+        val stripped = raw?.removePrefix(MANUAL_PROVIDER_PREFIX)
+        return when (stripped) {
+            ScraperCatalog.CoverIds.LEGACY_LIBRETRO_CDN,
+            ScraperCatalog.CoverIds.LEGACY_LIBRETRO_JSDELIVR,
+            ScraperCatalog.CoverIds.LEGACY_LIBRETRO_GITHUB -> ScraperCatalog.CoverIds.LIBRETRO_BOXARTS
+            else -> stripped
+        }
     }
 
     private class BoxartIndex(
@@ -581,14 +633,14 @@ class CoverSource(
             val removedIds = if (disabledNodes.isNotEmpty()) {
                 val ids = ArrayList<String>()
                 for ((gid, origin) in resolvedOrigins.entries) {
-                    if (origin.first in disabledNodes) {
+                    if (gid !in manualCoverIds && origin.first in disabledNodes) {
                         ids += gid
                     }
                 }
                 for (gid in ids) {
                     resolvedUrls.remove(gid)
                     resolvedOrigins.remove(gid)
-                    webCacheFilesById.remove(gid)
+                    removeWebCacheEntry(gid)
                     scheduleCoverInfoRemove(gid)
                 }
                 ids
@@ -650,6 +702,8 @@ class CoverSource(
         resolvedUrls.clear()
         resolvedOrigins.clear()
         webCacheFilesById.clear()
+        webCacheExistingNames.clear()
+        manualCoverIds.clear()
         clearAllFailuresInMemory()
         offlineHashCheckedIds.clear()
         candidateOrigins.clear()
@@ -751,15 +805,17 @@ class CoverSource(
     /** 应用手动搜索刮削选中的封面 URL 并持久化至 SQLite 缓存（同步清理旧离线图，防止遮挡新封面）。 */
     fun applyManualCover(gameId: String, coverUrl: String?, providerId: String) {
         if (coverUrl.isNullOrBlank()) return
+        val cleanProvider = providerId.removePrefix(MANUAL_PROVIDER_PREFIX)
         resolvedUrls[gameId] = coverUrl
-        resolvedOrigins[gameId] = providerId to CoverMatchMode.ApiSearch
+        resolvedOrigins[gameId] = cleanProvider to CoverMatchMode.ApiSearch
+        manualCoverIds.add(gameId)
         removeFailureInMemory(gameId)
-        webCacheFilesById.remove(gameId)
+        removeWebCacheEntry(gameId)
         scope.launch(Dispatchers.IO) {
             runCatching { webCacheFile(gameId).delete() }
-            db.putCoverSuccess(gameId, coverUrl, providerId, CoverMatchMode.ApiSearch.name)
+            db.putCoverSuccess(gameId, coverUrl, "$MANUAL_PROVIDER_PREFIX$cleanProvider", CoverMatchMode.ApiSearch.name)
         }
-        _coverInfo.update { it + (gameId to CoverResolutionInfo(providerId, CoverMatchMode.ApiSearch, coverUrl)) }
+        _coverInfo.update { it + (gameId to CoverResolutionInfo(cleanProvider, CoverMatchMode.ApiSearch, coverUrl)) }
         bumpIndexVersion(immediate = true)
     }
 
@@ -793,7 +849,7 @@ class CoverSource(
                 val g = games[idx]
                 if (g.id.startsWith(GameLauncher.APK_PREFIX)) return@forEachFocusOutward
                 if (g.customCover != null || g.localCover != null) return@forEachFocusOutward
-                if (webCacheFilesById.containsKey(g.id) || resolvedUrls.containsKey(g.id)) return@forEachFocusOutward
+                if (lookupWebCacheFile(g.id) != null || resolvedUrls.containsKey(g.id)) return@forEachFocusOutward
                 if (isPersistedCoverFailureFresh(g.id, now)) return@forEachFocusOutward
                 val sys = platformResolver(g).libretroSystem
                 if (!sys.isNullOrBlank() && !systemIndexes.containsKey(sys)) {
@@ -1123,7 +1179,7 @@ class CoverSource(
      */
     fun fastMemoryCandidates(game: Game): List<Any> {
         val custom = game.customCover
-        val downloaded = webCacheFilesById[game.id]
+        val downloaded = lookupWebCacheFile(game.id)
         val cached = cachedUrl(game.id)
         val local = game.localCover
         if (custom == null && downloaded == null && cached == null && local == null) return emptyList()
@@ -1147,10 +1203,22 @@ class CoverSource(
             candidateOrigins["${game.id}::$f"] = "custom" to CoverMatchMode.CustomFile
             return listOf(f)
         }
-        webCacheFilesById[game.id]?.let { wf ->
+        lookupWebCacheFile(game.id)?.let { wf ->
             val (prov, mode) = resolvedOrigins[game.id] ?: ("local" to CoverMatchMode.LocalFile)
             candidateOrigins["${game.id}::$wf"] = prov to mode
-            return listOf(wf)
+            val out = ArrayList<Any>(3)
+            out += wf
+            cachedUrl(game.id)?.let { cached ->
+                val (cProv, cMode) = cachedOrigin(game.id, cached)
+                candidateOrigins["${game.id}::$cached"] = cProv to cMode
+                out += cached
+            }
+            game.localCover?.let { local ->
+                val lf = preferredThumbOrOriginal(File(local))
+                candidateOrigins["${game.id}::$lf"] = "local" to CoverMatchMode.LocalFile
+                out += lf
+            }
+            return out
         }
         val cached = cachedUrl(game.id)
         if (cached != null) {
@@ -1474,7 +1542,36 @@ class CoverSource(
         }
     }
 
+    fun isWebCacheFile(key: String, file: File): Boolean =
+        lookupWebCacheFile(key)?.let { it.path == file.path } == true
+
+    internal fun preferredLocalCoverFile(path: String): File = preferredThumbOrOriginal(File(path))
+
+    /** 离线封面文件损坏或被系统回收时摘除该缓存条目并删坏文件，保留 resolvedUrls/SQLite 供回退重试。 */
+    fun invalidateWebCacheFile(key: String, file: File) {
+        val removed = webCacheFilesById.remove(key, file)
+        val removedName = webCacheExistingNames.remove(file.name)
+        if (removed || removedName) {
+            scope.launch(Dispatchers.IO) { runCatching { file.delete() } }
+            bumpIndexVersion()
+        }
+    }
+
     fun rememberFailure(key: String, platform: Platform?) {
+        // 1. 若刚失败的是已损坏或被系统回收的离线缓存文件，优先清理坏文件并回退到在线 URL/本地图，绝不误删 SQLite 记录
+        val staleWf = lookupWebCacheFile(key)
+        if (staleWf != null) {
+            webCacheFilesById.remove(key, staleWf)
+            webCacheExistingNames.remove(staleWf.name)
+            scope.launch(Dispatchers.IO) { runCatching { staleWf.delete() } }
+            bumpIndexVersion()
+            return
+        }
+        // 2. 离线状态下绝不抹除已持久化的封面 URL（避免飞行/断网滑库把全库 cover_cache 与手动封面清空）
+        if (!NetworkStatus.online.value) return
+        // 3. 手动选定的封面不因单次弱网/超时失败自动从库中删除
+        if (key in manualCoverIds) return
+
         val hadCachedUrl = resolvedUrls.remove(key)?.isNotEmpty() == true
         if (hadCachedUrl) {
             resolvedOrigins.remove(key)
@@ -1484,7 +1581,6 @@ class CoverSource(
             return
         }
         scheduleCoverInfoRemove(key)
-        if (!NetworkStatus.online.value) return
         val now = System.currentTimeMillis()
         if (isPersistedCoverFailureFresh(key, now)) return
 
@@ -1514,13 +1610,71 @@ class CoverSource(
     fun forget(key: String) {
         resolvedUrls.remove(key)
         resolvedOrigins.remove(key)
+        manualCoverIds.remove(key)
         removeFailureInMemory(key)
         offlineHashCheckedIds.remove(key)
+        removeWebCacheEntry(key)
         scheduleCoverInfoRemove(key)
         scope.launch(Dispatchers.IO) {
             db.deleteCover(key)
-            webCacheFilesById.remove(key)
             runCatching { webCacheFile(key).delete() }
+        }
+    }
+
+    /** ROM 重命名或移动后，同步迁移内存封面索引及 `web_covers/` 离线图文件名。 */
+    fun migrateGameId(oldId: String, newId: String) {
+        if (oldId == newId) return
+        resolvedUrls.remove(oldId)?.let { resolvedUrls[newId] = it }
+        resolvedOrigins.remove(oldId)?.let { resolvedOrigins[newId] = it }
+        if (manualCoverIds.remove(oldId)) manualCoverIds.add(newId)
+        failedUntilMs.remove(oldId)?.let { failedUntilMs[newId] = it }
+        if (persistedFailedIds.remove(oldId)) persistedFailedIds.add(newId)
+        if (offlineHashCheckedIds.remove(oldId)) offlineHashCheckedIds.add(newId)
+        val prevInfo = _coverInfo.value[oldId]
+        if (prevInfo != null) {
+            scheduleCoverInfoRemove(oldId)
+            scheduleCoverInfoPut(newId, prevInfo)
+        }
+        val oldWf = lookupWebCacheFile(oldId)
+        removeWebCacheEntry(oldId)
+        if (oldWf != null) {
+            val newWf = webCacheFile(newId)
+            scope.launch(Dispatchers.IO) {
+                if (oldWf.isFile) {
+                    val renamed = runCatching {
+                        if (newWf.exists()) newWf.delete()
+                        oldWf.renameTo(newWf)
+                    }.getOrDefault(false)
+                    if (renamed) {
+                        recordWebCacheFile(newId, newWf)
+                    }
+                }
+            }
+        }
+        bumpIndexVersion()
+    }
+
+    /** 目录重命名或移动后，迁移该前缀下全部内存封面缓存与离线图文件名。 */
+    fun migratePathPrefix(oldDir: String, newDir: String) {
+        val oldPrefix = if (oldDir.endsWith("/")) oldDir else "$oldDir/"
+        val newPrefix = if (newDir.endsWith("/")) newDir else "$newDir/"
+        if (oldPrefix == newPrefix) return
+        val matchedIds = (resolvedUrls.keys + webCacheFilesById.keys + failedUntilMs.keys)
+            .filter { it.startsWith(oldPrefix) }
+            .distinct()
+        for (oldId in matchedIds) {
+            migrateGameId(oldId, newPrefix + oldId.removePrefix(oldPrefix))
+        }
+    }
+
+    /** 目录被删除后，清理该前缀下全部内存封面缓存与离线图文件。 */
+    fun forgetPathPrefix(dirPath: String) {
+        val prefix = if (dirPath.endsWith("/")) dirPath else "$dirPath/"
+        val matchedIds = (resolvedUrls.keys + webCacheFilesById.keys + failedUntilMs.keys)
+            .filter { it.startsWith(prefix) }
+            .distinct()
+        for (gid in matchedIds) {
+            forget(gid)
         }
     }
 
@@ -1565,7 +1719,7 @@ class CoverSource(
 
     private fun scheduleCoverInfoFlushLocked() {
         if (coverInfoFlushJob?.isActive == true) return
-        coverInfoFlushJob = scope.launch {
+        coverInfoFlushJob = scope.launch(Dispatchers.Default) {
             delay(150L)
             val puts: Map<String, CoverResolutionInfo>
             val removes: Set<String>
@@ -1577,12 +1731,13 @@ class CoverSource(
                 coverInfoFlushJob = null
             }
             if (puts.isEmpty() && removes.isEmpty()) return@launch
-            val cur = _coverInfo.value
-            val next = HashMap<String, CoverResolutionInfo>(cur.size + puts.size)
-            next.putAll(cur)
-            for (k in removes) next.remove(k)
-            next.putAll(puts)
-            _coverInfo.value = next
+            _coverInfo.update { cur ->
+                val next = HashMap<String, CoverResolutionInfo>(cur.size + puts.size)
+                next.putAll(cur)
+                for (k in removes) next.remove(k)
+                next.putAll(puts)
+                next
+            }
         }
     }
 
@@ -1603,10 +1758,10 @@ class CoverSource(
         if (!game.customCover.isNullOrBlank() && File(game.customCover).isFile) return true
         if (!game.localCover.isNullOrBlank() && File(game.localCover).isFile) return true
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return true
-        if (webCacheFilesById.containsKey(game.id)) return true
+        if (lookupWebCacheFile(game.id) != null) return true
         val wf = webCacheFile(game.id)
         if (wf.isFile && wf.length() > 0L) {
-            webCacheFilesById[game.id] = wf
+            recordWebCacheFile(game.id, wf)
             return true
         }
         return false
@@ -1625,9 +1780,10 @@ class CoverSource(
     /** 记录 Web 端「在线选图」同步到本地封面时的原始在线 URL，供下次 Web 列表继续优先直连外链。 */
     fun recordWebPickerSourceUrl(gameId: String, sourceUrl: String) {
         val url = sourceUrl.trim()
-        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return
+        if (!WebFileSecurity.isAllowedCoverSourceUrl(url)) return
         resolvedUrls[gameId] = url
         resolvedOrigins[gameId] = WEB_PICKER_PROVIDER to CoverMatchMode.ApiSearch
+        manualCoverIds.add(gameId)
         removeFailureInMemory(gameId)
         scope.launch(Dispatchers.IO) {
             db.putCoverSuccess(gameId, url, WEB_PICKER_PROVIDER, CoverMatchMode.ApiSearch.name)
@@ -1709,14 +1865,20 @@ class CoverSource(
 
         val url = cachedUrl(game.id) ?: return@withContext null
         readCoilDiskCache(url)?.let { bytes ->
-            runCatching { cachedFile.writeBytes(bytes) }
+            if (writeFileAtomically(cachedFile, bytes)) {
+                recordWebCacheFile(game.id, cachedFile)
+                maybeScheduleDiskPrune()
+            }
             return@withContext (detectImageFormat(bytes)?.second ?: "image/jpeg") to bytes
         }
 
         if (NetworkStatus.isOnline(appCtx)) {
             val downloaded = downloadImageBytes(url)
             if (downloaded != null) {
-                runCatching { cachedFile.writeBytes(downloaded.second) }
+                if (writeFileAtomically(cachedFile, downloaded.second)) {
+                    recordWebCacheFile(game.id, cachedFile)
+                    maybeScheduleDiskPrune()
+                }
                 return@withContext downloaded
             }
         }
@@ -1733,13 +1895,10 @@ class CoverSource(
         val bytes = readCoilDiskCache(url) ?: return false
         if (bytes.size < 32) return false
         val wf = webCacheFile(game.id)
-        val saved = runCatching {
-            webCacheDir.mkdirs()
-            wf.writeBytes(bytes)
-            true
-        }.getOrDefault(false)
+        val saved = writeFileAtomically(wf, bytes)
         if (saved) {
-            webCacheFilesById[game.id] = wf
+            recordWebCacheFile(game.id, wf)
+            maybeScheduleDiskPrune()
             return true
         }
         return false
@@ -1768,12 +1927,11 @@ class CoverSource(
 
         fun persistWebBytes(url: String, bytes: ByteArray): Boolean {
             val wf = webCacheFile(game.id)
-            val saved = runCatching {
-                webCacheDir.mkdirs()
-                wf.writeBytes(bytes)
-                true
-            }.getOrDefault(false)
-            if (saved) webCacheFilesById[game.id] = wf
+            val saved = writeFileAtomically(wf, bytes)
+            if (saved) {
+                recordWebCacheFile(game.id, wf)
+                maybeScheduleDiskPrune()
+            }
             rememberSuccess(game.id, url)
             bumpIndexVersion()
             return true
@@ -1878,7 +2036,13 @@ class CoverSource(
         return out
     }
 
-    suspend fun downloadImageBytes(urlStr: String): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
+    suspend fun downloadImageBytes(
+        urlStr: String,
+        strictPublicCoverHost: Boolean = false,
+    ): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
+        if (strictPublicCoverHost && !WebFileSecurity.isAllowedCoverSourceUrl(urlStr)) {
+            return@withContext null
+        }
         val t0 = System.currentTimeMillis()
         var code: Int? = null
         try {
@@ -1886,7 +2050,8 @@ class CoverSource(
                 .url(urlStr)
                 .header("User-Agent", USER_AGENT)
                 .build()
-            client.http.newCall(req).execute().use { resp ->
+            val httpClient = if (strictPublicCoverHost) safePublicHttp else client.http
+            httpClient.newCall(req).execute().use { resp ->
                 code = resp.code
                 if (!resp.isSuccessful) {
                     ScrapeLogStore.log(
@@ -1954,6 +2119,80 @@ class CoverSource(
     private fun webCacheFile(gameId: String): File {
         val hash = sha256HexFast(gameId)
         return File(webCacheDir, "$hash.img")
+    }
+
+    /** 懒解析离线封面路径：首次命中仅做一次 SHA-256 查内存文件名集合（0 `stat()`），后续走 O(1) Map。 */
+    private fun lookupWebCacheFile(gameId: String): File? {
+        webCacheFilesById[gameId]?.let { return it }
+        if (webCacheExistingNames.isEmpty()) return null
+        val name = "${sha256HexFast(gameId)}.img"
+        if (name in webCacheExistingNames) {
+            val wf = File(webCacheDir, name)
+            webCacheFilesById[gameId] = wf
+            return wf
+        }
+        return null
+    }
+
+    private fun recordWebCacheFile(gameId: String, file: File) {
+        webCacheExistingNames.add(file.name)
+        webCacheFilesById[gameId] = file
+    }
+
+    private fun removeWebCacheEntry(gameId: String) {
+        val removed = webCacheFilesById.remove(gameId)
+        if (removed != null) {
+            webCacheExistingNames.remove(removed.name)
+        } else if (webCacheExistingNames.isNotEmpty()) {
+            webCacheExistingNames.remove("${sha256HexFast(gameId)}.img")
+        }
+    }
+
+    private fun maybeScheduleDiskPrune() {
+        val count = diskWritesSincePrune.incrementAndGet()
+        if (count < DISK_PRUNE_WRITE_INTERVAL) return
+        val now = System.currentTimeMillis()
+        val prev = lastDiskPruneMs.get()
+        if (now - prev < DISK_PRUNE_MIN_INTERVAL_MS) return
+        if (!lastDiskPruneMs.compareAndSet(prev, now)) return
+        diskWritesSincePrune.set(0)
+        scope.launch(Dispatchers.IO) {
+            pruneDiskCachesIfNeeded(force = false)
+        }
+    }
+
+    private fun pruneDiskCachesIfNeeded(force: Boolean) {
+        if (force) {
+            lastDiskPruneMs.set(System.currentTimeMillis())
+        }
+        pruneDirByLru(webCacheDir, WEB_CACHE_MAX_BYTES) { deletedName ->
+            webCacheExistingNames.remove(deletedName)
+            webCacheFilesById.entries.removeIf { it.value.name == deletedName }
+        }
+        pruneDirByLru(thumbDir, THUMB_CACHE_MAX_BYTES) { deletedName ->
+            thumbExistingNames.remove(deletedName)
+        }
+    }
+
+    /** 原子落盘离线封面（先写 `.tmp` 再 `renameTo`），避免进程强杀或并发写入留下半截损坏 `.img`。 */
+    private fun writeFileAtomically(target: File, bytes: ByteArray): Boolean {
+        val parent = target.parentFile ?: return false
+        parent.mkdirs()
+        val tmp = File(parent, "${target.name}.${System.nanoTime()}.tmp")
+        return try {
+            tmp.writeBytes(bytes)
+            if (!tmp.renameTo(target)) {
+                if (target.exists()) target.delete()
+                if (!tmp.renameTo(target)) {
+                    tmp.delete()
+                    return false
+                }
+            }
+            true
+        } catch (_: Throwable) {
+            runCatching { tmp.delete() }
+            false
+        }
     }
 
     private fun cachedOrigin(key: String, url: String): Pair<String, CoverMatchMode> {
@@ -2138,6 +2377,7 @@ class CoverSource(
                         thumbExistingNames.add(fileName)
                         thumbValidatedPaths.add(key)
                         thumbPathLru.put(key, dest)
+                        maybeScheduleDiskPrune()
                     }
                 } finally {
                     thumbGenerating.remove(key)
@@ -2443,6 +2683,7 @@ class CoverSource(
         }
 
         private const val WEB_PICKER_PROVIDER = "web_picker"
+        private const val MANUAL_PROVIDER_PREFIX = "manual:"
         const val MATCHER_VERSION = 2
         const val THUMB_MAX_WIDTH_PX = 320
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
@@ -2567,6 +2808,46 @@ class CoverSource(
             if (COMPILATION_REISSUE_REGEX.containsMatchIn(name)) score += 300
             if ("[b" in name || "[h" in name || "[tr" in name || "[p" in name) score += 500
             return score
+        }
+
+        private const val WEB_CACHE_MAX_BYTES = 512L * 1024 * 1024
+        private const val THUMB_CACHE_MAX_BYTES = 128L * 1024 * 1024
+        private const val DISK_PRUNE_WRITE_INTERVAL = 64
+        private const val DISK_PRUNE_MIN_INTERVAL_MS = 10L * 60 * 1000
+
+        /** 按文件 `lastModified` 从旧到新淘汰超出 [maxBytes] 上限的磁盘缓存，防止万级游戏库无限膨胀。 */
+        internal fun pruneDirByLru(
+            dir: File,
+            maxBytes: Long,
+            onDeleted: (String) -> Unit = {},
+        ): Int {
+            if (!dir.isDirectory || maxBytes <= 0L) return 0
+            val files = dir.listFiles()?.filter { it.isFile } ?: return 0
+            var total = 0L
+            for (f in files) {
+                if (f.name.endsWith(".tmp")) {
+                    runCatching { f.delete() }
+                    continue
+                }
+                total += f.length()
+            }
+            if (total <= maxBytes) return 0
+            val target = (maxBytes * 85L) / 100L
+            var removed = 0
+            val sorted = files
+                .filter { !it.name.endsWith(".tmp") }
+                .sortedBy { it.lastModified() }
+            for (f in sorted) {
+                if (total <= target) break
+                val len = f.length()
+                val name = f.name
+                if (runCatching { f.delete() }.getOrDefault(false)) {
+                    total -= len
+                    removed++
+                    onDeleted(name)
+                }
+            }
+            return removed
         }
     }
 }

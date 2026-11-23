@@ -111,10 +111,11 @@ fun GamePropertiesDialog(
 
     var crc32 by remember(game.id, metaInfo?.crc32) { mutableStateOf(metaInfo?.crc32) }
     LaunchedEffect(game.id) {
+        // 先立即抢占弹窗焦点，再异步算大体积 ROM CRC32，防止数秒内按键穿透到底层页面
+        focusRequester.requestFocusSafely()
         if (!isApk && crc32 == null) {
             crc32 = computeCrc32(game.id)
         }
-        focusRequester.requestFocusSafely()
     }
 
     val noneLabel = stringResource(R.string.prop_none)

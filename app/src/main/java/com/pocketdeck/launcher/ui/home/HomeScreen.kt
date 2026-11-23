@@ -55,6 +55,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -154,22 +155,6 @@ fun HomeScreen(
         )
     }
 
-    LaunchedEffect(
-        state.detailGame,
-        state.propertiesGame,
-        state.editingGame,
-        state.showLibraryManager,
-        state.showApps,
-        state.showSettings,
-        showLanControlFromStatusBar,
-    ) {
-        if (state.detailGame == null && state.propertiesGame == null && state.editingGame == null &&
-            !state.showLibraryManager && !state.showApps && !state.showSettings &&
-            !showLanControlFromStatusBar
-        ) {
-            focusRequester.requestFocusSafely()
-        }
-    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -223,18 +208,19 @@ fun HomeScreen(
         state.showViewMenu ||
         state.searching
 
+    // 严格按 HomeOverlays 从顶到底的真实 Z 序处理系统返回键，防止先关底层页面留下高层孤儿弹窗
     BackHandler(enabled = overlayOpen) {
         when {
-            showLanControlFromStatusBar -> showLanControlFromStatusBar = false
             state.showScrapeTaskDialog -> vm.closeScrapeTaskDialog()
-            state.showQuickHud -> vm.closeQuickHud()
+            showLanControlFromStatusBar -> showLanControlFromStatusBar = false
             state.showLibraryManager -> vm.closeLibraryManager()
-            state.manualScrapeGame != null -> vm.closeManualScrape()
-            state.detailGame != null -> vm.closeDetail()
-            state.propertiesGame != null -> vm.closeProperties()
-            state.editingGame != null -> vm.closeEdit()
-            state.showApps -> vm.closeApps()
             state.showSettings -> vm.toggleSettings()
+            state.showApps -> vm.closeApps()
+            state.manualScrapeGame != null -> vm.closeManualScrape()
+            state.editingGame != null -> vm.closeEdit()
+            state.propertiesGame != null -> vm.closeProperties()
+            state.showQuickHud -> vm.closeQuickHud()
+            state.detailGame != null -> vm.closeDetail()
             state.showViewMenu -> vm.closeViewMenu()
             state.searching -> {
                 if ((imeVisible || searchFieldFocused) && state.searchQuery.isNotBlank()) {
@@ -436,6 +422,7 @@ fun HomeScreen(
                     onPrevTab = stablePrevTab,
                     onNextTab = stableNextTab,
                     rapidTabSwitchFlow = rapidTabSwitchFlow,
+                    animationsPaused = hasChildFocusOverlay,
                 )
 
                 // 搜索栏置顶在 TopBar 下方，不遮挡搜索结果和键盘区域
@@ -624,17 +611,13 @@ fun HomeScreen(
                     val stableOnSearch = remember(vm) { { vm.toggleSearch() } }
                     val stableOnPlay = remember(launchGame) { { launchCurrentGame() } }
                     BottomBar(
-                        viewMode = state.viewMode,
                         navBarStyle = state.navBarStyle,
                         searching = state.searching,
                         onApps = stableOnApps,
                         onSettings = stableOnSettings,
-                        onOptions = null,
                         onViewSwitch = stableOnViewSwitch,
                         onSearch = stableOnSearch,
                         onPlay = stableOnPlay,
-                        swapAbxy = state.swapAbxy,
-                        keyBindings = state.keyBindings,
                     )
                 }
             }
@@ -718,6 +701,7 @@ private fun HomeTopBarSlot(
     onPrevTab: () -> Unit,
     onNextTab: () -> Unit,
     rapidTabSwitchFlow: StateFlow<Boolean>,
+    animationsPaused: Boolean,
 ) {
     val lanSnap by remember(lanStateFlow) {
         lanStateFlow.map { s ->
@@ -764,6 +748,7 @@ private fun HomeTopBarSlot(
         onPrevTab = onPrevTab,
         onNextTab = onNextTab,
         rapidTabSwitchFlow = rapidTabSwitchFlow,
+        animationsPaused = animationsPaused,
     )
 }
 
@@ -781,6 +766,15 @@ private fun HomeBackgroundSlot(
     fastScrollingFlow: StateFlow<Boolean>,
     navAnimatingFlow: StateFlow<Boolean>,
 ) {
+    // 静态纯色/自定义背景提前返回，跳过高频焦点/快滚流与 coverResolutionMap 订阅，实现 0 无效重组
+    if (style == BackgroundStyle.None || style == BackgroundStyle.Image) {
+        WaveBackground(
+            style = style,
+            customBackground = customBackground,
+            paused = true,
+        )
+        return
+    }
     val isFastScrolling by fastScrollingFlow.collectAsState()
     val isNavAnimating by navAnimatingFlow.collectAsState()
     var focusChangePaused by remember { mutableStateOf(false) }
@@ -893,31 +887,52 @@ private fun HomeContentSlot(
 ) {
     val focusIndex by focusIndexFlow.collectAsState()
     val isFastScrolling by fastScrollingFlow.collectAsState()
-    val screenCfg = androidx.compose.ui.platform.LocalConfiguration.current
-    val maxGalleryByWidth = ((screenCfg.screenWidthDp - 76f) / 1.35f).coerceAtLeast(182f)
-    val galleryFocusH = (screenCfg.screenHeightDp * 0.42f).coerceAtMost(maxGalleryByWidth).coerceIn(182f, 320f).dp
-    val gallerySmallH = (104f * (galleryFocusH.value / 182f)).dp
     when (viewMode) {
-        ViewMode.Gallery -> GalleryView(
-            games = games,
-            platformOf = platformOf,
-            focusIndex = focusIndex,
-            covers = covers,
-            metadataMap = metadataMap,
-            officialNames = officialNames,
-            favorites = favorites,
-            onFocusChange = onFocusChange,
-            onLaunch = onLaunch,
-            onLongPress = onLongPress,
-            fastScrolling = isFastScrolling,
-            idlePaused = idlePaused,
-            focusCardHeight = galleryFocusH,
-            smallCardHeight = gallerySmallH,
-            showMetadata = showMetadata,
-            metaDisplay = metaDisplay,
-            align = galleryAlign,
-            modifier = Modifier.fillMaxSize(),
-        )
+        ViewMode.Gallery -> {
+            val screenCfg = androidx.compose.ui.platform.LocalConfiguration.current
+            val density = LocalDensity.current
+            val fallbackSlotH = (screenCfg.screenHeightDp - 110f).coerceAtLeast(180f)
+            var measuredSlotH by remember(screenCfg.screenHeightDp) { mutableStateOf(fallbackSlotH) }
+            val maxGalleryByWidth = ((screenCfg.screenWidthDp - 76f) / 1.35f).coerceAtLeast(110f)
+            val overheadDp = if (showMetadata) 84f else 60f
+            val maxGalleryBySlot = (measuredSlotH - overheadDp).coerceAtLeast(110f)
+            val desiredGalleryH = (screenCfg.screenHeightDp * 0.42f).coerceIn(110f, 320f)
+            val galleryFocusH = minOf(desiredGalleryH, maxGalleryByWidth, maxGalleryBySlot)
+                .coerceIn(110f, 320f)
+                .dp
+            val gallerySmallH = (104f * (galleryFocusH.value / 182f)).coerceAtLeast(66f).dp
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { sz ->
+                        if (sz.height > 0) {
+                            val hDp = with(density) { sz.height.toDp().value }
+                            if (kotlin.math.abs(hDp - measuredSlotH) > 1f) measuredSlotH = hDp
+                        }
+                    },
+            ) {
+                GalleryView(
+                    games = games,
+                    platformOf = platformOf,
+                    focusIndex = focusIndex,
+                    covers = covers,
+                    metadataMap = metadataMap,
+                    officialNames = officialNames,
+                    favorites = favorites,
+                    onFocusChange = onFocusChange,
+                    onLaunch = onLaunch,
+                    onLongPress = onLongPress,
+                    fastScrolling = isFastScrolling,
+                    idlePaused = idlePaused,
+                    focusCardHeight = galleryFocusH,
+                    smallCardHeight = gallerySmallH,
+                    showMetadata = showMetadata,
+                    metaDisplay = metaDisplay,
+                    align = galleryAlign,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
         ViewMode.List -> ListView(
             games = games,
             platformOf = platformOf,

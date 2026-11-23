@@ -69,7 +69,12 @@ class GameTdbClient(
         val byCompact: Map<String, TdbEntry>,
         val byToken: Map<String, List<TdbEntry>>,
     ) {
-        fun find(serial: String?, queries: List<String>, preferZh: Boolean): TdbMatch? {
+        fun find(
+            serial: String?,
+            queries: List<String>,
+            preferZh: Boolean,
+            allowFuzzy: Boolean = true,
+        ): TdbMatch? {
             if (!serial.isNullOrBlank()) {
                 val up = serial.uppercase()
                 val direct = byId[up]
@@ -80,7 +85,7 @@ class GameTdbClient(
                 }
             }
 
-            // 标题精确/紧凑匹配
+            // 标题精确/紧凑匹配（O(1)）
             for (q in queries) {
                 if (q.isBlank()) continue
                 val norm = TitleNormalizer.normalizedTitle(q)
@@ -96,6 +101,8 @@ class GameTdbClient(
                     }
                 }
             }
+
+            if (!allowFuzzy) return null
 
             // 倒排词模糊匹配（优先保留英文别名与去重词元，防止细微标点或副标题差异漏掉）
             var best: TdbEntry? = null
@@ -135,9 +142,9 @@ class GameTdbClient(
         runCatching { cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
     }
 
-    /** 释放非活跃平台的 GameTDB 内存表（保留当前浏览的活跃平台对应索引）。 */
+    /** 释放非活跃平台的 GameTDB 内存表；aggressive=true（如退后台启动模拟器或内存极紧）时全量释放。 */
     fun trimMemory(keepDbKeys: Set<String> = emptySet(), aggressive: Boolean = false) {
-        if (aggressive && keepDbKeys.isEmpty()) {
+        if (aggressive) {
             tables.clear()
         } else {
             tables.retainOnly(keepDbKeys)
@@ -157,22 +164,22 @@ class GameTdbClient(
     internal fun isDownloadInCooldown(dbKey: String, nowMs: Long = System.currentTimeMillis()): Boolean =
         (downloadFailedUntilMs[dbKey] ?: 0L) > nowMs
 
-    /** 若该平台索引已在内存中，做 O(1)/微秒级纯内存查询（不触发网络或磁盘 I/O）。 */
+    /** 若该平台索引已在内存中，做 O(1) 纯内存精确查询（供 Compose 渲染线程调用，绝不做耗时模糊扫描/网络/磁盘 I/O）。 */
     fun lookupInMemory(game: Game, platform: Platform?): TdbMatch? {
         val spec = PLATFORM_SPEC[platform?.id?.lowercase()] ?: return null
         val table = tables[spec.dbKey] ?: return null
         val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title)
-        return table.find(serial = null, queries = queries, preferZh = isChineseLocale())
+        return table.find(serial = null, queries = queries, preferZh = isChineseLocale(), allowFuzzy = false)
     }
 
     suspend fun lookup(game: Game, platform: Platform?, allowDownload: Boolean = true): TdbMatch? {
         val spec = PLATFORM_SPEC[platform?.id?.lowercase()] ?: return null
         val table = getOrLoadTable(spec, allowDownload) ?: return null
         val identity = withContext(Dispatchers.IO) {
-            identityExtractor.extract(File(game.id), platform?.id)
+            identityExtractor.extract(File(game.id), platform?.id, skipFullFileCrc = true)
         }
         val queries = TitleNormalizer.buildQueryVariants(game.baseName, game.title)
-        return table.find(identity.serial, queries, preferZh = isChineseLocale())
+        return table.find(identity.serial, queries, preferZh = isChineseLocale(), allowFuzzy = true)
     }
 
     private suspend fun getOrLoadTable(spec: DbSpec, allowDownload: Boolean): TdbTable? {

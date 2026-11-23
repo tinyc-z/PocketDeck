@@ -14,6 +14,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -39,11 +40,13 @@ import com.pocketdeck.launcher.ui.theme.DeckShapes
 internal fun FocusRequester.requestFocusSafely(): Boolean =
     runCatching { requestFocus() }.getOrDefault(false)
 
-/** 弹窗半透明遮罩的纯点击关闭（不参与 D-pad/键盘焦点链，防止误触发关闭）。 */
-fun Modifier.scrimTapDismiss(onDismiss: () -> Unit): Modifier =
+/** 弹窗半透明遮罩的纯点击关闭（不参与 D-pad/键盘焦点链，防止误触发关闭；始终读取最新回调避免陈旧闭包）。 */
+fun Modifier.scrimTapDismiss(onDismiss: () -> Unit): Modifier = composed {
+    val latestOnDismiss by rememberUpdatedState(onDismiss)
     pointerInput(Unit) {
-        detectTapGestures { onDismiss() }
+        detectTapGestures { latestOnDismiss() }
     }
+}
 
 /** 带触屏点击音效的 clickable（如果用户开启了按键音）。 */
 fun Modifier.soundClickable(
@@ -102,10 +105,10 @@ fun Modifier.gamepadClickable(
         .onFocusChanged { focused = it.isFocused }
         .onPreviewKeyEvent { event ->
             if (GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings)) {
-                if (event.type == KeyEventType.KeyDown) {
+                if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                     onClick()
                 }
-                // KeyDown 与 KeyUp 一并消费，避免 Compose clickable 二次触发或向上冒泡
+                // KeyDown（含长按连发）与 KeyUp 一并消费，避免重复触发或向上冒泡
                 true
             } else {
                 false
@@ -131,12 +134,17 @@ fun Modifier.gamepadClickable(
 @Stable
 class DpadNavController {
     internal val actions = LinkedHashMap<String, () -> Unit>()
+    internal val orders = HashMap<String, Int>()
     var focusedId by mutableStateOf<String?>(null)
     var keyboardActive by mutableStateOf(false)
     val rootFr = FocusRequester()
 
+    private fun orderedKeys(): List<String> =
+        if (orders.isEmpty()) actions.keys.toList()
+        else actions.keys.sortedBy { orders[it] ?: 0 }
+
     fun move(delta: Int) {
-        val keys = actions.keys.toList()
+        val keys = orderedKeys()
         if (keys.isEmpty()) return
         keyboardActive = true
         val cur = keys.indexOf(focusedId)
@@ -149,7 +157,7 @@ class DpadNavController {
     }
 
     fun triggerCurrent(): Boolean {
-        val key = focusedId?.takeIf { it in actions } ?: actions.keys.firstOrNull() ?: return false
+        val key = focusedId?.takeIf { it in actions } ?: orderedKeys().firstOrNull() ?: return false
         keyboardActive = true
         focusedId = key
         actions[key]?.invoke()
@@ -158,7 +166,7 @@ class DpadNavController {
 
     fun ensureDefault(preferredId: String? = null, inTouchMode: Boolean = false) {
         if (focusedId == null || focusedId !in actions) {
-            focusedId = preferredId?.takeIf { it in actions } ?: actions.keys.firstOrNull()
+            focusedId = preferredId?.takeIf { it in actions } ?: orderedKeys().firstOrNull()
             if (!inTouchMode) keyboardActive = true
         }
     }
@@ -171,11 +179,16 @@ fun Modifier.dpadNavItem(
     id: String,
     shape: Shape = DeckShapes.menuButton,
     showFocusBorder: Boolean = true,
+    order: Int = 0,
     onClick: () -> Unit,
 ): Modifier {
     nav.actions[id] = onClick
+    if (order != 0) nav.orders[id] = order else nav.orders.remove(id)
     DisposableEffect(nav, id) {
-        onDispose { nav.actions.remove(id) }
+        onDispose {
+            nav.actions.remove(id)
+            nav.orders.remove(id)
+        }
     }
     val context = LocalContext.current
     val isFocused = nav.keyboardActive && nav.focusedId == id

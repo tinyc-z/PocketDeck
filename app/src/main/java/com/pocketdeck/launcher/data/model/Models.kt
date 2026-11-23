@@ -1,5 +1,7 @@
 package com.pocketdeck.launcher.data.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * 一个平台（对应 ROM 根目录下的一个子文件夹）。
  *
@@ -7,6 +9,7 @@ package com.pocketdeck.launcher.data.model
  * @param libretroSystem libretro-thumbnails 仓库使用的系统名，用于拉取封面。
  * @param core RetroArch 默认核心名（不含 `_libretro_android.so`）。
  */
+@Immutable
 data class Platform(
     val id: String,
     val shortName: String,
@@ -16,6 +19,7 @@ data class Platform(
     val core: String? = null,
 )
 
+@Immutable
 data class Game(
     /** ROM 的绝对路径，同时作为唯一 ID。 */
     val id: String,
@@ -37,6 +41,7 @@ data class Game(
     val discFiles: List<String> = emptyList(),
 )
 
+@Immutable
 data class GameMetadata(
     val releaseDate: String? = null,
     val genre: String? = null,

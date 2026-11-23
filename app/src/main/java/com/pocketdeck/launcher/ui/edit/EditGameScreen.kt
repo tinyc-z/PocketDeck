@@ -61,6 +61,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,8 +83,10 @@ import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.launch.GameLauncher
 import com.pocketdeck.launcher.ui.components.DeckDialogSize
 import com.pocketdeck.launcher.ui.components.DialogPanelCard
+import com.pocketdeck.launcher.ui.components.DpadNavController
 import com.pocketdeck.launcher.ui.components.GameCategoryPickerDialog
 import com.pocketdeck.launcher.ui.components.GameCoverCard
+import com.pocketdeck.launcher.ui.components.dpadNavItem
 import com.pocketdeck.launcher.ui.components.requestFocusSafely
 import com.pocketdeck.launcher.ui.settings.LauncherPickerDialog
 import com.pocketdeck.launcher.ui.theme.DeckColors
@@ -124,10 +127,15 @@ fun EditGameScreen(
     onManualScrape: (() -> Unit)? = null,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
+    isTopmost: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
+    val nav = remember { DpadNavController() }
+    val titleFieldFr = remember { FocusRequester() }
+    var titleFieldFocused by remember { mutableStateOf(false) }
 
     var title by remember(game.id) { mutableStateOf(game.title) }
     var coverPath by remember(game.id) { mutableStateOf(game.customCover) }
@@ -168,21 +176,67 @@ fun EditGameScreen(
             scrapingDialog -> scrapingDialog = false
         }
     }
+    BackHandler(enabled = isTopmost && !overlayOpen) {
+        if (titleFieldFocused) {
+            focusManager.clearFocus(force = true)
+            nav.rootFr.requestFocusSafely()
+        } else {
+            onDismiss()
+        }
+    }
+
+    LaunchedEffect(isTopmost, overlayOpen) {
+        if (isTopmost && !overlayOpen) {
+            nav.ensureDefault(preferredId = "pick_image")
+            nav.rootFr.requestFocusSafely()
+        }
+    }
 
     Box(
         modifier
             .fillMaxSize()
             .blockOverlayTouchThrough()
+            .focusRequester(nav.rootFr)
+            .focusable()
             .onPreviewKeyEvent { event ->
-                if (overlayOpen) return@onPreviewKeyEvent false
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (GamepadKeys.isBack(event.key) ||
+                if (overlayOpen || !isTopmost) return@onPreviewKeyEvent false
+                if (titleFieldFocused) {
+                    if (event.key == Key.DirectionDown || GamepadKeys.isBack(event.key) ||
+                        (event.key != Key.Back && GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings))
+                    ) {
+                        if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                            focusManager.clearFocus(force = true)
+                            nav.rootFr.requestFocusSafely()
+                        }
+                        return@onPreviewKeyEvent true
+                    }
+                    return@onPreviewKeyEvent false
+                }
+                val isBackKey = GamepadKeys.isBack(event.key) ||
                     (event.key != Key.Back && GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings))
-                ) {
-                    onDismiss()
-                    true
-                } else {
-                    false
+                if (isBackKey) {
+                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                        onDismiss()
+                    }
+                    return@onPreviewKeyEvent true
+                }
+                if (GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings)) {
+                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                        nav.triggerCurrent()
+                    }
+                    return@onPreviewKeyEvent true
+                }
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionUp, Key.DirectionLeft -> {
+                        nav.move(-1)
+                        true
+                    }
+                    Key.DirectionDown, Key.DirectionRight -> {
+                        nav.move(1)
+                        true
+                    }
+                    else -> false
                 }
             },
     ) {
@@ -230,24 +284,35 @@ fun EditGameScreen(
                 .padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(Modifier.width(340.dp)) {
-                TextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text(stringResource(R.string.edit_name), style = DeckType.settingsLabel) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = DeckColors.Surface,
-                        unfocusedContainerColor = DeckColors.Surface,
-                        focusedTextColor = DeckColors.TextPrimary,
-                        unfocusedTextColor = DeckColors.TextPrimary,
-                        focusedLabelColor = DeckColors.Ruby,
-                        unfocusedLabelColor = DeckColors.TextSecondary,
-                        focusedIndicatorColor = DeckColors.Ruby,
-                        cursorColor = DeckColors.Ruby,
-                    ),
-                )
+            Column(Modifier.widthIn(max = 340.dp).fillMaxWidth()) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .dpadNavItem(nav, id = "edit_title", order = 10, shape = RoundedCornerShape(12.dp)) {
+                            titleFieldFr.requestFocusSafely()
+                        },
+                ) {
+                    TextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text(stringResource(R.string.edit_name), style = DeckType.settingsLabel) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(titleFieldFr)
+                            .onFocusChanged { titleFieldFocused = it.isFocused },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = DeckColors.Surface,
+                            unfocusedContainerColor = DeckColors.Surface,
+                            focusedTextColor = DeckColors.TextPrimary,
+                            unfocusedTextColor = DeckColors.TextPrimary,
+                            focusedLabelColor = DeckColors.Ruby,
+                            unfocusedLabelColor = DeckColors.TextSecondary,
+                            focusedIndicatorColor = DeckColors.Ruby,
+                            cursorColor = DeckColors.Ruby,
+                        ),
+                    )
+                }
 
                 Spacer(Modifier.height(14.dp))
 
@@ -272,7 +337,7 @@ fun EditGameScreen(
                     )
                     if (canLocateFile) {
                         Spacer(Modifier.width(8.dp))
-                        var locateFocused by remember { mutableStateOf(false) }
+                        val locateFocused = nav.keyboardActive && nav.focusedId == "locate_file"
                         Text(
                             text = stringResource(R.string.edit_locate_file),
                             style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
@@ -280,17 +345,9 @@ fun EditGameScreen(
                             modifier = Modifier
                                 .clip(DeckShapes.tabPill)
                                 .brandPillBackground(selected = locateFocused, shape = DeckShapes.tabPill, unselectedColor = DeckColors.Surface)
-                                .onFocusChanged { locateFocused = it.isFocused }
-                                .focusable()
                                 .then(if (locateFocused) Modifier else Modifier.border(1.dp, DeckColors.Line, DeckShapes.tabPill))
-                                .clickable { onLocateFile() }
-                                .onPreviewKeyEvent { ev ->
-                                    if (ev.type == KeyEventType.KeyDown &&
-                                        GamepadKeys.isConfirm(ev.key, swapAbxy, keyBindings)
-                                    ) {
-                                        onLocateFile()
-                                        true
-                                    } else false
+                                .dpadNavItem(nav, id = "locate_file", order = 20, shape = DeckShapes.tabPill, showFocusBorder = false) {
+                                    onLocateFile()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                         )
@@ -330,12 +387,18 @@ fun EditGameScreen(
                             onClick = { runCatching { pickImageLauncher.launch("image/*") } },
                             shape = CircleShape,
                             border = BorderStroke(1.dp, DeckColors.Line),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .dpadNavItem(nav, id = "pick_image", order = 30, shape = CircleShape) {
+                                    runCatching { pickImageLauncher.launch("image/*") }
+                                },
                         ) {
                             Text(
                                 stringResource(R.string.edit_pick_image),
                                 style = DeckType.bottomBar,
                                 color = DeckColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
 
@@ -344,39 +407,31 @@ fun EditGameScreen(
                                 onClick = onManualScrape,
                                 shape = CircleShape,
                                 border = BorderStroke(1.dp, DeckColors.Ruby.copy(alpha = 0.5f)),
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .dpadNavItem(nav, id = "manual_scrape", order = 40, shape = CircleShape) {
+                                        onManualScrape()
+                                    },
                             ) {
                                 Text(
                                     stringResource(R.string.menu_manual_scrape),
                                     style = DeckType.bottomBar,
                                     color = DeckColors.Ruby,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
 
                         if (coverPath != null) {
-                            var resetFocused by remember { mutableStateOf(false) }
                             Text(
                                 text = stringResource(R.string.edit_reset_cover),
                                 style = DeckType.settingsLabel,
                                 color = DeckColors.Ruby,
                                 modifier = Modifier
                                     .clip(DeckShapes.settingsDropdown)
-                                    .onFocusChanged { resetFocused = it.isFocused }
-                                    .focusable()
-                                    .border(
-                                        width = if (resetFocused) 1.5.dp else 0.dp,
-                                        color = if (resetFocused) DeckColors.Ruby else Color.Transparent,
-                                        shape = DeckShapes.settingsDropdown,
-                                    )
-                                    .clickable { coverPath = null }
-                                    .onPreviewKeyEvent { ev ->
-                                        if (ev.type == KeyEventType.KeyDown &&
-                                            GamepadKeys.isConfirm(ev.key, swapAbxy, keyBindings)
-                                        ) {
-                                            coverPath = null
-                                            true
-                                        } else false
+                                    .dpadNavItem(nav, id = "reset_cover", order = 50, shape = DeckShapes.settingsDropdown) {
+                                        coverPath = null
                                     }
                                     .padding(horizontal = 8.dp, vertical = 4.dp),
                             )
@@ -390,23 +445,15 @@ fun EditGameScreen(
                     val launcherValue = if (customLauncherId == null) followPlatformLabel else {
                         GameLauncher.describeLauncher(context, platform.id, customLauncherId) ?: customLauncherId
                     }
-                    var launcherFocused by remember { mutableStateOf(false) }
+                    val launcherFocused = nav.keyboardActive && nav.focusedId == "launcher_row"
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
                             .background(if (launcherFocused) DeckColors.AccentSoft else DeckColors.Surface)
-                            .onFocusChanged { launcherFocused = it.isFocused }
-                            .focusable()
                             .brandBorder(active = launcherFocused, shape = DeckShapes.settingsDropdown, activeWidth = 1.5.dp, inactiveWidth = 1.dp)
-                            .clickable { launcherDialog = true }
-                            .onPreviewKeyEvent { ev ->
-                                if (ev.type == KeyEventType.KeyDown &&
-                                    GamepadKeys.isConfirm(ev.key, swapAbxy, keyBindings)
-                                ) {
-                                    launcherDialog = true
-                                    true
-                                } else false
+                            .dpadNavItem(nav, id = "launcher_row", order = 60, shape = DeckShapes.settingsDropdown, showFocusBorder = false) {
+                                launcherDialog = true
                             }
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -436,23 +483,15 @@ fun EditGameScreen(
                     } else {
                         matchedCats.joinToString(" · ") { it.name }
                     }
-                    var catFocused by remember { mutableStateOf(false) }
+                    val catFocused = nav.keyboardActive && nav.focusedId == "categories_row"
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .clip(DeckShapes.settingsDropdown)
                             .background(if (catFocused) DeckColors.AccentSoft else DeckColors.Surface)
-                            .onFocusChanged { catFocused = it.isFocused }
-                            .focusable()
                             .brandBorder(active = catFocused, shape = DeckShapes.settingsDropdown, activeWidth = 1.5.dp, inactiveWidth = 1.dp)
-                            .clickable { categoryDialog = true }
-                            .onPreviewKeyEvent { ev ->
-                                if (ev.type == KeyEventType.KeyDown &&
-                                    GamepadKeys.isConfirm(ev.key, swapAbxy, keyBindings)
-                                ) {
-                                    categoryDialog = true
-                                    true
-                                } else false
+                            .dpadNavItem(nav, id = "categories_row", order = 70, shape = DeckShapes.settingsDropdown, showFocusBorder = false) {
+                                categoryDialog = true
                             }
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -486,11 +525,16 @@ fun EditGameScreen(
                             onClick = onHide,
                             shape = CircleShape,
                             border = BorderStroke(1.dp, DeckColors.Line),
+                            modifier = Modifier.dpadNavItem(nav, id = "hide_game", order = 80, shape = CircleShape) {
+                                onHide()
+                            },
                         ) {
                             Text(
                                 stringResource(R.string.menu_dismiss),
                                 style = DeckType.bottomBar,
                                 color = DeckColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 6.dp),
                             )
                         }
@@ -500,11 +544,16 @@ fun EditGameScreen(
                                 onClick = { showDeleteConfirm = true },
                                 shape = CircleShape,
                                 border = BorderStroke(1.dp, DeckColors.Ruby.copy(alpha = 0.45f)),
+                                modifier = Modifier.dpadNavItem(nav, id = "delete_file", order = 90, shape = CircleShape) {
+                                    showDeleteConfirm = true
+                                },
                             ) {
                                 Text(
                                     stringResource(R.string.edit_delete_file),
                                     style = DeckType.bottomBar,
                                     color = DeckColors.Ruby,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(horizontal = 6.dp),
                                 )
                             }
@@ -515,6 +564,13 @@ fun EditGameScreen(
                         onClick = { onSave(title.trim(), coverPath) },
                         enabled = canSave,
                         shape = CircleShape,
+                        modifier = if (canSave) {
+                            Modifier.dpadNavItem(nav, id = "save_game", order = 100, shape = CircleShape) {
+                                onSave(title.trim(), coverPath)
+                            }
+                        } else {
+                            Modifier
+                        },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = DeckColors.Ruby,
                             contentColor = Color.White,
@@ -525,6 +581,8 @@ fun EditGameScreen(
                         Text(
                             stringResource(R.string.edit_save),
                             style = DeckType.bottomBar,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 12.dp),
                         )
                     }
