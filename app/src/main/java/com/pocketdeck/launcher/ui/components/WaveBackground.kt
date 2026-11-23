@@ -56,7 +56,7 @@ import java.io.File
 @Composable
 fun WaveBackground(
     modifier: Modifier = Modifier,
-    style: BackgroundStyle = BackgroundStyle.SunsetFlow,
+    style: BackgroundStyle = BackgroundStyle.Starfield,
     coverCandidates: List<Any> = emptyList(),
     knownCoverIndex: Int? = null,
     apkPackage: String? = null,

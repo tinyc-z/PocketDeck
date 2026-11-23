@@ -45,12 +45,12 @@ import com.pocketdeck.launcher.ui.theme.LocalReduceMotion
 /**
  * 底部操作栏：
  * - 统一采用清爽线性图标（四宫格应用、八齿齿轮设置、画廊视图、搜索）+ 品牌渐变「▶ 开始」胶囊；
- * - [NavBarStyle.Classic]（默认）：透明无底全宽分布；
- * - [NavBarStyle.GlassDock]（悬浮磨砂岛）：居中悬浮半透明毛玻璃长胶囊，右端嵌套「▶ 开始」渐变胶囊，自动适配浅/深色与主题色。
+ * - [NavBarStyle.GlassDock]（默认，悬浮磨砂岛）：居中悬浮半透明毛玻璃长胶囊，右端嵌套「▶ 开始」渐变胶囊，自动适配浅/深色与主题色；
+ * - [NavBarStyle.Classic]（经典通透）：透明无底全宽分布。
  */
 @Composable
 fun BottomBar(
-    navBarStyle: NavBarStyle = NavBarStyle.Classic,
+    navBarStyle: NavBarStyle = NavBarStyle.GlassDock,
     searching: Boolean = false,
     onApps: () -> Unit = {},
     onSettings: () -> Unit = {},

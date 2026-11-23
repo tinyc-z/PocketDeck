@@ -276,7 +276,7 @@ internal fun Modifier.glassDockCapsule(
 fun TopBar(
     tabs: List<String>,
     selectedIndex: Int,
-    navBarStyle: NavBarStyle = NavBarStyle.Classic,
+    navBarStyle: NavBarStyle = NavBarStyle.GlassDock,
     is12h: Boolean = false,
     showClock: Boolean = true,
     showBattery: Boolean = true,

@@ -114,7 +114,7 @@ data class SettingsState(
     val nowTab: Boolean,
     val favsTab: Boolean,
     val bottomBar: Boolean,
-    val navBarStyle: NavBarStyle = NavBarStyle.Classic,
+    val navBarStyle: NavBarStyle = NavBarStyle.GlassDock,
     val showMetadata: Boolean,
     val backgroundStyle: BackgroundStyle,
     val customBackground: String? = null,

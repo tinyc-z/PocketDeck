@@ -49,27 +49,27 @@ data class Category(
 enum class ViewMode { Gallery, List, Grid, Bubbles, CoverFlow, Hero, Wheel, Shelf }
 /** Gallery 模式下小卡相对焦点卡的垂直对齐 */
 enum class GalleryAlign { Top, Center, Bottom }
-/** 顶部分类栏与底部操作栏的配套样式（默认无底透明 / 悬浮磨砂岛）。 */
-enum class NavBarStyle { Classic, GlassDock }
+/** 顶部分类栏与底部操作栏的配套样式（默认悬浮磨砂岛 / 经典通透）。 */
+enum class NavBarStyle { GlassDock, Classic }
 
 enum class BackgroundStyle {
-    SunsetFlow,  // 品牌渐变流光（默认）
+    Starfield,   // 星海漫游（视差星场 + 星云 + 流星，默认）
+    SunsetFlow,  // 品牌渐变流光
     PixelDrift,  // 像素游戏元素漂浮
     RetroGrid,   // 合成波透视网格
     CoverGlow,   // 焦点封面氛围光
     Aurora,      // 极光丝带
-    Starfield,   // 星海漫游（视差星场 + 星云 + 流星）
     Image,       // 自定义静态图片
     None;        // 纯色
 
     companion object {
         /** 兼容旧版本存储的背景名，自动迁移到最接近的新背景。 */
         fun fromName(name: String?): BackgroundStyle = when (name) {
-            null -> SunsetFlow
+            null -> Starfield
             "Waves", "Gradient", "Static", "Topo" -> SunsetFlow
             "Particles", "DotMatrix" -> PixelDrift
             "CoverBlur" -> CoverGlow
-            else -> entries.firstOrNull { it.name == name } ?: SunsetFlow
+            else -> entries.firstOrNull { it.name == name } ?: Starfield
         }
     }
 }
@@ -157,10 +157,10 @@ data class UserData(
     val covers: Map<String, String> = emptyMap(),
     val hidden: Set<String> = emptySet(),
     val viewMode: ViewMode = ViewMode.Gallery,
-    val backgroundStyle: BackgroundStyle = BackgroundStyle.SunsetFlow,
+    val backgroundStyle: BackgroundStyle = BackgroundStyle.Starfield,
     val showMetadata: Boolean = true,
     val bottomBar: Boolean = true,
-    val navBarStyle: NavBarStyle = NavBarStyle.Classic,
+    val navBarStyle: NavBarStyle = NavBarStyle.GlassDock,
     val nowTab: Boolean = true,
     val favsTab: Boolean = true,
     val clock12h: Boolean = false,
@@ -496,7 +496,7 @@ class UserStore(context: Context) {
             backgroundStyle = BackgroundStyle.fromName(this[K.background]),
             showMetadata = this[K.showMetadata] ?: true,
             bottomBar = this[K.bottomBar] ?: true,
-            navBarStyle = enumOf(this[K.navBarStyle], NavBarStyle.Classic),
+            navBarStyle = enumOf(this[K.navBarStyle], NavBarStyle.GlassDock),
             nowTab = this[K.nowTab] ?: true,
             favsTab = this[K.favsTab] ?: true,
             clock12h = this[K.clock12h] ?: false,
