@@ -292,4 +292,59 @@ class ScrapeReliabilityTest {
         assertNull("Traversal m3u must be ignored", psxGames.find { it.id == evilM3u.absolutePath })
         assertNotNull("Valid local-dir m3u must be scanned", psxGames.find { it.id == goodM3u.absolutePath })
     }
+
+    @Test
+    fun `tarGz inspect enforces 64MB decompression cap even across TarArchiveInputStream skip`() = runBlocking {
+        // 构造一个解压后 70MB（压缩后仅几十 KB）的全零 .tar.gz 炸弹，验证 bounded FilterInputStream.skip() 拦截生效
+        val tarGz = File(tmp.root, "bomb.tar.gz")
+        val payloadSize = 70L * 1024L * 1024L
+        org.apache.commons.compress.archivers.tar.TarArchiveOutputStream(
+            java.util.zip.GZIPOutputStream(FileOutputStream(tarGz)),
+        ).use { tos ->
+            val e1 = org.apache.commons.compress.archivers.tar.TarArchiveEntry("huge.bin").apply { size = payloadSize }
+            tos.putArchiveEntry(e1)
+            val zeros = ByteArray(64 * 1024)
+            var rem = payloadSize
+            while (rem > 0L) {
+                val n = minOf(rem, zeros.size.toLong()).toInt()
+                tos.write(zeros, 0, n)
+                rem -= n
+            }
+            tos.closeArchiveEntry()
+            val e2 = org.apache.commons.compress.archivers.tar.TarArchiveEntry("second.txt").apply { size = 2L }
+            tos.putArchiveEntry(e2)
+            tos.write(byteArrayOf(0x61, 0x62))
+            tos.closeArchiveEntry()
+        }
+        val res = ArchiveManager.inspect(tarGz)
+        assertTrue("70MB .tar.gz preview should truncate cleanly instead of OOM/crash", res.isSuccess)
+        val names = res.getOrThrow().map { it.name }
+        assertEquals(
+            "TarArchiveInputStream.skip() must stop at 64MB cap before reaching second.txt",
+            listOf("huge.bin"),
+            names,
+        )
+    }
+
+    @Test
+    fun `coverSource pruneDirByLru keeps fresh tmp files cleans stale tmp and offlineDb caps active systems`() {
+        // 1. OfflineGameDb 活跃系统保护数不超过 GameTdbClient.MAX_CACHED_TABLES (3)
+        val maxActive = com.pocketdeck.launcher.data.OfflineGameDb::class.java
+            .getDeclaredField("MAX_ACTIVE_PROTECTED_SYSTEMS")
+            .apply { isAccessible = true }
+            .getInt(null)
+        assertTrue("MAX_ACTIVE_PROTECTED_SYSTEMS ($maxActive) must be <= 3", maxActive <= 3)
+
+        // 2. pruneDirByLru 仅清理 >5 分钟的陈旧 .tmp 文件，不误删正在并发写入的新鲜 .tmp
+        val dir = tmp.newFolder("lru_tmp_test")
+        val freshTmp = File(dir, "inflight.tmp").apply { writeBytes(ByteArray(16)) }
+        val staleTmp = File(dir, "abandoned.tmp").apply {
+            writeBytes(ByteArray(16))
+            setLastModified(System.currentTimeMillis() - 10 * 60_000L)
+        }
+        CoverSource.pruneDirByLru(dir, maxBytes = 1024L * 1024L)
+
+        assertTrue("Fresh in-flight .tmp file must NOT be deleted by pruneDirByLru", freshTmp.exists())
+        assertFalse("Stale >5min .tmp file must be cleaned by pruneDirByLru", staleTmp.exists())
+    }
 }

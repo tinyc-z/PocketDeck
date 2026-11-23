@@ -187,22 +187,25 @@ fun GamePropertiesDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) ||
                         GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (isInitialPress) onDismiss()
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        when {
-                            footerFocus == 0 && canLocate -> onLocateFile()
-                            footerFocus == 1 && onRefreshMetadata != null -> triggerRefresh()
-                            else -> onDismiss()
+                        if (isInitialPress) {
+                            when {
+                                footerFocus == 0 && canLocate -> onLocateFile()
+                                footerFocus == 1 && onRefreshMetadata != null -> triggerRefresh()
+                                else -> onDismiss()
+                            }
                         }
                         true
                     }
                     GamepadKeys.isMenu(event.key, swapAbxy, keyBindings) && onRefreshMetadata != null -> {
-                        triggerRefresh()
+                        if (isInitialPress) triggerRefresh()
                         true
                     }
                     event.key == Key.DirectionLeft -> {
@@ -243,6 +246,8 @@ fun GamePropertiesDialog(
                 .heightIn(max = 600.dp),
             contentPadding = PaddingValues(24.dp),
             closeFocused = false,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
             Column(
                 Modifier

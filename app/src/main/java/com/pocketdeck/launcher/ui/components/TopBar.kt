@@ -451,36 +451,61 @@ private fun TopBarTabsSection(
                 modifier = Modifier
                     .fillMaxHeight()
                     .horizontalScroll(scrollState)
-                    .drawBehind {
-                        val w = if (noTabAnim && targetBounds != null) targetBounds.second else pillW.value
-                        val h = pillHeightPx
-                        if (w > 0f && h > 0f) {
-                            val x = if (noTabAnim && targetBounds != null) targetBounds.first else pillX.value
-                            val y = (size.height - h) / 2f
-                            val r = h / 2f
-                            if (!reduceMotion) {
-                                val yOff = 2.dp.toPx()
-                                // 柔和彩色投影辉光（无离屏开销）
-                                for (step in 3 downTo 1) {
-                                    val spread = step * 2.2.dp.toPx()
-                                    drawRoundRect(
-                                        color = tabGlow.copy(alpha = 0.08f * (4 - step) / 3f),
-                                        topLeft = Offset(x - spread * 0.45f, y + yOff - spread * 0.25f),
-                                        size = Size(w + spread * 0.9f, h + spread * 0.8f),
-                                        cornerRadius = CornerRadius(r + spread * 0.4f, r + spread * 0.4f),
-                                    )
+                    .drawWithCache {
+                        val brandColors = listOf(brandStart, brandMid, brandEnd)
+                        val yOff = 2.dp.toPx()
+                        val glowStepSpreads = floatArrayOf(6.6.dp.toPx(), 4.4.dp.toPx(), 2.2.dp.toPx())
+                        val glowStepColors = arrayOf(
+                            tabGlow.copy(alpha = 0.08f * 1f / 3f),
+                            tabGlow.copy(alpha = 0.08f * 2f / 3f),
+                            tabGlow.copy(alpha = 0.08f),
+                        )
+                        var cachedX = Float.NaN
+                        var cachedY = Float.NaN
+                        var cachedW = Float.NaN
+                        var cachedH = Float.NaN
+                        var cachedBrush: Brush? = null
+                        onDrawBehind {
+                            val w = if (noTabAnim && targetBounds != null) targetBounds.second else pillW.value
+                            val h = pillHeightPx
+                            if (w > 0f && h > 0f) {
+                                val x = if (noTabAnim && targetBounds != null) targetBounds.first else pillX.value
+                                val y = (size.height - h) / 2f
+                                val r = h / 2f
+                                if (!reduceMotion) {
+                                    // 柔和彩色投影辉光（无离屏开销）
+                                    for (i in 0..2) {
+                                        val spread = glowStepSpreads[i]
+                                        drawRoundRect(
+                                            color = glowStepColors[i],
+                                            topLeft = Offset(x - spread * 0.45f, y + yOff - spread * 0.25f),
+                                            size = Size(w + spread * 0.9f, h + spread * 0.8f),
+                                            cornerRadius = CornerRadius(r + spread * 0.4f, r + spread * 0.4f),
+                                        )
+                                    }
                                 }
+                                val brush = if (cachedBrush != null && cachedX == x && cachedY == y && cachedW == w && cachedH == h) {
+                                    cachedBrush!!
+                                } else {
+                                    Brush.linearGradient(
+                                        colors = brandColors,
+                                        start = Offset(x, y),
+                                        end = Offset(x + w, y + h),
+                                    ).also {
+                                        cachedX = x
+                                        cachedY = y
+                                        cachedW = w
+                                        cachedH = h
+                                        cachedBrush = it
+                                    }
+                                }
+                                drawRoundRect(
+                                    brush = brush,
+                                    topLeft = Offset(x, y),
+                                    size = Size(w, h),
+                                    cornerRadius = CornerRadius(r, r),
+                                )
                             }
-                            drawRoundRect(
-                                brush = Brush.linearGradient(
-                                    colors = listOf(brandStart, brandMid, brandEnd),
-                                    start = Offset(x, y),
-                                    end = Offset(x + w, y + h),
-                                ),
-                                topLeft = Offset(x, y),
-                                size = Size(w, h),
-                                cornerRadius = CornerRadius(r, r),
-                            )
                         }
                     },
                 contentAlignment = Alignment.CenterStart,
@@ -515,9 +540,11 @@ private fun TopBarTabsSection(
                                     if (prev == null || kotlin.math.abs(prev.first - left) > 0.5f || kotlin.math.abs(prev.second - width) > 0.5f) {
                                         tabBounds[i] = left to width
                                     }
-                                    val h = coords.size.height.toFloat()
-                                    if (h > 0f && kotlin.math.abs(pillHeightPx - h) > 0.5f) {
-                                        pillHeightPx = h
+                                    if (selected) {
+                                        val h = coords.size.height.toFloat()
+                                        if (h > 0f && kotlin.math.abs(pillHeightPx - h) > 0.5f) {
+                                            pillHeightPx = h
+                                        }
                                     }
                                 }
                                 .clip(CircleShape)

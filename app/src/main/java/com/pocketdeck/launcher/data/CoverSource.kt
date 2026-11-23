@@ -1536,8 +1536,15 @@ class CoverSource(
         }
         val urlChanged = if (httpUrl != null) resolvedUrls.put(key, httpUrl) != httpUrl else false
         if ((wasFailed || urlChanged) && httpUrl != null) {
+            val rawProv = origin?.first
+            val dbProv = if (key in manualCoverIds) {
+                val clean = rawProv?.removePrefix(MANUAL_PROVIDER_PREFIX)?.takeIf { it.isNotBlank() } ?: "manual"
+                "$MANUAL_PROVIDER_PREFIX$clean"
+            } else {
+                rawProv
+            }
             scope.launch(Dispatchers.IO) {
-                db.putCoverSuccess(key, httpUrl, origin?.first, origin?.second?.name)
+                db.putCoverSuccess(key, httpUrl, dbProv, origin?.second?.name)
             }
         }
     }
@@ -1647,6 +1654,7 @@ class CoverSource(
                     }.getOrDefault(false)
                     if (renamed) {
                         recordWebCacheFile(newId, newWf)
+                        bumpIndexVersion()
                     }
                 }
             }
@@ -1718,9 +1726,18 @@ class CoverSource(
     }
 
     private fun scheduleCoverInfoFlushLocked() {
-        if (coverInfoFlushJob?.isActive == true) return
+        val pendingCount = pendingCoverInfoPut.size + pendingCoverInfoRemove.size
+        if (coverInfoFlushJob?.isActive == true && pendingCount < 64) return
+        if (pendingCount >= 64) {
+            coverInfoFlushJob?.cancel()
+        }
+        val flushDelayMs = when {
+            pendingCount >= 64 -> 0L
+            pendingCount >= 16 -> 600L
+            else -> 150L
+        }
         coverInfoFlushJob = scope.launch(Dispatchers.Default) {
-            delay(150L)
+            if (flushDelayMs > 0L) delay(flushDelayMs)
             val puts: Map<String, CoverResolutionInfo>
             val removes: Set<String>
             synchronized(pendingCoverInfoLock) {
@@ -2171,6 +2188,13 @@ class CoverSource(
         }
         pruneDirByLru(thumbDir, THUMB_CACHE_MAX_BYTES) { deletedName ->
             thumbExistingNames.remove(deletedName)
+            val snap = thumbPathLru.snapshot()
+            for ((origPath, cachedFile) in snap) {
+                if (cachedFile.name == deletedName) {
+                    thumbPathLru.remove(origPath)
+                    thumbValidatedPaths.remove(origPath)
+                }
+            }
         }
     }
 
@@ -2823,10 +2847,14 @@ class CoverSource(
         ): Int {
             if (!dir.isDirectory || maxBytes <= 0L) return 0
             val files = dir.listFiles()?.filter { it.isFile } ?: return 0
+            val now = System.currentTimeMillis()
             var total = 0L
             for (f in files) {
                 if (f.name.endsWith(".tmp")) {
-                    runCatching { f.delete() }
+                    // 仅清理超过 5 分钟的陈旧残留 .tmp，避免误删并发写入中的在途临时文件
+                    if (now - f.lastModified() > 300_000L) {
+                        runCatching { f.delete() }
+                    }
                     continue
                 }
                 total += f.length()

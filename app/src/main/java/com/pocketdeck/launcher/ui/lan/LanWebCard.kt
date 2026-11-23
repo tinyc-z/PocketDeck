@@ -543,6 +543,7 @@ internal fun LanWebServiceCard(
                                     swapAbxy = swapAbxy,
                                     keyBindings = keyBindings,
                                     onCancel = onCancelFileTask,
+                                    nav = nav,
                                     modifier = Modifier.padding(start = 15.dp),
                                 )
                             }
@@ -596,7 +597,7 @@ fun WebTransferHistoryDialog(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings)) {
-                    onDismiss()
+                    if (event.nativeKeyEvent.repeatCount == 0) onDismiss()
                     true
                 } else {
                     false
@@ -668,9 +669,9 @@ fun WebTransferHistoryDialog(
                         val isUp = item.direction == WebTransferDirection.Upload
                         val dirColor = if (isUp) DeckColors.StatusSuccess else DeckColors.StatusInfo
                         val dirLabel = if (isUp) {
-                            "⬆ ${stringResource(R.string.lan_web_dir_upload)}"
+                            "↑ ${stringResource(R.string.lan_web_dir_upload)}"
                         } else {
-                            "⬇ ${stringResource(R.string.lan_web_dir_download)}"
+                            "↓ ${stringResource(R.string.lan_web_dir_download)}"
                         }
                         val targetFile = remember(item.filePath) { File(item.filePath) }
                         val openDir = remember(item.filePath) {

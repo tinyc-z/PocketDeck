@@ -240,6 +240,7 @@ class ScraperClient(
         val oldPrefix = if (oldDir.endsWith("/")) oldDir else "$oldDir/"
         val newPrefix = if (newDir.endsWith("/")) newDir else "$newDir/"
         if (oldPrefix == newPrefix) return
+        identityExtractor.migratePathPrefix(oldPrefix, newPrefix)
         val marker = "::$oldPrefix"
         val moved = ArrayList<Pair<String, CacheEntry>>()
         for (key in memHits.keysSnapshot()) {
@@ -247,7 +248,6 @@ class ScraperClient(
             if (idx >= 0) {
                 val oldId = key.substring(idx + 2)
                 val newId = newPrefix + oldId.removePrefix(oldPrefix)
-                identityExtractor.migratePath(oldId, newId)
                 val entry = memHits.remove(key)
                 if (entry != null) {
                     moved += (key.substring(0, idx + 2) + newId) to entry
@@ -261,12 +261,11 @@ class ScraperClient(
 
     fun forgetPathPrefix(dirPath: String) {
         val prefix = if (dirPath.endsWith("/")) dirPath else "$dirPath/"
+        identityExtractor.forgetPathPrefix(prefix)
         val marker = "::$prefix"
         for (key in memHits.keysSnapshot()) {
             val idx = key.indexOf(marker)
             if (idx >= 0) {
-                val gid = key.substring(idx + 2)
-                identityExtractor.forgetPath(gid)
                 memHits.remove(key)
             }
         }

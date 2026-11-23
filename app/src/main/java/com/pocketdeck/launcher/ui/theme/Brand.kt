@@ -2,6 +2,7 @@ package com.pocketdeck.launcher.ui.theme
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -210,7 +211,9 @@ fun Modifier.brandFocusRow(focused: Boolean, shape: Shape = RoundedCornerShape(D
 fun DeckPalette.brandColors(): List<Color> = listOf(brandStart, brandMid, brandEnd)
 
 /**
- * 拦截全屏覆盖页空白区域的触控事件，防止点击穿透到底层的 HomeScreen / AppsScreen
- * 误触底层游戏封面或应用图标（同时不影响本页子控件的点击、滚动与焦点）。
+ * 拦截覆盖页或弹窗卡片空白区域的触控事件，防止点击穿透到底层的 HomeScreen / AppsScreen
+ * 或向上冒泡触发外层 `scrimTapDismiss`（Main 阶段执行，不影响内部子控件的点击、滚动与焦点）。
  */
-fun Modifier.blockOverlayTouchThrough(): Modifier = this.pointerInput(Unit) {}
+fun Modifier.blockOverlayTouchThrough(): Modifier = this.pointerInput(Unit) {
+    detectTapGestures { /* 消费空白区轻触，阻断向上冒泡与向下穿透 */ }
+}

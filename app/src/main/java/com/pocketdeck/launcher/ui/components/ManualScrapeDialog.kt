@@ -241,9 +241,11 @@ fun ScrapeTaskDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss(); true
+                        if (isInitialPress) onDismiss()
+                        true
                     }
                     event.key == Key.DirectionLeft || event.key == Key.DirectionUp -> {
                         btnFocus = 0; true
@@ -252,10 +254,12 @@ fun ScrapeTaskDialog(
                         btnFocus = 1; true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        if (progress.running) {
-                            if (btnFocus == 0) onCancel() else onDismiss()
-                        } else {
-                            if (btnFocus == 0) onDismiss() else onRestart()
+                        if (isInitialPress) {
+                            if (progress.running) {
+                                if (btnFocus == 0) onCancel() else onDismiss()
+                            } else {
+                                if (btnFocus == 0) onDismiss() else onRestart()
+                            }
                         }
                         true
                     }

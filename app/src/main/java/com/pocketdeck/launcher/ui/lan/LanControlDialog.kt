@@ -320,6 +320,7 @@ fun LanServiceControlDialog(
                         swapAbxy = swapAbxy,
                         keyBindings = keyBindings,
                         onCancel = onCancelFileTask,
+                        nav = nav,
                     )
                 }
 

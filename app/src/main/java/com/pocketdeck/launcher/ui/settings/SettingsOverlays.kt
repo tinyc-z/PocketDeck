@@ -55,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -64,6 +65,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -586,11 +588,195 @@ private fun AutoCreateRomDirsOverlay(
     val invalidNameStr = stringResource(R.string.picker_auto_create_invalid_name)
     val failedStr = stringResource(R.string.picker_auto_create_failed)
 
+    val focusManager = LocalFocusManager.current
+    val overlayFr = remember { FocusRequester() }
+    val nameFieldFr = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    var nameFieldFocused by remember { mutableStateOf(false) }
+
+    val commonRows = remember(commonPlatforms) { commonPlatforms.chunked(4) }
+    val moreRows = remember(morePlatforms) { morePlatforms.chunked(4) }
+    val allRows = remember(commonRows, moreRows) { commonRows + moreRows }
+
+    // 焦点区域：0=父目录输入框，1=快捷选择，2=平台网格，3=底部取消/创建按钮
+    var focusZone by remember { mutableIntStateOf(3) }
+    var presetCol by remember { mutableIntStateOf(0) }
+    var gridRow by remember { mutableIntStateOf(0) }
+    var gridCol by remember { mutableIntStateOf(0) }
+    var footerCol by remember { mutableIntStateOf(1) }
+
+    LaunchedEffect(Unit) {
+        overlayFr.requestFocusSafely()
+    }
+    LaunchedEffect(focusZone, gridRow, commonRows.size) {
+        if (focusZone == 2 && allRows.isNotEmpty()) {
+            val clampedRow = gridRow.coerceIn(0, allRows.lastIndex)
+            val lazyIdx = if (clampedRow < commonRows.size) 1 + clampedRow else 2 + clampedRow
+            val vis = listState.layoutInfo.visibleItemsInfo
+            if (vis.none { it.index == lazyIdx }) {
+                runCatching { listState.animateScrollToItem(lazyIdx) }
+            }
+        }
+    }
+
+    val canSubmit = !creating && isNameValid && selected.isNotEmpty()
+    fun submitAutoCreate() {
+        if (!canSubmit) return
+        if (!isNameValid) {
+            errorMsg = invalidNameStr
+            return
+        }
+        creating = true
+        errorMsg = null
+        val toCreate = selected.toList()
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (!targetRoot.exists() && !targetRoot.mkdirs()) {
+                        error("root_mkdir_failed")
+                    }
+                    var createdCount = 0
+                    var existedCount = 0
+                    for (id in toCreate) {
+                        val sub = File(targetRoot, id)
+                        if (sub.isDirectory) {
+                            existedCount++
+                        } else if (sub.mkdirs() || sub.isDirectory) {
+                            createdCount++
+                        }
+                    }
+                    createdCount to existedCount
+                }
+            }
+            creating = false
+            result.onSuccess { (createdCount, existedCount) ->
+                val msg = if (existedCount > 0) {
+                    context.getString(R.string.picker_auto_create_done, createdCount, existedCount)
+                } else {
+                    context.getString(R.string.picker_auto_create_done_all_new, createdCount)
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                onCreated(targetRoot.path)
+            }.onFailure {
+                errorMsg = failedStr
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .scrimTapDismiss { if (!creating) onDismiss() },
+            .scrimTapDismiss { if (!creating) onDismiss() }
+            .focusRequester(overlayFr)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
+                if (nameFieldFocused) {
+                    return@onPreviewKeyEvent when {
+                        event.key == Key.Escape || event.key == Key.Back -> {
+                            focusManager.clearFocus(force = true)
+                            overlayFr.requestFocusSafely()
+                            true
+                        }
+                        event.key == Key.DirectionDown -> {
+                            focusManager.clearFocus(force = true)
+                            overlayFr.requestFocusSafely()
+                            focusZone = 1
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                when {
+                    GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
+                        if (isInitialPress && !creating) onDismiss()
+                        true
+                    }
+                    event.key == Key.DirectionUp -> {
+                        when (focusZone) {
+                            1 -> focusZone = 0
+                            2 -> if (gridRow > 0) {
+                                gridRow--
+                                val rowLen = allRows.getOrNull(gridRow)?.size ?: 1
+                                gridCol = gridCol.coerceIn(0, (rowLen - 1).coerceAtLeast(0))
+                            } else {
+                                focusZone = 1
+                            }
+                            3 -> if (allRows.isNotEmpty()) {
+                                focusZone = 2
+                                gridRow = allRows.lastIndex
+                                val rowLen = allRows[gridRow].size
+                                gridCol = gridCol.coerceIn(0, (rowLen - 1).coerceAtLeast(0))
+                            } else {
+                                focusZone = 1
+                            }
+                        }
+                        true
+                    }
+                    event.key == Key.DirectionDown -> {
+                        when (focusZone) {
+                            0 -> focusZone = 1
+                            1 -> if (allRows.isNotEmpty()) {
+                                focusZone = 2
+                                gridRow = 0
+                                gridCol = gridCol.coerceIn(0, (allRows[0].size - 1).coerceAtLeast(0))
+                            } else {
+                                focusZone = 3
+                            }
+                            2 -> if (gridRow < allRows.lastIndex) {
+                                gridRow++
+                                val rowLen = allRows[gridRow].size
+                                gridCol = gridCol.coerceIn(0, (rowLen - 1).coerceAtLeast(0))
+                            } else {
+                                focusZone = 3
+                            }
+                        }
+                        true
+                    }
+                    event.key == Key.DirectionLeft -> {
+                        when (focusZone) {
+                            1 -> presetCol = (presetCol - 1).coerceAtLeast(0)
+                            2 -> gridCol = (gridCol - 1).coerceAtLeast(0)
+                            3 -> footerCol = 0
+                        }
+                        true
+                    }
+                    event.key == Key.DirectionRight -> {
+                        when (focusZone) {
+                            1 -> presetCol = (presetCol + 1).coerceAtMost(2)
+                            2 -> {
+                                val maxCol = ((allRows.getOrNull(gridRow)?.size ?: 1) - 1).coerceAtLeast(0)
+                                gridCol = (gridCol + 1).coerceAtMost(maxCol)
+                            }
+                            3 -> footerCol = 1
+                        }
+                        true
+                    }
+                    GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
+                        if (isInitialPress && !creating) {
+                            when (focusZone) {
+                                0 -> nameFieldFr.requestFocusSafely()
+                                1 -> when (presetCol) {
+                                    0 -> selected = commonSet
+                                    1 -> selected = allCandidates.map { it.id }.toSet()
+                                    else -> selected = emptySet()
+                                }
+                                2 -> {
+                                    val plat = allRows.getOrNull(gridRow)?.getOrNull(gridCol)
+                                    if (plat != null) {
+                                        selected = if (plat.id in selected) selected - plat.id else selected + plat.id
+                                    }
+                                }
+                                3 -> if (footerCol == 0) onDismiss() else submitAutoCreate()
+                            }
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         DialogPanelCard(
@@ -617,6 +803,7 @@ private fun AutoCreateRomDirsOverlay(
             Spacer(Modifier.height(6.dp))
 
             // 父文件夹名输入 + 目标路径预览（同一行紧凑排布）
+            val nameBoxHighlighted = focusZone == 0 || nameFieldFocused
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -629,8 +816,12 @@ private fun AutoCreateRomDirsOverlay(
                         .clip(DeckShapes.settingsDropdown)
                         .background(DeckColors.Surface)
                         .border(
-                            1.dp,
-                            if (isNameValid) DeckColors.DialogBorder else DeckColors.StatusDanger,
+                            if (nameBoxHighlighted) 1.5.dp else 1.dp,
+                            when {
+                                !isNameValid -> DeckColors.StatusDanger
+                                nameBoxHighlighted -> DeckColors.Ruby
+                                else -> DeckColors.DialogBorder
+                            },
                             DeckShapes.settingsDropdown,
                         )
                         .padding(horizontal = 10.dp),
@@ -653,7 +844,13 @@ private fun AutoCreateRomDirsOverlay(
                             fontWeight = FontWeight.SemiBold,
                         ),
                         cursorBrush = SolidColor(DeckColors.Ruby),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(nameFieldFr)
+                            .onFocusChanged {
+                                nameFieldFocused = it.isFocused
+                                if (it.isFocused) focusZone = 0
+                            },
                     )
                 }
                 Text(
@@ -686,25 +883,34 @@ private fun AutoCreateRomDirsOverlay(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 @Composable
-                fun QuickChip(label: String, onClick: () -> Unit) {
+                fun QuickChip(label: String, idx: Int, onClick: () -> Unit) {
+                    val hl = focusZone == 1 && presetCol == idx
                     Box(
                         modifier = Modifier
                             .clip(DeckShapes.tabPill)
-                            .background(DeckColors.Surface)
-                            .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
-                            .soundClickable { onClick() }
+                            .background(if (hl) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.Surface)
+                            .border(
+                                width = if (hl) 1.5.dp else 1.dp,
+                                color = if (hl) DeckColors.Ruby else DeckColors.DialogBorder,
+                                shape = DeckShapes.tabPill,
+                            )
+                            .soundClickable {
+                                focusZone = 1
+                                presetCol = idx
+                                onClick()
+                            }
                             .padding(horizontal = 9.dp, vertical = 3.dp),
                     ) {
-                        Text(label, style = DeckType.settingsLabel, color = DeckColors.TextPrimary)
+                        Text(label, style = DeckType.settingsLabel, color = if (hl) DeckColors.Ruby else DeckColors.TextPrimary)
                     }
                 }
-                QuickChip(stringResource(R.string.picker_auto_create_sel_common)) {
+                QuickChip(stringResource(R.string.picker_auto_create_sel_common), 0) {
                     selected = commonSet
                 }
-                QuickChip(stringResource(R.string.picker_auto_create_sel_all)) {
+                QuickChip(stringResource(R.string.picker_auto_create_sel_all), 1) {
                     selected = allCandidates.map { it.id }.toSet()
                 }
-                QuickChip(stringResource(R.string.picker_auto_create_sel_none)) {
+                QuickChip(stringResource(R.string.picker_auto_create_sel_none), 2) {
                     selected = emptySet()
                 }
                 Spacer(Modifier.weight(1f))
@@ -719,11 +925,11 @@ private fun AutoCreateRomDirsOverlay(
             HorizontalDivider(color = DeckColors.DialogBorder, thickness = 1.dp)
 
             // 4 列紧凑平台勾选网格（常用 + 更多）
-            val commonRows = remember(commonPlatforms) { commonPlatforms.chunked(4) }
-            val moreRows = remember(morePlatforms) { morePlatforms.chunked(4) }
             val existsBadge = stringResource(R.string.picker_auto_create_exists)
+            val focusedPlatformId = if (focusZone == 2) allRows.getOrNull(gridRow)?.getOrNull(gridCol)?.id else null
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -737,13 +943,17 @@ private fun AutoCreateRomDirsOverlay(
                         color = DeckColors.Ruby,
                     )
                 }
-                items(commonRows) { chunk ->
+                itemsIndexed(commonRows) { rIdx, chunk ->
                     PlatformCheckRow(
                         platforms = chunk,
                         selected = selected,
                         existingIds = existingIds,
                         existsBadge = existsBadge,
+                        focusedId = focusedPlatformId,
                         onToggle = { id ->
+                            focusZone = 2
+                            gridRow = rIdx
+                            gridCol = chunk.indexOfFirst { it.id == id }.coerceAtLeast(0)
                             selected = if (id in selected) selected - id else selected + id
                         },
                     )
@@ -756,13 +966,17 @@ private fun AutoCreateRomDirsOverlay(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                items(moreRows) { chunk ->
+                itemsIndexed(moreRows) { rIdx, chunk ->
                     PlatformCheckRow(
                         platforms = chunk,
                         selected = selected,
                         existingIds = existingIds,
                         existsBadge = existsBadge,
+                        focusedId = focusedPlatformId,
                         onToggle = { id ->
+                            focusZone = 2
+                            gridRow = commonRows.size + rIdx
+                            gridCol = chunk.indexOfFirst { it.id == id }.coerceAtLeast(0)
                             selected = if (id in selected) selected - id else selected + id
                         },
                     )
@@ -790,22 +1004,27 @@ private fun AutoCreateRomDirsOverlay(
                             .padding(end = 8.dp),
                     )
                 }
+                val cancelHl = focusZone == 3 && footerCol == 0
                 Box(
                     modifier = Modifier
                         .clip(DeckShapes.tabPill)
-                        .background(DeckColors.Surface)
-                        .border(1.dp, DeckColors.DialogBorder, DeckShapes.tabPill)
+                        .background(if (cancelHl) DeckColors.Ruby.copy(alpha = 0.14f) else DeckColors.Surface)
+                        .border(
+                            width = if (cancelHl) 1.5.dp else 1.dp,
+                            color = if (cancelHl) DeckColors.Ruby else DeckColors.DialogBorder,
+                            shape = DeckShapes.tabPill,
+                        )
                         .soundClickable(enabled = !creating) { onDismiss() }
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                 ) {
                     Text(
                         stringResource(R.string.menu_cancel),
                         style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                        color = DeckColors.TextPrimary,
+                        color = if (cancelHl) DeckColors.Ruby else DeckColors.TextPrimary,
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                val canSubmit = !creating && isNameValid && selected.isNotEmpty()
+                val submitHl = focusZone == 3 && footerCol == 1
                 Box(
                     modifier = Modifier
                         .clip(DeckShapes.tabPill)
@@ -813,47 +1032,11 @@ private fun AutoCreateRomDirsOverlay(
                             if (canSubmit) Modifier.brandBackground()
                             else Modifier.background(DeckColors.Surface),
                         )
-                        .soundClickable(enabled = canSubmit) {
-                            if (!isNameValid) {
-                                errorMsg = invalidNameStr
-                                return@soundClickable
-                            }
-                            creating = true
-                            errorMsg = null
-                            val toCreate = selected.toList()
-                            scope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        if (!targetRoot.exists() && !targetRoot.mkdirs()) {
-                                            error("root_mkdir_failed")
-                                        }
-                                        var createdCount = 0
-                                        var existedCount = 0
-                                        for (id in toCreate) {
-                                            val sub = File(targetRoot, id)
-                                            if (sub.isDirectory) {
-                                                existedCount++
-                                            } else if (sub.mkdirs() || sub.isDirectory) {
-                                                createdCount++
-                                            }
-                                        }
-                                        createdCount to existedCount
-                                    }
-                                }
-                                creating = false
-                                result.onSuccess { (createdCount, existedCount) ->
-                                    val msg = if (existedCount > 0) {
-                                        context.getString(R.string.picker_auto_create_done, createdCount, existedCount)
-                                    } else {
-                                        context.getString(R.string.picker_auto_create_done_all_new, createdCount)
-                                    }
-                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                    onCreated(targetRoot.path)
-                                }.onFailure {
-                                    errorMsg = failedStr
-                                }
-                            }
-                        }
+                        .then(
+                            if (submitHl) Modifier.border(2.dp, Color.White.copy(alpha = 0.9f), DeckShapes.tabPill)
+                            else Modifier,
+                        )
+                        .soundClickable(enabled = canSubmit) { submitAutoCreate() }
                         .padding(horizontal = 16.dp, vertical = 6.dp),
                 ) {
                     Text(
@@ -873,6 +1056,7 @@ private fun PlatformCheckRow(
     selected: Set<String>,
     existingIds: Set<String>,
     existsBadge: String,
+    focusedId: String? = null,
     onToggle: (String) -> Unit,
 ) {
     Row(
@@ -882,6 +1066,7 @@ private fun PlatformCheckRow(
         for (plat in platforms) {
             val checked = plat.id in selected
             val exists = plat.id in existingIds
+            val focused = plat.id == focusedId
             val displayLabel = if (plat.shortName.equals(plat.id, ignoreCase = true)) {
                 plat.id
             } else {
@@ -892,10 +1077,19 @@ private fun PlatformCheckRow(
                     .weight(1f)
                     .height(30.dp)
                     .clip(DeckShapes.settingsDropdown)
-                    .background(if (checked) DeckColors.Ruby.copy(alpha = 0.12f) else DeckColors.Surface)
+                    .background(
+                        when {
+                            focused -> DeckColors.Ruby.copy(alpha = 0.22f)
+                            checked -> DeckColors.Ruby.copy(alpha = 0.12f)
+                            else -> DeckColors.Surface
+                        },
+                    )
                     .border(
-                        width = 1.dp,
-                        color = if (checked) DeckColors.Ruby else DeckColors.DialogBorder,
+                        width = if (focused) 2.dp else 1.dp,
+                        color = when {
+                            focused || checked -> DeckColors.Ruby
+                            else -> DeckColors.DialogBorder
+                        },
                         shape = DeckShapes.settingsDropdown,
                     )
                     .soundClickable { onToggle(plat.id) }
@@ -1220,6 +1414,8 @@ fun KeyBindCaptureDialog(
     currentBadge: String?,
     defaultBadge: String,
     errorMessage: String?,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1238,6 +1434,8 @@ fun KeyBindCaptureDialog(
                 .fillMaxWidth(),
             contentPadding = PaddingValues(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
             Text(
                 stringResource(R.string.keybind_capture_title, actionLabel),

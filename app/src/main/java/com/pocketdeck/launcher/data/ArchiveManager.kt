@@ -66,18 +66,22 @@ object ArchiveManager {
     fun isFontFile(file: File): Boolean =
         file.isFile && file.extension.lowercase() in FONT_EXTS
 
-    /** 展开所选条目（支持把多选里的文件夹展开为普通文件，用于多文件分享）。 */
+    /** 展开所选条目（支持把多选里的文件夹展开为普通文件，跳过符号链接并限制递归深度与环路）。 */
     fun collectShareableFiles(entries: List<File>, maxFiles: Int = 200): List<File> {
         val out = LinkedHashMap<String, File>()
-        fun walk(f: File) {
-            if (out.size >= maxFiles || f.name.startsWith(".")) return
+        val visitedDirs = HashSet<String>()
+        fun walk(f: File, depth: Int) {
+            if (out.size >= maxFiles || depth > MAX_WALK_DEPTH || f.name.startsWith(".")) return
+            if (isSymlink(f)) return
             if (f.isFile && f.canRead()) {
                 out.putIfAbsent(f.absolutePath, f)
             } else if (f.isDirectory) {
-                f.listFiles()?.sortedBy { it.name.lowercase() }?.forEach { walk(it) }
+                val canon = runCatching { f.canonicalPath }.getOrNull() ?: return
+                if (!visitedDirs.add(canon)) return
+                f.listFiles()?.sortedBy { it.name.lowercase() }?.forEach { walk(it, depth + 1) }
             }
         }
-        entries.forEach(::walk)
+        entries.forEach { walk(it, 0) }
         return out.values.toList()
     }
 
@@ -514,6 +518,19 @@ object ArchiveManager {
                         if (readTotal > maxUncompressedBytes) throw TarInspectLimitException()
                     }
                     return n
+                }
+                override fun skip(n: Long): Long {
+                    if (n <= 0L) return 0L
+                    val remaining = maxUncompressedBytes - readTotal
+                    if (remaining <= 0L) throw TarInspectLimitException()
+                    // 按剩余预算+1 截断底层 skip，防止 TarArchiveInputStream.nextEntry 通过 skip() 绕过解压上限
+                    val capped = minOf(n, remaining + 1L)
+                    val skipped = super.skip(capped)
+                    if (skipped > 0L) {
+                        readTotal += skipped
+                        if (readTotal > maxUncompressedBytes) throw TarInspectLimitException()
+                    }
+                    return skipped
                 }
             }
         } else {

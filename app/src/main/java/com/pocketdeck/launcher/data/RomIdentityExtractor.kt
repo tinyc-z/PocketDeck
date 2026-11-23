@@ -50,6 +50,33 @@ class RomIdentityExtractor(private val db: ScrapeDatabase) {
         fastSerialCache.remove(path)
     }
 
+    fun migratePathPrefix(oldDir: String, newDir: String) {
+        val oldPrefix = if (oldDir.endsWith("/")) oldDir else "$oldDir/"
+        val newPrefix = if (newDir.endsWith("/")) newDir else "$newDir/"
+        if (oldPrefix == newPrefix) return
+        fun migrateCache(cache: BoundedLruCache<String, Identity>) {
+            val moved = ArrayList<Pair<String, Identity>>()
+            for (k in cache.keysSnapshot()) {
+                if (k.startsWith(oldPrefix)) {
+                    cache.remove(k)?.let { moved += (newPrefix + k.removePrefix(oldPrefix)) to it }
+                }
+            }
+            for ((nk, v) in moved) cache[nk] = v
+        }
+        migrateCache(memCache)
+        migrateCache(fastSerialCache)
+    }
+
+    fun forgetPathPrefix(dirPath: String) {
+        val prefix = if (dirPath.endsWith("/")) dirPath else "$dirPath/"
+        for (k in memCache.keysSnapshot()) {
+            if (k.startsWith(prefix)) memCache.remove(k)
+        }
+        for (k in fastSerialCache.keysSnapshot()) {
+            if (k.startsWith(prefix)) fastSerialCache.remove(k)
+        }
+    }
+
     internal fun memoryCacheSize(): Int = memCache.size
 
     /** 判断该 ROM 是否能以极低开销（<1ms：内存缓存命中、压缩包目录、头部读取或 CHD SHA1）获取精确指纹。 */

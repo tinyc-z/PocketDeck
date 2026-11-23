@@ -94,6 +94,21 @@ class Batch3PolishAndReliabilityTest {
         assertTrue(csp.contains("frame-ancestors 'none'"))
         assertEquals("nosniff", headers["X-Content-Type-Options"])
         assertEquals("DENY", headers["X-Frame-Options"])
+
+        // 确认 HttpResponseWriter 合并默认头与 HTML_SECURITY_HEADERS 时不输出重复安全头
+        val out = java.io.ByteArrayOutputStream()
+        com.pocketdeck.launcher.lan.HttpResponseWriter(out).sendBytes(
+            status = 200,
+            contentType = "text/html; charset=utf-8",
+            bytes = "<html></html>".toByteArray(),
+            extraHeaders = headers,
+        )
+        val rawHeaders = out.toString(Charsets.UTF_8.name()).substringBefore("\r\n\r\n")
+        val lines = rawHeaders.lines().map { it.substringBefore(':').lowercase() }
+        assertEquals(1, lines.count { it == "x-content-type-options" })
+        assertEquals(1, lines.count { it == "x-frame-options" })
+        assertEquals(1, lines.count { it == "referrer-policy" })
+        assertEquals(1, lines.count { it == "content-security-policy" })
     }
 
     @Test
@@ -104,5 +119,48 @@ class Batch3PolishAndReliabilityTest {
 
         val emptyRow = ScrapeDatabase.RomIdentityRow(romSize = 0L)
         assertTrue(emptyRow.isEmpty)
+    }
+
+    @Test
+    fun localPrefsStoreSkipsDiskWriteOnNoOpEdit() {
+        val dir = tmp.newFolder("prefs_noop")
+        val target = File(dir, "user_prefs.json").apply {
+            writeText("""{"v":1,"s":{"k":"v1"}}""")
+        }
+        val pinnedMtime = target.lastModified() - 5_000L
+        target.setLastModified(pinnedMtime)
+
+        val store = LocalPrefsStore(targetFile = target)
+        LocalPrefsStore::class.java.getDeclaredField("cachedMap").apply { isAccessible = true }
+            .set(store, mapOf("k" to "v1"))
+        val key = com.pocketdeck.launcher.data.stringPrefsKey("k")
+        kotlinx.coroutines.runBlocking {
+            // 写入相同值（no-op）：若未跳过落盘则在纯 JVM stub 下 AtomicFile 会抛 NPE 或改写 mtime
+            store.edit { it[key] = "v1" }
+        }
+        assertEquals("No-op edit must skip disk rewrite", pinnedMtime, target.lastModified())
+    }
+
+    @Test
+    fun systemFontsDisplayNameUsesFamilyCacheWithoutDiskStat() {
+        val missingPath = File(tmp.root, "nonexistent_cached_font.ttf").absolutePath
+        val cacheField = com.pocketdeck.launcher.ui.theme.SystemFonts::class.java
+            .getDeclaredField("familyCache")
+            .apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val cache = cacheField.get(com.pocketdeck.launcher.ui.theme.SystemFonts) as MutableMap<String, androidx.compose.ui.text.font.FontFamily>
+        val id = "file:$missingPath"
+        cache[id] = androidx.compose.ui.text.font.FontFamily.SansSerif
+        try {
+            val label = com.pocketdeck.launcher.ui.theme.SystemFonts.displayName(
+                fontId = id,
+                defaultLabel = "Default",
+                missingFmt = "%s (MISSING)",
+            )
+            assertEquals("nonexistent cached font", label)
+            assertFalse("Cache-hit displayName must not fall back to disk stat missing suffix", label.contains("MISSING"))
+        } finally {
+            cache.remove(id)
+        }
     }
 }

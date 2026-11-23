@@ -530,7 +530,7 @@ private fun ExportLogDirDialog(
             .onPreviewKeyEvent { ev ->
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (GamepadKeys.isBack(ev.key) || GamepadKeys.isCancelOrApps(ev.key, swapAbxy, keyBindings)) {
-                    onDismiss()
+                    if (ev.nativeKeyEvent.repeatCount == 0) onDismiss()
                     true
                 } else false
             },
@@ -544,6 +544,8 @@ private fun ExportLogDirDialog(
                 .fillMaxWidth()
                 .heightIn(max = 540.dp),
             contentPadding = PaddingValues(20.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
             Text(
                 stringResource(R.string.scrape_logs_export_title),

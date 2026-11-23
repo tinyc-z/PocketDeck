@@ -238,9 +238,10 @@ internal object LanHttpClient {
         return baos.toString(StandardCharsets.UTF_8.name())
     }
 
-    /** 校验 TLS 握手后的对端 X.509 证书 SHA-256 指纹（支持大小写/冒号格式，常量时间比对）。 */
+    /** 校验 TLS 握手后的对端 X.509 证书 SHA-256 指纹（支持大小写/冒号格式，常量时间比对；缺失或非法指纹一律失败关闭）。 */
     fun verifyPeerCertificateFingerprint(tls: SSLSocket, expectedFingerprint: String?) {
-        val normalizedExpected = normalizeFingerprint(expectedFingerprint) ?: return
+        val normalizedExpected = normalizeFingerprint(expectedFingerprint)
+            ?: throw SSLPeerUnverifiedException("Missing or malformed expected TLS fingerprint")
         val cert = runCatching { tls.session.peerCertificates.firstOrNull() as? X509Certificate }.getOrNull()
             ?: throw SSLPeerUnverifiedException("Missing peer X.509 certificate")
         val actual = sha256HexLower(cert.encoded)

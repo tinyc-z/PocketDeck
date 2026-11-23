@@ -375,6 +375,7 @@ internal fun LanActiveFileTasksCard(
     swapAbxy: Boolean,
     keyBindings: Map<KeyAction, Int>,
     onCancel: (String) -> Unit,
+    nav: DpadNavController? = null,
 ) {
     Column(
         Modifier
@@ -397,6 +398,7 @@ internal fun LanActiveFileTasksCard(
                 swapAbxy = swapAbxy,
                 keyBindings = keyBindings,
                 onCancel = onCancel,
+                nav = nav,
             )
         }
     }
@@ -409,6 +411,7 @@ internal fun FileTaskItemRow(
     swapAbxy: Boolean,
     keyBindings: Map<KeyAction, Int>,
     onCancel: (String) -> Unit,
+    nav: DpadNavController? = null,
     modifier: Modifier = Modifier,
 ) {
     val icon = when (task.kind) {
@@ -502,6 +505,8 @@ internal fun FileTaskItemRow(
                 TaskCancelCrossButton(
                     tint = DeckColors.StatusDanger,
                     enabled = !task.cancelling,
+                    nav = nav,
+                    navId = if (nav != null) "file_task_cancel_${task.id}" else null,
                     swapAbxy = swapAbxy,
                     keyBindings = keyBindings,
                     onClick = { onCancel(task.id) },

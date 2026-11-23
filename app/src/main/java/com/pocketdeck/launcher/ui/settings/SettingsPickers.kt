@@ -472,6 +472,8 @@ internal fun InstalledAppPickerDialog(
 @Composable
 fun HiddenGamesDialog(
     hiddenIds: Set<String>,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
     onRestore: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -490,6 +492,8 @@ fun HiddenGamesDialog(
                 .widthIn(max = DeckDialogSize.WidthL)
                 .fillMaxWidth()
                 .heightIn(max = 560.dp),
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
         ) {
             Text(
                 stringResource(R.string.library_hidden_title),

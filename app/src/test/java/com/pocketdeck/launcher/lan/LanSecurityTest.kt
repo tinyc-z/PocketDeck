@@ -254,7 +254,7 @@ class LanSecurityTest {
                 LanHttpClient.verifyPeerCertificateFingerprint(client, colonUpperFp)
             }
 
-            // 2. 错误指纹必须抛出 SSLPeerUnverifiedException
+            // 2. 错误指纹、null 或畸形指纹均必须 fail-closed 抛出 SSLPeerUnverifiedException
             val wrongFp = "0".repeat(64)
             (id.clientSslContext.socketFactory.createSocket("127.0.0.1", port) as SSLSocket).use { client ->
                 client.soTimeout = 3000
@@ -264,6 +264,14 @@ class LanSecurityTest {
                     fail("Expected SSLPeerUnverifiedException on mismatched fingerprint")
                 } catch (_: SSLPeerUnverifiedException) {
                     // expected
+                }
+                for (badFp in listOf(null, "", "abc", "zz".repeat(32))) {
+                    try {
+                        LanHttpClient.verifyPeerCertificateFingerprint(client, badFp)
+                        fail("Expected SSLPeerUnverifiedException on null/malformed fingerprint: $badFp")
+                    } catch (_: SSLPeerUnverifiedException) {
+                        // expected fail-closed
+                    }
                 }
             }
         } finally {
@@ -319,6 +327,10 @@ class LanSecurityTest {
                 remoteIp = "192.168.1.50",
             )
             assertEquals(202, prepRes.first)
+            val prepJson = JSONObject(prepRes.second.substringAfter("\r\n\r\n"))
+            val serverSessionId = prepJson.optString("sessionId", "")
+            assertTrue("Server must issue a non-blank sessionId", serverSessionId.isNotBlank())
+            assertFalse("Server must ignore client-supplied sessionId", serverSessionId == "sess-1")
             assertEquals("Traversal platformId must be stripped", "", svc.incomingRequest.value?.platformId)
 
             // 3. 第三方 IP 企图 cancel 必须返回 403
@@ -326,20 +338,20 @@ class LanSecurityTest {
                 svc,
                 method = "POST",
                 path = "/api/share/cancel",
-                query = mapOf("sessionId" to "sess-1"),
+                query = mapOf("sessionId" to serverSessionId),
                 remoteIp = "192.168.1.99",
             )
             assertEquals(403, spoofCancel.first)
 
             // 用户同意接收
-            svc.acceptIncoming("sess-1", targetDir)
+            svc.acceptIncoming(serverSessionId, targetDir)
 
             // 4. 第三方 IP 企图 upload 必须返回 403
             val spoofUpload = dispatchNative(
                 svc,
                 method = "POST",
                 path = "/api/share/upload",
-                query = mapOf("sessionId" to "sess-1", "name" to "mario.gba"),
+                query = mapOf("sessionId" to serverSessionId, "name" to "mario.gba"),
                 body = "0123456789".toByteArray(StandardCharsets.UTF_8),
                 remoteIp = "192.168.1.99",
             )
@@ -350,7 +362,7 @@ class LanSecurityTest {
                 svc,
                 method = "POST",
                 path = "/api/share/upload",
-                query = mapOf("sessionId" to "sess-1", "name" to "evil.apk"),
+                query = mapOf("sessionId" to serverSessionId, "name" to "evil.apk"),
                 body = "0123456789".toByteArray(StandardCharsets.UTF_8),
                 remoteIp = "192.168.1.50",
             )
@@ -361,17 +373,59 @@ class LanSecurityTest {
                 svc,
                 method = "POST",
                 path = "/api/share/upload",
-                query = mapOf("sessionId" to "sess-1", "name" to "mario.gba"),
+                query = mapOf("sessionId" to serverSessionId, "name" to "mario.gba"),
                 body = "0123456789-OVERFLOW".toByteArray(StandardCharsets.UTF_8),
                 remoteIp = "192.168.1.50",
             )
             assertEquals(413, oversize.first)
             assertFalse("Oversize rejected upload must not create file", File(targetDir, "mario.gba").exists())
 
+            // 6b. 声明 0 字节文件并尝试上传 1 字节必须返回 413（严禁回退为不限速/无限配额）
+            dispatchNative(
+                svc,
+                method = "POST",
+                path = "/api/share/cancel",
+                query = mapOf("sessionId" to serverSessionId),
+                remoteIp = "192.168.1.50",
+            )
+            val zeroPrep = dispatchNative(
+                svc,
+                method = "POST",
+                path = "/api/share/prepare",
+                body = JSONObject().apply {
+                    put("senderId", "sender-a")
+                    put("senderName", "HandheldA")
+                    put("fileName", "empty.sav")
+                    put("fileSize", 0L)
+                    put("fileCount", 1)
+                    put("fileNames", listOf("empty.sav"))
+                }.toString().toByteArray(StandardCharsets.UTF_8),
+                remoteIp = "192.168.1.50",
+            )
+            assertEquals(202, zeroPrep.first)
+            val zeroSid = JSONObject(zeroPrep.second.substringAfter("\r\n\r\n")).getString("sessionId")
+            svc.acceptIncoming(zeroSid, targetDir)
+            val zeroOverflow = dispatchNative(
+                svc,
+                method = "POST",
+                path = "/api/share/upload",
+                query = mapOf("sessionId" to zeroSid, "name" to "empty.sav"),
+                body = byteArrayOf(0x42),
+                remoteIp = "192.168.1.50",
+            )
+            assertEquals("0-byte declared file must reject 1-byte payload with 413", 413, zeroOverflow.first)
+            assertFalse(File(targetDir, "empty.sav").exists())
+
             // 7. buildCandidateDirs 对非法/穿越 platformId 不应逃出 ROM 根目录
             val romRoot = tmp.newFolder("roms_root")
             val dirs = svc.buildCandidateDirs(listOf(romRoot), "../../outside")
             assertTrue(dirs.none { it.canonicalPath.endsWith("outside") })
+
+            // 8. 磁盘空间校验不因 Long.MAX_VALUE 溢出而误判为空间充足
+            assertFalse(
+                "Long.MAX_VALUE incoming size must not overflow disk check",
+                WebManagerServer.hasEnoughDiskSpace(targetDir, Long.MAX_VALUE),
+            )
         } finally {
             scope.cancel()
         }

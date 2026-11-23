@@ -637,9 +637,15 @@ class HttpResponseWriter(private val out: OutputStream) {
         if (extraHeaders.keys.none { it.equals("Cache-Control", ignoreCase = true) }) {
             sb.append("Cache-Control: no-store\r\n")
         }
-        sb.append("X-Content-Type-Options: nosniff\r\n")
-        sb.append("X-Frame-Options: DENY\r\n")
-        sb.append("Referrer-Policy: no-referrer\r\n")
+        if (extraHeaders.keys.none { it.equals("X-Content-Type-Options", ignoreCase = true) }) {
+            sb.append("X-Content-Type-Options: nosniff\r\n")
+        }
+        if (extraHeaders.keys.none { it.equals("X-Frame-Options", ignoreCase = true) }) {
+            sb.append("X-Frame-Options: DENY\r\n")
+        }
+        if (extraHeaders.keys.none { it.equals("Referrer-Policy", ignoreCase = true) }) {
+            sb.append("Referrer-Policy: no-referrer\r\n")
+        }
         sb.append("Connection: close\r\n")
         for ((k, v) in defaultHeaders) {
             if (k !in extraHeaders) {

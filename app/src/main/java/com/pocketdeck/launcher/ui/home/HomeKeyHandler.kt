@@ -128,7 +128,9 @@ internal fun handleHomePreviewKeyEvent(
         val cols = if (ViewMode.entries.size > 4) 2 else 1
         return when {
             GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) -> {
-                vm.closeViewMenu()
+                if (event.nativeKeyEvent.repeatCount == 0) {
+                    vm.closeViewMenu()
+                }
                 true
             }
             event.key == Key.DirectionUp -> {

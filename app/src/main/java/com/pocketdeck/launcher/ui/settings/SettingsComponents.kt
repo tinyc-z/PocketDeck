@@ -86,6 +86,7 @@ internal fun SettingsHeader(
     nextKey: String,
     scrapeRunning: Boolean = false,
     scrapePercent: Int = 0,
+    paused: Boolean = false,
     onScrapeBadgeClick: () -> Unit = {},
     onBack: () -> Unit,
 ) {
@@ -116,6 +117,7 @@ internal fun SettingsHeader(
         if (scrapeRunning) {
             com.pocketdeck.launcher.ui.components.ScrapeStatusPill(
                 percent = scrapePercent,
+                paused = paused,
                 onClick = onScrapeBadgeClick,
             )
             Spacer(Modifier.width(12.dp))

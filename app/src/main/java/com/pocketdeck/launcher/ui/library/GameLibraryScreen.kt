@@ -251,6 +251,7 @@ fun GameLibraryScreen(
     onCancelFileTask: (String) -> Unit = {},
     onApplyFontId: (String) -> Unit = {},
     onOpenQuickShare: () -> Unit = {},
+    isCovered: Boolean = false,
     onRescan: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -337,32 +338,6 @@ fun GameLibraryScreen(
         imageViewerFile != null || textEditorFile != null || audioPlayerFile != null ||
         fontViewerFile != null || categoryTargetGame != null || propertiesGame != null ||
         editingGame != null || showLanDialog
-
-    androidx.activity.compose.BackHandler(enabled = hasInternalOverlay) {
-        when {
-            showLanDialog -> showLanDialog = false
-            opProgress != null -> {
-                opCancelled.set(true)
-                opJob?.cancel()
-                opProgress = null
-            }
-            fontViewerFile != null -> fontViewerFile = null
-            audioPlayerFile != null -> audioPlayerFile = null
-            textEditorFile != null -> textEditorFile = null
-            imageViewerFile != null -> imageViewerFile = null
-            archivePreviewFile != null -> archivePreviewFile = null
-            shareTarget != null -> shareTarget = null
-            shareMethodTarget != null -> shareMethodTarget = null
-            batchDeleteFiles != null -> batchDeleteFiles = null
-            deleteConfirm != null -> deleteConfirm = null
-            moveTarget != null -> moveTarget = null
-            nameSpec != null -> nameSpec = null
-            categoryTargetGame != null -> categoryTargetGame = null
-            editingGame != null -> editingGame = null
-            propertiesGame != null -> propertiesGame = null
-            actionMenu != null -> actionMenu = null
-        }
-    }
 
     val lanState by lanManager.state.collectAsState()
 
@@ -532,8 +507,8 @@ fun GameLibraryScreen(
         fontViewerFile != null ||
         opProgress != null
 
-    LaunchedEffect(overlayActive) {
-        if (!overlayActive) focusRequester.requestFocusSafely()
+    LaunchedEffect(overlayActive, isCovered) {
+        if (!overlayActive && !isCovered) focusRequester.requestFocusSafely()
     }
     LaunchedEffect(fileSearchOpen) {
         if (fileSearchOpen) {
@@ -565,6 +540,42 @@ fun GameLibraryScreen(
         fileSearchOpen = false
         currentDir = parentFromHistory
         return true
+    }
+
+    val canHandleBackInternally = hasInternalOverlay ||
+        (mode == LibraryMode.Games && (searchQuery.isNotBlank() || gameSearchOpen)) ||
+        (mode == LibraryMode.Files && (multiSelectMode || fileSearchQuery.isNotBlank() || fileSearchOpen || canStepUp()))
+
+    androidx.activity.compose.BackHandler(enabled = !isCovered && canHandleBackInternally) {
+        when {
+            showLanDialog -> showLanDialog = false
+            opProgress != null -> {
+                opCancelled.set(true)
+                opJob?.cancel()
+                opProgress = null
+            }
+            fontViewerFile != null -> fontViewerFile = null
+            audioPlayerFile != null -> audioPlayerFile = null
+            textEditorFile != null -> textEditorFile = null
+            imageViewerFile != null -> imageViewerFile = null
+            archivePreviewFile != null -> archivePreviewFile = null
+            shareTarget != null -> shareTarget = null
+            shareMethodTarget != null -> shareMethodTarget = null
+            batchDeleteFiles != null -> batchDeleteFiles = null
+            deleteConfirm != null -> deleteConfirm = null
+            moveTarget != null -> moveTarget = null
+            nameSpec != null -> nameSpec = null
+            categoryTargetGame != null -> categoryTargetGame = null
+            editingGame != null -> editingGame = null
+            propertiesGame != null -> propertiesGame = null
+            actionMenu != null -> actionMenu = null
+            mode == LibraryMode.Games && searchQuery.isNotBlank() -> { searchQuery = ""; selectedIdx = 0 }
+            mode == LibraryMode.Games && gameSearchOpen -> { gameSearchOpen = false; selectedIdx = 0 }
+            mode == LibraryMode.Files && multiSelectMode -> { multiSelectMode = false; selectedPaths = emptySet() }
+            mode == LibraryMode.Files && fileSearchQuery.isNotBlank() -> { fileSearchQuery = ""; selectedIdx = 0 }
+            mode == LibraryMode.Files && fileSearchOpen -> { fileSearchOpen = false; selectedIdx = 0 }
+            mode == LibraryMode.Files -> { stepUpDir() }
+        }
     }
 
     val hasUp = canStepUp() && fileSearchQuery.isBlank()
@@ -1118,10 +1129,12 @@ fun GameLibraryScreen(
             .background(DeckColors.Background)
             .blockOverlayTouchThrough()
             .focusRequester(focusRequester)
-            .focusProperties { canFocus = !overlayActive || actionMenu != null }
+            .focusProperties { canFocus = (!overlayActive || actionMenu != null) && !isCovered }
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (isCovered) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
 
                 nameSpec?.let { spec ->
                     return@onPreviewKeyEvent when {
@@ -1178,6 +1191,7 @@ fun GameLibraryScreen(
 
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
+                        if (!isInitialPress) return@onPreviewKeyEvent true
                         if (mode == LibraryMode.Games && searchQuery.isNotBlank()) {
                             searchQuery = ""
                             selectedIdx = 0
@@ -1538,6 +1552,7 @@ fun GameLibraryScreen(
             },
             shareTarget = shareTarget,
             onDismissShareTarget = { shareTarget = null },
+            isCovered = isCovered,
             onClearMultiSelect = {
                 multiSelectMode = false
                 selectedPaths = emptySet()

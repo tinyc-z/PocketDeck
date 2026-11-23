@@ -514,6 +514,7 @@ internal fun HomeOverlays(
             onCancelFileTask = vm::cancelFileTask,
             onApplyFontId = vm::setFontId,
             onOpenQuickShare = { onShowLanControlFromStatusBarChange(true) },
+            isCovered = showLanControlFromStatusBar || state.showScrapeTaskDialog,
             onRescan = vm::refresh,
             onDismiss = vm::closeLibraryManager,
         )

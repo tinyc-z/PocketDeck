@@ -240,6 +240,8 @@ fun ImageViewerDialog(
             DialogCloseButton(
                 onClick = onDismiss,
                 darkSurface = true,
+                swapAbxy = swapAbxy,
+                keyBindings = keyBindings,
             )
         }
     }

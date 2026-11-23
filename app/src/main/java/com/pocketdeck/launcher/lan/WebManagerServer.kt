@@ -243,9 +243,11 @@ class WebManagerServer(
             while (cur != null && !cur.exists()) {
                 cur = cur.parentFile
             }
+            val total = runCatching { cur?.totalSpace ?: 0L }.getOrDefault(0L)
+            if (total <= 0L) return true
             val usable = runCatching { cur?.usableSpace ?: 0L }.getOrDefault(0L)
-            if (usable <= 0L) return true
-            return usable >= incomingBytes.coerceAtLeast(0L) + MIN_FREE_DISK_BYTES
+            val safeIncoming = incomingBytes.coerceAtLeast(0L)
+            return usable > MIN_FREE_DISK_BYTES && (usable - MIN_FREE_DISK_BYTES) >= safeIncoming
         }
         private const val MAX_COVER_UPLOAD_BYTES = 8 * 1024 * 1024L
         private const val MAX_WEB_HISTORY_ITEMS = 100

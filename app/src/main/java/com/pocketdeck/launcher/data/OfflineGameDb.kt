@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
 object OfflineGameDb {
 
     private const val MAX_CACHED_PLATFORMS = 4
-    const val MAX_ACTIVE_PROTECTED_SYSTEMS = 6
+    const val MAX_ACTIVE_PROTECTED_SYSTEMS = 3
 
     /** 当前前台列表焦点附近正在使用的 `libretroSystem` 集合：LRU 淘汰与 `onTrimMemory` 均受保护，不会被释放。 */
     @Volatile

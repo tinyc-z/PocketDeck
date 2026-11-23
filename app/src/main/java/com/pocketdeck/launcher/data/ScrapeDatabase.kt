@@ -495,6 +495,27 @@ open class ScrapeDatabase(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    /** 批量删除指定游戏的自动解析元数据缓存行（用户禁用某元数据节点后同步清理 SQLite，避免重启后复活）。 */
+    open fun deleteResolvedMetadataBatch(gameIds: Collection<String>) {
+        if (gameIds.isEmpty()) return
+        safeDbUnit("deleteResolvedMetadataBatch") {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                for (gid in gameIds) {
+                    db.delete(
+                        "scrape_cache",
+                        "provider_id = ? AND game_id = ?",
+                        arrayOf(RESOLVED_META_PROVIDER, gid),
+                    )
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
     private fun loadMetadataRowsByProvider(
         op: String,
         providerKey: String,

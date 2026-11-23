@@ -384,6 +384,7 @@ fun SettingsScreen(
             checkingUpdate = false
             res.onSuccess { info ->
                 if (info != null) {
+                    updateChoiceIdx = 1
                     availableRelease = info
                 } else {
                     Toast.makeText(context, context.getString(R.string.update_up_to_date), Toast.LENGTH_SHORT).show()
@@ -433,11 +434,20 @@ fun SettingsScreen(
         }
     }
 
+    // 独立导航状态容器：不在 SettingsScreen 顶层读取，确保切分区/上下移动焦点时零顶层重组，所有非活跃分区零重组
+    val nav = remember { SettingsNavState() }
+    var langPicker by remember { mutableStateOf<Int?>(null) }
+
     val hasInternalOverlay = availableRelease != null || showScrapeLogs || nameSpec != null ||
         credDialogKind != null || editingSystemTab != null || showHiddenDialog ||
         capturingAction != null || pendingKeyConflict != null || showResetBindingsConfirm ||
         bindingCategorySpec != null || launcherPickerPlatform != null || showFontPicker ||
-        browsing || menu != null
+        browsing || menu != null || accentPicker != null || bgPicker != null || langPicker != null
+
+    SettingsNavBackHandler(
+        enabled = isVisible && !effectiveCovered && !hasInternalOverlay,
+        nav = nav,
+    )
 
     androidx.activity.compose.BackHandler(enabled = isVisible && !effectiveCovered && hasInternalOverlay) {
         when {
@@ -455,6 +465,9 @@ fun SettingsScreen(
             showFontPicker -> showFontPicker = false
             browsing -> browsing = false
             menu != null -> menu = null
+            accentPicker != null -> accentPicker = null
+            bgPicker != null -> bgPicker = null
+            langPicker != null -> langPicker = null
         }
     }
 
@@ -500,9 +513,6 @@ fun SettingsScreen(
     val reservedKeyError = stringResource(R.string.keybind_reserved)
 
     val sections = SettingsSection.entries
-    // 独立导航状态容器：不在 SettingsScreen 顶层读取，确保切分区/上下移动焦点时零顶层重组，所有非活跃分区零重组
-    val nav = remember { SettingsNavState() }
-    var langPicker by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(isVisible) {
         if (!isVisible) {
@@ -526,6 +536,7 @@ fun SettingsScreen(
             keyBindError = null
             pendingKeyConflict = null
             showResetBindingsConfirm = false
+            if (updateDownloadProgress == null) availableRelease = null
         }
     }
 
@@ -1059,11 +1070,11 @@ fun SettingsScreen(
                             accentPicker = (idx - 1 + count) % count
                         event.key == Key.DirectionRight || event.key == Key.DirectionDown ->
                             accentPicker = (idx + 1) % count
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> if (isInitialPress) {
                             manage.setThemeAccent(ThemeAccent.entries[idx]); accentPicker = null
                         }
                         GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) ->
-                            accentPicker = null
+                            if (isInitialPress) accentPicker = null
                     }
                     return@onPreviewKeyEvent true
                 }
@@ -1075,11 +1086,11 @@ fun SettingsScreen(
                             bgPicker = (idx - 1 + count) % count
                         event.key == Key.DirectionRight || event.key == Key.DirectionDown ->
                             bgPicker = (idx + 1) % count
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> if (isInitialPress) {
                             onSetBackgroundStyle(BackgroundStyle.entries[idx]); bgPicker = null
                         }
                         GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) ->
-                            bgPicker = null
+                            if (isInitialPress) bgPicker = null
                     }
                     return@onPreviewKeyEvent true
                 }
@@ -1087,41 +1098,45 @@ fun SettingsScreen(
                     when {
                         event.key == Key.DirectionUp -> langPicker = (idx - 1).coerceAtLeast(0)
                         event.key == Key.DirectionDown -> langPicker = (idx + 1).coerceAtMost(AppLocale.CODES.size - 1)
-                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> {
+                        GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings) -> if (isInitialPress) {
                             langPicker = null
                             val code = AppLocale.CODES[idx]
                             if (code != state.language) onLanguageChange(code)
                         }
                         GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings) || event.key == Key.DirectionLeft ->
-                            langPicker = null
+                            if (isInitialPress || event.key == Key.DirectionLeft) langPicker = null
                     }
                     return@onPreviewKeyEvent true
                 }
 
                 // L1 / R1 切换设置分区
                 if (GamepadKeys.isPrevTab(event.key, state.swapAbxy, state.keyBindings)) {
-                    selectSection((nav.selectedSection - 1 + sections.size) % sections.size)
+                    if (isInitialPress) selectSection((nav.selectedSection - 1 + sections.size) % sections.size)
                     return@onPreviewKeyEvent true
                 }
                 if (GamepadKeys.isNextTab(event.key, state.swapAbxy, state.keyBindings)) {
-                    selectSection((nav.selectedSection + 1) % sections.size)
+                    if (isInitialPress) selectSection((nav.selectedSection + 1) % sections.size)
                     return@onPreviewKeyEvent true
                 }
 
                 if (GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, state.swapAbxy, state.keyBindings)) {
-                    if (nav.focusOnMenu) onDismiss() else nav.focusOnMenu = true
+                    if (isInitialPress) {
+                        if (nav.focusOnMenu) onDismiss() else nav.focusOnMenu = true
+                    }
                     return@onPreviewKeyEvent true
                 }
                 if (GamepadKeys.isSettings(event.key, state.swapAbxy, state.keyBindings)) {
-                    onDismiss()
+                    if (isInitialPress) onDismiss()
                     return@onPreviewKeyEvent true
                 }
                 if (GamepadKeys.isConfirm(event.key, state.swapAbxy, state.keyBindings)) {
-                    if (nav.focusOnMenu) {
-                        val maxItems = itemCountForSection(sections[nav.selectedSection], state, showAllLauncherPlatforms)
-                        if (maxItems > 0) { nav.focusOnMenu = false; nav.contentItemIndex = 0 }
-                    } else {
-                        triggerItem(sections[nav.selectedSection], nav.contentItemIndex)
+                    if (isInitialPress) {
+                        if (nav.focusOnMenu) {
+                            val maxItems = itemCountForSection(sections[nav.selectedSection], state, showAllLauncherPlatforms)
+                            if (maxItems > 0) { nav.focusOnMenu = false; nav.contentItemIndex = 0 }
+                        } else {
+                            triggerItem(sections[nav.selectedSection], nav.contentItemIndex)
+                        }
                     }
                     return@onPreviewKeyEvent true
                 }
@@ -1166,6 +1181,7 @@ fun SettingsScreen(
                 nextKey = nextKeyBadge,
                 scrapeRunning = isVisible && state.scrapeProgress.running,
                 scrapePercent = state.scrapeProgress.percent,
+                paused = effectiveCovered,
                 onScrapeBadgeClick = manage.openScrapeTask,
                 onBack = onDismiss,
             )
@@ -1535,7 +1551,13 @@ fun SettingsScreen(
             )
         }
         if (showHiddenDialog) {
-            HiddenGamesDialog(hiddenIds = state.hiddenIds, onRestore = { manage.unhideGame(it) }, onDismiss = { showHiddenDialog = false })
+            HiddenGamesDialog(
+                hiddenIds = state.hiddenIds,
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
+                onRestore = { manage.unhideGame(it) },
+                onDismiss = { showHiddenDialog = false },
+            )
         }
         if (showFontPicker) {
             FontPickerDialog(
@@ -1571,6 +1593,8 @@ fun SettingsScreen(
                 currentBadge = GamepadKeys.badgeLabel(state.keyBindings, action, state.swapAbxy),
                 defaultBadge = GamepadKeys.keyLabel(GamepadKeys.defaultKeyCode(action, state.swapAbxy)),
                 errorMessage = keyBindError,
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
                 onClear = { applyKeyBinding(action, GamepadKeys.UNBOUND); capturingAction = null; keyBindError = null },
                 onDismiss = { capturingAction = null; keyBindError = null },
             )
@@ -1610,6 +1634,16 @@ fun SettingsScreen(
                 onDismiss = { showResetBindingsConfirm = false },
             )
         }
+    }
+}
+
+@Composable
+private fun SettingsNavBackHandler(
+    enabled: Boolean,
+    nav: SettingsNavState,
+) {
+    androidx.activity.compose.BackHandler(enabled = enabled && !nav.focusOnMenu) {
+        nav.focusOnMenu = true
     }
 }
 

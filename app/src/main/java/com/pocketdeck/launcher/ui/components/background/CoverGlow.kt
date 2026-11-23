@@ -141,7 +141,17 @@ internal fun CoverGlowBackground(
     var to by remember { mutableStateOf(display) }
     val progress = remember { Animatable(1f) }
     LaunchedEffect(display, reduceMotion, paused) {
-        if (display === to) return@LaunchedEffect
+        if (display === to) {
+            if (!paused && progress.value < 1f) {
+                if (reduceMotion) {
+                    progress.snapTo(1f)
+                } else {
+                    val remMs = ((1f - progress.value) * 700f).toInt().coerceAtLeast(1)
+                    progress.animateTo(1f, tween(durationMillis = remMs, easing = FastOutSlowInEasing))
+                }
+            }
+            return@LaunchedEffect
+        }
         if (reduceMotion || paused) {
             // 减少动态效果或被浮层遮挡时零帧直切颜色，跳过 700ms 后台交叉淡化动画
             from = display

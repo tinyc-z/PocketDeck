@@ -1,7 +1,7 @@
 package com.pocketdeck.launcher.ui.components
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -99,21 +99,28 @@ fun FavoriteHeartIcon(
     strokeWidth: Dp = 1.7.dp,
     modifier: Modifier = Modifier,
 ) {
-    val path = remember { Path() }
-    Canvas(modifier.size(size)) {
-        buildModernHeartPath(path, this.size.width, this.size.height)
-        if (filled) {
-            drawPath(path = path, color = color, style = Fill)
-        } else {
-            drawPath(
-                path = path,
-                color = color,
-                style = Stroke(
-                    width = strokeWidth.toPx(),
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round,
-                ),
-            )
-        }
-    }
+    Spacer(
+        modifier
+            .size(size)
+            .drawWithCache {
+                val path = Path()
+                buildModernHeartPath(path, this.size.width, this.size.height)
+                val stroke = if (filled) {
+                    null
+                } else {
+                    Stroke(
+                        width = strokeWidth.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round,
+                    )
+                }
+                onDrawBehind {
+                    if (stroke == null) {
+                        drawPath(path = path, color = color, style = Fill)
+                    } else {
+                        drawPath(path = path, color = color, style = stroke)
+                    }
+                }
+            },
+    )
 }

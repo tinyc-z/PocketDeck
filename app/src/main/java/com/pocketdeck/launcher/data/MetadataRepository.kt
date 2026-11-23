@@ -525,6 +525,7 @@ class MetadataRepository(
             val disabledProviders = prevEnabled - curEnabled
 
             // 仅剔除被禁用元数据节点产出的自动解析条目，完整保留手动刮削（manualMetaIds）与本地 gamelist.xml（localSeedMap）
+            val purgedFromDb = HashSet<String>()
             if (disabledProviders.isNotEmpty()) {
                 val curInfo = _resolutionInfo.value
                 val toRemove = HashSet<String>()
@@ -533,6 +534,8 @@ class MetadataRepository(
                 for ((gid, info) in curInfo) {
                     if (gid in manualMetaIds) continue
                     if (info.providers.isNotEmpty() && info.providers.all { it in disabledProviders }) {
+                        canonicalNames.remove(gid)
+                        purgedFromDb.add(gid)
                         val localMeta = localSeedMap[gid]
                         if (localMeta != null && !localMeta.isEmpty) {
                             gameCache[gid] = localMeta
@@ -547,9 +550,12 @@ class MetadataRepository(
                         }
                     }
                 }
+                val removedOrRestoredIds = toRemove + restoredMeta.keys
+                if (removedOrRestoredIds.isNotEmpty()) {
+                    _officialNames.update { cur -> cur.filterKeys { it !in removedOrRestoredIds } }
+                }
                 if (toRemove.isNotEmpty()) {
                     _metadata.update { cur -> cur.filterKeys { it !in toRemove } }
-                    _officialNames.update { cur -> cur.filterKeys { it !in toRemove } }
                     _resolutionInfo.update { cur -> cur.filterKeys { it !in toRemove } }
                 }
                 if (restoredMeta.isNotEmpty()) {
@@ -560,6 +566,9 @@ class MetadataRepository(
 
             scope.launch(Dispatchers.IO) {
                 client.database.clearResolvedMetadataMisses()
+                if (purgedFromDb.isNotEmpty()) {
+                    client.database.deleteResolvedMetadataBatch(purgedFromDb)
+                }
             }
         }
     }

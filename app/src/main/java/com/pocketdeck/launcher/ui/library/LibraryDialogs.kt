@@ -418,6 +418,7 @@ internal fun LibraryOverlayDialogs(
     onPickSystemShareMethod: (ShareFileTarget) -> Unit,
     shareTarget: ShareFileTarget?,
     onDismissShareTarget: () -> Unit,
+    isCovered: Boolean = false,
     onClearMultiSelect: () -> Unit,
     onBumpDirRefresh: () -> Unit,
     onLocateInFiles: (File, File?) -> Unit,
@@ -526,6 +527,11 @@ internal fun LibraryOverlayDialogs(
             },
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
+            isTopmost = !isCovered && !showLanDialog && opProgress == null &&
+                fontViewerFile == null && audioPlayerFile == null && textEditorFile == null &&
+                imageViewerFile == null && archivePreviewFile == null && shareTarget == null &&
+                shareMethodTarget == null && batchDeleteFiles == null && deleteConfirm == null &&
+                moveTarget == null && nameSpec == null && categoryTargetGame == null,
             onDeleteFile = {
                 val f = File(game.id)
                 scope.launch {

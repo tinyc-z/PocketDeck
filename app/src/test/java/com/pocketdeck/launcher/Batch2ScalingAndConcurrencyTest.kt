@@ -135,7 +135,11 @@ class Batch2ScalingAndConcurrencyTest {
             val f2 = File(pruneDir, "old2.img").apply { writeBytes(ByteArray(400)); setLastModified(2_000L) }
             val f3 = File(pruneDir, "new1.img").apply { writeBytes(ByteArray(400)); setLastModified(3_000L) }
             val f4 = File(pruneDir, "new2.img").apply { writeBytes(ByteArray(400)); setLastModified(4_000L) }
-            val tmpLeftover = File(pruneDir, "partial.img.123.tmp").apply { writeBytes(ByteArray(50)) }
+            val staleTmpLeftover = File(pruneDir, "partial.img.123.tmp").apply {
+                writeBytes(ByteArray(50))
+                setLastModified(System.currentTimeMillis() - 10 * 60_000L)
+            }
+            val freshTmpInFlight = File(pruneDir, "inflight.img.456.tmp").apply { writeBytes(ByteArray(50)) }
 
             val deletedNames = mutableListOf<String>()
             val removedCount = CoverSource.pruneDirByLru(pruneDir, maxBytes = 1_000L) { deletedNames += it }
@@ -145,7 +149,8 @@ class Batch2ScalingAndConcurrencyTest {
             assertFalse(f2.exists())
             assertTrue(f3.exists())
             assertTrue(f4.exists())
-            assertFalse("Leftover .tmp file must be cleaned up", tmpLeftover.exists())
+            assertFalse("Stale leftover .tmp file must be cleaned up", staleTmpLeftover.exists())
+            assertTrue("Fresh in-flight .tmp file must be preserved", freshTmpInFlight.exists())
         } finally {
             scope.cancel()
         }

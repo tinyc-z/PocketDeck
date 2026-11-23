@@ -590,7 +590,7 @@ class OfflinePreloadTriggerTest {
         )
         assertEquals(OfflineGameDb.MAX_ACTIVE_PROTECTED_SYSTEMS, active.size)
         assertEquals(
-            listOf("System_5", "System_6", "System_4", "System_7", "System_3", "System_8"),
+            listOf("System_5", "System_6", "System_4"),
             active.toList(),
         )
     }

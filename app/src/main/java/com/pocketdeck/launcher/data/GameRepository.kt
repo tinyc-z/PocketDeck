@@ -94,6 +94,15 @@ class GameRepository(
         _filesRevision.update { it + 1L }
     }
 
+    /** 仅删除位于应用私有 `custom_covers/` 沙箱内的旧自定义封面文件，防止路径穿越或误删用户文件。 */
+    fun deleteOwnedCustomCover(path: String) {
+        val coversDir = File(context.applicationContext.filesDir, "custom_covers")
+        val target = File(path)
+        if (com.pocketdeck.launcher.lan.WebFileSecurity.isInsideDir(target, coversDir)) {
+            runCatching { target.delete() }
+        }
+    }
+
     fun launchFileTask(block: suspend CoroutineScope.() -> Unit) {
         scope.launch(Dispatchers.IO, block = block)
     }

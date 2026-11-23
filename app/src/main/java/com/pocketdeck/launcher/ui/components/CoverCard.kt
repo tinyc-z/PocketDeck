@@ -483,6 +483,7 @@ fun CoverCard(
                                 loadedSuccess = false
                                 if (loadUnlocked && !fastScrolling) {
                                     val failedModel = currentModel
+                                    val handledCorruptFile = failedModel is File && onFileCandidateError != null
                                     if (failedModel is File) {
                                         onFileCandidateError?.invoke(failedModel)
                                     }
@@ -494,7 +495,8 @@ fun CoverCard(
                                             failedModel is String &&
                                             (failedModel.startsWith("http://", ignoreCase = true) ||
                                                 failedModel.startsWith("https://", ignoreCase = true))
-                                        if (knownIndex != -1 && !isOfflineHttpMiss) {
+                                        // 本地坏缓存文件交由 onFileCandidateError 摘除并触发重算候选，绝不顺带写入 -1 负缓存阻断在线回退
+                                        if (knownIndex != -1 && !isOfflineHttpMiss && !handledCorruptFile) {
                                             onCandidateResolved?.invoke(-1)
                                         }
                                     }

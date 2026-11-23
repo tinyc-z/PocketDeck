@@ -384,7 +384,11 @@ fun EditGameScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         OutlinedButton(
-                            onClick = { runCatching { pickImageLauncher.launch("image/*") } },
+                            onClick = {
+                                nav.keyboardActive = false
+                                nav.focusedId = "pick_image"
+                                runCatching { pickImageLauncher.launch("image/*") }
+                            },
                             shape = CircleShape,
                             border = BorderStroke(1.dp, DeckColors.Line),
                             modifier = Modifier
@@ -404,7 +408,11 @@ fun EditGameScreen(
 
                         if (onManualScrape != null) {
                             OutlinedButton(
-                                onClick = onManualScrape,
+                                onClick = {
+                                    nav.keyboardActive = false
+                                    nav.focusedId = "manual_scrape"
+                                    onManualScrape()
+                                },
                                 shape = CircleShape,
                                 border = BorderStroke(1.dp, DeckColors.Ruby.copy(alpha = 0.5f)),
                                 modifier = Modifier
@@ -522,7 +530,11 @@ fun EditGameScreen(
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
-                            onClick = onHide,
+                            onClick = {
+                                nav.keyboardActive = false
+                                nav.focusedId = "hide_game"
+                                onHide()
+                            },
                             shape = CircleShape,
                             border = BorderStroke(1.dp, DeckColors.Line),
                             modifier = Modifier.dpadNavItem(nav, id = "hide_game", order = 80, shape = CircleShape) {
@@ -541,7 +553,11 @@ fun EditGameScreen(
 
                         if (isRomFile) {
                             OutlinedButton(
-                                onClick = { showDeleteConfirm = true },
+                                onClick = {
+                                    nav.keyboardActive = false
+                                    nav.focusedId = "delete_file"
+                                    showDeleteConfirm = true
+                                },
                                 shape = CircleShape,
                                 border = BorderStroke(1.dp, DeckColors.Ruby.copy(alpha = 0.45f)),
                                 modifier = Modifier.dpadNavItem(nav, id = "delete_file", order = 90, shape = CircleShape) {
@@ -561,7 +577,11 @@ fun EditGameScreen(
                     }
 
                     Button(
-                        onClick = { onSave(title.trim(), coverPath) },
+                        onClick = {
+                            nav.keyboardActive = false
+                            nav.focusedId = "save_game"
+                            onSave(title.trim(), coverPath)
+                        },
                         enabled = canSave,
                         shape = CircleShape,
                         modifier = if (canSave) {
@@ -720,6 +740,7 @@ fun DeleteFileConfirmDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     event.key == Key.DirectionUp -> {
                         selectedIdx = (selectedIdx - 1 + options.size) % options.size
@@ -730,11 +751,11 @@ fun DeleteFileConfirmDialog(
                         true
                     }
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (isInitialPress) onDismiss()
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        options.getOrNull(selectedIdx)?.third?.invoke()
+                        if (isInitialPress) options.getOrNull(selectedIdx)?.third?.invoke()
                         true
                     }
                     else -> false
@@ -854,9 +875,10 @@ private fun ScrapeCoverDialog(
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val isInitialPress = event.nativeKeyEvent.repeatCount == 0
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                        onDismiss()
+                        if (isInitialPress) onDismiss()
                         true
                     }
                     event.key == Key.DirectionLeft && visibleCandidates.isNotEmpty() -> {
@@ -868,7 +890,7 @@ private fun ScrapeCoverDialog(
                         true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
-                        visibleCandidates.getOrNull(focusIdx)?.let { onPickUrl(it.url) }
+                        if (isInitialPress) visibleCandidates.getOrNull(focusIdx)?.let { onPickUrl(it.url) }
                         true
                     }
                     else -> false
