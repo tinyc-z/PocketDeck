@@ -150,6 +150,7 @@ internal object WebFileSecurity {
     private val ALLOWED_COVER_EXACT_HOSTS = setOf(
         "thumbnails.libretro.com",
         "cdn.jsdelivr.net",
+        "fastly.jsdelivr.net",
         "raw.githubusercontent.com",
         "art.gametdb.com",
         "images.igdb.com",

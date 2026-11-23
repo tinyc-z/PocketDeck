@@ -165,7 +165,7 @@ fun ScrapeLogsScreen(
                 ScrapeLogFilter.All -> true
                 ScrapeLogFilter.Cover -> "[COVER]" in line
                 ScrapeLogFilter.Meta -> "[META]" in line
-                ScrapeLogFilter.Error -> "error=" in line || "HTTP 4" in line || "HTTP 5" in line
+                ScrapeLogFilter.Error -> isScrapeLogErrorLine(line)
             }
             passFilter && (q.isEmpty() || q in line.lowercase())
         }
@@ -698,12 +698,22 @@ private fun ExportLogDirDialog(
 
 private val LOG_HEAD_TOKEN_REGEX = Regex("""\[[^\]]+\]""")
 private val LOG_HTTP_OK_REGEX = Regex("""^HTTP 2\d\d.*""")
+private val LOG_HTTP_404_REGEX = Regex("""^HTTP 404(?:\b.*)?$""")
 private val LOG_HTTP_ERR_REGEX = Regex("""^HTTP [45]\d\d.*""")
 private val LOG_MS_REGEX = Regex("""^\d+ms$""")
+
+/** 区分真正的刮削故障与正常的 404 未命中（如汉化改版 ROM 的哈希库未命中 / 无对应封面文件）。 */
+internal fun isScrapeLogErrorLine(line: String): Boolean {
+    if ("error=" in line) return true
+    if ("HTTP 5" in line) return true
+    if ("HTTP 4" in line && "HTTP 404" !in line) return true
+    return false
+}
 
 private fun formatTerminalLogLine(raw: String): AnnotatedString = buildAnnotatedString {
     val parts = raw.split(" | ")
     val head = parts.firstOrNull().orEmpty()
+    val hasExplicitError = parts.any { it.startsWith("error=") }
     var cursor = 0
     var bracketIdx = 0
     for (m in LOG_HEAD_TOKEN_REGEX.findAll(head)) {
@@ -733,6 +743,7 @@ private fun formatTerminalLogLine(raw: String): AnnotatedString = buildAnnotated
         val seg = parts[i]
         val style = when {
             LOG_HTTP_OK_REGEX.matches(seg) -> SpanStyle(color = Color(0xFF3FB950), fontWeight = FontWeight.Bold)
+            LOG_HTTP_404_REGEX.matches(seg) && !hasExplicitError -> SpanStyle(color = Color(0xFFD29922), fontWeight = FontWeight.SemiBold)
             LOG_HTTP_ERR_REGEX.matches(seg) || seg.startsWith("error=") -> SpanStyle(color = Color(0xFFF85149), fontWeight = FontWeight.Bold)
             LOG_MS_REGEX.matches(seg) -> SpanStyle(color = Color(0xFFD29922))
             seg.startsWith("url=") -> SpanStyle(color = Color(0xFFA5D6FF))

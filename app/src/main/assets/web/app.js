@@ -3236,9 +3236,11 @@ function formatTerminalLogLine(raw, idx) {
     .replace(/\[(META)\]/g, '<span style="color:#58a6ff;font-weight:700">[META]</span>')
     .replace(/\[(COVER)\]/g, '<span style="color:#d2a8ff;font-weight:700">[COVER]</span>')
     .replace(/\[([a-z0-9_.-]+)\]/gi, (m, g) => (g === 'META' || g === 'COVER') ? m : '<span style="color:#79c0ff">[' + g + ']</span>');
+  const hasExplicitErr = rest.some(seg => seg.startsWith('error='));
   const restHtml = rest.map(seg => {
     const e = esc(seg);
     if (/^HTTP 2\d\d/.test(seg)) return '<span style="color:#3fb950;font-weight:700">' + e + '</span>';
+    if (/^HTTP 404\b/.test(seg) && !hasExplicitErr) return '<span style="color:#d29922;font-weight:600">' + e + '</span>';
     if (/^HTTP [45]\d\d/.test(seg) || seg.startsWith('error=')) return '<span style="color:#f85149;font-weight:700">' + e + '</span>';
     if (/^\d+ms$/.test(seg)) return '<span style="color:#d29922">' + e + '</span>';
     if (seg.startsWith('url=')) return '<span style="color:#a5d6ff">' + e + '</span>';
@@ -3248,6 +3250,13 @@ function formatTerminalLogLine(raw, idx) {
   return '<div style="padding:2px 0;white-space:pre-wrap;word-break:break-all;">' + lineNo + headHtml + (restHtml ? '<span style="color:#30363d"> | </span>' + restHtml : '') + '</div>';
 }
 
+function isScrapeLogErrorLine(l) {
+  if (l.includes('error=')) return true;
+  if (l.includes('HTTP 5')) return true;
+  if (l.includes('HTTP 4') && !l.includes('HTTP 404')) return true;
+  return false;
+}
+
 function renderScrapeLogsBody() {
   const box = el('logViewerBox');
   if (!box) return;
@@ -3255,7 +3264,7 @@ function renderScrapeLogsBody() {
   const filtered = logLinesCache.filter(l => {
     if (logFilterKind === 'cover' && !l.includes('[COVER]')) return false;
     if (logFilterKind === 'meta' && !l.includes('[META]')) return false;
-    if (logFilterKind === 'err' && !(l.includes('error=') || l.includes('HTTP 4') || l.includes('HTTP 5'))) return false;
+    if (logFilterKind === 'err' && !isScrapeLogErrorLine(l)) return false;
     return !q || l.toLowerCase().includes(q);
   });
   const cntEl = el('logCountTxt');

@@ -234,6 +234,10 @@ data class UserData(
     /** 实验性功能：掌机快捷 HUD 浮层开关（默认关闭）。 */
     val quickHudEnabled: Boolean = false,
     val searchAllCategories: Boolean = true,
+    /** 上次停留的首页分类标签 ID（冷启恢复用）。 */
+    val lastSelectedTabId: String = "",
+    /** 上次聚焦的首页游戏 ID（冷启恢复用）。 */
+    val lastSelectedGameId: String = "",
 )
 
 /** 用户数据（收藏、最近、改名、偏好设置）。轻量级 AtomicFile JSON 单文件，读写均在 IO 线程。 */
@@ -300,6 +304,8 @@ class UserStore(context: Context) {
         val playStats = stringPrefsKey("play_stats")
         val quickHudEnabled = booleanPrefsKey("quick_hud_enabled")
         val searchAllCategories = booleanPrefsKey("search_all_categories")
+        val lastSelectedTabId = stringPrefsKey("last_selected_tab_id")
+        val lastSelectedGameId = stringPrefsKey("last_selected_game_id")
     }
 
     private companion object {
@@ -547,6 +553,8 @@ class UserStore(context: Context) {
             playStats = PlayStatsCodec.decodePlayStats(this[K.playStats]),
             quickHudEnabled = this[K.quickHudEnabled] ?: false,
             searchAllCategories = this[K.searchAllCategories] ?: true,
+            lastSelectedTabId = this[K.lastSelectedTabId].orEmpty(),
+            lastSelectedGameId = this[K.lastSelectedGameId].orEmpty(),
         )
     }
 
@@ -597,6 +605,14 @@ class UserStore(context: Context) {
         p[K.hidden] = p[K.hidden].orEmpty() - id
     }
 
+    /** 持久化上次停留的首页分类标签与聚焦游戏（值无变化时 LocalPrefsStore 自动跳过写盘）。 */
+    suspend fun saveLastSelection(tabId: String, gameId: String) = store.edit { p ->
+        val cleanTab = tabId.trim()
+        val cleanGame = gameId.trim()
+        if (cleanTab.isEmpty()) p.remove(K.lastSelectedTabId) else p[K.lastSelectedTabId] = cleanTab
+        if (cleanGame.isEmpty()) p.remove(K.lastSelectedGameId) else p[K.lastSelectedGameId] = cleanGame
+    }
+
     /** ROM 文件重命名/移动后，把用户数据中关联的旧路径迁移到新路径。 */
     suspend fun migrateGameId(oldId: String, newId: String) {
         if (oldId == newId) return
@@ -644,6 +660,7 @@ class UserStore(context: Context) {
             gameLaunchers = launchers,
             playStats = stats,
             categories = cats,
+            lastSelectedGameId = if (u.lastSelectedGameId == oldId) newId else u.lastSelectedGameId,
         )
     }
 
@@ -658,6 +675,7 @@ class UserStore(context: Context) {
         categories = u.categories.map { c ->
             if (id in c.games) c.copy(games = c.games - id) else c
         },
+        lastSelectedGameId = if (u.lastSelectedGameId == id) "" else u.lastSelectedGameId,
     )
 
     internal fun applyMigratePathPrefix(u: UserData, oldDir: String, newDir: String): UserData {
@@ -679,6 +697,7 @@ class UserStore(context: Context) {
                     c.copy(games = c.games.map(::remap).toSet())
                 } else c
             },
+            lastSelectedGameId = remap(u.lastSelectedGameId),
         )
     }
 
@@ -697,6 +716,7 @@ class UserStore(context: Context) {
                     c.copy(games = c.games.filterNot { it.startsWith(prefix) }.toSet())
                 } else c
             },
+            lastSelectedGameId = if (u.lastSelectedGameId.startsWith(prefix)) "" else u.lastSelectedGameId,
         )
     }
 
@@ -761,6 +781,8 @@ class UserStore(context: Context) {
         p[K.playStats] = PlayStatsCodec.encodePlayStats(new.playStats)
         p[K.quickHudEnabled] = new.quickHudEnabled
         p[K.searchAllCategories] = new.searchAllCategories
+        if (new.lastSelectedTabId.isBlank()) p.remove(K.lastSelectedTabId) else p[K.lastSelectedTabId] = new.lastSelectedTabId
+        if (new.lastSelectedGameId.isBlank()) p.remove(K.lastSelectedGameId) else p[K.lastSelectedGameId] = new.lastSelectedGameId
     }
 
     object PlayStatsCodec {

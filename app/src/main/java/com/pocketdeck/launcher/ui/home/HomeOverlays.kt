@@ -565,29 +565,42 @@ internal fun HomeOverlays(
         )
     }
 
-    // 后台刮削任务管理弹窗（置于最顶层，从桌面状态栏或设置页头部点击旋转进度徽章均可直达）
+    // 后台刮削任务管理弹窗（置于最顶层，从桌面状态栏或设置页均可直达）
     if (state.showScrapeTaskDialog) {
         val dialogScrapeProgress by vm.scrapeProgress.collectAsState()
-        com.pocketdeck.launcher.ui.components.ScrapeTaskDialog(
-            progress = dialogScrapeProgress,
-            swapAbxy = state.swapAbxy,
-            keyBindings = state.keyBindings,
-            onCancel = {
-                vm.cancelScrapeMissing()
-                Toast.makeText(context, context.getString(R.string.scraping_missing_stopped_toast), Toast.LENGTH_SHORT).show()
-            },
-            onRestart = {
-                scope.launch {
-                    val queued = vm.scrapeMissingAll()
-                    val msg = if (queued > 0) {
-                        context.getString(R.string.scraping_missing_started_toast, queued)
-                    } else {
-                        context.getString(R.string.scraping_missing_none_toast)
+        var missingSummary by remember { mutableStateOf<com.pocketdeck.launcher.data.ScrapeMissingSummary?>(null) }
+        var showScrapeLogsFromTask by remember { mutableStateOf(false) }
+        LaunchedEffect(dialogScrapeProgress.running, dialogScrapeProgress.finishedAtMs) {
+            if (!dialogScrapeProgress.running) {
+                missingSummary = vm.inspectMissingScrape()
+            }
+        }
+        if (showScrapeLogsFromTask) {
+            com.pocketdeck.launcher.ui.settings.ScrapeLogsScreen(
+                onBack = { showScrapeLogsFromTask = false },
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
+            )
+        } else {
+            com.pocketdeck.launcher.ui.components.ScrapeTaskDialog(
+                progress = dialogScrapeProgress,
+                missingSummary = missingSummary,
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
+                onCancel = {
+                    vm.cancelScrapeMissing()
+                },
+                onRestart = {
+                    scope.launch {
+                        val queued = vm.scrapeMissingAll()
+                        if (queued <= 0) {
+                            Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
+                        }
                     }
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                }
-            },
-            onDismiss = { vm.closeScrapeTaskDialog() },
-        )
+                },
+                onViewLogs = { showScrapeLogsFromTask = true },
+                onDismiss = { vm.closeScrapeTaskDialog() },
+            )
+        }
     }
 }

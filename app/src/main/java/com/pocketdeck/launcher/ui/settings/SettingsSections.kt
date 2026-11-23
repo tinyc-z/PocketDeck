@@ -656,6 +656,7 @@ internal fun CoversSettingsSection(
             highlighted = highlightIndex == actionsStart,
             onClick = onScrapeMissing,
             leading = { DeckIcon(DeckIcons.Refresh, size = 16.dp, tint = DeckColors.Ruby) },
+            trailing = { ValueChevron(null) },
         )
         RowDivider()
         SettingRow(

@@ -791,20 +791,7 @@ fun SettingsScreen(
                         desc.credentialKind?.let { k -> items += ActionItem(accountAddLabel) { credDialogKind = k } }
                         menu = ActionMenuState(metaNames[cfg.id] ?: desc.id, items)
                     }
-                    idx == actionsStart -> {
-                        if (state.scrapeProgress.running) {
-                            manage.openScrapeTask()
-                        } else {
-                            scope.launch {
-                                val queued = manage.scrapeMissing()
-                                if (queued > 0) {
-                                    manage.openScrapeTask()
-                                } else {
-                                    Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                    }
+                    idx == actionsStart -> manage.openScrapeTask()
                     idx == actionsStart + 1 -> clearScrapeCacheWithFeedback()
                     else -> showScrapeLogs = true
                 }
@@ -1274,20 +1261,7 @@ fun SettingsScreen(
                                             onMoveMeta = manage.moveMetadataSource,
                                             onOpenCred = { credDialogKind = it },
                                             onRowClick = { idx -> nav.focusOnMenu = false; nav.contentItemIndex = idx; triggerItem(SettingsSection.Covers, idx) },
-                                            onScrapeMissing = {
-                                                if (state.scrapeProgress.running) {
-                                                    manage.openScrapeTask()
-                                                } else {
-                                                    scope.launch {
-                                                        val queued = manage.scrapeMissing()
-                                                        if (queued > 0) {
-                                                            manage.openScrapeTask()
-                                                        } else {
-                                                            Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    }
-                                                }
-                                            },
+                                            onScrapeMissing = manage.openScrapeTask,
                                             onClearCoverCache = ::clearScrapeCacheWithFeedback,
                                             onViewLogs = { showScrapeLogs = true },
                                             scrapeProgress = state.scrapeProgress,

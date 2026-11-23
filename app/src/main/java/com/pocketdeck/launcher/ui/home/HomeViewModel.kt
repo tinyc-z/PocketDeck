@@ -190,7 +190,16 @@ class HomeViewModel(
 
     private val _focusPerTab = ConcurrentHashMap<String, Int>()
     private val _focusGameIdPerTab = ConcurrentHashMap<String, String>()
+    @Volatile
     private var initialTabPicked = false
+    @Volatile
+    private var initialGameRestored = false
+    @Volatile
+    private var userInteractedSelection = false
+    private val selectionPersistLock = Any()
+    private var persistSelectionJob: Job? = null
+    private var pendingPersistSelection: Pair<String, String>? = null
+    private var lastPersistedSelection: Pair<String, String>? = null
     private var focusResolveJob: Job? = null
     private var recomputeJob: Job? = null
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -255,6 +264,8 @@ class HomeViewModel(
             var lastLib: Library? = null
             var lastUser: UserData? = null
             var lastScanning: Boolean? = null
+            var lastMetaMap: Map<String, GameMetadata>? = null
+            var lastOfficialNames: Map<String, String>? = null
             combine(
                 combine(repo.library, repo.user, repo.scanning) { lib, user, scanning ->
                     Triple(lib, user, scanning)
@@ -276,6 +287,26 @@ class HomeViewModel(
             }.collect { data ->
                 val u = data.user
                 val curLib = data.lib
+                if (u != null) {
+                    synchronized(selectionPersistLock) {
+                        if (lastPersistedSelection == null) {
+                            lastPersistedSelection = u.lastSelectedTabId to u.lastSelectedGameId
+                        }
+                    }
+                }
+                val prevUser = lastUser
+                val onlyLastSelectionChanged = prevUser != null && u != null &&
+                    curLib === lastLib &&
+                    data.scanning == lastScanning &&
+                    data.metaMap === lastMetaMap &&
+                    data.officialNames === lastOfficialNames &&
+                    u !== prevUser &&
+                    u.copy(lastSelectedTabId = "", lastSelectedGameId = "") ==
+                    prevUser.copy(lastSelectedTabId = "", lastSelectedGameId = "")
+                if (onlyLastSelectionChanged) {
+                    lastUser = u
+                    return@collect
+                }
                 if (curLib != null && curLib !== lastLib && curLib.localMetadata.isNotEmpty()) {
                     metadataRepo.seedLocalMetadata(curLib.localMetadata)
                 }
@@ -297,6 +328,8 @@ class HomeViewModel(
                     val sortsByRelease = activeSort == CategorySortOrder.ReleaseNewest ||
                         activeSort == CategorySortOrder.ReleaseOldest
                     if (onlyMetaChanged && !sortsByRelease) {
+                        lastMetaMap = data.metaMap
+                        lastOfficialNames = data.officialNames
                         _state.update { latest ->
                             latest.copy(
                                 metadataMap = data.metaMap,
@@ -307,6 +340,8 @@ class HomeViewModel(
                         lastLib = data.lib
                         lastUser = u
                         lastScanning = data.scanning
+                        lastMetaMap = data.metaMap
+                        lastOfficialNames = data.officialNames
                         updateState(
                             data.lib,
                             u,
@@ -319,6 +354,8 @@ class HomeViewModel(
                     lastLib = null
                     lastUser = u
                     lastScanning = data.scanning
+                    lastMetaMap = data.metaMap
+                    lastOfficialNames = data.officialNames
                     _state.update { latest ->
                         latest.copy(
                             scanning = data.scanning,
@@ -392,14 +429,23 @@ class HomeViewModel(
         } else {
             current.selectedTab.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
         }
-        if (!initialTabPicked && tabs.isNotEmpty() && (!scanning || lib.byId.isNotEmpty())) {
-            val nonEmpty = tabs.indexOfFirst { getGamesForTab(it, lib, user, metaMap).isNotEmpty() }
-            if (nonEmpty >= 0 || !scanning) {
+        if (!initialTabPicked && !userInteractedSelection && tabs.isNotEmpty()) {
+            val decision = HomeLibraryReducer.resolveInitialTabSelection(
+                tabs = tabs,
+                currentTabIndex = tabIdx,
+                savedTabId = user.lastSelectedTabId,
+                scanning = scanning,
+                hasAnyGamesInLibrary = lib.byId.isNotEmpty(),
+                tabHasGames = { getGamesForTab(it, lib, user, metaMap).isNotEmpty() },
+            )
+            tabIdx = decision.tabIndex
+            if (decision.finalized) {
                 initialTabPicked = true
-                // 首次打开如果当前默认标签（NOW / FAVS）为空，自动跳到第一个有游戏的标签
-                if (getGamesForTab(tabs[tabIdx], lib, user, metaMap).isEmpty() && nonEmpty >= 0) {
-                    tabIdx = nonEmpty
-                }
+            }
+            if (decision.matchedSavedTab && user.lastSelectedGameId.isNotBlank() && !initialGameRestored) {
+                _focusGameIdPerTab[tabs[tabIdx].id] = user.lastSelectedGameId
+            } else if (decision.finalized && !decision.matchedSavedTab) {
+                initialGameRestored = true
             }
         }
         val tab = tabs.getOrNull(tabIdx)
@@ -424,13 +470,32 @@ class HomeViewModel(
             val savedGameId = _focusGameIdPerTab[tabId]
             val byIdIdx = if (savedGameId != null) filteredGames.indexOfFirst { it.id == savedGameId } else -1
             if (byIdIdx >= 0) {
+                _focusPerTab[tabId] = byIdIdx
+                if (!initialGameRestored && tabId == user.lastSelectedTabId && savedGameId == user.lastSelectedGameId) {
+                    initialGameRestored = true
+                }
                 byIdIdx
             } else {
+                if (!scanning && initialTabPicked && !initialGameRestored) {
+                    initialGameRestored = true
+                    if (savedGameId == user.lastSelectedGameId) {
+                        _focusGameIdPerTab.remove(tabId)
+                    }
+                }
                 _focusPerTab.getOrDefault(tabId, _focusIndex.value)
                     .coerceIn(0, (filteredGames.size - 1).coerceAtLeast(0))
             }
         }
         _focusIndex.value = focusIdx
+        if (!current.searching && tab != null && initialTabPicked && (initialGameRestored || userInteractedSelection)) {
+            val focusedGameId = filteredGames.getOrNull(focusIdx)?.id.orEmpty()
+            if (focusedGameId.isNotEmpty()) {
+                _focusGameIdPerTab[tab.id] = focusedGameId
+            }
+            if (userInteractedSelection || !scanning) {
+                schedulePersistSelection(tab.id, focusedGameId, delayMs = 200L)
+            }
+        }
         val platformsById = lib.platforms.associateBy { it.id }
         val platform = tab?.let { lib.platform(it.id) }
 
@@ -628,8 +693,15 @@ class HomeViewModel(
         val current = _state.value
         if (current.tabs.isEmpty()) return
         val clamped = index.coerceIn(0, current.tabs.lastIndex)
-        current.tabs.getOrNull(current.selectedTab)?.let {
-            _focusPerTab[it.id] = _focusIndex.value
+        userInteractedSelection = true
+        initialTabPicked = true
+        initialGameRestored = true
+        current.tabs.getOrNull(current.selectedTab)?.let { oldTab ->
+            val curFocus = _focusIndex.value
+            _focusPerTab[oldTab.id] = curFocus
+            if (!current.searching) {
+                current.games.getOrNull(curFocus)?.let { g -> _focusGameIdPerTab[oldTab.id] = g.id }
+            }
         }
         val nextState = current.copy(selectedTab = clamped)
         _state.update { it.copy(selectedTab = clamped) }
@@ -651,9 +723,16 @@ class HomeViewModel(
         val newIdx = index.coerceIn(0, (s.games.size - 1).coerceAtLeast(0))
         if (newIdx == _focusIndex.value) return
         if (!s.searching) {
+            userInteractedSelection = true
+            initialTabPicked = true
+            initialGameRestored = true
             s.tabs.getOrNull(s.selectedTab)?.let { tab ->
                 _focusPerTab[tab.id] = newIdx
-                s.games.getOrNull(newIdx)?.let { _focusGameIdPerTab[tab.id] = it.id }
+                val focusedGame = s.games.getOrNull(newIdx)
+                if (focusedGame != null) {
+                    _focusGameIdPerTab[tab.id] = focusedGame.id
+                    schedulePersistSelection(tab.id, focusedGame.id, delayMs = 350L)
+                }
             }
         }
         // 只更新独立 focusIndex 流，不拷贝 HomeUiState，避免主界面 1200 行全树重组
@@ -893,7 +972,43 @@ class HomeViewModel(
     fun addRecent(id: String) {
         activeSessionGameId = id
         activeSessionStartElapsedMs = android.os.SystemClock.elapsedRealtime()
+        flushPendingSelection()
         viewModelScope.launch { repo.addRecent(id) }
+    }
+
+    /** 防抖记录上次停留的分类与游戏，快滚期间不刷盘，停稳后原子落盘。 */
+    private fun schedulePersistSelection(tabId: String, gameId: String, delayMs: Long) {
+        if (tabId.isBlank()) return
+        val target = tabId to gameId
+        synchronized(selectionPersistLock) {
+            if (target == lastPersistedSelection && pendingPersistSelection == null) return
+            if (target == pendingPersistSelection && persistSelectionJob?.isActive == true) return
+            pendingPersistSelection = target
+            persistSelectionJob?.cancel()
+            persistSelectionJob = viewModelScope.launch {
+                if (delayMs > 0L) delay(delayMs)
+                flushPendingSelection()
+            }
+        }
+    }
+
+    /** 应用退后台、启动游戏或 ViewModel 销毁时立即落盘最后一次选择，避免强杀丢失。 */
+    fun flushPendingSelection() {
+        val toWrite: Pair<String, String> = synchronized(selectionPersistLock) {
+            persistSelectionJob?.cancel()
+            persistSelectionJob = null
+            val pending = pendingPersistSelection ?: return
+            pendingPersistSelection = null
+            if (pending == lastPersistedSelection) return
+            lastPersistedSelection = pending
+            pending
+        }
+        repo.saveLastSelectionAsync(toWrite.first, toWrite.second)
+    }
+
+    override fun onCleared() {
+        flushPendingSelection()
+        super.onCleared()
     }
 
     /** 回到 PocketDeck 时结算本次游玩时长（过滤 < 5 秒误触与 > 8 小时超长挂机）。 */
@@ -1307,6 +1422,12 @@ class HomeViewModel(
 
     fun closeScrapeTaskDialog() {
         _state.update { it.copy(showScrapeTaskDialog = false) }
+    }
+
+    suspend fun inspectMissingScrape(): com.pocketdeck.launcher.data.ScrapeMissingSummary {
+        val lib = repo.library.value ?: return com.pocketdeck.launcher.data.ScrapeMissingSummary()
+        val allGames = lib.platforms.flatMap { lib.games[it.id].orEmpty() }
+        return metadataRepo.inspectMissing(allGames, covers)
     }
 
     suspend fun scrapeMissingAll(): Int {

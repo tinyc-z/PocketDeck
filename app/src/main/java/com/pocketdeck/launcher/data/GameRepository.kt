@@ -495,6 +495,11 @@ class GameRepository(
     suspend fun unhide(id: String) = userStore.unhide(id)
     suspend fun updatePrefs(transform: (UserData) -> UserData) = userStore.update(transform)
 
+    /** 持久化上次选择的首页分类与游戏（运行在应用级 scope，不受页面销毁/ViewModel 清理取消影响）。 */
+    fun saveLastSelectionAsync(tabId: String, gameId: String) {
+        scope.launch { userStore.saveLastSelection(tabId, gameId) }
+    }
+
     /** 磁盘重命名文件或文件夹（支持改扩展名），同时迁移关联游戏数据并重新扫描。 */
     suspend fun renameFile(file: File, newName: String): Result<File> = withContext(Dispatchers.IO) {
         runCatching {

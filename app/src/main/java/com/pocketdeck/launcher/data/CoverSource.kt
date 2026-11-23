@@ -12,6 +12,7 @@ import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.lan.WebFileSecurity
 import com.pocketdeck.launcher.launch.GameLauncher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -177,9 +178,15 @@ class CoverSource(
             },
         )
 
-    /** Libretro 活跃镜像索引：1 = jsDelivr CDN（默认），2 = GitHub Raw，0 = thumbnails.libretro.com（仅兜底）。 */
+    /** Libretro 活跃镜像索引：1 = cdn.jsdelivr.net（默认），0 = fastly.jsdelivr.net（Fastly 边缘兜底），2 = GitHub Raw。 */
     @Volatile
-    private var activeLibretroMirror: Int = 1
+    private var activeLibretroMirror: Int = MIRROR_JSDELIVR_CDN
+
+    private fun pickHealthyLibretroMirror(): Int =
+        pickHealthyLibretroMirror(activeLibretroMirror, client.hostCircuitBreaker)
+
+    private fun areAllLibretroMirrorsTripped(): Boolean =
+        LIBRETRO_MIRROR_ORDER.all { client.hostCircuitBreaker.isCurrentlyOpen(mirrorHostFor(it)) }
 
     @Volatile
     private var nodeConfigs: List<SourceItemConfig> = ScraperCatalog.defaultCoverConfigs()
@@ -786,18 +793,14 @@ class CoverSource(
         val index = systemIndexes[system] ?: return emptyList()
         val queries = TitleNormalizer.buildQueryVariants(keyword, keyword, null)
         val matches = index.findManualMatches(queries, limit = 12)
-        val primary = activeLibretroMirror
-        val fb1 = (primary + 1) % 3
-        val fb2 = (primary + 2) % 3
+        val primary = pickHealthyLibretroMirror()
+        val fallbacks = orderedLibretroFallbacks(primary, client.hostCircuitBreaker)
         return matches.map { fileName ->
             val cleanName = if (fileName.endsWith(".png", true)) fileName.dropLast(4) else fileName
             IndexCoverMatch(
                 title = cleanName,
                 url = buildLibretroBoxartUrl(system, fileName, primary),
-                fallbackUrls = listOf(
-                    buildLibretroBoxartUrl(system, fileName, fb1),
-                    buildLibretroBoxartUrl(system, fileName, fb2),
-                ),
+                fallbackUrls = fallbacks.map { fb -> buildLibretroBoxartUrl(system, fileName, fb) },
             )
         }
     }
@@ -935,7 +938,7 @@ class CoverSource(
         } ?: return false
         val queries = TitleNormalizer.buildQueryVariants(canonicalName, canonicalName, null)
         val match = index.findMatchesWithMode(queries).firstOrNull() ?: return false
-        val mirror = if (activeLibretroMirror == 2) 2 else 1
+        val mirror = pickHealthyLibretroMirror()
         val url = buildLibretroBoxartUrl(system, match.first, mirror)
         resolvedUrls[game.id] = url
         resolvedOrigins[game.id] = ScraperCatalog.CoverIds.LIBRETRO_BOXARTS to match.second
@@ -1276,18 +1279,20 @@ class CoverSource(
         for (node in enabled) {
             when (node.id) {
                 ScraperCatalog.CoverIds.LIBRETRO_BOXARTS -> if (online && system != null) {
-                    val primary = if (activeLibretroMirror == 2) 2 else 1
-                    val fallback = if (primary == 1) 2 else 1
+                    val primary = pickHealthyLibretroMirror()
+                    val fallbacks = orderedLibretroFallbacks(primary, client.hostCircuitBreaker)
                     indexMatches.forEach { (fileName, mode) ->
                         addUrl(buildLibretroBoxartUrl(system, fileName, primary), node.id, mode)
                     }
-                    // 主镜像宕机或 404 时，为最匹配候选自动追加备用镜像（jsDelivr <-> GitHub Raw）
-                    indexMatches.take(2).forEach { (fileName, mode) ->
-                        addUrl(buildLibretroBoxartUrl(system, fileName, fallback), node.id, mode)
+                    // 主镜像宕机或被拦截时，为最匹配候选自动追加健康备用镜像（cdn / fastly / GitHub Raw）
+                    for (fb in fallbacks) {
+                        indexMatches.take(2).forEach { (fileName, mode) ->
+                            addUrl(buildLibretroBoxartUrl(system, fileName, fb), node.id, mode)
+                        }
                     }
                 }
                 ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (online && system != null) {
-                    val mirror = activeLibretroMirror
+                    val mirror = pickHealthyLibretroMirror()
                     indexMatches.take(2).forEach { (fileName, mode) ->
                         addUrl(buildLibretroThumbUrl(system, "Named_Titles", fileName, mirror), node.id, mode)
                         addUrl(buildLibretroThumbUrl(system, "Named_Snaps", fileName, mirror), node.id, mode)
@@ -1384,7 +1389,7 @@ class CoverSource(
         for (node in enabled) {
             when (node.id) {
                 ScraperCatalog.CoverIds.LIBRETRO_BOXARTS -> if (system != null) {
-                    val mirror = activeLibretroMirror
+                    val mirror = pickHealthyLibretroMirror()
                     indexMatches.take(6).forEach {
                         push(buildLibretroBoxartUrl(system, it, mirror), node.id)
                     }
@@ -1395,7 +1400,7 @@ class CoverSource(
                     }
                 }
                 ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (system != null) {
-                    val mirror = activeLibretroMirror
+                    val mirror = pickHealthyLibretroMirror()
                     indexMatches.take(2).forEach {
                         push(buildLibretroThumbUrl(system, "Named_Titles", it, mirror), node.id)
                         push(buildLibretroThumbUrl(system, "Named_Snaps", it, mirror), node.id)
@@ -1409,7 +1414,7 @@ class CoverSource(
         client.cachedHitInMemory(ScraperCatalog.MetaIds.WIKIDATA, game.id)?.coverUrls?.forEach {
             push(it, ScraperCatalog.MetaIds.WIKIDATA)
         }
-        // 并行验证候选图片 URL 确实可访问；Libretro 主镜像失败时自动尝试其余两个镜像兜底
+        // 并行验证候选图片 URL 确实可访问；Libretro 主镜像故障时自动尝试健康备用镜像兜底
         out.map { item ->
             async(Dispatchers.IO) {
                 val workingUrl = resolveReachableUrl(item.url)
@@ -1418,37 +1423,38 @@ class CoverSource(
         }.awaitAll().filterNotNull().distinctBy { it.url }
     }
 
+    private enum class HeadProbeStatus {
+        EXISTS,
+        NOT_FOUND,
+        FAILED,
+    }
+
     private fun resolveReachableUrl(urlStr: String): String? {
-        if (urlExists(urlStr)) return urlStr
+        when (probeUrlExists(urlStr)) {
+            HeadProbeStatus.EXISTS -> return urlStr
+            HeadProbeStatus.NOT_FOUND -> if (!isLegacyLibretroThumbnailsUrl(urlStr)) return null
+            HeadProbeStatus.FAILED -> Unit
+        }
         val altUrls = libretroAlternativeMirrors(urlStr)
         for ((mirrorIdx, alt) in altUrls) {
-            if (urlExists(alt)) {
-                activeLibretroMirror = mirrorIdx
-                return alt
+            when (probeUrlExists(alt)) {
+                HeadProbeStatus.EXISTS -> {
+                    activeLibretroMirror = mirrorIdx
+                    return alt
+                }
+                HeadProbeStatus.NOT_FOUND -> return null
+                HeadProbeStatus.FAILED -> Unit
             }
         }
         return null
     }
 
-    /** 若 [urlStr] 是 Libretro 任一镜像图片链接，返回其余两个镜像的等价链接列表 `(mirrorIdx, url)`。 */
-    private fun libretroAlternativeMirrors(urlStr: String): List<Pair<Int, String>> {
-        val m0 = Regex("""^https://thumbnails\.libretro\.com/([^/]+)/(Named_[^/]+)/(.+)$""").matchEntire(urlStr)
-        val m1 = Regex("""^https://cdn\.jsdelivr\.net/gh/libretro-thumbnails/([^/@]+)@master/(Named_[^/]+)/(.+)$""").matchEntire(urlStr)
-        val m2 = Regex("""^https://raw\.githubusercontent\.com/libretro-thumbnails/([^/]+)/master/(Named_[^/]+)/(.+)$""").matchEntire(urlStr)
-        val (curMirror, rawSys, kind, encodedFile) = when {
-            m0 != null -> listOf("0", URLDecoder.decode(m0.groupValues[1], "UTF-8"), m0.groupValues[2], m0.groupValues[3])
-            m1 != null -> listOf("1", URLDecoder.decode(m1.groupValues[1], "UTF-8").replace('_', ' '), m1.groupValues[2], m1.groupValues[3])
-            m2 != null -> listOf("2", URLDecoder.decode(m2.groupValues[1], "UTF-8").replace('_', ' '), m2.groupValues[2], m2.groupValues[3])
-            else -> return emptyList()
-        }
-        val fileName = runCatching { URLDecoder.decode(encodedFile.replace("+", "%2B"), "UTF-8") }.getOrDefault(encodedFile)
-        val cur = curMirror.toInt()
-        return listOf((cur + 1) % 3, (cur + 2) % 3).map { idx ->
-            idx to buildLibretroThumbUrl(rawSys, kind, fileName, idx)
-        }
-    }
+    /** 若 [urlStr] 是 Libretro 任一镜像图片链接，返回其余健康可用镜像的等价链接列表 `(mirrorIdx, url)`。 */
+    private fun libretroAlternativeMirrors(urlStr: String): List<Pair<Int, String>> =
+        libretroAlternativeMirrorsFor(urlStr, client.hostCircuitBreaker)
 
-    private fun urlExists(urlStr: String): Boolean {
+    private fun probeUrlExists(urlStr: String): HeadProbeStatus {
+        if (client.hostCircuitBreaker.shouldSkipUrl(urlStr)) return HeadProbeStatus.FAILED
         val t0 = System.currentTimeMillis()
         var code: Int? = null
         return try {
@@ -1459,6 +1465,7 @@ class CoverSource(
                 .build()
             client.http.newCall(req).execute().use { resp ->
                 code = resp.code
+                client.hostCircuitBreaker.recordSuccessForUrl(urlStr)
                 val ct = resp.header("Content-Type").orEmpty().lowercase()
                 val ok = resp.isSuccessful && (ct.isEmpty() || ct.startsWith("image/") || ct == "application/octet-stream")
                 ScrapeLogStore.log(
@@ -1470,9 +1477,17 @@ class CoverSource(
                     elapsedMs = System.currentTimeMillis() - t0,
                     result = if (ok) "hit ($ct)" else "miss ($ct)",
                 )
-                ok
+                when {
+                    ok -> HeadProbeStatus.EXISTS
+                    code == 404 -> HeadProbeStatus.NOT_FOUND
+                    else -> HeadProbeStatus.FAILED
+                }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
+            val tripped = if (t is IOException) client.hostCircuitBreaker.recordTransportFailureForUrl(urlStr) else false
+            val suffix = if (tripped) " [circuit open ${client.hostCircuitBreaker.cooldownSeconds()}s]" else ""
             ScrapeLogStore.log(
                 "COVER",
                 ScrapeLogStore.nodeFromUrl(urlStr),
@@ -1480,9 +1495,9 @@ class CoverSource(
                 url = urlStr,
                 status = code,
                 elapsedMs = System.currentTimeMillis() - t0,
-                error = "${t.javaClass.simpleName}: ${t.message}",
+                error = "${t.javaClass.simpleName}: ${t.message}$suffix",
             )
-            false
+            HeadProbeStatus.FAILED
         }
     }
 
@@ -1522,12 +1537,12 @@ class CoverSource(
             scheduleCoverInfoPut(key, CoverResolutionInfo(origin.first, origin.second, modelStr))
         }
         val httpUrl = (model as? String)?.takeIf { it.startsWith("http") }
-        // 若 Libretro 备用镜像成功出图，自动将全局活跃镜像切至该可用镜像，减少后续卡片 404 等待
+        // 若 Libretro 备用镜像成功出图，自动将全局活跃镜像切至该可用镜像，减少后续卡片等待
         if (httpUrl != null) {
             val hitMirror = when {
-                "cdn.jsdelivr.net/gh/libretro-thumbnails/" in httpUrl -> 1
-                "raw.githubusercontent.com/libretro-thumbnails/" in httpUrl -> 2
-                "thumbnails.libretro.com/" in httpUrl -> 0
+                "cdn.jsdelivr.net/gh/libretro-thumbnails/" in httpUrl -> MIRROR_JSDELIVR_CDN
+                "fastly.jsdelivr.net/gh/libretro-thumbnails/" in httpUrl -> MIRROR_JSDELIVR_FASTLY
+                "raw.githubusercontent.com/libretro-thumbnails/" in httpUrl -> MIRROR_GITHUB_RAW
                 else -> -1
             }
             if (hitMirror >= 0 && hitMirror != activeLibretroMirror) {
@@ -1958,17 +1973,25 @@ class CoverSource(
             readCoilDiskCache(url)?.takeIf { it.size >= 32 }?.let { cachedBytes ->
                 return persistWebBytes(url, cachedBytes)
             }
-            downloadImageBytes(url)?.let { downloaded ->
+            val attempt = downloadImageBytesDetailed(url)
+            attempt.data?.let { downloaded ->
                 return persistWebBytes(url, downloaded.second)
+            }
+            if (!shouldFailoverLibretro(url, attempt.statusCode, attempt.transportError)) {
+                return false
             }
             for ((mirrorIdx, altUrl) in libretroAlternativeMirrors(url)) {
                 readCoilDiskCache(altUrl)?.takeIf { it.size >= 32 }?.let { cachedBytes ->
                     activeLibretroMirror = mirrorIdx
                     return persistWebBytes(altUrl, cachedBytes)
                 }
-                downloadImageBytes(altUrl)?.let { downloaded ->
+                val altAttempt = downloadImageBytesDetailed(altUrl)
+                altAttempt.data?.let { downloaded ->
                     activeLibretroMirror = mirrorIdx
                     return persistWebBytes(altUrl, downloaded.second)
+                }
+                if (altAttempt.statusCode == 404) {
+                    return false
                 }
             }
             return false
@@ -1982,7 +2005,7 @@ class CoverSource(
         for (node in enabled) {
             when (node.id) {
                 ScraperCatalog.CoverIds.LIBRETRO_BOXARTS -> if (system != null) {
-                    val mirror = activeLibretroMirror
+                    val mirror = pickHealthyLibretroMirror()
                     val urls = buildList {
                         indexMatches.take(3).forEach { add(buildLibretroBoxartUrl(system, it, mirror)) }
                         if (indexMatches.isEmpty()) {
@@ -1991,15 +2014,18 @@ class CoverSource(
                     }
                     for (u in urls) {
                         if (tried.add(u) && tryDownloadAndSave(u)) return@withContext true
+                        if (areAllLibretroMirrorsTripped()) break
                     }
                 }
-                ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (system != null) {
-                    val mirror = activeLibretroMirror
+                ScraperCatalog.CoverIds.LIBRETRO_SNAPS -> if (system != null && !areAllLibretroMirrorsTripped()) {
+                    val mirror = pickHealthyLibretroMirror()
                     for (fn in indexMatches.take(2)) {
                         for (kind in listOf("Named_Titles", "Named_Snaps")) {
                             val u = buildLibretroThumbUrl(system, kind, fn, mirror)
                             if (tried.add(u) && tryDownloadAndSave(u)) return@withContext true
+                            if (areAllLibretroMirrorsTripped()) break
                         }
+                        if (areAllLibretroMirrorsTripped()) break
                     }
                 }
                 else -> if (node.id in API_COVER_NODES) {
@@ -2053,12 +2079,26 @@ class CoverSource(
         return out
     }
 
+    private data class DownloadAttempt(
+        val data: Pair<String, ByteArray>?,
+        val statusCode: Int? = null,
+        val transportError: Boolean = false,
+    )
+
     suspend fun downloadImageBytes(
         urlStr: String,
         strictPublicCoverHost: Boolean = false,
-    ): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
+    ): Pair<String, ByteArray>? = downloadImageBytesDetailed(urlStr, strictPublicCoverHost).data
+
+    private suspend fun downloadImageBytesDetailed(
+        urlStr: String,
+        strictPublicCoverHost: Boolean = false,
+    ): DownloadAttempt = withContext(Dispatchers.IO) {
         if (strictPublicCoverHost && !WebFileSecurity.isAllowedCoverSourceUrl(urlStr)) {
-            return@withContext null
+            return@withContext DownloadAttempt(null)
+        }
+        if (client.hostCircuitBreaker.shouldSkipUrl(urlStr)) {
+            return@withContext DownloadAttempt(null, transportError = true)
         }
         val t0 = System.currentTimeMillis()
         var code: Int? = null
@@ -2070,24 +2110,37 @@ class CoverSource(
             val httpClient = if (strictPublicCoverHost) safePublicHttp else client.http
             httpClient.newCall(req).execute().use { resp ->
                 code = resp.code
+                client.hostCircuitBreaker.recordSuccessForUrl(urlStr)
                 if (!resp.isSuccessful) {
-                    ScrapeLogStore.log(
-                        "COVER",
-                        ScrapeLogStore.nodeFromUrl(urlStr),
-                        "DOWNLOAD",
-                        url = urlStr,
-                        status = code,
-                        elapsedMs = System.currentTimeMillis() - t0,
-                        error = "HTTP $code",
-                    )
-                    return@withContext null
+                    if (code == 404) {
+                        ScrapeLogStore.log(
+                            "COVER",
+                            ScrapeLogStore.nodeFromUrl(urlStr),
+                            "DOWNLOAD",
+                            url = urlStr,
+                            status = code,
+                            elapsedMs = System.currentTimeMillis() - t0,
+                            result = "miss (HTTP 404)",
+                        )
+                    } else {
+                        ScrapeLogStore.log(
+                            "COVER",
+                            ScrapeLogStore.nodeFromUrl(urlStr),
+                            "DOWNLOAD",
+                            url = urlStr,
+                            status = code,
+                            elapsedMs = System.currentTimeMillis() - t0,
+                            error = "HTTP $code",
+                        )
+                    }
+                    return@withContext DownloadAttempt(null, statusCode = code)
                 }
-                val body = resp.body ?: return@withContext null
+                val body = resp.body ?: return@withContext DownloadAttempt(null, statusCode = code)
                 val maxBytes = 8 * 1024 * 1024
                 val declaredLen = body.contentLength()
                 if (declaredLen > maxBytes) {
                     ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "Content-Length ${declaredLen}B exceeds 8MB limit")
-                    return@withContext null
+                    return@withContext DownloadAttempt(null, statusCode = code)
                 }
                 var overflow = false
                 val bytes = body.byteStream().use { input ->
@@ -2108,20 +2161,24 @@ class CoverSource(
                 }
                 if (overflow) {
                     ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "exceeds 8MB limit")
-                    return@withContext null
+                    return@withContext DownloadAttempt(null, statusCode = code)
                 }
                 val ct = resp.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
                 if (bytes.size < 32) {
                     ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "too small (${bytes.size}B)")
-                    return@withContext null
+                    return@withContext DownloadAttempt(null, statusCode = code)
                 }
                 val mime = if (ct.startsWith("image/")) ct else (detectImageFormat(bytes)?.second ?: "image/jpeg")
                 ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${bytes.size}B ($mime)")
-                mime to bytes
+                DownloadAttempt(mime to bytes, statusCode = code)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
-            ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
-            null
+            val tripped = if (t is IOException) client.hostCircuitBreaker.recordTransportFailureForUrl(urlStr) else false
+            val suffix = if (tripped) " [circuit open ${client.hostCircuitBreaker.cooldownSeconds()}s]" else ""
+            ScrapeLogStore.log("COVER", ScrapeLogStore.nodeFromUrl(urlStr), "DOWNLOAD", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}$suffix")
+            DownloadAttempt(null, statusCode = code, transportError = true)
         }
     }
 
@@ -2229,9 +2286,13 @@ class CoverSource(
             return if (url.contains("/covers/")) "custom" to CoverMatchMode.CustomFile
             else "local" to CoverMatchMode.LocalFile
         }
+        val isLibretroHost = "thumbnails.libretro.com" in url ||
+            "cdn.jsdelivr.net" in url ||
+            "fastly.jsdelivr.net" in url ||
+            "raw.githubusercontent.com" in url
         val prov = when {
-            "thumbnails.libretro.com" in url && ("Named_Titles" in url || "Named_Snaps" in url) -> ScraperCatalog.CoverIds.LIBRETRO_SNAPS
-            "thumbnails.libretro.com" in url || "cdn.jsdelivr.net" in url || "raw.githubusercontent.com" in url -> ScraperCatalog.CoverIds.LIBRETRO_BOXARTS
+            isLibretroHost && ("Named_Titles" in url || "Named_Snaps" in url) -> ScraperCatalog.CoverIds.LIBRETRO_SNAPS
+            isLibretroHost -> ScraperCatalog.CoverIds.LIBRETRO_BOXARTS
             "gametdb.com" in url -> ScraperCatalog.CoverIds.GAMETDB
             "steamgriddb.com" in url -> ScraperCatalog.CoverIds.STEAMGRIDDB
             "hasheous.org" in url -> ScraperCatalog.CoverIds.HASHEOUS
@@ -2261,11 +2322,8 @@ class CoverSource(
     private fun buildLibretroBoxartUrl(system: String, fileName: String, mirror: Int): String =
         buildLibretroThumbUrl(system, "Named_Boxarts", fileName, mirror)
 
-    private fun buildLibretroThumbUrl(system: String, kind: String, fileName: String, mirror: Int): String = when (mirror) {
-        1 -> "https://cdn.jsdelivr.net/gh/libretro-thumbnails/${Uri.encode(system.replace(' ', '_'))}@master/$kind/${Uri.encode(fileName)}"
-        2 -> "https://raw.githubusercontent.com/libretro-thumbnails/${Uri.encode(system.replace(' ', '_'))}/master/$kind/${Uri.encode(fileName)}"
-        else -> "https://thumbnails.libretro.com/${Uri.encode(system)}/$kind/${Uri.encode(fileName)}"
-    }
+    private fun buildLibretroThumbUrl(system: String, kind: String, fileName: String, mirror: Int): String =
+        buildLibretroThumbUrlPure(system, kind, fileName, mirror)
 
     private fun buildDirectNames(game: Game, officialName: String?): List<String> {
         val directNames = LinkedHashSet<String>()
@@ -2708,7 +2766,7 @@ class CoverSource(
 
         private const val WEB_PICKER_PROVIDER = "web_picker"
         private const val MANUAL_PROVIDER_PREFIX = "manual:"
-        const val MATCHER_VERSION = 2
+        const val MATCHER_VERSION = 3
         const val THUMB_MAX_WIDTH_PX = 320
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
         const val INDEX_FAIL_COOLDOWN_MS = 10L * 60 * 1000
@@ -2832,6 +2890,126 @@ class CoverSource(
             if (COMPILATION_REISSUE_REGEX.containsMatchIn(name)) score += 300
             if ("[b" in name || "[h" in name || "[tr" in name || "[p" in name) score += 500
             return score
+        }
+
+        internal const val MIRROR_JSDELIVR_FASTLY = 0
+        internal const val MIRROR_JSDELIVR_CDN = 1
+        internal const val MIRROR_GITHUB_RAW = 2
+        internal val LIBRETRO_MIRROR_ORDER = listOf(
+            MIRROR_JSDELIVR_CDN,
+            MIRROR_JSDELIVR_FASTLY,
+            MIRROR_GITHUB_RAW,
+        )
+
+        private val LEGACY_LIBRETRO_URL_REGEX =
+            Regex("""^https://thumbnails\.libretro\.com/([^/]+)/(Named_[^/]+)/(.+)$""")
+        private val JSDELIVR_CDN_URL_REGEX =
+            Regex("""^https://cdn\.jsdelivr\.net/gh/libretro-thumbnails/([^/@]+)@master/(Named_[^/]+)/(.+)$""")
+        private val JSDELIVR_FASTLY_URL_REGEX =
+            Regex("""^https://fastly\.jsdelivr\.net/gh/libretro-thumbnails/([^/@]+)@master/(Named_[^/]+)/(.+)$""")
+        private val GITHUB_RAW_URL_REGEX =
+            Regex("""^https://raw\.githubusercontent\.com/libretro-thumbnails/([^/]+)/master/(Named_[^/]+)/(.+)$""")
+
+        internal fun mirrorHostFor(mirror: Int): String = when (mirror) {
+            MIRROR_JSDELIVR_CDN -> "cdn.jsdelivr.net"
+            MIRROR_JSDELIVR_FASTLY -> "fastly.jsdelivr.net"
+            else -> "raw.githubusercontent.com"
+        }
+
+        internal fun isLegacyLibretroThumbnailsUrl(urlStr: String): Boolean =
+            "thumbnails.libretro.com/" in urlStr
+
+        internal fun pickHealthyLibretroMirror(
+            preferredMirror: Int,
+            breaker: HostCircuitBreaker,
+        ): Int {
+            val preferred = if (preferredMirror in LIBRETRO_MIRROR_ORDER) preferredMirror else MIRROR_JSDELIVR_CDN
+            if (!breaker.isCurrentlyOpen(mirrorHostFor(preferred))) return preferred
+            return LIBRETRO_MIRROR_ORDER.firstOrNull { !breaker.isCurrentlyOpen(mirrorHostFor(it)) } ?: preferred
+        }
+
+        internal fun orderedLibretroFallbacks(
+            primaryMirror: Int,
+            breaker: HostCircuitBreaker,
+        ): List<Int> = LIBRETRO_MIRROR_ORDER.filter { idx ->
+            idx != primaryMirror && !breaker.isCurrentlyOpen(mirrorHostFor(idx))
+        }
+
+        /**
+         * 判断某次封面下载失败是否值得切换其余 Libretro 镜像重试：
+         * - 旧版 `thumbnails.libretro.com` 链接：总是迁移至现役镜像；
+         * - 传输层异常（SSL/超时/断连）或 403/429/5xx：值得切换镜像；
+         * - 健康现役镜像明确返回 HTTP 404（文件在仓库中确实不存在）：不再重复轰炸其余同源镜像。
+         */
+        internal fun shouldFailoverLibretro(
+            urlStr: String,
+            statusCode: Int?,
+            transportError: Boolean,
+        ): Boolean {
+            if (isLegacyLibretroThumbnailsUrl(urlStr)) return true
+            if (transportError) return true
+            return statusCode != null && (statusCode == 403 || statusCode == 429 || statusCode >= 500)
+        }
+
+        /** 与 Android `Uri.encode` 语义等价的纯 Kotlin URL 路径段编码，便于跨平台与纯 JVM 单测。 */
+        internal fun encodeLibretroPathSegment(segment: String): String {
+            val sb = StringBuilder(segment.length + 16)
+            val bytes = segment.toByteArray(Charsets.UTF_8)
+            for (b in bytes) {
+                val c = b.toInt() and 0xFF
+                val unescaped = (c in 'a'.code..'z'.code) ||
+                    (c in 'A'.code..'Z'.code) ||
+                    (c in '0'.code..'9'.code) ||
+                    c == '_'.code || c == '-'.code || c == '!'.code || c == '.'.code ||
+                    c == '~'.code || c == '\''.code || c == '('.code || c == ')'.code || c == '*'.code
+                if (unescaped) {
+                    sb.append(c.toChar())
+                } else {
+                    sb.append('%')
+                    sb.append(HEX_UPPER[(c ushr 4) and 0x0F])
+                    sb.append(HEX_UPPER[c and 0x0F])
+                }
+            }
+            return sb.toString()
+        }
+
+        private const val HEX_UPPER = "0123456789ABCDEF"
+
+        internal fun buildLibretroThumbUrlPure(
+            system: String,
+            kind: String,
+            fileName: String,
+            mirror: Int,
+        ): String {
+            val repo = encodeLibretroPathSegment(system.replace(' ', '_'))
+            val file = encodeLibretroPathSegment(fileName)
+            return when (mirror) {
+                MIRROR_JSDELIVR_CDN -> "https://cdn.jsdelivr.net/gh/libretro-thumbnails/$repo@master/$kind/$file"
+                MIRROR_JSDELIVR_FASTLY -> "https://fastly.jsdelivr.net/gh/libretro-thumbnails/$repo@master/$kind/$file"
+                else -> "https://raw.githubusercontent.com/libretro-thumbnails/$repo/master/$kind/$file"
+            }
+        }
+
+        internal fun libretroAlternativeMirrorsFor(
+            urlStr: String,
+            breaker: HostCircuitBreaker? = null,
+        ): List<Pair<Int, String>> {
+            val mLegacy = LEGACY_LIBRETRO_URL_REGEX.matchEntire(urlStr)
+            val mCdn = if (mLegacy == null) JSDELIVR_CDN_URL_REGEX.matchEntire(urlStr) else null
+            val mFastly = if (mLegacy == null && mCdn == null) JSDELIVR_FASTLY_URL_REGEX.matchEntire(urlStr) else null
+            val mGit = if (mLegacy == null && mCdn == null && mFastly == null) GITHUB_RAW_URL_REGEX.matchEntire(urlStr) else null
+            val (curMirror, rawSys, kind, encodedFile) = when {
+                mLegacy != null -> listOf("-1", URLDecoder.decode(mLegacy.groupValues[1], "UTF-8"), mLegacy.groupValues[2], mLegacy.groupValues[3])
+                mCdn != null -> listOf(MIRROR_JSDELIVR_CDN.toString(), URLDecoder.decode(mCdn.groupValues[1], "UTF-8").replace('_', ' '), mCdn.groupValues[2], mCdn.groupValues[3])
+                mFastly != null -> listOf(MIRROR_JSDELIVR_FASTLY.toString(), URLDecoder.decode(mFastly.groupValues[1], "UTF-8").replace('_', ' '), mFastly.groupValues[2], mFastly.groupValues[3])
+                mGit != null -> listOf(MIRROR_GITHUB_RAW.toString(), URLDecoder.decode(mGit.groupValues[1], "UTF-8").replace('_', ' '), mGit.groupValues[2], mGit.groupValues[3])
+                else -> return emptyList()
+            }
+            val fileName = runCatching { URLDecoder.decode(encodedFile.replace("+", "%2B"), "UTF-8") }.getOrDefault(encodedFile)
+            val cur = curMirror.toInt()
+            return LIBRETRO_MIRROR_ORDER
+                .filter { idx -> idx != cur && (breaker == null || !breaker.isCurrentlyOpen(mirrorHostFor(idx))) }
+                .map { idx -> idx to buildLibretroThumbUrlPure(rawSys, kind, fileName, idx) }
         }
 
         private const val WEB_CACHE_MAX_BYTES = 512L * 1024 * 1024

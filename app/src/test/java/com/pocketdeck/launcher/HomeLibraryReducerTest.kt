@@ -164,4 +164,105 @@ class HomeLibraryReducerTest {
         assertEquals(listOf("Chrono Cross", "Chrono Trigger"), hits.map { it.title })
         assertTrue(HomeLibraryReducer.searchAllCategories(lib, hidden, "   ").isEmpty())
     }
+
+    @Test
+    fun resolveInitialTabSelectionRestoresSavedTabWaitsDuringScanAndFallsBackCleanly() {
+        val tabs = listOf(
+            TabInfo("now", "NOW", TabType.Now),
+            TabInfo("favs", "FAVS", TabType.Favs),
+            TabInfo("cat:nes", "NES", TabType.Custom),
+            TabInfo("cat:android", "ANDROID", TabType.Custom),
+        )
+
+        // 1. 命中有游戏的上次分类 -> 立即恢复并锁定
+        val hit = HomeLibraryReducer.resolveInitialTabSelection(
+            tabs = tabs,
+            currentTabIndex = 0,
+            savedTabId = "cat:nes",
+            scanning = true,
+            hasAnyGamesInLibrary = true,
+            tabHasGames = { it.id == "cat:nes" },
+        )
+        assertEquals(2, hit.tabIndex)
+        assertTrue(hit.finalized)
+        assertTrue(hit.matchedSavedTab)
+
+        // 2. 扫描中且上次分类（如 ANDROID）暂未扫完 -> 先停留在目标标签等待，不提前回退
+        val waiting = HomeLibraryReducer.resolveInitialTabSelection(
+            tabs = tabs,
+            currentTabIndex = 0,
+            savedTabId = "cat:android",
+            scanning = true,
+            hasAnyGamesInLibrary = true,
+            tabHasGames = { it.id == "cat:nes" },
+        )
+        assertEquals(3, waiting.tabIndex)
+        assertFalse(waiting.finalized)
+        assertTrue(waiting.matchedSavedTab)
+
+        // 3. 扫描结束后上次分类仍为空，存在其它非空分类 -> 回退到首个非空分类
+        val emptyFallback = HomeLibraryReducer.resolveInitialTabSelection(
+            tabs = tabs,
+            currentTabIndex = 3,
+            savedTabId = "cat:android",
+            scanning = false,
+            hasAnyGamesInLibrary = true,
+            tabHasGames = { it.id == "cat:nes" },
+        )
+        assertEquals(2, emptyFallback.tabIndex)
+        assertTrue(emptyFallback.finalized)
+        assertFalse(emptyFallback.matchedSavedTab)
+
+        // 4. 上次分类已被删除或隐藏 -> 回退到首个非空分类
+        val deletedFallback = HomeLibraryReducer.resolveInitialTabSelection(
+            tabs = tabs,
+            currentTabIndex = 0,
+            savedTabId = "cat:deleted",
+            scanning = false,
+            hasAnyGamesInLibrary = true,
+            tabHasGames = { it.id == "favs" || it.id == "cat:nes" },
+        )
+        assertEquals(1, deletedFallback.tabIndex)
+        assertTrue(deletedFallback.finalized)
+        assertFalse(deletedFallback.matchedSavedTab)
+
+        // 5. 首次安装（无保存记录）-> 保持原逻辑跳过空的 NOW，跳到首个非空标签
+        val firstRun = HomeLibraryReducer.resolveInitialTabSelection(
+            tabs = tabs,
+            currentTabIndex = 0,
+            savedTabId = "",
+            scanning = false,
+            hasAnyGamesInLibrary = true,
+            tabHasGames = { it.id == "cat:nes" },
+        )
+        assertEquals(2, firstRun.tabIndex)
+        assertTrue(firstRun.finalized)
+    }
+
+    @Test
+    fun userStoreMigratesAndClearsLastSelectedGameIdOnFileOps() {
+        val base = UserData(
+            lastSelectedTabId = "cat:nes",
+            lastSelectedGameId = "/roms/nes/mario.nes",
+        )
+        // 使用空 Context 仅调用纯数据迁移方法
+        val fakeCtx = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+            override fun getFilesDir(): java.io.File = java.io.File(System.getProperty("java.io.tmpdir") ?: "/tmp", "pd_last_sel_test")
+        }
+        val store = com.pocketdeck.launcher.data.UserStore(fakeCtx)
+
+        val renamed = store.applyMigrateGameId(base, "/roms/nes/mario.nes", "/roms/nes/super_mario.nes")
+        assertEquals("/roms/nes/super_mario.nes", renamed.lastSelectedGameId)
+        assertEquals("cat:nes", renamed.lastSelectedTabId)
+
+        val dirMoved = store.applyMigratePathPrefix(renamed, "/roms/nes", "/roms/fc")
+        assertEquals("/roms/fc/super_mario.nes", dirMoved.lastSelectedGameId)
+
+        val deleted = store.applyRemoveGameData(dirMoved, "/roms/fc/super_mario.nes")
+        assertEquals("", deleted.lastSelectedGameId)
+
+        val dirRemoved = store.applyRemovePathPrefix(dirMoved, "/roms/fc")
+        assertEquals("", dirRemoved.lastSelectedGameId)
+    }
 }

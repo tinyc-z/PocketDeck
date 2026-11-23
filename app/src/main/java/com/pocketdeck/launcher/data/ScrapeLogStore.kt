@@ -153,6 +153,7 @@ object ScrapeLogStore {
         val host = java.net.URL(urlStr).host.lowercase()
         when {
             "libretro" in host -> "libretro"
+            host == "fastly.jsdelivr.net" -> "jsdelivr_fastly"
             "jsdelivr" in host -> "jsdelivr"
             "github" in host || "githubusercontent" in host -> "github"
             "gametdb" in host -> "gametdb"

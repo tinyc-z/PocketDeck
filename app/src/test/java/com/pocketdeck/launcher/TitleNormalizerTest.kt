@@ -124,4 +124,42 @@ class TitleNormalizerTest {
         assertTrue("Expected 超级马里奥合集 in $suggestions", suggestions.contains("超级马里奥合集"))
         assertTrue("Expected 超级马里奥世界 in $suggestions", suggestions.contains("超级马里奥世界"))
     }
+
+    @Test
+    fun expandsMultiPlatformAliasesAndSequelsWithoutShortWordFalsePositives() {
+        val mg = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("合金装备")
+        assertTrue("Expected both Metal Gear & Metal Gear Solid in $mg", mg.contains("Metal Gear") && mg.contains("Metal Gear Solid"))
+
+        val kirby = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("星之卡比-梦之泉的物语")
+        assertTrue("Expected Kirby's Adventure in $kirby", kirby.contains("Kirby's Adventure"))
+
+        val dd2 = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("双截龙2-复仇")
+        assertTrue("Expected Double Dragon II - The Revenge in $dd2", dd2.contains("Double Dragon II - The Revenge"))
+        assertTrue("Must not pollute Double Dragon 1 into $dd2", !dd2.contains("Double Dragon"))
+
+        val dq3 = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("勇者斗恶龙3-罪恶渊源")
+        assertTrue("Expected Dragon Quest III in $dq3", dq3.contains("Dragon Quest III"))
+
+        val sfcSequel = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("勇者斗恶龙6-幻之大地")
+        assertTrue("Expected Dragon Quest 6 extracted before subtitle in $sfcSequel", sfcSequel.contains("Dragon Quest 6"))
+
+        val twinbee3 = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("兵蜂3（战机）")
+        assertTrue("Expected TwinBee 3 in $twinbee3", twinbee3.any { it.startsWith("TwinBee 3") })
+
+        val gunNac = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("加纳战机(战机天花板)")
+        assertTrue("Expected Gun-Nac in $gunNac", gunNac.contains("Gun-Nac"))
+
+        val bucky = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("外星战将")
+        assertTrue("Expected Bucky O'Hare in $bucky", bucky.contains("Bucky O'Hare"))
+
+        // 短词与系列前缀边界防误配
+        val falseGodOfWar = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("飞天战神")
+        assertTrue("飞天战神 must NOT match God of War, got $falseGodOfWar", falseGodOfWar.isEmpty())
+
+        val falseRtk = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("傲视三国志")
+        assertTrue("傲视三国志 must NOT match Romance of the Three Kingdoms, got $falseRtk", falseRtk.isEmpty())
+
+        val falseFatalFrame = com.pocketdeck.launcher.data.CjkAliases.expandEnglishAliases("零式战机")
+        assertTrue("零式战机 must NOT match Fatal Frame, got $falseFatalFrame", falseFatalFrame.isEmpty())
+    }
 }

@@ -9,6 +9,12 @@ import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.data.model.GameMetadata
 import com.pocketdeck.launcher.data.model.Library
 
+internal data class InitialTabDecision(
+    val tabIndex: Int,
+    val finalized: Boolean,
+    val matchedSavedTab: Boolean,
+)
+
 /**
  * 首页游戏库纯计算归约器：
  * 从 HomeViewModel 剥离无副作用的 Tab 列表构建、缓存签名计算、分类排序、发行日期解析与搜索过滤逻辑，
@@ -18,6 +24,58 @@ internal object HomeLibraryReducer {
     private val RELEASE_YEAR_REGEX = Regex("""\b(19\d{2}|20\d{2})\b""")
     private val RELEASE_NUM_REGEX = Regex("""\d{1,2}""")
     private val RELEASE_MONTHS = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+
+    /**
+     * 冷启动初始分类选择与恢复归约：
+     * - 优先定位上次持久化的 [savedTabId]；
+     * - 若扫描尚未完成且目标分类暂时为空，先停留在目标分类等待扫描结束，不提前回退或覆盖；
+     * - 若上次分类不存在（被删除/隐藏）或扫描结束后仍为空且存在其它非空分类，平滑回退到首个非空分类。
+     */
+    fun resolveInitialTabSelection(
+        tabs: List<TabInfo>,
+        currentTabIndex: Int,
+        savedTabId: String,
+        scanning: Boolean,
+        hasAnyGamesInLibrary: Boolean,
+        tabHasGames: (TabInfo) -> Boolean,
+    ): InitialTabDecision {
+        if (tabs.isEmpty()) {
+            return InitialTabDecision(tabIndex = 0, finalized = false, matchedSavedTab = false)
+        }
+        val clampedCur = currentTabIndex.coerceIn(0, tabs.lastIndex)
+        val savedIdx = if (savedTabId.isNotBlank()) tabs.indexOfFirst { it.id == savedTabId } else -1
+
+        if (scanning && !hasAnyGamesInLibrary) {
+            return InitialTabDecision(
+                tabIndex = if (savedIdx >= 0) savedIdx else clampedCur,
+                finalized = false,
+                matchedSavedTab = savedIdx >= 0,
+            )
+        }
+
+        if (savedIdx >= 0) {
+            if (tabHasGames(tabs[savedIdx])) {
+                return InitialTabDecision(tabIndex = savedIdx, finalized = true, matchedSavedTab = true)
+            }
+            if (scanning) {
+                return InitialTabDecision(tabIndex = savedIdx, finalized = false, matchedSavedTab = true)
+            }
+            val nonEmpty = tabs.indexOfFirst(tabHasGames)
+            return if (nonEmpty >= 0) {
+                InitialTabDecision(tabIndex = nonEmpty, finalized = true, matchedSavedTab = false)
+            } else {
+                InitialTabDecision(tabIndex = savedIdx, finalized = true, matchedSavedTab = true)
+            }
+        }
+
+        val nonEmpty = tabs.indexOfFirst(tabHasGames)
+        return if (nonEmpty >= 0 || !scanning) {
+            val picked = if (!tabHasGames(tabs[clampedCur]) && nonEmpty >= 0) nonEmpty else clampedCur
+            InitialTabDecision(tabIndex = picked, finalized = true, matchedSavedTab = false)
+        } else {
+            InitialTabDecision(tabIndex = clampedCur, finalized = false, matchedSavedTab = false)
+        }
+    }
 
     fun buildManageTabs(lib: Library, user: UserData): List<TabEntry> {
         val categorizedPlatforms = user.categories.flatMap { it.sources }.toSet()

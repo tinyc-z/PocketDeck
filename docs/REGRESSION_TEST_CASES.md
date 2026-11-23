@@ -15,7 +15,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **UT-01** | `EmulatorRegistryTest` | `launch/EmulatorRegistry.kt` | 模拟器 ID 唯一性、包名反查（含 `com.sky.SkyEmu` / `Lemuroid` / `EmuEX` / `PPSSPP` / `melonDS` / `Azahar` / `Flycast`）、核心平台映射、RetroArch 核心与自定义 App 编解码 | 已有 |
 | **UT-02** | `RomScannerMultiDiscTest` | `data/RomScanner.kt` | 多光盘 `.m3u` 识别与折叠、忽略媒体目录与非 ROM 文件、隐藏 `.cue` 引用的 `.bin`、解析 ES-DE `gamelist.xml` 与本地封面 | 已有 |
-| **UT-03** | `TitleNormalizerTest` | `data/TitleNormalizer.kt`, `data/CjkAliases.kt`, `data/UpdateChecker.kt` | 括号/编号清理、冠词处理、CJK 标签与别名展开、日韩文保留、罗马数字变体、游玩统计编解码、Semver 版本比较 | 已有 |
+| **UT-03** | `TitleNormalizerTest` | `data/TitleNormalizer.kt`, `data/CjkAliases.kt`, `data/UpdateChecker.kt` | 括号/编号清理、冠词处理、CJK 标签与多平台别名展开（含副标题前续作编号提取、短词边界防误配）、日韩文保留、罗马数字变体、游玩统计编解码、Semver 版本比较 | 已有 |
 | **UT-04** | `WebManagerApiTest` | `lan/CategoryValidator.kt` | 分类保存 payload 校验、路径穿越与保留 ID 拦截、批量操作 payload 校验与非法拦截 | 已有 |
 | **UT-05** | `PlatformCatalogTest` | `data/PlatformCatalog.kt` | 平台别名映射（`fc`/`ps1`/`md`/`ns`/`apk`/`gc` 等）、`isKnown`、`forFolder`、`sortKey` 排序一致性 | 已有 |
 | **UT-06** | `RetroArchCoreCatalogTest` | `launch/RetroArchCoreCatalog.kt` | `extractCoreIdFromSo` 解析（合法 `.so` 与非法文件名）、`displayName`/`info` 映射、`retroarch.cfg` 中 `libretro_directory` 解析 | 已有 |
@@ -35,7 +35,8 @@
 | **UT-20** | `GamepadKeysTest` | `input/GamepadKeys.kt` | 默认与 `swapAbxy` 键位映射、`withBinding` 默认还原与 `UNBOUND` 保留、`findConflicts`/`canSwapConflicts` 冲突与互换矩阵、`isConfirmGamepadOnly` 排除键盘 Enter、系统返回兜底与自定义覆盖键盘兜底 | 已有 |
 | **UT-21** | `GameLauncherTest` | `launch/GameLauncher.kt`, `launch/EmulatorRegistry.kt`, `AndroidManifest.xml`, `res/xml/file_paths.xml`, `res/xml/backup_rules.xml`, `res/xml/data_extraction_rules.xml` | RetroArch 核心名归一化（去重双后缀、保留 `mesen-s` 连字符、拦截 `..`/斜杠/非法字符）、`CustomLauncherCodec` 越界拒绝、播放列表连字符正则、`AndroidManifest.xml` `<queries>` 与 `EmulatorRegistry.ALL` 全量包名同步守卫、`file_paths.xml` 禁 `/` 与备份排除敏感文件校验 | 已有 |
 | **UT-22** | `Batch3PolishAndReliabilityTest` | `data/LocalPrefsStore.kt`, `ui/components/GamepadFocus.kt`, `lan/WebManagerServer.kt`, `data/ScrapeDatabase.kt`, `ui/theme/SystemFonts.kt` | `LocalPrefsStore` 逐键容错 JSON 解析、损坏文件 `.corrupt.<ts>` 备份与无变化跳过落盘、`DpadNavController` `order` 显式排序与边界导航、Web 控制台 HTML CSP/防点击劫持安全头、`RomIdentityRow.romSize` 字段往返、`SystemFonts.displayName` 缓存命中零 `stat()` | 已有 |
-| **UT-23** | `HomeLibraryReducerTest` | `ui/home/HomeLibraryReducer.kt` | 首页纯计算归约器：`buildManageTabs` 自定义排序与计数、`sortCategoryGames` 发行日/体积/游玩时长排序、`computeTabListSignature` 同容量 `metaMap` 原地更新失效缓存、`searchAllCategories` 万级 ROM 先过滤后排序 | 已有 |
+| **UT-23** | `HomeLibraryReducerTest` | `ui/home/HomeLibraryReducer.kt`, `data/UserStore.kt` | 首页纯计算归约器：`buildManageTabs` 自定义排序与计数、`sortCategoryGames` 发行日/体积/游玩时长排序、`computeTabListSignature` 同容量 `metaMap` 原地更新失效缓存、`searchAllCategories` 万级 ROM 先过滤后排序、`resolveInitialTabSelection` 冷启恢复上次分类/等待扫描/删除回退、`lastSelectedGameId` 文件重命名/移动/删除迁移清理 | 已有 |
+| **UT-24** | `ScraperResilienceTest` | `data/HostCircuitBreaker.kt`, `data/CoverSource.kt`, `data/ScraperClient.kt`, `data/ScrapeLogStore.kt`, `lan/WebFileSecurity.kt`, `ui/settings/ScrapeLogsScreen.kt` | 按域名传输层熔断器（3 次连续失败熔断 120s、半开单探针防惊群、成功清零与域名隔离）、Libretro 淘汰全 404 的 `thumbnails.libretro.com` 并启用 `fastly.jsdelivr.net` 兜底与权威 404 不跨镜像重发、Hasheous 429 `Retry-After`/`retryAfterSeconds` 解析与退避、刮削日志 404 未命中与真故障分流 | 已有 |
 
 ---
 
@@ -45,7 +46,7 @@
 
 | 用例编号 | 功能路径 | 操作步骤与预期结果 |
 | :--- | :--- | :--- |
-| **APP-01** | 首页 → 顶部标签栏 | 核对标签顺序、数量、自定义名、L1/R1 切换流畅、状态栏时间/电量/Wi-Fi/Web 图标显示正常 |
+| **APP-01** | 首页 → 顶部标签栏与冷启位置记忆 | 核对标签顺序、数量、自定义名、L1/R1 切换流畅、状态栏时间/电量/Wi-Fi/Web 图标显示正常；切换到任意分类与游戏并强杀重启后自动恢复停留在上次的分类与游戏 |
 | **APP-02** | 首页 → 视图切换（画廊 / 列表 / 网格 / 气泡 / 立体扇面 / 沉浸海报 / 弧形转盘 / 收藏架）与可见窗口封面预刮削 | 依次切换 8 种视图模式（双列菜单不溢出），确认封面渲染、焦点框、60fps 滚动与返回无错位或崩溃；非聚焦卡片通过 2 并发后台窗口预刮削自动补齐封面 |
 | **APP-03** | 首页 → 搜索（含「全分类」开关） | 打开搜索栏输入关键词，验证「全分类」开关默认开启且可持久化切换，实时过滤结果准确 |
 | **APP-04** | 首页 → 游戏详情弹窗（`GameDetailDialog`） | 核对横屏布局宽度严格收敛在 XL 上限 `640dp`（左右保留安全呼吸感，不贴边、不误判为窄屏）、圆角统一 `22dp`、左侧全高海报右缘无缝羽化、右下磨砂「换封面」胶囊与标签行末尾「ⓘ 属性」胶囊清晰、元数据与三列统计卡完整；打开属性弹窗后关闭能正确恢复焦点 |

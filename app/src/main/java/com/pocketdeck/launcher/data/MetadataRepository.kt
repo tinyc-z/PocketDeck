@@ -31,6 +31,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -61,12 +62,21 @@ data class ScrapeProgress(
     val currentPlatform: String = "",
     val updatedCount: Int = 0,
     val failedCount: Int = 0,
+    val cancelling: Boolean = false,
     val cancelled: Boolean = false,
     val finishedAtMs: Long = 0L,
 ) {
     val percent: Int
         get() = if (total <= 0) 0 else ((done * 100L) / total).toInt().coerceIn(0, 100)
 }
+
+/** 刮削前的缺失项统计预览（只读、零网络）。 */
+data class ScrapeMissingSummary(
+    val totalGames: Int = 0,
+    val pendingTotal: Int = 0,
+    val missingCoverCount: Int = 0,
+    val missingMetaCount: Int = 0,
+)
 
 data class ManualScrapeCandidate(
     val title: String,
@@ -157,6 +167,13 @@ class MetadataRepository(
         // 后台异步恢复持久化的自动/手动刮削元数据，避免冷启阻塞主线程且已刮削游戏无需再解压 25MB 离线库
         scope.launch(Dispatchers.IO) {
             try {
+                runCatching {
+                    val metaPrefs = appCtx.getSharedPreferences("cover_matcher_meta", Context.MODE_PRIVATE)
+                    if (metaPrefs != null && metaPrefs.getInt("meta_matcher_ver", 0) < CoverSource.MATCHER_VERSION) {
+                        client.database.clearResolvedMetadataMisses()
+                        metaPrefs.edit().putInt("meta_matcher_ver", CoverSource.MATCHER_VERSION).apply()
+                    }
+                }
                 val now = System.currentTimeMillis()
                 val savedResolved = client.database.loadAllResolvedMetadata(now)
                 val savedManual = client.database.loadAllManualMetadata()
@@ -229,6 +246,7 @@ class MetadataRepository(
             NetworkStatus.online.collect { now ->
                 if (now && !prev) {
                     focusApiResolved.clear()
+                    client.hostCircuitBreaker.resetAll()
                 }
                 prev = now
             }
@@ -627,6 +645,38 @@ class MetadataRepository(
     }
 
     /**
+     * 快速统计当前游戏库中缺少封面或元数据的游戏数量（只读，不触发任何网络请求），
+     * 供刮削任务弹窗在开始前向用户展示明细。
+     */
+    suspend fun inspectMissing(
+        games: List<Game>,
+        covers: CoverSource,
+    ): ScrapeMissingSummary {
+        initialCacheReady.await()
+        covers.awaitInitialReady()
+        val metaSnap = _metadata.value
+        return withContext(Dispatchers.IO) {
+            val romGames = games.filterNot { it.id.startsWith(GameLauncher.APK_PREFIX) }
+            var pendingTotal = 0
+            var missingCoverCount = 0
+            var missingMetaCount = 0
+            for (g in romGames) {
+                val missingMeta = (metaSnap[g.id] ?: gameCache[g.id])?.isEmpty != false
+                val missingCover = !covers.hasDownloadedCover(g)
+                if (missingCover) missingCoverCount++
+                if (missingMeta) missingMetaCount++
+                if (missingMeta || missingCover) pendingTotal++
+            }
+            ScrapeMissingSummary(
+                totalGames = romGames.size,
+                pendingTotal = pendingTotal,
+                missingCoverCount = missingCoverCount,
+                missingMetaCount = missingMetaCount,
+            )
+        }
+    }
+
+    /**
      * 两阶段并发增量刮削所有缺少封面或元数据的游戏（支持随时 [cancelScrapeMissing] 终止）：
      * 1. 按平台分组并并行预载平台离线元数据表、Boxart 索引及全量街机批次；
      * 2. 阶段 A（零网络快通）：复用 Coil 磁盘缓存直接落盘离线封面；
@@ -643,6 +693,7 @@ class MetadataRepository(
         if (missingScrapeJob?.isActive == true) {
             return@withLock _scrapeProgress.value.total
         }
+        client.hostCircuitBreaker.resetAll()
         initialCacheReady.await()
         covers.awaitInitialReady()
 
@@ -733,15 +784,18 @@ class MetadataRepository(
                 if (!force && (now - prev) < SCRAPE_PROGRESS_THROTTLE_MS) return
                 if (force || lastProgressEmitMs.compareAndSet(prev, now)) {
                     if (scrapeRunSeq.get() != runId) return
-                    _scrapeProgress.value = ScrapeProgress(
-                        running = true,
-                        done = doneCount.get(),
-                        total = total,
-                        currentTitle = title,
-                        currentPlatform = platName,
-                        updatedCount = updatedCount.get(),
-                        failedCount = failCount.get(),
-                    )
+                    _scrapeProgress.update { cur ->
+                        ScrapeProgress(
+                            running = true,
+                            done = doneCount.get(),
+                            total = total,
+                            currentTitle = title,
+                            currentPlatform = platName,
+                            updatedCount = updatedCount.get(),
+                            failedCount = failCount.get(),
+                            cancelling = cur.cancelling,
+                        )
+                    }
                 }
             }
 
@@ -917,9 +971,13 @@ class MetadataRepository(
         total
     }
 
-    /** 立即终止正在运行的增量刮削任务（已刮削的数据全部保留）。 */
+    /** 立即终止正在运行的增量刮削任务（已刮削的数据全部保留）；同步置 cancelling 锁定 UI 按钮防连点。 */
     fun cancelScrapeMissing() {
-        missingScrapeJob?.cancel()
+        val job = missingScrapeJob
+        _scrapeProgress.update { cur ->
+            if (cur.running && !cur.cancelling) cur.copy(cancelling = true) else cur
+        }
+        job?.cancel()
         missingScrapeJob = null
     }
 
@@ -2094,16 +2152,18 @@ class MetadataRepository(
         val encodedSys = Uri.encode(system)
         val mirrors = listOf(
             "https://cdn.jsdelivr.net/gh/libretro/libretro-database@master/metadat",
+            "https://fastly.jsdelivr.net/gh/libretro/libretro-database@master/metadat",
             "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat",
         )
         val kinds = listOf("developer", "publisher", "genre", "releaseyear", "releasemonth")
 
-        // 优先走 jsDelivr；单个 kind 若遇到网络/5xx 故障自动回退 GitHub Raw（404 不重复请求）
+        // 优先走 jsDelivr；单个 kind 若遇到网络/5xx 故障自动回退 Fastly / GitHub Raw（404 不重复请求）
         val parsed = kinds.map { kind ->
             async(Dispatchers.IO) {
-                var res = downloadDat("${mirrors[0]}/$kind/$encodedSys.dat")
-                if (res.transientError) {
-                    res = downloadDat("${mirrors[1]}/$kind/$encodedSys.dat")
+                var res = DatDownloadResult(emptyList(), transientError = true)
+                for (mirror in mirrors) {
+                    res = downloadDat("$mirror/$kind/$encodedSys.dat")
+                    if (!res.transientError) break
                 }
                 kind to res.entries
             }
@@ -2268,6 +2328,9 @@ class MetadataRepository(
     )
 
     private fun downloadDat(urlStr: String): DatDownloadResult {
+        if (client.hostCircuitBreaker.shouldSkipUrl(urlStr)) {
+            return DatDownloadResult(emptyList(), transientError = true)
+        }
         val t0 = System.currentTimeMillis()
         var code: Int? = null
         return try {
@@ -2277,6 +2340,7 @@ class MetadataRepository(
                 .build()
             client.http.newCall(req).execute().use { resp ->
                 code = resp.code
+                client.hostCircuitBreaker.recordSuccessForUrl(urlStr)
                 if (code == 404) {
                     ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "404 not found")
                     return DatDownloadResult(emptyList(), transientError = false)
@@ -2335,8 +2399,12 @@ class MetadataRepository(
                 ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, result = "${list.size} entries")
                 DatDownloadResult(list, transientError = false)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
-            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}")
+            val tripped = if (t is IOException) client.hostCircuitBreaker.recordTransportFailureForUrl(urlStr) else false
+            val suffix = if (tripped) " [circuit open ${client.hostCircuitBreaker.cooldownSeconds()}s]" else ""
+            ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET DAT", url = urlStr, status = code, elapsedMs = System.currentTimeMillis() - t0, error = "${t.javaClass.simpleName}: ${t.message}$suffix")
             DatDownloadResult(emptyList(), transientError = true)
         }
     }

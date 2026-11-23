@@ -107,6 +107,7 @@ class ScraperClient(
             .build()
 
     val gameTdb = GameTdbClient(appCtx, { http }, identityExtractor)
+    val hostCircuitBreaker = HostCircuitBreaker()
 
     private val memHits = BoundedLruCache<String, CacheEntry>(MAX_MEM_HITS)
     private val inFlight = ConcurrentHashMap<String, Deferred<ScrapeHit?>>()
@@ -133,6 +134,7 @@ class ScraperClient(
         val body: String?,
         val statusCode: Int?,
         val transientError: Boolean,
+        val retryAfterMs: Long? = null,
     )
 
     private data class QueryOutcome(
@@ -177,6 +179,7 @@ class ScraperClient(
     fun clearApiCache() {
         memHits.clear()
         hasheousHashCache.clear()
+        hostCircuitBreaker.resetAll()
         identityExtractor.clearMemoryCache()
         database.clearScrapeCache()
         gameTdb.clearCache()
@@ -438,6 +441,19 @@ class ScraperClient(
         }
     }
 
+    /** 收到 429 限流时统一推迟该服务商的下次最早发包时间，让全部并发 Worker 同步降速退避。 */
+    private suspend fun backoffProvider(providerId: String, waitMs: Long) {
+        if (waitMs <= 0L) return
+        val lock = rateLocks.getOrPut(providerId) { Mutex() }
+        lock.withLock {
+            val target = System.currentTimeMillis() + waitMs
+            val prev = lastRequestMs[providerId] ?: 0L
+            if (target > prev) {
+                lastRequestMs[providerId] = target
+            }
+        }
+    }
+
     // ───────────────────────── GameTDB ─────────────────────────
 
     private suspend fun queryGameTdb(game: Game, platform: Platform?): QueryOutcome {
@@ -460,8 +476,17 @@ class ScraperClient(
         val lock = hasheousHashLocks[(hashKey.hashCode() and Int.MAX_VALUE) % hasheousHashLocks.size]
         return lock.withLock {
             hasheousHashCache[hashKey]?.let { return@withLock it }
-            throttle(ScraperCatalog.CoverIds.HASHEOUS, 250L)
-            val res = httpGet(lookupUrl)
+            throttle(ScraperCatalog.CoverIds.HASHEOUS, HASHEOUS_MIN_INTERVAL_MS)
+            var res = httpGet(lookupUrl, treat404AsMiss = true)
+            if (res.statusCode == 429) {
+                val waitMs = res.retryAfterMs ?: DEFAULT_RATE_LIMIT_WAIT_MS
+                backoffProvider(ScraperCatalog.CoverIds.HASHEOUS, waitMs)
+                delay(waitMs)
+                res = httpGet(lookupUrl, treat404AsMiss = true)
+                if (res.statusCode == 429) {
+                    backoffProvider(ScraperCatalog.CoverIds.HASHEOUS, res.retryAfterMs ?: 3_000L)
+                }
+            }
             if (res.statusCode == 404) {
                 return@withLock QueryOutcome(ScrapeHit()).also { hasheousHashCache[hashKey] = it }
             }
@@ -1008,9 +1033,16 @@ class ScraperClient(
 
     // ───────────────────────── OkHttp Transport ─────────────────────────
 
-    private fun httpGet(urlStr: String, headers: Map<String, String> = emptyMap()): HttpResult {
+    private fun httpGet(
+        urlStr: String,
+        headers: Map<String, String> = emptyMap(),
+        treat404AsMiss: Boolean = false,
+    ): HttpResult {
         if (!NetworkStatus.isOnline(appCtx)) {
             ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "GET", url = urlStr, error = "offline")
+            return HttpResult(null, null, transientError = true)
+        }
+        if (hostCircuitBreaker.shouldSkipUrl(urlStr)) {
             return HttpResult(null, null, transientError = true)
         }
         val t0 = System.currentTimeMillis()
@@ -1023,10 +1055,28 @@ class ScraperClient(
             headers.forEach { (k, v) -> rb.header(k, v) }
             http.newCall(rb.build()).execute().use { resp ->
                 code = resp.code
+                hostCircuitBreaker.recordSuccessForUrl(urlStr)
                 val elapsed = System.currentTimeMillis() - t0
                 val bodyText = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
+                    if (resp.code == 404 && treat404AsMiss) {
+                        ScrapeLogStore.log(
+                            "META",
+                            ScrapeLogStore.nodeFromUrl(urlStr),
+                            "GET",
+                            url = urlStr,
+                            status = code,
+                            elapsedMs = elapsed,
+                            result = "miss (hash not in db)",
+                        )
+                        return HttpResult(null, code, transientError = false)
+                    }
                     val isTransient = resp.code == 429 || resp.code == 430 || resp.code >= 500 || resp.code == 408
+                    val retryAfterMs = if (resp.code == 429) {
+                        parseRetryAfterMs(resp.header("Retry-After"), bodyText)
+                    } else {
+                        null
+                    }
                     ScrapeLogStore.log(
                         "META",
                         ScrapeLogStore.nodeFromUrl(urlStr),
@@ -1036,7 +1086,7 @@ class ScraperClient(
                         elapsedMs = elapsed,
                         error = bodyText.take(140).ifBlank { "HTTP $code" },
                     )
-                    return HttpResult(null, code, transientError = isTransient)
+                    return HttpResult(null, code, transientError = isTransient, retryAfterMs = retryAfterMs)
                 }
                 ScrapeLogStore.log(
                     "META",
@@ -1049,7 +1099,11 @@ class ScraperClient(
                 )
                 HttpResult(bodyText, code, transientError = false)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
+            val tripped = if (t is IOException) hostCircuitBreaker.recordTransportFailureForUrl(urlStr) else false
+            val suffix = if (tripped) " [circuit open ${hostCircuitBreaker.cooldownSeconds()}s]" else ""
             ScrapeLogStore.log(
                 "META",
                 ScrapeLogStore.nodeFromUrl(urlStr),
@@ -1057,7 +1111,7 @@ class ScraperClient(
                 url = urlStr,
                 status = code,
                 elapsedMs = System.currentTimeMillis() - t0,
-                error = "${t.javaClass.simpleName}: ${t.message}",
+                error = "${t.javaClass.simpleName}: ${t.message}$suffix",
             )
             HttpResult(null, code, transientError = true)
         }
@@ -1066,6 +1120,9 @@ class ScraperClient(
     private fun httpPost(urlStr: String, body: String, headers: Map<String, String>): HttpResult {
         if (!NetworkStatus.isOnline(appCtx)) {
             ScrapeLogStore.log("META", ScrapeLogStore.nodeFromUrl(urlStr), "POST", url = urlStr, error = "offline")
+            return HttpResult(null, null, transientError = true)
+        }
+        if (hostCircuitBreaker.shouldSkipUrl(urlStr)) {
             return HttpResult(null, null, transientError = true)
         }
         val t0 = System.currentTimeMillis()
@@ -1079,10 +1136,16 @@ class ScraperClient(
             headers.forEach { (k, v) -> rb.header(k, v) }
             http.newCall(rb.build()).execute().use { resp ->
                 code = resp.code
+                hostCircuitBreaker.recordSuccessForUrl(urlStr)
                 val elapsed = System.currentTimeMillis() - t0
                 val bodyText = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     val isTransient = resp.code == 429 || resp.code >= 500 || resp.code == 408
+                    val retryAfterMs = if (resp.code == 429) {
+                        parseRetryAfterMs(resp.header("Retry-After"), bodyText)
+                    } else {
+                        null
+                    }
                     ScrapeLogStore.log(
                         "META",
                         ScrapeLogStore.nodeFromUrl(urlStr),
@@ -1092,7 +1155,7 @@ class ScraperClient(
                         elapsedMs = elapsed,
                         error = bodyText.take(140).ifBlank { "HTTP $code" },
                     )
-                    return HttpResult(null, code, transientError = isTransient)
+                    return HttpResult(null, code, transientError = isTransient, retryAfterMs = retryAfterMs)
                 }
                 ScrapeLogStore.log(
                     "META",
@@ -1105,7 +1168,11 @@ class ScraperClient(
                 )
                 HttpResult(bodyText, code, transientError = false)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
+            val tripped = if (t is IOException) hostCircuitBreaker.recordTransportFailureForUrl(urlStr) else false
+            val suffix = if (tripped) " [circuit open ${hostCircuitBreaker.cooldownSeconds()}s]" else ""
             ScrapeLogStore.log(
                 "META",
                 ScrapeLogStore.nodeFromUrl(urlStr),
@@ -1113,7 +1180,7 @@ class ScraperClient(
                 url = urlStr,
                 status = code,
                 elapsedMs = System.currentTimeMillis() - t0,
-                error = "${t.javaClass.simpleName}: ${t.message}",
+                error = "${t.javaClass.simpleName}: ${t.message}$suffix",
             )
             HttpResult(null, code, transientError = true)
         }
@@ -1123,7 +1190,26 @@ class ScraperClient(
         const val USER_AGENT = "PocketDeck/0.4 (Android Handheld Launcher)"
         const val MAX_MEM_HITS = 2048
         const val MAX_HASHEOUS_HASH_CACHE = 1024
+        const val HASHEOUS_MIN_INTERVAL_MS = 550L
+        const val DEFAULT_RATE_LIMIT_WAIT_MS = 2_000L
+        private const val MIN_RETRY_AFTER_MS = 1_150L
+        private const val MAX_RETRY_AFTER_MS = 15_000L
+        private val JSON_RETRY_AFTER_SEC = Regex(""""retryAfterSeconds"\s*:\s*([0-9]+(?:\.[0-9]+)?)""")
         val TEXT_PLAIN = "text/plain; charset=utf-8".toMediaType()
+
+        /** 解析 HTTP 429 响应中的退避时间（优先 `Retry-After` 秒数响应头，其次 JSON `retryAfterSeconds`）。 */
+        internal fun parseRetryAfterMs(retryAfterHeader: String?, bodyText: String?): Long? {
+            val headerSec = retryAfterHeader?.trim()?.toDoubleOrNull()
+            val bodySec = if (headerSec == null && !bodyText.isNullOrBlank()) {
+                JSON_RETRY_AFTER_SEC.find(bodyText)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+            } else {
+                null
+            }
+            val sec = headerSec ?: bodySec ?: return null
+            if (sec <= 0.0 || sec.isNaN() || sec.isInfinite()) return null
+            val rawMs = (sec * 1000.0).toLong() + 150L
+            return rawMs.coerceIn(MIN_RETRY_AFTER_MS, MAX_RETRY_AFTER_MS)
+        }
 
         /** 严格按标题相似度挑选最佳搜索结果，无超过阈值的候选时返回 null，绝不盲取第 0 条误配。 */
         internal fun selectBestTitleCandidate(

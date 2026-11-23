@@ -1,10 +1,15 @@
-# E	<zh>	<en> (exact game / subtitle, pre-sorted by zh length desc)
+# E	<zh>	<en> (exact game / subtitle, pre-sorted by zh length desc, multi-platform aliases grouped)
 # S	<zh>	<en> (series prefix, pre-sorted by zh length desc)
 E	塞尔达传说 众神的三角力量	The Legend of Zelda - A Link to the Past
+E	圣斗士星矢 黄金传说完结篇	Saint Seiya - Ougon Densetsu Kanketsu Hen
 E	口袋妖怪 不可思议的迷宫	Pokemon Mystery Dungeon
 E	塞尔达传说 梅祖拉的假面	The Legend of Zelda - Majora's Mask
 E	牧场物语 矿石镇的伙伴们	Harvest Moon - Friends of Mineral Town
+E	大眼蛙可乐比的大冒险2	Kero Kero Keroppi no Daibouken 2 - Donuts Ike wa Oosawagi!
+E	少年印第安纳琼斯大冒险	The Young Indiana Jones Chronicles
 E	塞尔达传说 大地的汽笛	The Legend of Zelda - Spirit Tracks
+E	第2次超级机器人大战	Dai-2-Ji Super Robot Taisen
+E	第二次超级机器人大战	Dai-2-Ji Super Robot Taisen
 E	恶魔城 苍月的十字架	Castlevania - Dawn of Sorrow
 E	恶魔城 被夺走的刻印	Castlevania - Order of Ecclesia
 E	塞尔达传说 黄昏公主	The Legend of Zelda - Twilight Princess
@@ -15,10 +20,14 @@ E	塞尔达传说 旷野之息	The Legend of Zelda: Breath of the Wild
 E	塞尔达传说 荒野之息	The Legend of Zelda: Breath of the Wild
 E	塞尔达传说 王国之泪	The Legend of Zelda: Tears of the Kingdom
 E	星之卡比 超级豪华版	Kirby Super Star
+E	星之卡比超级豪华版	Kirby Super Star
 E	火焰纹章 圣魔之光石	Fire Emblem - The Sacred Stones
 E	黄金太阳 失落的时代	Golden Sun - The Lost Age
 E	星之卡比 镜之大迷宫	Kirby & The Amazing Mirror
-E	星之卡比 超级豪华版	Kirby Super Star
+E	圣火徽章 索非亚复苏	Fire Emblem Gaiden
+E	三国志2 霸王的大陆	Sangokushi II - Haou no Tairiku
+E	忍者神龟 激龟忍者传	Teenage Mutant Ninja Turtles
+E	1943 中途岛海战	1943 - The Battle of Midway
 E	恶魔城 晓月圆舞曲	Castlevania - Aria of Sorrow
 E	恶魔城 白夜协奏曲	Castlevania - Harmony of Dissonance
 E	恶魔城 月下夜想曲	Castlevania - Symphony of the Night
@@ -28,7 +37,6 @@ E	塞尔达传说 织梦岛	The Legend of Zelda - Link's Awakening
 E	塞尔达传说 梦见岛	The Legend of Zelda - Link's Awakening
 E	塞尔达传说 时之笛	The Legend of Zelda - Ocarina of Time
 E	塞尔达传说 风之杖	The Legend of Zelda - The Wind Waker
-E	星之卡比超级豪华版	Kirby Super Star
 E	火焰纹章 封印之剑	Fire Emblem - Fuuin no Tsurugi
 E	火焰纹章 烈火之剑	Fire Emblem
 E	火焰纹章 圣战系谱	Fire Emblem - Seisen no Keifu
@@ -38,14 +46,7 @@ E	密特罗德 生存恐惧	Metroid Dread
 E	战神 奥林匹斯之链	God of War - Chains of Olympus
 E	英雄传说 空之轨迹	The Legend of Heroes - Trails in the Sky
 E	三国志2 吞食天地	Warriors of Fate
-E	战神 奥林匹斯之链	God of War - Chains of Olympus
 E	合金装备 和平行者	Metal Gear Solid - Peace Walker
-E	恶魔城 血之轮回	Castlevania - Rondo of Blood
-E	口袋妖怪 红宝石	Pokemon - Ruby Version
-E	口袋妖怪 蓝宝石	Pokemon - Sapphire Version
-E	口袋妖怪 绿宝石	Pokemon - Emerald Version
-E	口袋妖怪 皮卡丘	Pokemon - Yellow Version
-E	宝可梦 阿尔宙斯	Pokemon Legends: Arceus
 E	超级马里奥全明星	Super Mario All-Stars
 E	超级马里奥收藏集	Super Mario All-Stars
 E	超级马里奥RPG	Super Mario RPG - Legend of the Seven Stars
@@ -55,14 +56,63 @@ E	超级马里奥兄弟2	Super Mario Bros. 2
 E	新超级马里奥兄弟	New Super Mario Bros.
 E	超级马里奥奥德赛	Super Mario Odyssey
 E	超级马里奥乐园2	Super Mario Land 2 - 6 Golden Coins
-E	火焰之纹章 外传	Fire Emblem Gaiden
-E	星之卡比 梦之泉	Kirby - Nightmare in Dream Land
-E	战神 斯巴达之魂	God of War - Ghost of Sparta
 E	集合啦动物森友会	Animal Crossing: New Horizons
 E	任天堂明星大乱斗	Super Smash Bros.
-E	战神 斯巴达之魂	God of War - Ghost of Sparta
 E	怪物猎人携带版3	Monster Hunter Portable 3rd
-E	任天堂明星大乱斗	Super Smash Bros.
+E	惊人的热血新记录	Crash 'n' the Boys - Street Challenge
+E	超级玛丽 水管玛丽	Mario Bros.
+E	超级玛丽奥兄弟3	Super Mario Bros. 3
+E	超级玛丽奥兄弟2	Super Mario Bros. 2
+E	忍者神龟 激龟格斗	Teenage Mutant Ninja Turtles - Tournament Fighters
+E	魂斗罗 空中魂斗罗	Final Mission
+E	魂斗罗 空中魂斗罗	S.C.A.T. - Special Cybernetic Attack Team
+E	兔子邦妮 疯狂城堡	The Bugs Bunny Crazy Castle
+E	兔宝宝的大冒险2	Tiny Toon Adventures 2 - Trouble in Wackyland
+E	摩登原始人 恐龙峰	The Flintstones - The Surprise at Dinosaur Peak!
+E	恶魔城 血之轮回	Castlevania - Rondo of Blood
+E	口袋妖怪 红宝石	Pokemon - Ruby Version
+E	口袋妖怪 蓝宝石	Pokemon - Sapphire Version
+E	口袋妖怪 绿宝石	Pokemon - Emerald Version
+E	口袋妖怪 皮卡丘	Pokemon - Yellow Version
+E	宝可梦 阿尔宙斯	Pokemon Legends: Arceus
+E	火焰之纹章 外传	Fire Emblem Gaiden
+E	火焰之纹章外传	Fire Emblem Gaiden
+E	星之卡比 梦之泉	Kirby - Nightmare in Dream Land
+E	星之卡比 梦之泉	Kirby's Adventure
+E	战神 斯巴达之魂	God of War - Ghost of Sparta
+E	众神的三角力量	The Legend of Zelda - A Link to the Past
+E	超级马里奥合集	Super Mario All-Stars
+E	超级马力欧合集	Super Mario All-Stars
+E	超级马里奥世界	Super Mario World
+E	超级马里奥兄弟	Super Mario Bros.
+E	超级马里奥64	Super Mario 64
+E	超级马里奥银河	Super Mario Galaxy
+E	超级马里奥乐园	Super Mario Land
+E	马里奥与路易吉	Mario & Luigi
+E	矿石镇的伙伴们	Harvest Moon - Friends of Mineral Town
+E	最终幻想战略版	Final Fantasy Tactics
+E	超级玛丽全明星	Super Mario All-Stars
+E	超级玛丽世界2	Super Mario World 2 - Yoshi's Island
+E	超级玛丽兄弟3	Super Mario Bros. 3
+E	超级玛丽兄弟2	Super Mario Bros. 2
+E	新超级玛丽兄弟	New Super Mario Bros.
+E	超级玛丽乐园2	Super Mario Land 2 - 6 Golden Coins
+E	热血高校躲避球	Super Dodge Ball
+E	超级玛丽大金刚	Donkey Kong
+E	超级玛丽奥兄弟	Super Mario Bros.
+E	魂斗罗 赤影战士	Shadow of the Ninja
+E	SD英雄总决战	SD Hero Soukessen - Taose! Aku no Gundan
+E	假面的忍者 赤影	Kamen no Ninja - Akakage
+E	兔宝宝大冒险2	Tiny Toon Adventures 2 - Trouble in Wackyland
+E	唐老鸭历险记2	DuckTales 2
+E	唐老鸭梦冒险2	DuckTales 2
+E	大力工头阿源君	Hammerin' Harry
+E	恐龙战队兽连者	Kyouryuu Sentai Zyuranger
+E	恐龙战队兽连者	Kyouryuu Sentai Juuranger
+E	惊慌餐厅争夺战	Panic Restaurant
+E	摩登原始人 营救	The Flintstones - The Rescue of Dino & Hoppy
+E	茶茶丸的大冒险	Ninja Jajamaru-kun
+E	高桥名人冒险岛	Adventure Island
 E	宝可梦 红宝石	Pokemon - Ruby Version
 E	宝可梦 蓝宝石	Pokemon - Sapphire Version
 E	宝可梦 绿宝石	Pokemon - Emerald Version
@@ -76,37 +126,9 @@ E	口袋妖怪 心金	Pokemon - HeartGold Version
 E	口袋妖怪 魂银	Pokemon - SoulSilver Version
 E	口袋妖怪 黑2	Pokemon - Black Version 2
 E	口袋妖怪 白2	Pokemon - White Version 2
-E	众神的三角力量	The Legend of Zelda - A Link to the Past
-E	超级马里奥合集	Super Mario All-Stars
-E	超级马力欧合集	Super Mario All-Stars
-E	超级马里奥世界	Super Mario World
-E	超级马里奥兄弟	Super Mario Bros.
-E	超级马里奥64	Super Mario 64
-E	超级马里奥银河	Super Mario Galaxy
-E	超级马里奥乐园	Super Mario Land
-E	马里奥与路易吉	Mario & Luigi
 E	火焰纹章 觉醒	Fire Emblem Awakening
 E	银河战士 融合	Metroid Fusion
-E	矿石镇的伙伴们	Harvest Moon - Friends of Mineral Town
-E	最终幻想战略版	Final Fantasy Tactics
-E	超级玛丽全明星	Super Mario All-Stars
-E	超级玛丽世界2	Super Mario World 2 - Yoshi's Island
-E	超级玛丽兄弟3	Super Mario Bros. 3
-E	超级玛丽兄弟2	Super Mario Bros. 2
-E	新超级玛丽兄弟	New Super Mario Bros.
-E	超级玛丽乐园2	Super Mario Land 2 - 6 Golden Coins
-E	恶魔城 月轮	Castlevania - Circle of the Moon
 E	苍月的十字架	Castlevania - Dawn of Sorrow
-E	宝可梦 火红	Pokemon - FireRed Version
-E	宝可梦 叶绿	Pokemon - LeafGreen Version
-E	口袋妖怪 金	Pokemon - Gold Version
-E	口袋妖怪 银	Pokemon - Silver Version
-E	口袋妖怪 黄	Pokemon - Yellow Version
-E	口袋妖怪 红	Pokemon - Red Version
-E	口袋妖怪 蓝	Pokemon - Blue Version
-E	口袋妖怪 绿	Pokemon - Green Version
-E	口袋妖怪 黑	Pokemon - Black Version
-E	口袋妖怪 白	Pokemon - White Version
 E	马力欧卡丁车	Mario Kart
 E	星之卡比合集	Kirby's Dream Collection
 E	洛克人X合集	Mega Man X Collection
@@ -114,7 +136,6 @@ E	合金弹头合集	Metal Slug Anthology
 E	街头霸王合集	Street Fighter Collection
 E	最终幻想合集	Final Fantasy Anthology
 E	超级银河战士	Super Metroid
-E	魂斗罗 力量	Contra Force
 E	松鼠大作战2	Chip 'n Dale Rescue Rangers 2
 E	最终幻想10	Final Fantasy X
 E	幻想水浒传2	Suikoden II
@@ -126,19 +147,56 @@ E	女神异闻录3	Persona 3 Portable
 E	瓦里奥大陆4	Wario Land 4
 E	彩京1945	Strikers 1945
 E	机动战士高达	Mobile Suit Gundam
-E	怪物猎人2G	Monster Hunter Freedom Unite
 E	超级玛丽合集	Super Mario All-Stars
 E	超级玛丽世界	Super Mario World
 E	超级玛丽兄弟	Super Mario Bros.
 E	超级玛丽64	Super Mario 64
 E	超级玛丽乐园	Super Mario Land
+E	梦之泉的物语	Kirby's Adventure
+E	SD快打旋风	Mighty Final Fight
+E	热血格斗传说	Nekketsu Kakutou Densetsu
+E	勇者斗恶龙2	Dragon Quest II
+E	勇者斗恶龙2	Dragon Warrior II
+E	勇者斗恶龙3	Dragon Quest III
+E	勇者斗恶龙3	Dragon Warrior III
+E	勇者斗恶龙4	Dragon Quest IV
+E	勇者斗恶龙4	Dragon Warrior IV
+E	塞尔达传说2	Zelda II - The Adventure of Link
+E	口袋里的魔鬼	Monster In My Pocket
+E	JuJu传说	Toki
+E	假面忍者 花丸	Kamen no Ninja - Hanamaru
+E	假面忍者 赤影	Kamen no Ninja - Akakage
+E	兔宝宝大冒险	Tiny Toon Adventures
+E	宾尼兔大冒险	Tiny Toon Adventures
+E	可鲁可鲁世界	Clu Clu Land
+E	哇咿哇咿世界	Wai Wai World
+E	唐老鸭历险记	DuckTales
+E	唐老鸭梦冒险	DuckTales
+E	大盗伍佑卫门	Ganbare Goemon! Karakuri Douchuu
+E	快杰洋枪丸2	Kaiketsu Yanchamaru 2 - Karakuri Land
+E	快杰洋枪丸3	Kaiketsu Yanchamaru 3 - Taiketsu! Zouringen
+E	暴走淘金者2	Championship Lode Runner
+E	米老鼠大冒险	Mickey Mousecapade
+E	超级中国人2	Little Ninja Brothers
+E	超音速机车赛	Mach Rider
+E	阿尔戈斯战士	Rygar
+E	龙魂 新的血族	Dragon Spirit - The New Legend
+E	恶魔城 月轮	Castlevania - Circle of the Moon
+E	宝可梦 火红	Pokemon - FireRed Version
+E	宝可梦 叶绿	Pokemon - LeafGreen Version
+E	口袋妖怪 金	Pokemon - Gold Version
+E	口袋妖怪 银	Pokemon - Silver Version
+E	口袋妖怪 黄	Pokemon - Yellow Version
+E	口袋妖怪 红	Pokemon - Red Version
+E	口袋妖怪 蓝	Pokemon - Blue Version
+E	口袋妖怪 绿	Pokemon - Green Version
+E	口袋妖怪 黑	Pokemon - Black Version
+E	口袋妖怪 白	Pokemon - White Version
+E	魂斗罗 力量	Contra Force
+E	魂斗罗力量	Contra Force
 E	晓月圆舞曲	Castlevania - Aria of Sorrow
 E	白夜协奏曲	Castlevania - Harmony of Dissonance
 E	月下夜想曲	Castlevania - Symphony of the Night
-E	宝可梦 剑	Pokemon Sword
-E	宝可梦 盾	Pokemon Shield
-E	宝可梦 朱	Pokemon Scarlet
-E	宝可梦 紫	Pokemon Violet
 E	马里奥合集	Super Mario All-Stars
 E	马里奥赛车	Mario Kart
 E	纸片马里奥	Paper Mario
@@ -153,6 +211,7 @@ E	逆转裁判3	Phoenix Wright - Ace Attorney - Trials and Tribulations
 E	逆转裁判2	Phoenix Wright - Ace Attorney - Justice for All
 E	镜之大迷宫	Kirby & The Amazing Mirror
 E	超级魂斗罗	Super C
+E	超级魂斗罗	Super Contra
 E	松鼠大作战	Chip 'n Dale Rescue Rangers
 E	忍者龙剑传	Ninja Gaiden
 E	西游记世界	Saiyuuki World
@@ -180,24 +239,15 @@ E	星露谷物语	Stardew Valley
 E	西游释厄传	Oriental Legend
 E	吞食天地2	Warriors of Fate
 E	吞食天地2	Tenchi wo Kurau II
-E	地球冒险3	Mother 3
-E	地球冒险2	EarthBound
 E	梦幻模拟战	Langrisser
-E	皇家骑士团	Tactics Ogre
 E	瓦里奥制造	WarioWare, Inc. - Mega Microgame$
 E	瓦里奥大陆	Wario Land
-E	大金刚国度	Donkey Kong Country
 E	俄罗斯方块	Tetris
-E	西游释厄传	Oriental Legend
 E	真三国无双	Dynasty Warriors
 E	汪达与巨像	Shadow of the Colossus
 E	女神异闻录	Persona
 E	真女神转生	Shin Megami Tensei
-E	幻想水浒传	Suikoden
-E	动物森友会	Animal Crossing
-E	路易吉洋馆	Luigi's Mansion
 E	猎天使魔女	Bayonetta
-E	星露谷物语	Stardew Valley
 E	以撒的结合	The Binding of Isaac
 E	暗黑破坏神	Diablo
 E	侠盗猎车手	Grand Theft Auto
@@ -205,6 +255,70 @@ E	命运石之门	Steins;Gate
 E	超级玛丽3	Super Mario Bros. 3
 E	超级玛丽2	Super Mario Bros. 2
 E	超级玛丽1	Super Mario Bros.
+E	热血新记录	Crash 'n' the Boys - Street Challenge
+E	热血进行曲	Downtown Nekketsu Koushinkyoku - Soreyuke Daiundoukai
+E	热血时代剧	Downtown Special - Kunio-kun no Jidaigeki Da yo Zenin Shuugou!
+E	热血曲棍球	Ike Ike! Nekketsu Hockey-bu - Subette Koronde Dairantou
+E	龙珠Z 强袭	Dragon Ball Z - Kyoushuu! Saiya Jin
+E	霸王的大陆	Sangokushi II - Haou no Tairiku
+E	林克的冒险	Zelda II - The Adventure of Link
+E	激龟忍者传	Teenage Mutant Ninja Turtles
+E	空中魂斗罗	Final Mission
+E	空中魂斗罗	S.C.A.T. - Special Cybernetic Attack Team
+E	水上魂斗罗	Shadow of the Ninja
+E	天使之翼2	Captain Tsubasa Vol. II - Super Striker
+E	足球小将2	Captain Tsubasa Vol. II - Super Striker
+E	沙罗曼蛇2	Gradius II
+E	宇宙巡航机	Gradius
+E	炸弹超人2	Bomberman II
+E	圣斗士星矢	Saint Seiya - Ougon Densetsu
+E	中途岛海战	1943 - The Battle of Midway
+E	Raf世界	Journey to Silius
+E	兴奋摩托车	Excitebike
+E	冰上曲棍球	Ice Hockey
+E	凯蒂猫世界	Hello Kitty World
+E	力量刀锋2	Power Blade 2
+E	加菲猫一周	Garfield - A Week of Garfield
+E	战斗原始人	Joe & Mac
+E	变形战机Z	Formation Z
+E	科乐美世界	Wai Wai World
+E	太空入侵者	Space Invaders
+E	太空射击战	Star Force
+E	太空立体战	3-D WorldRunner
+E	射箭小天使	Kid Icarus
+E	帝国直升机	Tiger-Heli
+E	老虎直升机	Tiger-Heli
+E	快乐猫世界	Mappy-Land
+E	快杰洋枪丸	Kid Niki - Radical Ninja
+E	怪鸭历险记	Darkwing Duck
+E	擂台筋肉人	M.U.S.C.L.E. - Tag Team Match
+E	救援直升机	Choplifter
+E	新地底探险	Spelunker
+E	机械化突袭	Mechanized Attack
+E	梦企鹅物语	Yume Penguin Monogatari
+E	汤姆和杰瑞	Tom & Jerry
+E	港京拉力赛	Zippy Race
+E	生命的奇迹	Bio Miracle Bokutte Upa
+E	穿长靴的猫	Puss 'n Boots - Pero's Great Adventure
+E	红巾特攻队	Sky Destroyer
+E	纽约大拳猫	Rockin' Kats
+E	忍者茶茶丸	Ninja Jajamaru-kun
+E	荒野大镖客	Gun.Smoke
+E	希特勒复活	Bionic Commando
+E	超级铁板阵	Super Xevious - Gump no Nazo
+E	超越地平线	Over Horizon
+E	银白色沙加	Silva Saga
+E	马克斯战士	Master Chu and the Drunkard Hu
+E	魔城传说2	Majou Densetsu 2 - Daimashikyou Galious
+E	新西兰故事	Kiwi Kraze
+E	所罗门之匙	Solomon's Key
+E	印度阿三传	Maharaja
+E	魔界村外传	Gargoyle's Quest II
+E	魔导士阴谋	The Wing of Madoola
+E	宝可梦 剑	Pokemon Sword
+E	宝可梦 盾	Pokemon Shield
+E	宝可梦 朱	Pokemon Scarlet
+E	宝可梦 紫	Pokemon Violet
 E	拳皇合集	King of Fighters Collection
 E	封印之剑	Fire Emblem - Fuuin no Tsurugi
 E	烈火之剑	Fire Emblem
@@ -214,6 +328,7 @@ E	逆转裁判	Phoenix Wright - Ace Attorney
 E	赤色要塞	Jackal
 E	绿色兵团	Rush'n Attack
 E	沙罗曼蛇	Life Force
+E	沙罗曼蛇	Salamander
 E	坦克大战	Battle City
 E	雪人兄弟	Snow Bros.
 E	气球大战	Balloon Fight
@@ -233,13 +348,16 @@ E	生化危机	Resident Evil
 E	恶灵古堡	Resident Evil
 E	寂静岭2	Silent Hill 2
 E	合金装备	Metal Gear Solid
+E	合金装备	Metal Gear
 E	潜龙谍影	Metal Gear Solid
 E	怪物猎人	Monster Hunter
 E	王国之心	Kingdom Hearts
 E	北欧女神	Valkyrie Profile
 E	前线任务	Front Mission
 E	空之轨迹	The Legend of Heroes - Trails in the Sky
+E	空之轨迹	The Legend of Heroes: Trails in the Sky
 E	圣剑传说	Legend of Mana
+E	圣剑传说	Secret of Mana
 E	幻想传说	Tales of Phantasia
 E	薄暮传说	Tales of Vesperia
 E	宿命传说	Tales of Destiny
@@ -255,17 +373,9 @@ E	快打旋风	Final Fight
 E	大魔界村	Ghouls'n Ghosts
 E	超魔界村	Super Ghouls'n Ghosts
 E	吞食天地	Destiny of an Emperor
-E	重装机兵	Metal Max
-E	时空之轮	Chrono Trigger
-E	圣剑传说	Secret of Mana
 E	地球冒险	EarthBound Beginnings
 E	光明力量	Shining Force
-E	高级战争	Advance Wars
-E	节奏天国	Rhythm Tengoku
 E	恶魔战士	Darkstalkers
-E	恐龙快打	Cadillacs and Dinosaurs
-E	圆桌骑士	Knights of the Round
-E	三国战纪	Knights of Valour
 E	怒首领蜂	DoDonPachi
 E	山脊赛车	Ridge Racer
 E	实况足球	Pro Evolution Soccer
@@ -273,28 +383,15 @@ E	天使之翼	Captain Tsubasa
 E	足球小将	Captain Tsubasa
 E	幽游白书	Yu Yu Hakusho
 E	数码宝贝	Digimon
-E	空之轨迹	The Legend of Heroes: Trails in the Sky
 E	零之轨迹	The Legend of Heroes: Trails from Zero
 E	碧之轨迹	The Legend of Heroes: Trails to Azure
 E	闪之轨迹	The Legend of Heroes: Trails of Cold Steel
-E	怪物猎人	Monster Hunter
 E	战国无双	Samurai Warriors
 E	无双大蛇	Warriors Orochi
-E	生化危机	Resident Evil
-E	合金装备	Metal Gear Solid
-E	王国之心	Kingdom Hearts
-E	北欧女神	Valkyrie Profile
-E	异度装甲	Xenogears
-E	异度神剑	Xenoblade Chronicles
 E	传说系列	Tales of
-E	宿命传说	Tales of Destiny
 E	永恒传说	Tales of Eternia
-E	幻想传说	Tales of Phantasia
 E	动物之森	Animal Crossing
-E	斯普拉遁	Splatoon
 E	喷射战士	Splatoon
-E	空洞骑士	Hollow Knight
-E	死亡细胞	Dead Cells
 E	泰拉瑞亚	Terraria
 E	我的世界	Minecraft
 E	上古卷轴	The Elder Scrolls
@@ -310,6 +407,103 @@ E	心跳回忆	Tokimeki Memorial
 E	超级玛丽	Super Mario Bros.
 E	玛丽医生	Dr. Mario
 E	玛丽赛车	Mario Kart
+E	热血足球	Nintendo World Cup
+E	热血足球	Nekketsu Koukou Dodgeball-bu - Soccer Hen
+E	热血物语	River City Ransom
+E	热血篮球	Nekketsu! Street Basket - Ganbare Dunk Heroes
+E	龙珠Z2	Dragon Ball Z II - Gekishin Freeza!!
+E	龙珠Z3	Dragon Ball Z III - Ressen Jinzouningen
+E	火焰纹章	Fire Emblem - Ankoku Ryuu to Hikari no Tsurugi
+E	圣火徽章	Fire Emblem - Ankoku Ryuu to Hikari no Tsurugi
+E	双截龙2	Double Dragon II - The Revenge
+E	双截龙3	Double Dragon III - The Sacred Stones
+E	水管玛丽	Mario Bros.
+E	激龟格斗	Teenage Mutant Ninja Turtles - Tournament Fighters
+E	赤影战士	Shadow of the Ninja
+E	泡泡龙2	Bubble Bobble Part 2
+E	炸弹超人	Bomberman
+E	炸弹人2	Bomberman II
+E	大金刚3	Donkey Kong 3
+E	大金刚2	Donkey Kong Jr.
+E	拉夫世界	Journey to Silius
+E	三只小猪	Pooyan
+E	小猪打狼	Pooyan
+E	上尉密令	Captain America and the Avengers
+E	美国队长	Captain America and the Avengers
+E	越野摩托	Excitebike
+E	力量刀锋	Power Blade
+E	加纳战机	Gun-Nac
+E	北斗神拳	Fist of the North Star
+E	北斗神拳	Hokuto no Ken
+E	合金风暴	Metal Storm
+E	哆啦A梦	Doraemon
+E	嘉蒂外传	The Guardian Legend
+E	国王骑士	King's Knight
+E	圣铃传说	Little Samson
+E	外星战将	Bucky O'Hare
+E	大力水手	Popeye
+E	天神之剑	Crystalis
+E	太阳勇者	Taiyou no Yuusha - Firebird
+E	威洛传奇	Willow
+E	小美人鱼	The Little Mermaid
+E	小魔怪2	Gremlins 2 - The New Batch
+E	猫捉老鼠	Mappy
+E	恶魔世界	Devil World
+E	淘气厨师	Panic Restaurant
+E	战场之狼	Commando
+E	打空气2	Dig Dug II
+E	救火英雄	Flying Hero
+E	地底探险	Spelunker
+E	新月剑痕	Getsu Fuuma Den
+E	月风魔传	Getsu Fuuma Den
+E	时空小子	Time Zone
+E	月之水晶	Moon Crystal
+E	机械战警	RoboCop
+E	铁甲威龙	RoboCop
+E	梦之勇士	Little Nemo - The Dream Master
+E	梦幻战机	Crisis Force
+E	混沌世界	Chaos World
+E	火炮侦探	Vice - Project Doom
+E	火箭赛车	Road Fighter
+E	烈火92	Summer Carnival '92 - Recca
+E	爱的小屋	Binary Land
+E	企鹅先生	Binary Land
+E	特救指令	Shatterhand
+E	特种部队	G.I. Joe - A Real American Hero
+E	狙击13	Golgo 13 - Top Secret Episode
+E	猫之狂欢	Felix the Cat
+E	猫党忍传	Cat Ninden Teyandee
+E	功夫猫党	Cat Ninden Teyandee
+E	超级宝宝	Bio Miracle Bokutte Upa
+E	百眼巨神	Argus
+E	神鹰一号	Sky Shark
+E	空中要塞	Sky Kid
+E	荒野枪手	Wild Gunman
+E	虎穴行动	Bionic Commando
+E	蜡笔小新	Crayon Shin-Chan - Ora to Poi Poi
+E	迷宫组曲	Milon's Secret Castle
+E	野狼行动	Operation Wolf
+E	金属装甲	Metal Gear
+E	阿贝道X	Abadox
+E	雷霆任务	Thunder & Lightning
+E	飞人战士	Flying Warriors
+E	飞龙之拳	Flying Dragon - The Secret Scroll
+E	鸟人战队	Choujin Sentai - Jetman
+E	鸟的故事	Kiwi Kraze
+E	鸵鸟骑士	Joust
+E	龙之城堡	Castle of Dragon
+E	龙之忍者	Bad Dudes
+E	中东战争	Silk Worm
+E	古巴战士	Guerrilla War
+E	古巴英雄	Guerrilla War
+E	电梯大战	Elevator Action
+E	南极企鹅	Antarctic Adventure
+E	恶魔城3	Castlevania III - Dracula's Curse
+E	恶魔城2	Castlevania II - Simon's Quest
+E	功夫小子	Spartan X
+E	星际战士	Star Soldier
+E	宇宙战舰	Zanac
+E	最终任务	Final Mission
 E	缩小帽	The Legend of Zelda - The Minish Cap
 E	织梦岛	The Legend of Zelda - Link's Awakening
 E	时之笛	The Legend of Zelda - Ocarina of Time
@@ -331,27 +525,82 @@ E	大战略	Daisenryaku
 E	大金刚	Donkey Kong
 E	吃豆人	Pac-Man
 E	七龙珠	Dragon Ball Z
+E	七龙珠	Dragon Ball - Shenlong no Nazo
 E	龙珠Z	Dragon Ball Z
 E	游戏王	Yu-Gi-Oh!
-E	寂静岭	Silent Hill
 E	鬼武者	Onimusha
 E	皮克敏	Pikmin
-E	哈迪斯	Hades
 E	茶杯头	Cuphead
 E	巫师3	The Witcher 3
+E	兽王记	Altered Beast
+E	兽王记	Juuouki
+E	真侍魂	Samurai Shodown II
+E	真侍魂	Shin Samurai Spirits
+E	彩虹岛	Rainbow Islands
+E	小金刚	Donkey Kong Jr.
+E	B计划	B-Wings
+E	八只眼	8 Eyes
+E	兵蜂3	TwinBee 3 - Poko Poko Daimaou
+E	兵蜂2	Moero TwinBee - Cinnamon Hakase o Sukue!
+E	卡洛夫	Karnov
+E	原始人	Joe & Mac
+E	吉米克	Gimmick!
+E	机器猫	Doraemon
+E	阿源君	Hammerin' Harry
+E	大蜈蚣	Millipede
+E	大蜜蜂	Galaga
+E	小蜜蜂	Galaxian
+E	光神话	Kid Icarus
+E	异形3	Alien 3
+E	快乐猫	Mappy
+E	快乐鼠	Mappy
+E	打砖块	Arkanoid
+E	挖掘2	Dig Dug II
+E	打空气	Dig Dug
+E	挖金子	Lode Runner
+E	淘金者	Lode Runner
+E	推箱子	Sokoban
+E	摩艾君	Moai-kun
+E	筋肉人	M.U.S.C.L.E. - Tag Team Match
+E	汉堡包	BurgerTime
+E	火凤凰	Exerion
+E	火箭车	Road Fighter
+E	菲力猫	Felix the Cat
+E	究极虎	Twin Cobra
+E	蝙蝠侠	Batman - The Video Game
+E	赖皮狗	Snoopy's Silly Sports Spectacular!
+E	铁板阵	Xevious
+E	迷糊蛋	Cocoron
+E	阿拉丁	Aladdin
+E	飞行蛟	Flying Dragon - The Secret Scroll
+E	忍者蛙	Battletoads
+E	魔界村	Ghosts'n Goblins
+E	恶魔城	Castlevania
+E	打鸭子	Duck Hunt
+E	拆屋工	Wrecking Crew
+E	魔界岛	Gargoyle's Quest II
+E	加拉加	Galaga
 E	战神	God of War
 E	鬼泣	Devil May Cry
 E	蔚蓝	Celeste
-E	名将	Captain Commando
 E	名将	Captain Commando
 E	雷电	Raiden
 E	铁拳	Tekken
 E	高达	Gundam
-E	战神	God of War
-E	鬼泣	Devil May Cry
 E	大神	Okami
-E	蔚蓝	Celeste
 E	如龙	Yakuza
+E	兵蜂	TwinBee
+E	剑王	Sword Master
+E	功夫	Yie Ar Kung-Fu
+E	功夫	Kung Fu
+E	双鹰	Twin Eagle
+E	吃豆	Pac-Man
+E	埃及	Egypt
+E	火鸟	Hi no Tori - Houou Hen - Gaou no Bouken
+E	翼人	The Wing of Madoola
+E	脱狱	P.O.W. - Prisoners of War
+E	蕾拉	Layla
+E	踢王	Kick Master
 S	超级机器人大战	Super Robot Taisen
 S	洛克人Zero	Mega Man Zero
 S	洛克人EXE	Mega Man Battle Network

@@ -15,9 +15,15 @@ import java.lang.ref.SoftReference
  */
 object CjkAliases {
 
+    private class AliasEntry(
+        val zh: String,
+        val zhCompact: String,
+        val en: String,
+    )
+
     private class AliasTable(
-        val exactGames: List<Pair<String, String>>,
-        val seriesPrefixes: List<Pair<String, String>>,
+        val exactGames: List<AliasEntry>,
+        val seriesPrefixes: List<AliasEntry>,
     )
 
     @Volatile
@@ -28,7 +34,11 @@ object CjkAliases {
 
     private val loadLock = Any()
 
-    private val TRAILING_NUM = Regex("""(\d{1,4}|[IVX]{1,4})$""")
+    private const val MAX_EXPANDED_ALIASES = 4
+    private val CLEAN_DELIM_REGEX = Regex("""[-:：·—_!！?？\s]+""")
+    private val LEADING_SEQUEL_NUM = Regex("""^(\d{1,3}|[IVX]{1,4})(?=$|[^\dA-Za-z])""")
+    private val TRAILING_SHORT_NUM = Regex("""(\d{1,3}|[IVX]{1,4})$""")
+    private val ENDS_WITH_NUM = Regex("""(?:\b\d{1,4}|\b[IVX]{1,4})$""")
 
     /** 仅保存 Application Context 引用，不触发任何磁盘读取。 */
     fun init(context: Context) {
@@ -61,8 +71,8 @@ object CjkAliases {
     }
 
     private fun loadTable(): AliasTable {
-        val exact = ArrayList<Pair<String, String>>(350)
-        val series = ArrayList<Pair<String, String>>(80)
+        val exact = ArrayList<AliasEntry>(640)
+        val series = ArrayList<AliasEntry>(80)
         openReader()?.use { br ->
             br.forEachLine { rawLine ->
                 if (rawLine.isEmpty() || rawLine[0] == '#') return@forEachLine
@@ -73,45 +83,105 @@ object CjkAliases {
                 val zh = rawLine.substring(t1 + 1, t2)
                 val en = rawLine.substring(t2 + 1)
                 if (zh.isEmpty() || en.isEmpty()) return@forEachLine
+                val entry = AliasEntry(zh, zh.replace(" ", ""), en)
                 when (rawLine[0]) {
-                    'E' -> exact.add(zh to en)
-                    'S' -> series.add(zh to en)
+                    'E' -> exact.add(entry)
+                    'S' -> series.add(entry)
                 }
             }
         }
         return AliasTable(exact, series)
     }
 
-    /** 若 [raw] 包含中文字符，返回 0..3 条英文候选标题。 */
+    private fun isCjkChar(ch: Char): Boolean {
+        val code = ch.code
+        return code in 0x4E00..0x9FFF || code in 0x3400..0x4DBF
+    }
+
+    /**
+     * 校验词条在清洗后标题中的边界，返回命中结束下标（未命中返回 `-1`）：
+     * - 短词（≤2 字，如 `战神`/`功夫`/`零`）与系列前缀禁止紧贴在其它汉字之后命中，防止「飞天战神→God of War」「傲视三国志→Romance of the Three Kingdoms」误配；
+     * - 短精确词及单字前缀后若紧跟无分隔汉字同样拒绝（如「战神传说」「零式战机」），仅放行完整词、数字或带分隔副标题。
+     */
+    private fun findAliasMatchEnd(
+        cleaned: String,
+        compact: String,
+        entry: AliasEntry,
+        isSeries: Boolean,
+    ): Int {
+        val zhCompact = entry.zhCompact
+        val idx = compact.indexOf(zhCompact, ignoreCase = true)
+        if (idx < 0) return -1
+        val endIdx = idx + zhCompact.length
+        val shortKey = zhCompact.length <= 2
+        if ((shortKey || isSeries) && idx > 0 && isCjkChar(compact[idx - 1])) {
+            return -1
+        }
+        if (shortKey && (!isSeries || zhCompact.length == 1) && endIdx < compact.length) {
+            val clIdx = cleaned.indexOf(entry.zh, ignoreCase = true)
+            if (clIdx >= 0) {
+                val clEnd = clIdx + entry.zh.length
+                if (clEnd < cleaned.length && isCjkChar(cleaned[clEnd])) {
+                    return -1
+                }
+            } else if (isCjkChar(compact[endIdx])) {
+                return -1
+            }
+        }
+        return endIdx
+    }
+
+    /** 若 [raw] 包含中文字符，返回 0..4 条英文候选标题（支持同中文多平台译名与副标题前的续作编号提取）。 */
     fun expandEnglishAliases(raw: String): List<String> {
         if (raw.isBlank() || !containsCjk(raw)) return emptyList()
         val cleaned = TitleNormalizer.stripRomTags(raw)
-            .replace(Regex("""[-:：·—_\s]+"""), " ")
+            .replace(CLEAN_DELIM_REGEX, " ")
             .trim()
         if (cleaned.isEmpty()) return emptyList()
         val compact = cleaned.replace(" ", "")
         val tbl = table()
 
-        val out = LinkedHashSet<String>(3)
-        for ((zh, en) in tbl.exactGames) {
-            val zhCompact = zh.replace(" ", "")
-            if (cleaned.contains(zh, ignoreCase = true) || compact.contains(zhCompact, ignoreCase = true)) {
+        val out = LinkedHashSet<String>(MAX_EXPANDED_ALIASES)
+
+        fun addWithSequel(en: String, after: String, isSeries: Boolean) {
+            val leading = LEADING_SEQUEL_NUM.find(after)?.groupValues?.getOrNull(1)
+            val num = leading ?: if (isSeries && after.length <= 4) {
+                TRAILING_SHORT_NUM.find(after)?.groupValues?.getOrNull(1)
+            } else {
+                null
+            }
+            if (!num.isNullOrBlank() && !ENDS_WITH_NUM.containsMatchIn(en)) {
+                out += "$en $num"
+            }
+            if (out.size < MAX_EXPANDED_ALIASES) {
                 out += en
-                if (out.size >= 2) break
             }
         }
+
+        // 1) 精确/副标题词表（按字长降序且同词相邻分组）：锁定最长命中的中文键并收集其全部跨平台英文候选
+        var matchedKey: String? = null
+        for (entry in tbl.exactGames) {
+            if (matchedKey != null) {
+                if (!entry.zhCompact.equals(matchedKey, ignoreCase = true)) {
+                    if (entry.zhCompact.length < matchedKey.length) break
+                    continue
+                }
+            }
+            val endIdx = findAliasMatchEnd(cleaned, compact, entry, isSeries = false)
+            if (endIdx >= 0) {
+                if (matchedKey == null) matchedKey = entry.zhCompact
+                addWithSequel(entry.en, compact.substring(endIdx), isSeries = false)
+                if (out.size >= MAX_EXPANDED_ALIASES) break
+            }
+        }
+
+        // 2) 系列前缀兜底：提取紧跟在系列名后的续作编号（如「勇者斗恶龙3-罪恶渊源」→「Dragon Quest 3」）
         if (out.isEmpty()) {
-            for ((prefix, enSeries) in tbl.seriesPrefixes) {
-                val pCompact = prefix.replace(" ", "")
-                val idx = compact.indexOf(pCompact, ignoreCase = true)
-                if (idx >= 0) {
-                    val tail = compact.substring(idx + pCompact.length).trim()
-                    val num = TRAILING_NUM.find(tail)?.groupValues?.getOrNull(1)
-                    if (!num.isNullOrBlank()) {
-                        out += "$enSeries $num"
-                    }
-                    out += enSeries
-                    break
+            for (entry in tbl.seriesPrefixes) {
+                val endIdx = findAliasMatchEnd(cleaned, compact, entry, isSeries = true)
+                if (endIdx >= 0) {
+                    addWithSequel(entry.en, compact.substring(endIdx), isSeries = true)
+                    if (out.size >= MAX_EXPANDED_ALIASES) break
                 }
             }
         }
@@ -120,8 +190,7 @@ object CjkAliases {
 
     fun containsCjk(s: String): Boolean {
         for (ch in s) {
-            val code = ch.code
-            if (code in 0x4E00..0x9FFF || code in 0x3400..0x4DBF) return true
+            if (isCjkChar(ch)) return true
         }
         return false
     }
@@ -131,18 +200,18 @@ object CjkAliases {
      * 例如输入「超级马里」→ 推荐「超级马里奥合集」「超级马里奥世界」「超级马里奥兄弟」等。
      */
     fun suggestKeywords(raw: String, limit: Int = 8): List<String> {
-        val q = TitleNormalizer.stripRomTags(raw).replace(Regex("""[-:：·—_\s]+"""), "").trim()
+        val q = TitleNormalizer.stripRomTags(raw).replace(CLEAN_DELIM_REGEX, "").trim()
         if (q.length < 2) return emptyList()
         val tbl = table()
 
         val out = LinkedHashSet<String>(limit)
         val seenEn = HashSet<String>(limit * 2)
         if (containsCjk(q)) {
-            val allPairs = ArrayList<Pair<String, String>>(tbl.exactGames.size + tbl.seriesPrefixes.size)
+            val allPairs = ArrayList<AliasEntry>(tbl.exactGames.size + tbl.seriesPrefixes.size)
             allPairs.addAll(tbl.exactGames)
             allPairs.addAll(tbl.seriesPrefixes)
             // 短词/核心正统作优先，且按英文目标去重，避免同一游戏多个中文别名占满推荐位
-            val byLen = allPairs.sortedBy { it.first.length }
+            val byLen = allPairs.sortedBy { it.zh.length }
 
             fun tryAdd(zh: String, en: String): Boolean {
                 if (seenEn.add(en.lowercase())) {
@@ -152,16 +221,16 @@ object CjkAliases {
             }
 
             // 1) 优先：完整前缀匹配（如「超级马里」→「超级马里奥」「超级马里奥世界」「超级马里奥合集」…）
-            for ((zh, en) in byLen) {
-                val c = zh.replace(" ", "")
-                if (c != q && c.startsWith(q, ignoreCase = true) && tryAdd(zh, en)) {
+            for (entry in byLen) {
+                val c = entry.zhCompact
+                if (c != q && c.startsWith(q, ignoreCase = true) && tryAdd(entry.zh, entry.en)) {
                     return out.toList()
                 }
             }
             // 2) 次优先：子串包含匹配（如「马里」→「超级马里奥…」）
-            for ((zh, en) in byLen) {
-                val c = zh.replace(" ", "")
-                if (c != q && c.contains(q, ignoreCase = true) && tryAdd(zh, en)) {
+            for (entry in byLen) {
+                val c = entry.zhCompact
+                if (c != q && c.contains(q, ignoreCase = true) && tryAdd(entry.zh, entry.en)) {
                     return out.toList()
                 }
             }
@@ -169,11 +238,11 @@ object CjkAliases {
             val qChars = q.filter { it.code in 0x4E00..0x9FFF }.toSet()
             if (qChars.size >= 2) {
                 val scored = ArrayList<Triple<String, String, Int>>()
-                for ((zh, en) in byLen) {
-                    if (en.lowercase() in seenEn) continue
-                    val overlap = zh.count { it in qChars }
+                for (entry in byLen) {
+                    if (entry.en.lowercase() in seenEn) continue
+                    val overlap = entry.zh.count { it in qChars }
                     if (overlap >= 2) {
-                        scored += Triple(zh, en, overlap)
+                        scored += Triple(entry.zh, entry.en, overlap)
                     }
                 }
                 scored.sortWith(compareByDescending<Triple<String, String, Int>> { it.third }.thenBy { it.first.length })
@@ -184,8 +253,8 @@ object CjkAliases {
         } else {
             val qLower = q.lowercase()
             val allEn = LinkedHashSet<String>()
-            for ((_, en) in tbl.exactGames) allEn += en
-            for ((_, en) in tbl.seriesPrefixes) allEn += en
+            for (entry in tbl.exactGames) allEn += entry.en
+            for (entry in tbl.seriesPrefixes) allEn += entry.en
             for (en in allEn) {
                 val c = en.lowercase().replace(Regex("""[^a-z0-9]"""), "")
                 if (c != qLower && c.contains(qLower)) {

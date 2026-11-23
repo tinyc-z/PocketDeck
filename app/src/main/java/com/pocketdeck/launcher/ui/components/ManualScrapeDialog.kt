@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -53,6 +56,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -65,11 +69,13 @@ import coil3.compose.AsyncImagePainter
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.CjkAliases
 import com.pocketdeck.launcher.data.ManualScrapeCandidate
+import com.pocketdeck.launcher.data.ScrapeMissingSummary
 import com.pocketdeck.launcher.data.ScrapeProgress
 import com.pocketdeck.launcher.data.ScraperCatalog
 import com.pocketdeck.launcher.data.model.Game
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
+import com.pocketdeck.launcher.ui.components.icons.HomeIcons
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckShapes
@@ -169,14 +175,14 @@ fun ScrapeProgressBanner(
                 Box(
                     Modifier
                         .clip(DeckShapes.tabPill)
-                        .background(DeckColors.Ruby)
-                        .soundClickable(onClick = onCancel)
+                        .background(if (progress.cancelling) DeckColors.SurfaceAlt else DeckColors.Ruby)
+                        .then(if (!progress.cancelling) Modifier.soundClickable(onClick = onCancel) else Modifier)
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.scrape_task_stop),
+                        text = stringResource(if (progress.cancelling) R.string.scrape_task_cancelling else R.string.scrape_task_stop),
                         style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color.White,
+                        color = if (progress.cancelling) DeckColors.TextSecondary else Color.White,
                     )
                 }
             } else if (!progress.running && onDismiss != null) {
@@ -216,14 +222,32 @@ fun ScrapeProgressBanner(
 @Composable
 fun ScrapeTaskDialog(
     progress: ScrapeProgress,
+    missingSummary: ScrapeMissingSummary? = null,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     onCancel: () -> Unit,
     onRestart: () -> Unit,
+    onViewLogs: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
-    var btnFocus by remember(progress.running) { mutableIntStateOf(0) }
+    val isIdle = !progress.running && progress.total == 0
+    val isRunning = progress.running
+    val isCancelling = progress.running && progress.cancelling
+    val isFinished = !progress.running && progress.total > 0
+    val canStartInIdle = isIdle && (missingSummary?.pendingTotal ?: 0) > 0
+    val canContinueAfterFinish = isFinished && (missingSummary == null || missingSummary.pendingTotal > 0)
+    val showDualButtons = isRunning || (isFinished && onViewLogs != null)
+
+    // 运行中/正在终止默认焦点放在右侧「转入后台」，避免误触终止；已结束有双按钮时默认聚焦右侧主按钮；单按钮态聚焦 0
+    val defaultFocus = when {
+        isRunning -> 1
+        showDualButtons -> 1
+        else -> 0
+    }
+    var btnFocus by remember(isRunning, isCancelling, isIdle, showDualButtons) {
+        mutableIntStateOf(defaultFocus)
+    }
     val fraction = if (progress.total > 0) {
         (progress.done.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f)
     } else 0f
@@ -232,11 +256,15 @@ fun ScrapeTaskDialog(
         focusRequester.requestFocusSafely()
     }
 
+    val dangerTint = DeckColors.StatusDanger
+    val okTint = DeckColors.StatusSuccess
+    val warnTint = DeckColors.StatusWarning
+
     Box(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .scrimTapDismiss(onDismiss)
+            .then(if (!isRunning) Modifier.scrimTapDismiss(onDismiss) else Modifier.blockOverlayTouchThrough())
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -248,17 +276,26 @@ fun ScrapeTaskDialog(
                         true
                     }
                     event.key == Key.DirectionLeft || event.key == Key.DirectionUp -> {
-                        btnFocus = 0; true
+                        if (showDualButtons && !isCancelling) btnFocus = 0
+                        true
                     }
                     event.key == Key.DirectionRight || event.key == Key.DirectionDown -> {
-                        btnFocus = 1; true
+                        if (showDualButtons) btnFocus = 1
+                        true
                     }
                     GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
                         if (isInitialPress) {
-                            if (progress.running) {
-                                if (btnFocus == 0) onCancel() else onDismiss()
-                            } else {
-                                if (btnFocus == 0) onDismiss() else onRestart()
+                            when {
+                                isCancelling -> onDismiss()
+                                isRunning -> if (btnFocus == 0) onCancel() else onDismiss()
+                                canStartInIdle -> onRestart()
+                                isIdle -> onDismiss()
+                                showDualButtons -> {
+                                    if (btnFocus == 0) onViewLogs?.invoke()
+                                    else if (canContinueAfterFinish) onRestart() else onDismiss()
+                                }
+                                canContinueAfterFinish -> onRestart()
+                                else -> onDismiss()
                             }
                         }
                         true
@@ -270,6 +307,7 @@ fun ScrapeTaskDialog(
     ) {
         DialogPanelCard(
             onDismiss = onDismiss,
+            showCloseButton = !isRunning,
             modifier = Modifier
                 .padding(horizontal = 24.dp, vertical = 16.dp)
                 .widthIn(max = DeckDialogSize.WidthM)
@@ -281,45 +319,116 @@ fun ScrapeTaskDialog(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(end = 36.dp),
+                        .padding(end = if (isRunning) 0.dp else 36.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = if (isRunning) Arrangement.SpaceBetween else Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.scrape_task_title),
+                        text = stringResource(R.string.scraping_missing),
                         style = DeckType.menuTitle.copy(fontWeight = FontWeight.Bold),
                         color = DeckColors.TextPrimary,
                     )
+                    val (pillText, pillBg, pillFg) = when {
+                        isCancelling -> Triple(
+                            stringResource(R.string.scrape_task_cancelling),
+                            warnTint.copy(alpha = 0.14f),
+                            warnTint,
+                        )
+                        isRunning -> Triple(
+                            stringResource(R.string.scrape_task_pill_running_fmt, progress.percent),
+                            DeckColors.Ruby.copy(alpha = 0.13f),
+                            DeckColors.Ruby,
+                        )
+                        isIdle && missingSummary == null -> Triple(
+                            "…",
+                            DeckColors.SurfaceAlt,
+                            DeckColors.TextSecondary,
+                        )
+                        isIdle && (missingSummary?.pendingTotal ?: 0) > 0 -> Triple(
+                            stringResource(R.string.scrape_task_pill_pending_fmt, missingSummary!!.pendingTotal),
+                            DeckColors.Ruby.copy(alpha = 0.13f),
+                            DeckColors.Ruby,
+                        )
+                        isIdle -> Triple(
+                            stringResource(R.string.scrape_task_pill_complete),
+                            okTint.copy(alpha = 0.14f),
+                            okTint,
+                        )
+                        progress.cancelled -> Triple(
+                            stringResource(R.string.scrape_task_pill_cancelled_fmt, progress.percent),
+                            DeckColors.SurfaceAlt,
+                            DeckColors.TextSecondary,
+                        )
+                        else -> Triple(
+                            stringResource(R.string.scrape_task_pill_done),
+                            okTint.copy(alpha = 0.14f),
+                            okTint,
+                        )
+                    }
+                    Row(
+                        Modifier
+                            .clip(CircleShape)
+                            .background(pillBg)
+                            .padding(horizontal = 9.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        if (isRunning && !isCancelling) {
+                            Box(
+                                Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(pillFg),
+                            )
+                        }
+                        Text(
+                            text = pillText,
+                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
+                            color = pillFg,
+                        )
+                    }
+                }
+
+                val statusText = when {
+                    isCancelling -> stringResource(R.string.scrape_task_cancelling_desc)
+                    isRunning -> null
+                    isIdle && missingSummary == null -> stringResource(R.string.scrape_task_scanning)
+                    isIdle && missingSummary != null && missingSummary.totalGames == 0 ->
+                        stringResource(R.string.scrape_task_empty_library)
+                    isIdle && missingSummary != null && missingSummary.pendingTotal == 0 ->
+                        stringResource(R.string.scrape_task_all_complete_fmt, missingSummary.totalGames)
+                    isIdle && missingSummary != null ->
+                        stringResource(R.string.scrape_task_ready_fmt, missingSummary.pendingTotal, missingSummary.totalGames)
+                    else -> null
+                }
+                if (statusText != null) {
                     Text(
-                        text = "${progress.percent}%",
-                        style = DeckType.menuTitle.copy(fontWeight = FontWeight.Bold),
-                        color = if (progress.running) DeckColors.Ruby else DeckColors.TextPrimary,
+                        text = statusText,
+                        style = DeckType.metaLabel,
+                        color = DeckColors.TextSecondary,
                     )
                 }
 
-                Text(
-                    text = when {
-                        progress.running -> stringResource(R.string.scrape_task_status_running)
-                        progress.cancelled -> stringResource(R.string.scrape_task_status_cancelled)
-                        else -> stringResource(R.string.scrape_task_status_done)
-                    },
-                    style = DeckType.metaLabel,
-                    color = DeckColors.TextSecondary,
-                )
+                if (!isIdle) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(DeckShapes.tabPill),
+                        color = when {
+                            isCancelling -> DeckColors.TextSecondary
+                            isRunning -> DeckColors.Ruby
+                            !progress.cancelled -> okTint
+                            else -> DeckColors.TextSecondary
+                        },
+                        trackColor = DeckColors.SurfaceAlt,
+                        gapSize = 0.dp,
+                        drawStopIndicator = {},
+                    )
+                }
 
-                LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(DeckShapes.tabPill),
-                    color = if (progress.running) DeckColors.Ruby else DeckColors.TextSecondary,
-                    trackColor = DeckColors.SurfaceAlt,
-                    gapSize = 0.dp,
-                    drawStopIndicator = {},
-                )
-
-                if (progress.running && progress.currentTitle.isNotBlank()) {
+                if (isRunning && !isCancelling && progress.currentTitle.isNotBlank()) {
                     val curLine = if (progress.currentPlatform.isNotBlank()) {
                         "[${progress.currentPlatform}] ${progress.currentTitle}"
                     } else {
@@ -337,74 +446,214 @@ fun ScrapeTaskDialog(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(DeckColors.Surface)
-                        .border(0.6.dp, DeckColors.Line, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .border(0.6.dp, DeckColors.Line, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    ScrapeStatCell(stringResource(R.string.scrape_task_stat_progress), "${progress.done} / ${progress.total}")
-                    ScrapeStatCell(stringResource(R.string.scrape_task_stat_updated), "${progress.updatedCount}")
-                    ScrapeStatCell(stringResource(R.string.scrape_task_stat_missed), "${progress.failedCount}")
+                    if (isIdle) {
+                        val pendingText = missingSummary?.pendingTotal?.toString() ?: "…"
+                        val coverText = missingSummary?.missingCoverCount?.toString() ?: "…"
+                        val metaText = missingSummary?.missingMetaCount?.toString() ?: "…"
+                        ScrapeStatCell(
+                            label = stringResource(R.string.scrape_task_stat_pending),
+                            value = pendingText,
+                            valueColor = when {
+                                missingSummary == null -> DeckColors.TextPrimary
+                                missingSummary.pendingTotal > 0 -> DeckColors.Ruby
+                                else -> okTint
+                            },
+                        )
+                        ScrapeStatCell(stringResource(R.string.scrape_task_stat_missing_cover), coverText)
+                        ScrapeStatCell(stringResource(R.string.scrape_task_stat_missing_meta), metaText)
+                    } else {
+                        ScrapeStatCell(stringResource(R.string.scrape_task_stat_processed), "${progress.done} / ${progress.total}")
+                        ScrapeStatCell(
+                            label = stringResource(R.string.scrape_task_stat_updated),
+                            value = "${progress.updatedCount}",
+                            valueColor = if (progress.updatedCount > 0) okTint else DeckColors.TextPrimary,
+                        )
+                        ScrapeStatCell(stringResource(R.string.scrape_task_stat_missed), "${progress.failedCount}")
+                    }
                 }
 
+                if (isFinished && missingSummary != null && missingSummary.pendingTotal > 0) {
+                    Text(
+                        text = stringResource(
+                            R.string.scrape_task_remaining_fmt,
+                            missingSummary.pendingTotal,
+                            missingSummary.missingCoverCount,
+                            missingSummary.missingMetaCount,
+                        ),
+                        style = DeckType.metaLabel,
+                        color = DeckColors.TextSecondary,
+                    )
+                }
+
+                val shape = RoundedCornerShape(11.dp)
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    val primaryLabel = if (progress.running) {
-                        stringResource(R.string.scrape_task_stop_action)
-                    } else {
-                        stringResource(R.string.scrape_task_close)
-                    }
-                    val secondaryLabel = if (progress.running) {
-                        stringResource(R.string.scrape_task_background)
-                    } else {
-                        stringResource(R.string.scraping_missing)
-                    }
-                    val shape = RoundedCornerShape(10.dp)
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(shape)
-                            .then(
-                                if (btnFocus == 0) Modifier.brandBackground(shape)
-                                else Modifier.background(DeckColors.AccentSoft),
-                            )
-                            .soundClickable {
-                                btnFocus = 0
-                                if (progress.running) onCancel() else onDismiss()
+                    if (isRunning) {
+                        // 左：终止任务（柔红警示态；点击后立即锁定为「正在终止…」不可连点）
+                        val stopFocused = btnFocus == 0 && !isCancelling
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clip(shape)
+                                .then(
+                                    when {
+                                        isCancelling -> Modifier
+                                            .background(DeckColors.SurfaceAlt)
+                                            .border(0.7.dp, DeckColors.Line, shape)
+                                        stopFocused -> Modifier
+                                            .background(dangerTint)
+                                        else -> Modifier
+                                            .background(dangerTint.copy(alpha = 0.11f))
+                                            .border(0.8.dp, dangerTint.copy(alpha = 0.32f), shape)
+                                    },
+                                )
+                                .then(
+                                    if (!isCancelling) Modifier.soundClickable {
+                                        btnFocus = 1
+                                        onCancel()
+                                    } else Modifier,
+                                )
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                if (isCancelling) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(13.dp),
+                                        strokeWidth = 1.8.dp,
+                                        color = DeckColors.TextSecondary,
+                                    )
+                                }
+                                Text(
+                                    text = if (isCancelling) {
+                                        stringResource(R.string.scrape_task_cancelling)
+                                    } else {
+                                        stringResource(R.string.scrape_task_stop_action)
+                                    },
+                                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                                    color = when {
+                                        isCancelling -> DeckColors.TextSecondary
+                                        stopFocused -> Color.White
+                                        else -> dangerTint
+                                    },
+                                )
                             }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = primaryLabel,
-                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (btnFocus == 0) Color.White else DeckColors.Ruby,
-                        )
-                    }
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(shape)
-                            .then(
-                                if (btnFocus == 1) Modifier.brandBackground(shape)
-                                else Modifier.background(DeckColors.Surface),
+                        }
+
+                        // 右：转入后台（正向主按钮）
+                        val bgFocused = btnFocus == 1 || isCancelling
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clip(shape)
+                                .then(
+                                    if (bgFocused) Modifier.brandBackground(shape)
+                                    else Modifier
+                                        .background(DeckColors.Surface)
+                                        .border(0.7.dp, DeckColors.Line, shape),
+                                )
+                                .soundClickable {
+                                    btnFocus = 1
+                                    onDismiss()
+                                }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.scrape_task_background_short),
+                                style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                                color = if (bgFocused) Color.White else DeckColors.TextPrimary,
                             )
-                            .border(0.7.dp, if (btnFocus == 1) Color.Transparent else DeckColors.Line, shape)
-                            .soundClickable {
-                                btnFocus = 1
-                                if (progress.running) onDismiss() else onRestart()
+                        }
+                    } else if (isIdle) {
+                        // 待开始态：单主按钮（有缺失显示「开始刮削（N 款）」，0 缺失显示「完成」）
+                        val label = when {
+                            canStartInIdle -> stringResource(R.string.scrape_task_start_fmt, missingSummary!!.pendingTotal)
+                            else -> stringResource(R.string.scrape_task_finish)
+                        }
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .brandBackground(shape)
+                                .soundClickable {
+                                    if (canStartInIdle) onRestart() else onDismiss()
+                                }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = label,
+                                style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                                color = Color.White,
+                            )
+                        }
+                    } else {
+                        // 已终止 / 已完成态：左「查看日志」（次按钮）+ 右「继续刮削 / 完成」（主按钮）
+                        if (onViewLogs != null) {
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .clip(shape)
+                                    .then(
+                                        if (btnFocus == 0) Modifier.brandBackground(shape)
+                                        else Modifier
+                                            .background(DeckColors.Surface)
+                                            .border(0.7.dp, DeckColors.Line, shape),
+                                    )
+                                    .soundClickable {
+                                        btnFocus = 0
+                                        onViewLogs()
+                                    }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.scrape_task_view_logs),
+                                    style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
+                                    color = if (btnFocus == 0) Color.White else DeckColors.TextPrimary,
+                                )
                             }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = secondaryLabel,
-                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
-                            color = if (btnFocus == 1) Color.White else DeckColors.TextPrimary,
-                        )
+                        }
+                        val rightFocused = !showDualButtons || btnFocus == 1
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clip(shape)
+                                .then(
+                                    if (rightFocused) Modifier.brandBackground(shape)
+                                    else Modifier
+                                        .background(DeckColors.Surface)
+                                        .border(0.7.dp, DeckColors.Line, shape),
+                                )
+                                .soundClickable {
+                                    btnFocus = 1
+                                    if (canContinueAfterFinish) onRestart() else onDismiss()
+                                }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (canContinueAfterFinish) {
+                                    stringResource(R.string.scrape_task_continue)
+                                } else {
+                                    stringResource(R.string.scrape_task_finish)
+                                },
+                                style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
+                                color = if (rightFocused) Color.White else DeckColors.TextPrimary,
+                            )
+                        }
                     }
                 }
             }
@@ -413,7 +662,11 @@ fun ScrapeTaskDialog(
 }
 
 @Composable
-private fun ScrapeStatCell(label: String, value: String) {
+private fun ScrapeStatCell(
+    label: String,
+    value: String,
+    valueColor: Color = DeckColors.TextPrimary,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
             text = label,
@@ -422,8 +675,8 @@ private fun ScrapeStatCell(label: String, value: String) {
         )
         Text(
             text = value,
-            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-            color = DeckColors.TextPrimary,
+            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Bold),
+            color = valueColor,
         )
     }
 }
@@ -450,9 +703,15 @@ fun ManualScrapeDialog(
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     var keyword by remember(game.id) { mutableStateOf(game.title) }
     var fieldFocused by remember { mutableStateOf(false) }
     val suggestions = remember(keyword) { onSuggest(keyword) }
+    // 0 = 输入框（高亮但不强弹键盘），1 = 提示词胶囊行，2 = 搜索结果列表
+    var focusZone by remember(game.id) { mutableIntStateOf(2) }
+    var sugIdx by remember(game.id) { mutableIntStateOf(0) }
+    val sugListState = rememberLazyListState()
     var searching by remember { mutableStateOf(false) }
     var activeSourceIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var searchedOnce by remember { mutableStateOf(false) }
@@ -463,6 +722,21 @@ fun ManualScrapeDialog(
     val listState = rememberLazyListState()
     val resolvedUrls = remember(results) { mutableStateMapOf<Int, String>() }
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.88f).dp
+
+    LaunchedEffect(suggestions.size) {
+        if (suggestions.isEmpty()) {
+            sugIdx = 0
+            if (focusZone == 1) focusZone = if (results.isNotEmpty()) 2 else 0
+        } else if (sugIdx >= suggestions.size) {
+            sugIdx = suggestions.lastIndex
+        }
+    }
+
+    LaunchedEffect(sugIdx, focusZone, suggestions.size) {
+        if (focusZone == 1 && sugIdx in suggestions.indices) {
+            sugListState.animateScrollToItem(sugIdx)
+        }
+    }
 
     fun applyAt(idx: Int) {
         val cand = results.getOrNull(idx) ?: return
@@ -492,16 +766,19 @@ fun ManualScrapeDialog(
         }
     }
 
-    fun dismissKeyboard() {
+    fun dismissKeyboard(targetZone: Int? = null) {
         keyboardController?.hide()
         focusManager.clearFocus(force = true)
         focusRequester.requestFocusSafely()
+        if (targetZone != null) {
+            focusZone = targetZone
+        }
     }
 
     fun runSearch(overrideKeyword: String? = null) {
         val q = (overrideKeyword ?: keyword).trim()
         if (overrideKeyword != null) keyword = overrideKeyword
-        dismissKeyboard()
+        dismissKeyboard(targetZone = 2)
         if (q.isEmpty()) return
         searchJob?.cancel()
         searchJob = scope.launch {
@@ -535,8 +812,12 @@ fun ManualScrapeDialog(
     }
 
     val searchFieldFr = remember { FocusRequester() }
-    androidx.activity.compose.BackHandler(enabled = previewPair != null) {
-        previewPair = null
+    val keyboardActive = imeVisible || fieldFocused
+    androidx.activity.compose.BackHandler(enabled = previewPair != null || keyboardActive) {
+        when {
+            previewPair != null -> previewPair = null
+            keyboardActive -> dismissKeyboard(targetZone = if (suggestions.isNotEmpty()) 1 else 2)
+        }
     }
 
     LaunchedEffect(game.id) {
@@ -548,7 +829,13 @@ fun ManualScrapeDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .scrimTapDismiss(onDismiss)
+            .scrimTapDismiss {
+                if (keyboardActive) {
+                    dismissKeyboard(targetZone = if (suggestions.isNotEmpty()) 1 else 2)
+                } else {
+                    onDismiss()
+                }
+            }
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -557,11 +844,11 @@ fun ManualScrapeDialog(
                 if (fieldFocused) {
                     return@onPreviewKeyEvent when {
                         GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
-                            if (isInitialPress) dismissKeyboard()
+                            if (isInitialPress) dismissKeyboard(targetZone = if (suggestions.isNotEmpty()) 1 else 2)
                             true
                         }
                         event.key == Key.DirectionDown -> {
-                            dismissKeyboard()
+                            dismissKeyboard(targetZone = if (suggestions.isNotEmpty()) 1 else 2)
                             true
                         }
                         else -> false // 放行键盘输入与 Enter 提交搜索，避免误应用旧结果
@@ -570,10 +857,10 @@ fun ManualScrapeDialog(
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
                         if (isInitialPress) {
-                            if (previewPair != null) {
-                                previewPair = null
-                            } else {
-                                onDismiss()
+                            when {
+                                previewPair != null -> previewPair = null
+                                imeVisible -> dismissKeyboard(targetZone = if (suggestions.isNotEmpty()) 1 else 2)
+                                else -> onDismiss()
                             }
                         }
                         true
@@ -587,13 +874,56 @@ fun ManualScrapeDialog(
                         true
                     }
                     previewPair != null -> true
+                    focusZone == 0 -> when {
+                        GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) -> {
+                            if (isInitialPress) {
+                                searchFieldFr.requestFocusSafely()
+                                keyboardController?.show()
+                            }
+                            true
+                        }
+                        event.key == Key.DirectionDown -> {
+                            focusZone = when {
+                                suggestions.isNotEmpty() -> 1
+                                results.isNotEmpty() -> 2
+                                else -> 0
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                    focusZone == 1 -> when {
+                        event.key == Key.DirectionLeft && suggestions.isNotEmpty() -> {
+                            sugIdx = (sugIdx - 1).coerceAtLeast(0)
+                            true
+                        }
+                        event.key == Key.DirectionRight && suggestions.isNotEmpty() -> {
+                            sugIdx = (sugIdx + 1).coerceAtMost(suggestions.lastIndex)
+                            true
+                        }
+                        event.key == Key.DirectionUp -> {
+                            focusZone = 0
+                            true
+                        }
+                        event.key == Key.DirectionDown -> {
+                            if (results.isNotEmpty()) focusZone = 2
+                            true
+                        }
+                        GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings) && suggestions.isNotEmpty() -> {
+                            if (isInitialPress) {
+                                suggestions.getOrNull(sugIdx)?.let { runSearch(it) }
+                            }
+                            true
+                        }
+                        else -> false
+                    }
                     event.key == Key.DirectionDown && results.isNotEmpty() -> {
                         selectedIdx = (selectedIdx + 1).coerceAtMost(results.lastIndex)
                         true
                     }
                     event.key == Key.DirectionUp -> {
                         if (results.isEmpty() || selectedIdx <= 0) {
-                            searchFieldFr.requestFocusSafely()
+                            focusZone = if (suggestions.isNotEmpty()) 1 else 0
                         } else {
                             selectedIdx = (selectedIdx - 1).coerceAtLeast(0)
                         }
@@ -627,18 +957,26 @@ fun ManualScrapeDialog(
             )
             Spacer(Modifier.height(10.dp))
 
+            val inputHighlighted = fieldFocused || focusZone == 0
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
+                Row(
                     Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(DeckColors.Surface)
-                        .border(0.8.dp, DeckColors.Line, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                        .brandBorder(
+                            active = inputHighlighted,
+                            shape = RoundedCornerShape(10.dp),
+                            activeWidth = 1.4.dp,
+                            inactiveWidth = 0.8.dp,
+                        )
+                        .padding(start = 12.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     BasicTextField(
                         value = keyword,
@@ -649,10 +987,43 @@ fun ManualScrapeDialog(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { runSearch() }),
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .weight(1f)
                             .focusRequester(searchFieldFr)
-                            .onFocusChanged { fieldFocused = it.isFocused },
+                            .onFocusChanged {
+                                fieldFocused = it.isFocused
+                                if (it.isFocused) focusZone = 0
+                            },
                     )
+                    if (keyword.isNotEmpty()) {
+                        Box(
+                            Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(DeckColors.SurfaceAlt)
+                                .soundClickable {
+                                    keyword = ""
+                                    searchFieldFr.requestFocusSafely()
+                                    keyboardController?.show()
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            DeckIcon(DeckIcons.Close, size = 12.dp, tint = DeckColors.TextSecondary)
+                        }
+                    }
+                    if (keyboardActive) {
+                        Box(
+                            Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(DeckColors.AccentSoft)
+                                .soundClickable {
+                                    dismissKeyboard(targetZone = if (suggestions.isNotEmpty()) 1 else 2)
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            DeckIcon(HomeIcons.ChevronDown, size = 14.dp, tint = DeckColors.Ruby)
+                        }
+                    }
                 }
                 Text(
                     text = stringResource(R.string.manual_scrape_search_btn),
@@ -666,26 +1037,35 @@ fun ManualScrapeDialog(
                 )
             }
 
-            // 输入时实时显示紧凑单行补全建议，点一下立刻填入并搜索
-            if (fieldFocused && suggestions.isNotEmpty()) {
+            // 提示词常驻（不再随收起键盘消失），支持触屏点击与手柄 ←/→ 选择后按 A 搜索
+            if (suggestions.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 LazyRow(
+                    state = sugListState,
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    items(suggestions) { sug ->
+                    itemsIndexed(suggestions) { idx, sug ->
+                        val sugHl = focusZone == 1 && idx == sugIdx
                         Text(
                             text = sug,
-                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium),
-                            color = DeckColors.Ruby,
+                            style = DeckType.metaLabel.copy(fontWeight = if (sugHl) FontWeight.SemiBold else FontWeight.Medium),
+                            color = if (sugHl) Color.White else DeckColors.Ruby,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .clip(DeckShapes.tabPill)
-                                .background(DeckColors.AccentSoft)
-                                .border(0.7.dp, DeckColors.Ruby.copy(alpha = 0.35f), DeckShapes.tabPill)
-                                .soundClickable { runSearch(sug) }
+                                .then(
+                                    if (sugHl) Modifier.brandBackground(DeckShapes.tabPill)
+                                    else Modifier
+                                        .background(DeckColors.AccentSoft)
+                                        .border(0.7.dp, DeckColors.Ruby.copy(alpha = 0.35f), DeckShapes.tabPill),
+                                )
+                                .soundClickable {
+                                    sugIdx = idx
+                                    runSearch(sug)
+                                }
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
                         )
                     }
@@ -784,7 +1164,7 @@ fun ManualScrapeDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         itemsIndexed(results) { idx, cand ->
-                            val hl = idx == selectedIdx
+                            val hl = focusZone == 2 && idx == selectedIdx
                             val allUrls = remember(cand) {
                                 (listOfNotNull(cand.coverUrl) + cand.fallbackCoverUrls).distinct()
                             }

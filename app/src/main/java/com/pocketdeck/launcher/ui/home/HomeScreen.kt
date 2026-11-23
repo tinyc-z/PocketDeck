@@ -165,6 +165,8 @@ fun HomeScreen(
                     vm.refresh()
                 }
                 hasStorageAccess = granted
+            } else if (event == Lifecycle.Event.ON_STOP) {
+                vm.flushPendingSelection()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
