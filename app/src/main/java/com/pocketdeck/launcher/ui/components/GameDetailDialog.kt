@@ -928,48 +928,98 @@ fun GameDetailDialog(
 
         // 点击左侧封面弹出的全屏高清大图预览浮层（点任意位置或按 B/A 关闭）
         if (showCoverLightbox && previewCoverModel != null) {
-            val previewShape = RoundedCornerShape(DeckBrand.RadiusL)
-            Box(
+            FullscreenCoverLightbox(
+                model = previewCoverModel,
+                title = game.title,
+                swapAbxy = swapAbxy,
+                keyBindings = keyBindings,
+                onDismiss = { showCoverLightbox = false },
+            )
+        }
+    }
+}
+
+/**
+ * 全 App 统一的全屏高清封面大图预览浮层：
+ * - 深色沉浸遮罩 + 居中完整适配大图（`ContentScale.Fit`）+ 右上角关闭钮 + 底部标题胶囊（可选附带主操作按钮，如「应用」）。
+ */
+@Composable
+internal fun FullscreenCoverLightbox(
+    model: Any,
+    title: String?,
+    swapAbxy: Boolean = false,
+    keyBindings: Map<KeyAction, Int> = emptyMap(),
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    onDismiss: () -> Unit,
+) {
+    val previewShape = RoundedCornerShape(DeckBrand.RadiusL)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.86f))
+            .soundClickable { onDismiss() },
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = model,
+            contentDescription = title.orEmpty(),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 36.dp, vertical = 48.dp)
+                .clip(previewShape),
+        )
+        DialogCloseButton(
+            onClick = onDismiss,
+            size = 32.dp,
+            darkSurface = true,
+            swapAbxy = swapAbxy,
+            keyBindings = keyBindings,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp),
+        )
+        val hasTitle = !title.isNullOrBlank()
+        val hasAction = !actionLabel.isNullOrBlank() && onAction != null
+        if (hasTitle || hasAction) {
+            Row(
                 Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.86f))
-                    .soundClickable { showCoverLightbox = false },
-                contentAlignment = Alignment.Center,
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 14.dp, start = 24.dp, end = 24.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.60f))
+                    .border(0.7.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                    .clickable(enabled = false, onClick = {})
+                    .padding(
+                        start = if (hasTitle) 14.dp else 6.dp,
+                        end = if (hasAction) 6.dp else 14.dp,
+                        top = 5.dp,
+                        bottom = 5.dp,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                AsyncImage(
-                    model = previewCoverModel,
-                    contentDescription = game.title,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 36.dp, vertical = 40.dp)
-                        .clip(previewShape),
-                )
-                DialogCloseButton(
-                    onClick = { showCoverLightbox = false },
-                    size = 32.dp,
-                    darkSurface = true,
-                    swapAbxy = swapAbxy,
-                    keyBindings = keyBindings,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 16.dp, end = 16.dp),
-                )
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 14.dp, start = 24.dp, end = 24.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.56f))
-                        .border(0.7.dp, Color.White.copy(alpha = 0.20f), CircleShape)
-                        .padding(horizontal = 14.dp, vertical = 5.dp),
-                ) {
+                if (hasTitle) {
                     Text(
-                        text = game.title,
+                        text = title,
                         style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium),
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                if (hasAction) {
+                    Text(
+                        text = actionLabel,
+                        style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .brandBackground(CircleShape)
+                            .soundClickable { onAction() }
+                            .padding(horizontal = 14.dp, vertical = 4.dp),
                     )
                 }
             }

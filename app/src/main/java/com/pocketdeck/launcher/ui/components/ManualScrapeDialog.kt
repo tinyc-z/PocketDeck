@@ -1342,86 +1342,21 @@ fun ManualScrapeDialog(
             }
         }
 
-        // 点击缩略图弹出高清大图预览浮层
+        // 点击缩略图弹出与游戏详情统一的全屏高清大图预览浮层
         previewPair?.let { (pIdx, pUrl) ->
             val pCand = results.getOrNull(pIdx)
-            val previewShape = RoundedCornerShape(DeckBrand.RadiusXL)
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.78f))
-                    .scrimTapDismiss { previewPair = null },
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    Modifier
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
-                        .widthIn(max = DeckDialogSize.WidthM)
-                        .fillMaxWidth()
-                        .clip(previewShape)
-                        .background(DeckColors.DialogBg)
-                        .border(0.8.dp, DeckColors.Line, previewShape)
-                        .blockOverlayTouchThrough()
-                        .padding(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 160.dp, max = (LocalConfiguration.current.screenHeightDp * 0.60f).dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(DeckColors.Surface),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        AsyncImage(
-                            model = pUrl,
-                            contentDescription = pCand?.title.orEmpty(),
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    val previewTitle = pCand?.title?.takeIf { it.isNotBlank() }
-                    if (previewTitle != null) {
-                        Text(
-                            text = previewTitle,
-                            style = DeckType.settingsValue.copy(fontWeight = FontWeight.SemiBold),
-                            color = DeckColors.TextPrimary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.menu_cancel),
-                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.Medium),
-                            color = DeckColors.TextSecondary,
-                            modifier = Modifier
-                                .clip(DeckShapes.tabPill)
-                                .background(DeckColors.Surface)
-                                .border(0.7.dp, DeckColors.Line, DeckShapes.tabPill)
-                                .soundClickable { previewPair = null }
-                                .padding(horizontal = 16.dp, vertical = 7.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.manual_scrape_apply_btn),
-                            style = DeckType.settingsLabel.copy(fontWeight = FontWeight.SemiBold),
-                            color = Color.White,
-                            modifier = Modifier
-                                .clip(DeckShapes.tabPill)
-                                .brandBackground(DeckShapes.tabPill)
-                                .soundClickable {
-                                    previewPair = null
-                                    applyAt(pIdx)
-                                }
-                                .padding(horizontal = 18.dp, vertical = 7.dp),
-                        )
-                    }
-                }
-            }
+            FullscreenCoverLightbox(
+                model = pUrl,
+                title = pCand?.title,
+                swapAbxy = swapAbxy,
+                keyBindings = keyBindings,
+                actionLabel = stringResource(R.string.manual_scrape_apply_btn),
+                onAction = {
+                    previewPair = null
+                    applyAt(pIdx)
+                },
+                onDismiss = { previewPair = null },
+            )
         }
     }
 }
