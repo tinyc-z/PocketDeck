@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-val appVersionName = "0.6.8"
+val appVersionName = "0.6.9"
 
 val isReleaseRequested: Boolean = gradle.startParameter.taskNames.any {
     it.contains("release", ignoreCase = true) ||
