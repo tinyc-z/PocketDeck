@@ -99,6 +99,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 
@@ -270,6 +271,9 @@ fun TextFileViewerEditorDialog(
     var editing by remember(file.path) { mutableStateOf(false) }
     var content by remember(file.path) { mutableStateOf("") }
     var originalContent by remember(file.path) { mutableStateOf("") }
+    var detectedCharset by remember(file.path) { mutableStateOf<Charset>(StandardCharsets.UTF_8) }
+    var detectedHasBom by remember(file.path) { mutableStateOf(false) }
+    var encodingLabel by remember(file.path) { mutableStateOf("UTF-8") }
 
     LaunchedEffect(file.path) {
         loading = true
@@ -288,11 +292,22 @@ fun TextFileViewerEditorDialog(
                         read += n
                     }
                 }
-                String(bytes, 0, read, StandardCharsets.UTF_8) to isTrunc
-            }.getOrElse { ("Error: ${it.message}") to true }
+                ArchiveManager.decodeTextBytes(bytes, read, truncated = isTrunc) to isTrunc
+            }.getOrElse {
+                com.pocketdeck.launcher.data.DecodedText(
+                    text = "Error: ${it.message}",
+                    charset = StandardCharsets.UTF_8,
+                    hasBom = false,
+                    label = "UTF-8",
+                ) to true
+            }
         }
-        content = res.first
-        originalContent = res.first
+        val dec = res.first
+        content = dec.text
+        originalContent = dec.text
+        detectedCharset = dec.charset
+        detectedHasBom = dec.hasBom
+        encodingLabel = dec.label
         truncated = res.second
         loading = false
     }
@@ -310,7 +325,9 @@ fun TextFileViewerEditorDialog(
         scope.launch {
             val res = withContext(Dispatchers.IO) {
                 runCatching {
-                    file.writeText(content, StandardCharsets.UTF_8)
+                    file.writeBytes(
+                        ArchiveManager.encodeTextPreserveCharset(content, detectedCharset, detectedHasBom),
+                    )
                 }
             }
             if (res.isSuccess) {
@@ -390,7 +407,7 @@ fun TextFileViewerEditorDialog(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "${formatSize(file.length())} · ${content.count { it == '\n' } + 1} lines" +
+                        "${formatSize(file.length())} · $encodingLabel · ${content.count { it == '\n' } + 1} lines" +
                             if (content != originalContent) " *" else "",
                         style = DeckType.metaLabel,
                         color = DeckColors.TextSecondary,

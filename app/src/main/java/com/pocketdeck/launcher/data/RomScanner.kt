@@ -134,7 +134,7 @@ object RomScanner {
             file.inputStream().use { input ->
                 val buf = ByteArray(4096)
                 val n = input.read(buf)
-                if (n <= 0) "" else String(buf, 0, n)
+                if (n <= 0) "" else ArchiveManager.decodeTextBytes(buf, n, truncated = true).text
             }
         }.getOrDefault("")
         if (sample.isBlank()) return false

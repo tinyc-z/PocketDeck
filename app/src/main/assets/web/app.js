@@ -3436,7 +3436,8 @@ async function openTextEditor(path, name) {
   const r = await api('/api/files/text?path=' + encodeURIComponent(path));
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.ok) { toast(tr('txt_read_fail') + (j.error || r.status)); return; }
-  el('mTitle').textContent = tr('txt_title') + name;
+  const encTag = (j.encoding && j.encoding !== 'UTF-8') ? (' · ' + j.encoding) : '';
+  el('mTitle').textContent = tr('txt_title') + name + encTag;
   el('mBody').innerHTML = '<textarea id="txtEditor" class="editor"></textarea>';
   el('txtEditor').value = j.content || '';
   el('mFoot').innerHTML = '<button class="btn" onclick="closeModal()">' + esc(tr('btn_cancel')) + '</button><button class="btn primary" id="saveTxtBtn">' + esc(tr('btn_save')) + '</button>';

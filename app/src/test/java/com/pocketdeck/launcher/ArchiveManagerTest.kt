@@ -12,6 +12,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -108,6 +110,62 @@ class ArchiveManagerTest {
         val extracted = File(outDir, "rom.bin")
         assertTrue(extracted.isFile)
         assertTrue(extracted.readBytes().contentEquals(payload))
+    }
+
+    @Test
+    fun decodeAndEncodeTextSupportsGbkBig5ShiftJisUtf16AndTruncatedUtf8() {
+        // 1. GBK 中文文本识别与回写保护（含新增不可编码字符时无损升级为 UTF-8）
+        val gbkCharset = Charset.forName("GBK")
+        val gbkText = "PSX虹吸战士3\r\n1）全部枪无限子弹。\r\n2）不减血[不是无敌]。"
+        val gbkDec = ArchiveManager.decodeTextBytes(gbkText.toByteArray(gbkCharset))
+        assertEquals("GBK", gbkDec.label)
+        assertFalse(gbkDec.hasBom)
+        assertEquals(gbkText, gbkDec.text)
+        assertFalse('\uFFFD' in gbkDec.text)
+
+        val editedGbk = "PSX虹吸战士3\r\n3）全任务开启。"
+        val reEncodedGbk = ArchiveManager.encodeTextPreserveCharset(editedGbk, gbkDec.charset, gbkDec.hasBom)
+        assertEquals(editedGbk, String(reEncodedGbk, gbkCharset))
+
+        val upgradedBytes = ArchiveManager.encodeTextPreserveCharset("$editedGbk 🎮", gbkDec.charset, gbkDec.hasBom)
+        val upgradedDec = ArchiveManager.decodeTextBytes(upgradedBytes)
+        assertEquals("UTF-8", upgradedDec.label)
+        assertEquals("$editedGbk 🎮", upgradedDec.text)
+
+        // 2. UTF-8 BOM 与截断多字节尾巴保护
+        val bomBytes = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "中文UTF8".toByteArray(StandardCharsets.UTF_8)
+        val bomDec = ArchiveManager.decodeTextBytes(bomBytes)
+        assertEquals("UTF-8-BOM", bomDec.label)
+        assertTrue(bomDec.hasBom)
+        assertEquals("中文UTF8", bomDec.text)
+        assertTrue(ArchiveManager.encodeTextPreserveCharset("中文UTF8", bomDec.charset, bomDec.hasBom).contentEquals(bomBytes))
+
+        val truncRaw = "测试截断字符".toByteArray(StandardCharsets.UTF_8)
+        val truncDec = ArchiveManager.decodeTextBytes(truncRaw, length = 5, truncated = true)
+        assertEquals("UTF-8", truncDec.label)
+        assertEquals("测", truncDec.text)
+        assertFalse('\uFFFD' in truncDec.text)
+
+        // 3. UTF-16LE BOM 识别及 looksLikeTextFile 放行
+        val utf16Bytes = byteArrayOf(0xFF.toByte(), 0xFE.toByte()) + "掌机说明".toByteArray(StandardCharsets.UTF_16LE)
+        val utf16Dec = ArchiveManager.decodeTextBytes(utf16Bytes)
+        assertEquals("UTF-16LE", utf16Dec.label)
+        assertTrue(utf16Dec.hasBom)
+        assertEquals("掌机说明", utf16Dec.text)
+        val utf16UnknownExt = File(tmp.root, "readme.dat").apply { writeBytes(utf16Bytes) }
+        assertTrue(ArchiveManager.looksLikeTextFile(utf16UnknownExt))
+
+        // 4. Shift_JIS 日文文本识别
+        val sjisText = "このゲームはテストです。ボタンを押してください。"
+        val sjisDec = ArchiveManager.decodeTextBytes(sjisText.toByteArray(Charset.forName("Shift_JIS")))
+        assertEquals("Shift_JIS", sjisDec.label)
+        assertEquals(sjisText, sjisDec.text)
+
+        // 5. Big5 繁体中文文本识别
+        val big5Text = "繁體中文遊戲修改內容說明與武器裝備指南"
+        val big5Dec = ArchiveManager.decodeTextBytes(big5Text.toByteArray(Charset.forName("Big5")))
+        assertEquals("Big5", big5Dec.label)
+        assertEquals(big5Text, big5Dec.text)
     }
 
     private fun buildStoredRar4(entries: List<Pair<String, ByteArray>>): ByteArray {

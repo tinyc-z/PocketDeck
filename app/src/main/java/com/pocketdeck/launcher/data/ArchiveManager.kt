@@ -18,7 +18,11 @@ import java.io.FileInputStream
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -27,6 +31,13 @@ data class ArchiveEntryInfo(
     val name: String,
     val isDir: Boolean,
     val size: Long,
+)
+
+data class DecodedText(
+    val text: String,
+    val charset: Charset,
+    val hasBom: Boolean,
+    val label: String,
 )
 
 /**
@@ -90,7 +101,7 @@ object ArchiveManager {
     fun isKnownTextFile(file: File): Boolean =
         file.isFile && file.extension.lowercase() in TEXT_EXTS
 
-    /** 判断未知扩展名的小文件是否可视为 UTF-8/ASCII 文本（不含 NUL 字节，上限 2 MB）。 */
+    /** 判断未知扩展名的小文件是否可视为文本（支持 UTF-8/BOM/UTF-16，不含裸 NUL 字节，上限 2 MB）。 */
     fun looksLikeTextFile(file: File): Boolean {
         if (!file.isFile || !file.canRead()) return false
         val len = file.length()
@@ -100,6 +111,13 @@ object ArchiveManager {
         val buf = ByteArray(sampleSize)
         val n = runCatching { FileInputStream(file).use { it.read(buf) } }.getOrDefault(-1)
         if (n <= 0) return false
+        if (n >= 2 && (
+                (buf[0] == 0xFF.toByte() && buf[1] == 0xFE.toByte() && !(n >= 4 && buf[2] == 0.toByte() && buf[3] == 0.toByte())) ||
+                    (buf[0] == 0xFE.toByte() && buf[1] == 0xFF.toByte())
+                )
+        ) {
+            return true
+        }
         var nonPrintable = 0
         for (i in 0 until n) {
             val b = buf[i].toInt() and 0xFF
@@ -107,6 +125,183 @@ object ArchiveManager {
             if (b < 0x09 || (b in 0x0E..0x1F && b != 0x1B)) nonPrintable++
         }
         return nonPrintable * 10 <= n
+    }
+
+    /**
+     * 按 BOM、严格 UTF-8、无 BOM UTF-16 与 CJK 编码评分（GBK / Big5 / Shift_JIS / GB18030）自动识别文本编码。
+     * [truncated] 为 true 时允许剥离末尾被截断的不完整多字节尾巴，避免末尾出现 `\uFFFD`。
+     */
+    fun decodeTextBytes(
+        bytes: ByteArray,
+        length: Int = bytes.size,
+        truncated: Boolean = false,
+    ): DecodedText {
+        val safeLen = length.coerceIn(0, bytes.size)
+        if (safeLen == 0) {
+            return DecodedText("", StandardCharsets.UTF_8, false, "UTF-8")
+        }
+
+        val b0 = bytes[0].toInt() and 0xFF
+        val b1 = if (safeLen > 1) bytes[1].toInt() and 0xFF else -1
+        val b2 = if (safeLen > 2) bytes[2].toInt() and 0xFF else -1
+        val b3 = if (safeLen > 3) bytes[3].toInt() and 0xFF else -1
+
+        // 1. BOM 检测
+        if (safeLen >= 3 && b0 == 0xEF && b1 == 0xBB && b2 == 0xBF) {
+            val bodyLen = safeLen - 3
+            val s = tryDecodeStrict(bytes, 3, bodyLen, StandardCharsets.UTF_8, truncated, 3)
+                ?: String(bytes, 3, bodyLen, StandardCharsets.UTF_8)
+            return DecodedText(s, StandardCharsets.UTF_8, true, "UTF-8-BOM")
+        }
+        if (safeLen >= 2 && b0 == 0xFF && b1 == 0xFE && !(safeLen >= 4 && b2 == 0 && b3 == 0)) {
+            val evenLen = (safeLen - 2) and -2
+            val s = tryDecodeStrict(bytes, 2, evenLen, StandardCharsets.UTF_16LE, truncated = false, maxTrim = 0)
+                ?: String(bytes, 2, evenLen, StandardCharsets.UTF_16LE)
+            return DecodedText(s, StandardCharsets.UTF_16LE, true, "UTF-16LE")
+        }
+        if (safeLen >= 2 && b0 == 0xFE && b1 == 0xFF) {
+            val evenLen = (safeLen - 2) and -2
+            val s = tryDecodeStrict(bytes, 2, evenLen, StandardCharsets.UTF_16BE, truncated = false, maxTrim = 0)
+                ?: String(bytes, 2, evenLen, StandardCharsets.UTF_16BE)
+            return DecodedText(s, StandardCharsets.UTF_16BE, true, "UTF-16BE")
+        }
+
+        // 2. 严格 UTF-8
+        tryDecodeStrict(bytes, 0, safeLen, StandardCharsets.UTF_8, truncated, 3)?.let {
+            return DecodedText(it, StandardCharsets.UTF_8, false, "UTF-8")
+        }
+
+        // 3. 无 BOM UTF-16 启发式（偶数长且单字节高/低位零分布明显）
+        if (safeLen >= 4 && safeLen % 2 == 0) {
+            var evenZero = 0
+            var oddZero = 0
+            var idx = 0
+            while (idx < safeLen) {
+                if (bytes[idx] == 0.toByte()) evenZero++
+                if (bytes[idx + 1] == 0.toByte()) oddZero++
+                idx += 2
+            }
+            if (oddZero > safeLen / 6 && evenZero == 0) {
+                tryDecodeStrict(bytes, 0, safeLen, StandardCharsets.UTF_16LE, truncated = false, maxTrim = 0)?.let {
+                    return DecodedText(it, StandardCharsets.UTF_16LE, false, "UTF-16LE")
+                }
+            }
+            if (evenZero > safeLen / 6 && oddZero == 0) {
+                tryDecodeStrict(bytes, 0, safeLen, StandardCharsets.UTF_16BE, truncated = false, maxTrim = 0)?.let {
+                    return DecodedText(it, StandardCharsets.UTF_16BE, false, "UTF-16BE")
+                }
+            }
+        }
+
+        // 4. 传统东亚双字节编码候选（GBK / Big5 / Shift_JIS）加权评分
+        var lowTrailPairs = 0
+        var totalDbcsPairs = 0
+        var p = 0
+        while (p < safeLen) {
+            val lead = bytes[p].toInt() and 0xFF
+            if (lead in 0x81..0xFE && p + 1 < safeLen) {
+                val trail = bytes[p + 1].toInt() and 0xFF
+                totalDbcsPairs++
+                if (trail in 0x40..0x7E) lowTrailPairs++
+                p += 2
+            } else {
+                p++
+            }
+        }
+        val big5TrailRatioHigh = totalDbcsPairs >= 4 && lowTrailPairs * 4 >= totalDbcsPairs
+
+        data class ScoredCandidate(val score: Int, val decoded: DecodedText)
+
+        val candidates = ArrayList<ScoredCandidate>(3)
+        for (name in listOf("GBK", "Big5", "Shift_JIS")) {
+            val cs = runCatching { if (Charset.isSupported(name)) Charset.forName(name) else null }.getOrNull() ?: continue
+            val s = tryDecodeStrict(bytes, 0, safeLen, cs, truncated, 1) ?: continue
+            var score = 0
+            for (ch in s) {
+                val code = ch.code
+                score += when {
+                    ch == '\uFFFD' -> -50
+                    code < 0x20 && ch != '\n' && ch != '\r' && ch != '\t' -> -30
+                    code in 0xE000..0xF8FF -> -25
+                    ch == '\n' || ch == '\r' || ch == '\t' || code in 0x20..0x7E -> 1
+                    code in 0x3040..0x30FF -> if (name == "Shift_JIS") 5 else 1
+                    code in 0x3000..0x303F || code in 0xFF01..0xFF5E || code in 0x2010..0x2027 -> 3
+                    code in 0xFF61..0xFF9F -> -3
+                    code in 0x4E00..0x9FFF -> 3
+                    code in 0x3400..0x4DBF -> -2
+                    else -> 0
+                }
+            }
+            if (big5TrailRatioHigh) {
+                if (name == "Big5") score += totalDbcsPairs * 2
+            } else {
+                score += when (name) {
+                    "GBK" -> 2
+                    "Big5" -> 1
+                    else -> 0
+                }
+            }
+            candidates += ScoredCandidate(score, DecodedText(s, cs, false, name))
+        }
+        candidates.maxByOrNull { it.score }?.let { return it.decoded }
+
+        // 5. 四字节 GB18030 与西欧单字节兜底
+        runCatching { if (Charset.isSupported("GB18030")) Charset.forName("GB18030") else null }.getOrNull()?.let { gb18030 ->
+            tryDecodeStrict(bytes, 0, safeLen, gb18030, truncated, 3)?.let {
+                return DecodedText(it, gb18030, false, "GB18030")
+            }
+        }
+        runCatching { if (Charset.isSupported("windows-1252")) Charset.forName("windows-1252") else null }.getOrNull()?.let { win1252 ->
+            tryDecodeStrict(bytes, 0, safeLen, win1252, truncated = false, maxTrim = 0)?.let {
+                return DecodedText(it, win1252, false, "Windows-1252")
+            }
+        }
+        return DecodedText(String(bytes, 0, safeLen, StandardCharsets.UTF_8), StandardCharsets.UTF_8, false, "UTF-8")
+    }
+
+    /** 按原编码写出修改后文本；若新增了原字符集无法表示的字符则自动无损升级为 UTF-8。 */
+    fun encodeTextPreserveCharset(
+        text: String,
+        charset: Charset,
+        hasBom: Boolean = false,
+    ): ByteArray {
+        val canKeep = charset == StandardCharsets.UTF_8 ||
+            runCatching { charset.newEncoder().canEncode(text) }.getOrDefault(false)
+        val targetCharset = if (canKeep) charset else StandardCharsets.UTF_8
+        val keepBom = hasBom && canKeep
+        val body = text.toByteArray(targetCharset)
+        if (!keepBom) return body
+        val bom = when (targetCharset) {
+            StandardCharsets.UTF_8 -> byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+            StandardCharsets.UTF_16LE -> byteArrayOf(0xFF.toByte(), 0xFE.toByte())
+            StandardCharsets.UTF_16BE -> byteArrayOf(0xFE.toByte(), 0xFF.toByte())
+            else -> ByteArray(0)
+        }
+        return if (bom.isEmpty()) body else bom + body
+    }
+
+    private fun tryDecodeStrict(
+        bytes: ByteArray,
+        offset: Int,
+        len: Int,
+        charset: Charset,
+        truncated: Boolean,
+        maxTrim: Int,
+    ): String? {
+        val minLen = if (truncated) (len - maxTrim).coerceAtLeast(0) else len
+        for (tryLen in len downTo minLen) {
+            if (tryLen == 0) return ""
+            try {
+                return charset.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes, offset, tryLen))
+                    .toString()
+            } catch (_: CharacterCodingException) {
+                // 若截断发生在多字节尾部，逐字节回退重测
+            }
+        }
+        return null
     }
 
     fun suggestedFolderName(file: File): String {

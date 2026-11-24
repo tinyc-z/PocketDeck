@@ -2722,8 +2722,8 @@ class WebManagerServer(
             res.sendJson(413, """{"ok":false,"error":"file_too_large"}""")
             return
         }
-        val text = runCatching { file.readText(StandardCharsets.UTF_8) }.getOrNull()
-        if (text == null) {
+        val decoded = runCatching { ArchiveManager.decodeTextBytes(file.readBytes()) }.getOrNull()
+        if (decoded == null) {
             res.sendJson(500, """{"ok":false,"error":"read_failed"}""")
             return
         }
@@ -2733,7 +2733,8 @@ class WebManagerServer(
                 put("ok", true)
                 put("name", file.name)
                 put("path", file.absolutePath)
-                put("content", text)
+                put("encoding", decoded.label)
+                put("content", decoded.text)
             }.toString(),
         )
     }
@@ -2756,7 +2757,17 @@ class WebManagerServer(
             res.sendJson(403, """{"ok":false,"error":"forbidden_file_type"}""")
             return
         }
-        val ok = runCatching { file.writeText(content, StandardCharsets.UTF_8) }.isSuccess
+        val ok = runCatching {
+            val prev = if (file.exists() && file.length() in 1L..(512L * 1024L)) {
+                runCatching { ArchiveManager.decodeTextBytes(file.readBytes()) }.getOrNull()
+            } else null
+            val outBytes = ArchiveManager.encodeTextPreserveCharset(
+                text = content,
+                charset = prev?.charset ?: StandardCharsets.UTF_8,
+                hasBom = prev?.hasBom ?: false,
+            )
+            file.writeBytes(outBytes)
+        }.isSuccess
         if (ok) {
             repo.notifyFilesChanged()
             res.sendJson(200, """{"ok":true}""")
