@@ -409,6 +409,7 @@ internal fun LibraryOverlayDialogs(
     fontViewerFile: File?,
     onDismissFontViewer: () -> Unit,
     opProgress: Pair<String, String>?,
+    fileTasks: List<FileTask> = emptyList(),
     onCancelOpProgress: () -> Unit,
     showLanDialog: Boolean,
     onDismissLanDialog: () -> Unit,
@@ -762,9 +763,15 @@ internal fun LibraryOverlayDialogs(
 
     // 解压 / 压缩进度弹窗
     opProgress?.let { (title, detail) ->
+        val activeOpTask = fileTasks.lastOrNull {
+            it.source == FileTaskSource.Local &&
+                (it.kind == FileTaskKind.Extract || it.kind == FileTaskKind.Compress)
+        }
         FileOpProgressDialog(
             title = title,
-            detail = detail,
+            detail = detail.ifBlank { activeOpTask?.detail.orEmpty() },
+            bytesDone = activeOpTask?.bytesDone ?: 0L,
+            totalBytes = activeOpTask?.totalBytes ?: 0L,
             swapAbxy = swapAbxy,
             keyBindings = keyBindings,
             onCancel = onCancelOpProgress,

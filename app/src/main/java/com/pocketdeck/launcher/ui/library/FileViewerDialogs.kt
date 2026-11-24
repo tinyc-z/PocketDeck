@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import com.pocketdeck.launcher.ui.components.CircularProgressIndicator
 import com.pocketdeck.launcher.ui.components.HorizontalDivider
+import com.pocketdeck.launcher.ui.components.LinearProgressIndicator
 import com.pocketdeck.launcher.ui.components.Slider
 import com.pocketdeck.launcher.ui.components.SliderDefaults
 import com.pocketdeck.launcher.ui.components.Text
@@ -775,12 +776,21 @@ fun BatchDeleteConfirmDialog(
 fun FileOpProgressDialog(
     title: String,
     detail: String,
+    bytesDone: Long = 0L,
+    totalBytes: Long = 0L,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     onCancel: () -> Unit,
 ) {
     val progressFr = remember { FocusRequester() }
     LaunchedEffect(Unit) { progressFr.requestFocusSafely() }
+    val hasTotal = totalBytes > 0L
+    val pct = if (hasTotal) (bytesDone.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else null
+    val progressText = when {
+        hasTotal -> "${((pct ?: 0f) * 100).toInt()}% · ${formatSize(bytesDone)} / ${formatSize(totalBytes)}"
+        bytesDone > 0L -> stringResource(R.string.lib_task_processed_fmt, formatSize(bytesDone))
+        else -> ""
+    }
     Box(
         Modifier
             .fillMaxSize()
@@ -825,6 +835,41 @@ fun FileOpProgressDialog(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            if (progressText.isNotEmpty() || pct != null || bytesDone > 0L) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (progressText.isNotEmpty()) {
+                        Text(
+                            progressText,
+                            style = DeckType.metaLabel,
+                            color = DeckColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (pct != null) {
+                        LinearProgressIndicator(
+                            progress = { pct },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = DeckColors.Ruby,
+                            trackColor = DeckColors.Line,
+                            gapSize = 0.dp,
+                            drawStopIndicator = {},
+                        )
+                    } else if (bytesDone > 0L) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = DeckColors.Ruby,
+                            trackColor = DeckColors.Line,
+                        )
+                    }
+                }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Text(

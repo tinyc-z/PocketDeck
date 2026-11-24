@@ -588,9 +588,9 @@ class WebManagerServer(
         }
         launchCollector {
             var lastPushMs = 0L
-            var lastShape = emptyList<Pair<String, Boolean>>()
+            var lastShape = emptyList<Triple<String, Boolean, Boolean>>()
             repo.fileTasks.drop(1).collect { list ->
-                val shape = list.map { it.id to it.cancelling }
+                val shape = list.map { Triple(it.id, it.cancelling, it.totalBytes > 0L) }
                 val now = System.currentTimeMillis()
                 val structural = list.isEmpty() || shape != lastShape
                 if (structural || now - lastPushMs >= SSE_TASKS_THROTTLE_MS) {

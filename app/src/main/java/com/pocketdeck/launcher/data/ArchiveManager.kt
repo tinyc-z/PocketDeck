@@ -1,6 +1,8 @@
 package com.pocketdeck.launcher.data
 
 import com.github.junrar.Archive as RarArchive
+import com.github.junrar.UnrarCallback
+import com.github.junrar.volume.Volume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
@@ -179,6 +181,7 @@ object ArchiveManager {
         onBytesProgress: (entryName: String, bytesDone: Long, totalBytes: Long) -> Unit = { _, _, _ -> },
         overwriteExisting: Boolean = true,
         skipHiddenEntries: Boolean = false,
+        progressThrottleMs: Long = 150L,
     ): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
             if (!destDir.exists()) check(destDir.mkdirs()) { "Cannot create directory ${destDir.path}" }
@@ -189,13 +192,24 @@ object ArchiveManager {
             var bytesDone = 0L
             var totalBytes = 0L
             var lastReportMs = 0L
+            var maxReportedBytes = 0L
+            var lastEntryName = ""
 
-            fun reportProgress(entryName: String, force: Boolean = false) {
+            fun reportProgress(entryName: String, force: Boolean = false, bytesOverride: Long = bytesDone) {
+                if (entryName.isNotEmpty()) lastEntryName = entryName
                 val now = System.currentTimeMillis()
-                if (force || now - lastReportMs >= 150L) {
+                if (force || lastReportMs == 0L || now - lastReportMs >= progressThrottleMs) {
                     lastReportMs = now
-                    onProgress(count, entryName, bytesDone)
-                    onBytesProgress(entryName, bytesDone, totalBytes)
+                    val effectiveTotal = if (totalBytes > 0L) maxOf(totalBytes, bytesDone) else 0L
+                    val candidate = if (effectiveTotal > 0L) {
+                        maxOf(bytesDone, bytesOverride.coerceAtMost(effectiveTotal))
+                    } else {
+                        maxOf(bytesDone, bytesOverride)
+                    }
+                    maxReportedBytes = maxOf(maxReportedBytes, candidate)
+                    val label = entryName.ifEmpty { lastEntryName.ifEmpty { file.name } }
+                    onProgress(count, label, maxReportedBytes)
+                    onBytesProgress(label, maxReportedBytes, effectiveTotal)
                 }
             }
 
@@ -247,7 +261,10 @@ object ArchiveManager {
             when {
                 lower.endsWith(".zip") || lower.endsWith(".cbz") -> {
                     openZipWithFallback(file) { zf ->
-                        totalBytes = zf.entries.asSequence().sumOf { it.size.coerceAtLeast(0L) }
+                        totalBytes = zf.entries.asSequence().sumOf { e ->
+                            if (e.isDirectory || (skipHiddenEntries && isHiddenEntry(e.name))) 0L
+                            else e.size.coerceAtLeast(0L)
+                        }
                         val en = zf.entries
                         while (en.hasMoreElements()) {
                             if (isCancelled()) error("Cancelled")
@@ -268,7 +285,10 @@ object ArchiveManager {
                 }
                 lower.endsWith(".7z") -> {
                     SevenZFile.builder().setFile(file).get().use { sz ->
-                        totalBytes = sz.entries.sumOf { it.size.coerceAtLeast(0L) }
+                        totalBytes = sz.entries.sumOf { e ->
+                            if (e.isDirectory || (skipHiddenEntries && isHiddenEntry(e.name))) 0L
+                            else e.size.coerceAtLeast(0L)
+                        }
                         while (true) {
                             if (isCancelled()) error("Cancelled")
                             val e = sz.nextEntry ?: break
@@ -301,8 +321,37 @@ object ArchiveManager {
                     }
                 }
                 lower.endsWith(".rar") -> {
-                    RarArchive(file).use { rar ->
+                    var currentEntryName = ""
+                    var currentEntryBaseBytes = 0L
+                    var currentEntryUnpackSize = 0L
+                    var currentEntryPackSize = 0L
+                    var currentEntryPackedRead = 0L
+                    var lastVolumePackedRead = 0L
+                    var inEntryExtract = false
+                    val rarCallback = object : UnrarCallback {
+                        override fun isNextVolumeReady(nextVolume: Volume): Boolean = !isCancelled()
+                        override fun volumeProgressChanged(current: Long, total: Long) {
+                            if (isCancelled()) error("Cancelled")
+                            val delta = if (current >= lastVolumePackedRead) current - lastVolumePackedRead else current
+                            lastVolumePackedRead = current
+                            if (inEntryExtract && delta > 0L) {
+                                currentEntryPackedRead += delta
+                                if (currentEntryPackSize > 0L && currentEntryUnpackSize > 0L) {
+                                    val est = ((currentEntryUnpackSize.toDouble() *
+                                        currentEntryPackedRead.coerceAtMost(currentEntryPackSize).toDouble()) /
+                                        currentEntryPackSize.toDouble()).toLong()
+                                    reportProgress(currentEntryName, bytesOverride = currentEntryBaseBytes + est)
+                                }
+                            }
+                        }
+                    }
+                    RarArchive(file, rarCallback).use { rar ->
                         require(!rar.isEncrypted) { "Encrypted RAR archive is not supported" }
+                        totalBytes = rar.fileHeaders.sumOf { fh ->
+                            val name = fh.fileName.replace('\\', '/')
+                            if (fh.isDirectory || (skipHiddenEntries && isHiddenEntry(name))) 0L
+                            else fh.fullUnpackSize.coerceAtLeast(0L)
+                        }
                         while (true) {
                             if (isCancelled()) error("Cancelled")
                             val fh = rar.nextFileHeader() ?: break
@@ -319,30 +368,44 @@ object ArchiveManager {
                                 require(bytesDone + fh.fullUnpackSize.coerceAtLeast(0L) <= MAX_EXTRACT_BYTES) {
                                     "Extracted archive exceeds safety size limit"
                                 }
-                                reportProgress(cleanName, force = true)
+                                currentEntryName = cleanName
+                                currentEntryBaseBytes = bytesDone
+                                currentEntryUnpackSize = fh.fullUnpackSize.coerceAtLeast(0L)
+                                currentEntryPackSize = fh.fullPackSize.coerceAtLeast(0L)
+                                currentEntryPackedRead = 0L
+                                inEntryExtract = true
+                                reportProgress(cleanName, force = count == 1)
                                 val target = resolveOutputTarget(safeTarget)
                                 target.parentFile?.mkdirs()
                                 try {
                                     target.outputStream().use { rawOut ->
-                                        val guardedOut = object : java.io.FilterOutputStream(rawOut) {
+                                        val guardedOut = object : java.io.FilterOutputStream(BufferedOutputStream(rawOut, 64 * 1024)) {
+                                            private var singleByteTick = 0
                                             override fun write(b: Int) {
                                                 if (isCancelled()) error("Cancelled")
                                                 bytesDone += 1L
                                                 require(bytesDone <= MAX_EXTRACT_BYTES) { "Extracted archive exceeds safety size limit" }
                                                 out.write(b)
+                                                if ((++singleByteTick and 0x3FFF) == 0) {
+                                                    reportProgress(cleanName)
+                                                }
                                             }
                                             override fun write(b: ByteArray, off: Int, len: Int) {
                                                 if (isCancelled()) error("Cancelled")
                                                 bytesDone += len.toLong()
                                                 require(bytesDone <= MAX_EXTRACT_BYTES) { "Extracted archive exceeds safety size limit" }
                                                 out.write(b, off, len)
+                                                reportProgress(cleanName)
                                             }
                                         }
                                         rar.extractFile(fh, guardedOut)
+                                        guardedOut.flush()
                                     }
                                 } catch (t: Throwable) {
                                     runCatching { target.delete() }
                                     throw t
+                                } finally {
+                                    inEntryExtract = false
                                 }
                             }
                         }
@@ -389,6 +452,9 @@ object ArchiveManager {
                     }
                 }
                 else -> error("Unsupported archive format")
+            }
+            if (count > 0 && lastEntryName.isNotEmpty()) {
+                reportProgress(lastEntryName, force = true)
             }
             count
         }

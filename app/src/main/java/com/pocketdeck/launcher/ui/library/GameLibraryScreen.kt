@@ -1598,6 +1598,7 @@ fun GameLibraryScreen(
             onDeleteFile = onDeleteFile,
             onDeleteEntries = onDeleteEntries,
             onRunExtract = ::runExtract,
+            fileTasks = fileTasks,
             onApplyFontId = onApplyFontId,
             onOpenQuickShare = onOpenQuickShare,
             onRescan = onRescan,
