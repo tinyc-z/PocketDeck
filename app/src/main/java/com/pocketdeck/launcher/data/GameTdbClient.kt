@@ -410,19 +410,33 @@ class GameTdbClient(
         val out = ArrayList<TdbEntry>(4096)
         file.bufferedReader().useLines { lines ->
             for (line in lines) {
-                val p = line.split('\t')
-                if (p.size < 9) continue
+                val t1 = line.indexOf('\t'); if (t1 < 0) continue
+                val t2 = line.indexOf('\t', t1 + 1); if (t2 < 0) continue
+                val t3 = line.indexOf('\t', t2 + 1); if (t3 < 0) continue
+                val t4 = line.indexOf('\t', t3 + 1); if (t4 < 0) continue
+                val t5 = line.indexOf('\t', t4 + 1); if (t5 < 0) continue
+                val t6 = line.indexOf('\t', t5 + 1); if (t6 < 0) continue
+                val t7 = line.indexOf('\t', t6 + 1); if (t7 < 0) continue
+                val t8 = line.indexOf('\t', t7 + 1); if (t8 < 0) continue
+                val t9 = line.indexOf('\t', t8 + 1)
+                val releaseDate = (if (t9 < 0) line.substring(t8 + 1) else line.substring(t8 + 1, t9))
+                    .takeIf { it.isNotEmpty() }
+                val titleId = if (t9 >= 0) {
+                    val t10 = line.indexOf('\t', t9 + 1)
+                    (if (t10 < 0) line.substring(t9 + 1) else line.substring(t9 + 1, t10))
+                        .takeIf { it.isNotEmpty() }
+                } else null
                 out += TdbEntry(
-                    id = p[0],
-                    region = p[1],
-                    titleEn = p[2],
-                    titleZh = p[3].takeIf { it.isNotEmpty() },
-                    titleJa = p[4].takeIf { it.isNotEmpty() },
-                    developer = p[5].takeIf { it.isNotEmpty() },
-                    publisher = p[6].takeIf { it.isNotEmpty() },
-                    genre = p[7].takeIf { it.isNotEmpty() },
-                    releaseDate = p[8].takeIf { it.isNotEmpty() },
-                    titleId = p.getOrNull(9)?.takeIf { it.isNotEmpty() },
+                    id = line.substring(0, t1),
+                    region = line.substring(t1 + 1, t2),
+                    titleEn = line.substring(t2 + 1, t3),
+                    titleZh = if (t4 > t3 + 1) line.substring(t3 + 1, t4) else null,
+                    titleJa = if (t5 > t4 + 1) line.substring(t4 + 1, t5) else null,
+                    developer = if (t6 > t5 + 1) line.substring(t5 + 1, t6) else null,
+                    publisher = if (t7 > t6 + 1) line.substring(t6 + 1, t7) else null,
+                    genre = if (t8 > t7 + 1) line.substring(t7 + 1, t8) else null,
+                    releaseDate = releaseDate,
+                    titleId = titleId,
                 )
             }
         }

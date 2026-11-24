@@ -591,10 +591,14 @@ internal fun HomeOverlays(
                     vm.cancelScrapeMissing()
                 },
                 onRestart = {
-                    scope.launch {
-                        val queued = vm.scrapeMissingAll()
-                        if (queued <= 0) {
-                            Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
+                    if (!com.pocketdeck.launcher.data.NetworkStatus.isOnline(context)) {
+                        Toast.makeText(context, context.getString(R.string.network_offline_action_toast), Toast.LENGTH_SHORT).show()
+                    } else {
+                        scope.launch {
+                            val queued = vm.scrapeMissingAll()
+                            if (queued <= 0) {
+                                Toast.makeText(context, context.getString(R.string.scraping_missing_none_toast), Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
                 },

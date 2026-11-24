@@ -117,6 +117,20 @@ fun LanServiceControlDialog(
     onDismiss: () -> Unit,
 ) {
     val nav = remember { DpadNavController() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var seenErrorSeq by remember { mutableStateOf(state.lastErrorSeq) }
+    LaunchedEffect(state.lastErrorSeq) {
+        val err = state.lastError
+        if (state.lastErrorSeq != seenErrorSeq && err != null) {
+            seenErrorSeq = state.lastErrorSeq
+            val msg = when (err) {
+                "NO_LAN_INTERFACE" -> context.getString(R.string.lan_error_no_network)
+                "WEB_START_FAILED", "SHARE_START_FAILED" -> context.getString(R.string.lan_error_start_failed)
+                else -> context.getString(R.string.lan_error_start_failed_fmt, err)
+            }
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
     var editingName by remember { mutableStateOf(false) }
     var showWebHistory by remember { mutableStateOf(false) }
     var showShareHistory by remember { mutableStateOf(false) }
@@ -322,6 +336,26 @@ fun LanServiceControlDialog(
                         onCancel = onCancelFileTask,
                         nav = nav,
                     )
+                }
+
+                if (state.interfaces.isEmpty() && !state.webRunning && !state.shareRunning) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(DeckBrand.RadiusM))
+                            .background(DeckColors.StatusDanger.copy(alpha = 0.11f))
+                            .border(0.7.dp, DeckColors.StatusDanger.copy(alpha = 0.30f), RoundedCornerShape(DeckBrand.RadiusM))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        DeckIcon(DeckIcons.Wifi, size = 15.dp, tint = DeckColors.StatusDanger)
+                        Text(
+                            text = stringResource(R.string.lan_error_no_network),
+                            style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium),
+                            color = DeckColors.StatusDanger,
+                        )
+                    }
                 }
 
                 // 1) 首屏并排双开关卡：左「网页管理（IP · 接入设备数）」+ 右「游戏快传（主机名 · 附近设备数）」

@@ -45,6 +45,7 @@ data class LanServerState(
     val transfer: ShareTransferState? = null,
     val shareHistory: List<ShareHistoryItem> = emptyList(),
     val lastError: String? = null,
+    val lastErrorSeq: Long = 0L,
 ) {
     val anyRunning: Boolean get() = webRunning || shareRunning
     val webTransferring: Boolean get() = webActiveTransfers.isNotEmpty()
@@ -269,7 +270,7 @@ class LanServerManager(
             list.firstOrNull { it.interfaceName == _state.value.selectedInterfaceName } ?: list.firstOrNull()
         }
         if (lan == null) {
-            _state.update { it.copy(lastError = "NO_LAN_INTERFACE") }
+            _state.update { it.copy(lastError = "NO_LAN_INTERFACE", lastErrorSeq = it.lastErrorSeq + 1) }
             return false
         }
         return runCatching {
@@ -285,7 +286,9 @@ class LanServerManager(
             syncForegroundService()
             true
         }.getOrElse { err ->
-            _state.update { it.copy(lastError = err.message ?: "WEB_START_FAILED") }
+            _state.update {
+                it.copy(lastError = err.message ?: "WEB_START_FAILED", lastErrorSeq = it.lastErrorSeq + 1)
+            }
             false
         }
     }
@@ -331,7 +334,7 @@ class LanServerManager(
             list.firstOrNull { it.interfaceName == _state.value.selectedInterfaceName } ?: list.firstOrNull()
         }
         if (lan == null) {
-            _state.update { it.copy(lastError = "NO_LAN_INTERFACE") }
+            _state.update { it.copy(lastError = "NO_LAN_INTERFACE", lastErrorSeq = it.lastErrorSeq + 1) }
             return false
         }
         val id = _state.value.deviceId.ifBlank { UUID.randomUUID().toString() }
@@ -349,7 +352,9 @@ class LanServerManager(
             syncForegroundService()
             true
         }.getOrElse { err ->
-            _state.update { it.copy(lastError = err.message ?: "SHARE_START_FAILED") }
+            _state.update {
+                it.copy(lastError = err.message ?: "SHARE_START_FAILED", lastErrorSeq = it.lastErrorSeq + 1)
+            }
             false
         }
     }

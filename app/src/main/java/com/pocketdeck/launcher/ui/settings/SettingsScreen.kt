@@ -248,7 +248,7 @@ private fun itemCountForSection(
         ViewMode.entries.size + align + 3 + metaFields + tabsTotal
     }
     SettingsSection.Library -> state.romDirs.size + 4
-    SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 3
+    SettingsSection.Covers -> state.coverSources.size + state.metadataSources.size + 4
     SettingsSection.Emulators -> 2 + launcherPlatformsFor(state, showAllLauncherPlatforms).size
     SettingsSection.Controls -> 1 + KeyAction.entries.size + 1
     // Language(0), 12h(1), UI sounds(2), LAN & Share(3), StatusBar x8(4..11), Experimental(12), About x5(13..17)
@@ -323,6 +323,7 @@ fun SettingsScreen(
     val nameState = remember(nameSpec) { nameSpec?.let { NameDialogState(it) } }
     var credDialogKind by remember { mutableStateOf<CredentialKind?>(null) }
     var showScrapeLogs by remember { mutableStateOf(false) }
+    var showConnectivityTest by remember { mutableStateOf(false) }
     var bindingCategorySpec by remember { mutableStateOf<BindingCategorySpec?>(null) }
     var launcherPickerPlatform by remember { mutableStateOf<Platform?>(null) }
     var showHiddenDialog by remember { mutableStateOf(false) }
@@ -421,11 +422,11 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(
-        nameSpec, browsing, credDialogKind, showScrapeLogs, bindingCategorySpec,
+        nameSpec, browsing, credDialogKind, showScrapeLogs, showConnectivityTest, bindingCategorySpec,
         launcherPickerPlatform, showHiddenDialog, showFontPicker, editingSystemTab,
         capturingAction, pendingKeyConflict, showResetBindingsConfirm, availableRelease, effectiveCovered,
     ) {
-        if (nameSpec == null && !browsing && credDialogKind == null && !showScrapeLogs &&
+        if (nameSpec == null && !browsing && credDialogKind == null && !showScrapeLogs && !showConnectivityTest &&
             bindingCategorySpec == null && launcherPickerPlatform == null && !showHiddenDialog &&
             !showFontPicker && editingSystemTab == null && capturingAction == null &&
             pendingKeyConflict == null && !showResetBindingsConfirm && availableRelease == null && !effectiveCovered
@@ -438,7 +439,7 @@ fun SettingsScreen(
     val nav = remember { SettingsNavState() }
     var langPicker by remember { mutableStateOf<Int?>(null) }
 
-    val hasInternalOverlay = availableRelease != null || showScrapeLogs || nameSpec != null ||
+    val hasInternalOverlay = availableRelease != null || showScrapeLogs || showConnectivityTest || nameSpec != null ||
         credDialogKind != null || editingSystemTab != null || showHiddenDialog ||
         capturingAction != null || pendingKeyConflict != null || showResetBindingsConfirm ||
         bindingCategorySpec != null || launcherPickerPlatform != null || showFontPicker ||
@@ -453,6 +454,7 @@ fun SettingsScreen(
         when {
             availableRelease != null -> if (updateDownloadProgress == null) availableRelease = null
             showScrapeLogs -> showScrapeLogs = false
+            showConnectivityTest -> showConnectivityTest = false
             nameSpec != null -> nameSpec = null
             credDialogKind != null -> credDialogKind = null
             editingSystemTab != null -> editingSystemTab = null
@@ -524,6 +526,7 @@ fun SettingsScreen(
             nameSpec = null
             credDialogKind = null
             showScrapeLogs = false
+            showConnectivityTest = false
             bindingCategorySpec = null
             launcherPickerPlatform = null
             showHiddenDialog = false
@@ -792,7 +795,8 @@ fun SettingsScreen(
                         menu = ActionMenuState(metaNames[cfg.id] ?: desc.id, items)
                     }
                     idx == actionsStart -> manage.openScrapeTask()
-                    idx == actionsStart + 1 -> clearScrapeCacheWithFeedback()
+                    idx == actionsStart + 1 -> showConnectivityTest = true
+                    idx == actionsStart + 2 -> clearScrapeCacheWithFeedback()
                     else -> showScrapeLogs = true
                 }
             }
@@ -940,7 +944,7 @@ fun SettingsScreen(
                         else -> false
                     }
                 }
-                if (showScrapeLogs || showFontPicker || bindingCategorySpec != null || launcherPickerPlatform != null) {
+                if (showScrapeLogs || showConnectivityTest || showFontPicker || bindingCategorySpec != null || launcherPickerPlatform != null) {
                     return@onPreviewKeyEvent false
                 }
                 if (credDialogKind != null) {
@@ -1262,6 +1266,7 @@ fun SettingsScreen(
                                             onOpenCred = { credDialogKind = it },
                                             onRowClick = { idx -> nav.focusOnMenu = false; nav.contentItemIndex = idx; triggerItem(SettingsSection.Covers, idx) },
                                             onScrapeMissing = manage.openScrapeTask,
+                                            onTestConnectivity = { showConnectivityTest = true },
                                             onClearCoverCache = ::clearScrapeCacheWithFeedback,
                                             onViewLogs = { showScrapeLogs = true },
                                             scrapeProgress = state.scrapeProgress,
@@ -1357,6 +1362,13 @@ fun SettingsScreen(
         }
         if (showScrapeLogs) {
             ScrapeLogsScreen(onBack = { showScrapeLogs = false }, swapAbxy = state.swapAbxy, keyBindings = state.keyBindings)
+        }
+        if (showConnectivityTest) {
+            ServiceConnectivityDialog(
+                swapAbxy = state.swapAbxy,
+                keyBindings = state.keyBindings,
+                onDismiss = { showConnectivityTest = false },
+            )
         }
         availableRelease?.let { rel ->
             Box(

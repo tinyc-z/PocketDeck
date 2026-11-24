@@ -583,6 +583,7 @@ internal fun CoversSettingsSection(
     onOpenCred: (CredentialKind) -> Unit,
     onRowClick: (Int) -> Unit,
     onScrapeMissing: () -> Unit = {},
+    onTestConnectivity: () -> Unit = {},
     onClearCoverCache: () -> Unit,
     onViewLogs: () -> Unit,
     scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
@@ -660,9 +661,18 @@ internal fun CoversSettingsSection(
         )
         RowDivider()
         SettingRow(
+            label = stringResource(R.string.conn_test_entry_title),
+            description = stringResource(R.string.conn_test_entry_desc),
+            highlighted = highlightIndex == actionsStart + 1,
+            onClick = onTestConnectivity,
+            leading = { DeckIcon(DeckIcons.ArrowUpDown, size = 16.dp, tint = DeckColors.TextSecondary) },
+            trailing = { ValueChevron(null) },
+        )
+        RowDivider()
+        SettingRow(
             label = stringResource(R.string.scraping_clear_cache),
             description = stringResource(R.string.scraping_clear_cache_desc),
-            highlighted = highlightIndex == actionsStart + 1,
+            highlighted = highlightIndex == actionsStart + 2,
             onClick = onClearCoverCache,
             leading = { DeckIcon(DeckIcons.Trash, size = 16.dp, tint = DeckColors.TextSecondary) },
             trailing = { ValuePill(cacheSizeLabel) },
@@ -670,7 +680,7 @@ internal fun CoversSettingsSection(
         RowDivider()
         SettingRow(
             label = stringResource(R.string.scraping_view_logs),
-            highlighted = highlightIndex == actionsStart + 2,
+            highlighted = highlightIndex == actionsStart + 3,
             onClick = onViewLogs,
             leading = { DeckIcon(DeckIcons.FileText, size = 16.dp, tint = DeckColors.TextSecondary) },
             trailing = { ValueChevron(null) },

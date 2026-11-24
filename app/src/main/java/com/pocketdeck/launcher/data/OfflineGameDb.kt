@@ -230,24 +230,37 @@ object OfflineGameDb {
         val rowByCompact = HashMap<String, MetaRow>(1024)
 
         for (raw in lines) {
-            if (raw.length < 3) continue
-            val parts = raw.split('\t')
-            when (parts[0]) {
-                "H" -> if (parts.size >= 3) {
-                    val crc = parts[1].trim().uppercase()
-                    val name = parts[2].trim()
+            if (raw.length < 3 || raw[1] != '\t') continue
+            when (raw[0]) {
+                'H' -> {
+                    val t2 = raw.indexOf('\t', 2)
+                    if (t2 < 0) continue
+                    val t3 = raw.indexOf('\t', t2 + 1)
+                    val crc = raw.substring(2, t2).trim().uppercase()
+                    val name = (if (t3 < 0) raw.substring(t2 + 1) else raw.substring(t2 + 1, t3)).trim()
                     if (crc.isNotEmpty() && name.isNotEmpty()) {
                         hashToName.putIfAbsent(crc, name)
                     }
                 }
-                "M" -> if (parts.size >= 6) {
-                    val name = parts[1].trim()
+                'M' -> {
+                    val t2 = raw.indexOf('\t', 2)
+                    if (t2 < 0) continue
+                    val t3 = raw.indexOf('\t', t2 + 1)
+                    if (t3 < 0) continue
+                    val t4 = raw.indexOf('\t', t3 + 1)
+                    if (t4 < 0) continue
+                    val t5 = raw.indexOf('\t', t4 + 1)
+                    if (t5 < 0) continue
+                    val t6 = raw.indexOf('\t', t5 + 1)
+                    val name = raw.substring(2, t2).trim()
                     if (name.isEmpty()) continue
                     val meta = GameMetadata(
-                        developer = parts[2].trim().takeIf { it.isNotEmpty() },
-                        publisher = parts[3].trim().takeIf { it.isNotEmpty() },
-                        genre = parts[4].trim().takeIf { it.isNotEmpty() },
-                        releaseDate = parts[5].trim().takeIf { it.isNotEmpty() },
+                        developer = raw.substring(t2 + 1, t3).trim().takeIf { it.isNotEmpty() },
+                        publisher = raw.substring(t3 + 1, t4).trim().takeIf { it.isNotEmpty() },
+                        genre = raw.substring(t4 + 1, t5).trim().takeIf { it.isNotEmpty() },
+                        releaseDate = (if (t6 < 0) raw.substring(t5 + 1) else raw.substring(t5 + 1, t6))
+                            .trim()
+                            .takeIf { it.isNotEmpty() },
                     )
                     if (meta.isEmpty) continue
                     val mergedRaw = metaByRaw[name]?.let { mergeMeta(it, meta) } ?: meta

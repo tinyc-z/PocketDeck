@@ -2257,19 +2257,25 @@ class MetadataRepository(
         val rows = ArrayList<CachedRow>(2048)
         file.bufferedReader().useLines { lines ->
             for (line in lines) {
-                val parts = line.split('\t')
-                if (parts.size < 7) continue
+                val t1 = line.indexOf('\t'); if (t1 < 0) continue
+                val t2 = line.indexOf('\t', t1 + 1); if (t2 < 0) continue
+                val t3 = line.indexOf('\t', t2 + 1); if (t3 < 0) continue
+                val t4 = line.indexOf('\t', t3 + 1); if (t4 < 0) continue
+                val t5 = line.indexOf('\t', t4 + 1); if (t5 < 0) continue
+                val t6 = line.indexOf('\t', t5 + 1); if (t6 < 0) continue
+                val t7 = line.indexOf('\t', t6 + 1)
                 val meta = GameMetadata(
-                    releaseDate = parts[3].takeIf { it.isNotEmpty() },
-                    genre = parts[4].takeIf { it.isNotEmpty() },
-                    developer = parts[5].takeIf { it.isNotEmpty() },
-                    publisher = parts[6].takeIf { it.isNotEmpty() },
+                    releaseDate = if (t4 > t3 + 1) line.substring(t3 + 1, t4) else null,
+                    genre = if (t5 > t4 + 1) line.substring(t4 + 1, t5) else null,
+                    developer = if (t6 > t5 + 1) line.substring(t5 + 1, t6) else null,
+                    publisher = (if (t7 < 0) line.substring(t6 + 1) else line.substring(t6 + 1, t7))
+                        .takeIf { it.isNotEmpty() },
                 )
                 if (!meta.isEmpty) {
                     rows += CachedRow(
-                        crc = parts[0],
-                        serial = parts[1],
-                        comment = parts[2],
+                        crc = line.substring(0, t1),
+                        serial = line.substring(t1 + 1, t2),
+                        comment = line.substring(t2 + 1, t3),
                         meta = meta,
                     )
                 }

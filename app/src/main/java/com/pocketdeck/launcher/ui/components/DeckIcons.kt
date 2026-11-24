@@ -645,6 +645,20 @@ object DeckIcons {
             }
         }
     }
+
+    /** 上下行双向数据箭头（服务连通性 / 网络吞吐测试） */
+    val ArrowUpDown: ImageVector by lazy {
+        strokeIcon("ArrowUpDown") {
+            strokePath {
+                // 左上行箭头 ↑
+                moveTo(7f, 20f); verticalLineTo(4f)
+                moveTo(3.5f, 7.5f); lineTo(7f, 4f); lineTo(10.5f, 7.5f)
+                // 右下行箭头 ↓
+                moveTo(17f, 4f); verticalLineTo(20f)
+                moveTo(13.5f, 16.5f); lineTo(17f, 20f); lineTo(20.5f, 16.5f)
+            }
+        }
+    }
 }
 
 /** 轻量纤细矢量图标绘制组件（使用 [rememberVectorPainter] 着色渲染）。 */

@@ -33,6 +33,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -705,6 +706,7 @@ fun ManualScrapeDialog(
     val keyboardController = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    val isOnline by com.pocketdeck.launcher.data.NetworkStatus.online.collectAsState()
     var keyword by remember(game.id) { mutableStateOf(game.title) }
     var fieldFocused by remember { mutableStateOf(false) }
     val suggestions = remember(keyword) { onSuggest(keyword) }
@@ -779,7 +781,7 @@ fun ManualScrapeDialog(
         val q = (overrideKeyword ?: keyword).trim()
         if (overrideKeyword != null) keyword = overrideKeyword
         dismissKeyboard(targetZone = 2)
-        if (q.isEmpty()) return
+        if (q.isEmpty() || !isOnline) return
         searchJob?.cancel()
         searchJob = scope.launch {
             searching = true
@@ -1083,6 +1085,20 @@ fun ManualScrapeDialog(
             val activeSourceSummary = activeSourceLabels.joinToString(" · ")
 
             when {
+                !isOnline && results.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(110.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.network_offline_action_toast),
+                            style = DeckType.metaLabel,
+                            color = DeckColors.StatusDanger,
+                        )
+                    }
+                }
                 searching && results.isEmpty() -> {
                     Box(
                         Modifier
