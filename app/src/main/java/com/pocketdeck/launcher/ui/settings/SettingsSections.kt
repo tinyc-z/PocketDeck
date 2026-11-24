@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.pocketdeck.launcher.ui.components.Text
 import androidx.compose.runtime.Composable
@@ -584,12 +585,52 @@ internal fun CoversSettingsSection(
     onRowClick: (Int) -> Unit,
     onScrapeMissing: () -> Unit = {},
     onTestConnectivity: () -> Unit = {},
+    sourceProbes: Map<String, com.pocketdeck.launcher.data.SourceProbeState> = emptyMap(),
+    probingSources: Boolean = false,
     onClearCoverCache: () -> Unit,
     onViewLogs: () -> Unit,
     scrapeProgress: com.pocketdeck.launcher.data.ScrapeProgress = com.pocketdeck.launcher.data.ScrapeProgress(),
     highlightIndex: Int,
 ) {
-    GroupHeader(stringResource(R.string.scraping_cover_title))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        GroupHeader(stringResource(R.string.scraping_cover_title))
+        Row(
+            Modifier
+                .padding(bottom = 6.dp)
+                .clip(CircleShape)
+                .background(if (probingSources) DeckColors.SurfaceAlt else DeckColors.AccentSoft)
+                .border(
+                    0.7.dp,
+                    if (probingSources) DeckColors.Line else DeckColors.Ruby.copy(alpha = 0.30f),
+                    CircleShape,
+                )
+                .then(if (!probingSources) Modifier.soundClickable(onClick = onTestConnectivity) else Modifier)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            if (probingSources) {
+                com.pocketdeck.launcher.ui.components.CircularProgressIndicator(
+                    modifier = Modifier.size(11.dp),
+                    strokeWidth = 1.6.dp,
+                    color = DeckColors.TextSecondary,
+                )
+            } else {
+                DeckIcon(DeckIcons.ArrowUpDown, size = 12.dp, tint = DeckColors.Ruby)
+            }
+            Text(
+                text = stringResource(if (probingSources) R.string.conn_test_running else R.string.conn_test_entry_title),
+                style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
+                color = if (probingSources) DeckColors.TextSecondary else DeckColors.Ruby,
+            )
+        }
+    }
     GroupCard {
         DragReorderColumn(
             items = coverSources,
@@ -604,6 +645,7 @@ internal fun CoversSettingsSection(
                     config = cfg,
                     descriptor = desc,
                     credentials = credentials,
+                    probe = sourceProbes[cfg.id],
                     highlighted = highlightIndex == idx,
                     dragHandleModifier = dragHandleModifier,
                     onRowClick = { onRowClick(idx) },
@@ -632,6 +674,7 @@ internal fun CoversSettingsSection(
                     config = cfg,
                     descriptor = desc,
                     credentials = credentials,
+                    probe = sourceProbes[cfg.id],
                     highlighted = highlightIndex == metaStart + idx,
                     dragHandleModifier = dragHandleModifier,
                     onRowClick = { onRowClick(metaStart + idx) },
@@ -664,9 +707,19 @@ internal fun CoversSettingsSection(
             label = stringResource(R.string.conn_test_entry_title),
             description = stringResource(R.string.conn_test_entry_desc),
             highlighted = highlightIndex == actionsStart + 1,
-            onClick = onTestConnectivity,
+            onClick = { if (!probingSources) onTestConnectivity() },
             leading = { DeckIcon(DeckIcons.ArrowUpDown, size = 16.dp, tint = DeckColors.TextSecondary) },
-            trailing = { ValueChevron(null) },
+            trailing = {
+                if (probingSources) {
+                    ValuePill(stringResource(R.string.conn_test_running))
+                } else if (sourceProbes.isNotEmpty()) {
+                    val ok = sourceProbes.values.count {
+                        it.status == com.pocketdeck.launcher.data.ServiceProbeStatus.Reachable ||
+                            it.status == com.pocketdeck.launcher.data.ServiceProbeStatus.Slow
+                    }
+                    ValuePill("$ok / ${sourceProbes.size}")
+                }
+            },
         )
         RowDivider()
         SettingRow(
@@ -694,6 +747,7 @@ private fun SourceConfigRow(
     config: SourceItemConfig,
     descriptor: SourceDescriptor,
     credentials: ScraperCredentials,
+    probe: com.pocketdeck.launcher.data.SourceProbeState? = null,
     highlighted: Boolean,
     dragHandleModifier: Modifier,
     onRowClick: () -> Unit,
@@ -713,6 +767,10 @@ private fun SourceConfigRow(
         onClick = onRowClick,
         leading = { DragHandle(dragHandleModifier) },
         trailing = {
+            if (probe != null) {
+                SourceProbeBadge(probe)
+                Spacer(Modifier.width(6.dp))
+            }
             if (badge != null) {
                 ValuePill(
                     text = badge,
@@ -726,6 +784,45 @@ private fun SourceConfigRow(
             }
         },
     )
+}
+
+@Composable
+private fun SourceProbeBadge(probe: com.pocketdeck.launcher.data.SourceProbeState) {
+    val (text, color) = when (probe.status) {
+        com.pocketdeck.launcher.data.ServiceProbeStatus.Pending ->
+            stringResource(R.string.conn_status_testing) to DeckColors.TextSecondary
+        com.pocketdeck.launcher.data.ServiceProbeStatus.Reachable ->
+            "${probe.latencyMs}ms" to DeckColors.StatusSuccess
+        com.pocketdeck.launcher.data.ServiceProbeStatus.Slow ->
+            "${probe.latencyMs}ms" to DeckColors.StatusWarning
+        com.pocketdeck.launcher.data.ServiceProbeStatus.Timeout ->
+            stringResource(R.string.conn_status_timeout) to DeckColors.StatusDanger
+        com.pocketdeck.launcher.data.ServiceProbeStatus.Unreachable ->
+            stringResource(R.string.conn_status_unreachable) to DeckColors.StatusDanger
+        com.pocketdeck.launcher.data.ServiceProbeStatus.Offline ->
+            stringResource(R.string.conn_status_offline) to DeckColors.StatusDanger
+    }
+    Row(
+        Modifier
+            .clip(CircleShape)
+            .background(color.copy(alpha = 0.13f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (probe.status == com.pocketdeck.launcher.data.ServiceProbeStatus.Pending) {
+            com.pocketdeck.launcher.ui.components.CircularProgressIndicator(
+                modifier = Modifier.size(10.dp),
+                strokeWidth = 1.5.dp,
+                color = color,
+            )
+        }
+        Text(
+            text = text,
+            style = DeckType.metaLabel.copy(fontWeight = FontWeight.SemiBold),
+            color = color,
+        )
+    }
 }
 
 // ════════════════════════════════════════════════════════════════

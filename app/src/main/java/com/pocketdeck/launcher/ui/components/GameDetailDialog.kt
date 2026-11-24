@@ -52,12 +52,14 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.PlayStats
@@ -68,6 +70,7 @@ import com.pocketdeck.launcher.data.model.Platform
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.icons.HomeIcons
+import com.pocketdeck.launcher.ui.components.icons.PanelIcons
 import com.pocketdeck.launcher.ui.theme.DeckBrand
 import com.pocketdeck.launcher.ui.theme.DeckColors
 import com.pocketdeck.launcher.ui.theme.DeckType
@@ -132,6 +135,12 @@ fun GameDetailDialog(
     val coverEditFocused = focusZone == DetailFocusZone.CoverEdit && onManualScrape != null
     var pickingDisc by remember(game.id) { mutableStateOf(false) }
     var discIdx by remember(game.id, pickingDisc) { mutableIntStateOf(0) }
+    var showCoverLightbox by remember(game.id) { mutableStateOf(false) }
+    val previewCoverModel = remember(game.id, game.customCover, game.localCover, officialName) {
+        covers.candidates(game, platform, officialName).firstOrNull()
+            ?: game.customCover
+            ?: game.localCover?.let { File(it) }
+    }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
 
@@ -172,8 +181,8 @@ fun GameDetailDialog(
     }
     if (actionIdx >= actions.size) actionIdx = 0
 
-    BackHandler(enabled = isTopmost && pickingDisc) {
-        pickingDisc = false
+    BackHandler(enabled = isTopmost && (pickingDisc || showCoverLightbox)) {
+        if (showCoverLightbox) showCoverLightbox = false else pickingDisc = false
     }
 
     LaunchedEffect(game.id, isTopmost) {
@@ -184,12 +193,25 @@ fun GameDetailDialog(
         Modifier
             .fillMaxSize()
             .background(DeckColors.CardShadow)
-            .scrimTapDismiss(onDismiss)
+            .scrimTapDismiss {
+                if (showCoverLightbox) showCoverLightbox = false else onDismiss()
+            }
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val isInitialPress = event.nativeKeyEvent.repeatCount == 0
+                if (showCoverLightbox) {
+                    if (isInitialPress && (
+                            GamepadKeys.isBack(event.key) ||
+                                GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) ||
+                                GamepadKeys.isConfirm(event.key, swapAbxy, keyBindings)
+                            )
+                    ) {
+                        showCoverLightbox = false
+                    }
+                    return@onPreviewKeyEvent true
+                }
                 when {
                     GamepadKeys.isBack(event.key) || GamepadKeys.isCancelOrApps(event.key, swapAbxy, keyBindings) -> {
                         if (isInitialPress) {
@@ -735,7 +757,11 @@ fun GameDetailDialog(
                         Modifier
                             .fillMaxWidth()
                             .height(bannerH)
-                            .background(if (isDark) DeckColors.Background else DeckColors.SurfaceAlt),
+                            .background(if (isDark) DeckColors.Background else DeckColors.SurfaceAlt)
+                            .then(
+                                if (previewCoverModel != null) Modifier.soundClickable { showCoverLightbox = true }
+                                else Modifier,
+                            ),
                     ) {
                         GameCoverCard(
                             game = game,
@@ -805,12 +831,16 @@ fun GameDetailDialog(
                     .clickable(enabled = false, onClick = {}),
             ) {
                 Row(Modifier.fillMaxSize()) {
-                    // 左侧全高封面海报区（无重复平台角标，右缘无缝羽化进弹窗底色）
+                    // 左侧全高封面海报区（无重复平台角标，右缘无缝羽化进弹窗底色，点击可查看大图）
                     BoxWithConstraints(
                         Modifier
                             .width(artW)
                             .fillMaxHeight()
-                            .background(if (isDark) DeckColors.Background else DeckColors.SurfaceAlt),
+                            .background(if (isDark) DeckColors.Background else DeckColors.SurfaceAlt)
+                            .then(
+                                if (previewCoverModel != null) Modifier.soundClickable { showCoverLightbox = true }
+                                else Modifier,
+                            ),
                     ) {
                         GameCoverCard(
                             game = game,
@@ -849,6 +879,25 @@ fun GameDetailDialog(
                                     ),
                                 ),
                         )
+                        // 左上角轻量化放大镜徽标提示（有封面时可点击查看大图）
+                        if (previewCoverModel != null) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(top = 12.dp, start = 12.dp)
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.42f))
+                                    .border(0.8.dp, Color.White.copy(alpha = 0.24f), CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                DeckIcon(
+                                    icon = PanelIcons.ZoomIn,
+                                    size = 14.dp,
+                                    tint = Color.White.copy(alpha = 0.92f),
+                                )
+                            }
+                        }
                         // 右下角磨砂「换封面」胶囊（紧贴羽化带左侧，不贴边）
                         CoverChangePill(
                             Modifier
@@ -872,6 +921,55 @@ fun GameDetailDialog(
                                 bottom = if (isCompact) 14.dp else 18.dp,
                             ),
                         includeTitleClose = true,
+                    )
+                }
+            }
+        }
+
+        // 点击左侧封面弹出的全屏高清大图预览浮层（点任意位置或按 B/A 关闭）
+        if (showCoverLightbox && previewCoverModel != null) {
+            val previewShape = RoundedCornerShape(DeckBrand.RadiusL)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.86f))
+                    .soundClickable { showCoverLightbox = false },
+                contentAlignment = Alignment.Center,
+            ) {
+                AsyncImage(
+                    model = previewCoverModel,
+                    contentDescription = game.title,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 36.dp, vertical = 40.dp)
+                        .clip(previewShape),
+                )
+                DialogCloseButton(
+                    onClick = { showCoverLightbox = false },
+                    size = 32.dp,
+                    darkSurface = true,
+                    swapAbxy = swapAbxy,
+                    keyBindings = keyBindings,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 16.dp, end = 16.dp),
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 14.dp, start = 24.dp, end = 24.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.56f))
+                        .border(0.7.dp, Color.White.copy(alpha = 0.20f), CircleShape)
+                        .padding(horizontal = 14.dp, vertical = 5.dp),
+                ) {
+                    Text(
+                        text = game.title,
+                        style = DeckType.metaLabel.copy(fontWeight = FontWeight.Medium),
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

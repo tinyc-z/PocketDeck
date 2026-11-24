@@ -2,7 +2,6 @@ package com.pocketdeck.launcher.data
 
 import android.content.Context
 import android.os.SystemClock
-import com.pocketdeck.launcher.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -22,20 +21,16 @@ enum class ServiceProbeStatus {
     Offline,
 }
 
-data class ServiceProbeResult(
-    val id: String,
-    val nameRes: Int,
-    val host: String,
-    val probeUrl: String,
+data class SourceProbeState(
     val status: ServiceProbeStatus = ServiceProbeStatus.Pending,
     val latencyMs: Long = -1L,
-    val httpCode: Int = 0,
 )
 
 /**
- * 轻量级并发服务连通性探测：
- * - 先通过 [NetworkStatus.isOnline] 判定设备是否联网（覆盖 Wi-Fi / 移动数据 SIM / 以太网 / VPN），离线时 0ms 直接返回 Offline；
- * - 联网时并发发送轻量 HEAD 请求（超时 4 秒），不消耗 API 配额，逐项回调最新状态供 UI 实时刷新。
+ * 内联数据源连通性探测：
+ * - 探测前先通过 [NetworkStatus.isOnline] 判定设备是否联网（覆盖 Wi-Fi / 移动网络 SIM / 以太网 / VPN），离线时 0ms 直接标记 Offline；
+ * - 联网时按去重后的后端节点并发发送轻量 HEAD 请求（超时 4 秒，不消耗 API 配额），
+ *   将结果实时映射回 [ScraperCatalog.CoverIds] 与 [ScraperCatalog.MetaIds] 对应的全部行。
  */
 object ServiceConnectivityTester {
 
@@ -43,101 +38,111 @@ object ServiceConnectivityTester {
     private const val READ_TIMEOUT_MS = 4_000
     private const val SLOW_THRESHOLD_MS = 1_500L
 
-    fun initialItems(): List<ServiceProbeResult> = listOf(
-        ServiceProbeResult(
-            id = "libretro_fastly",
-            nameRes = R.string.conn_svc_libretro_fastly,
-            host = "fastly.jsdelivr.net",
-            probeUrl = "https://fastly.jsdelivr.net/",
+    private data class ProbeGroup(
+        val sourceIds: List<String>,
+        val urls: List<String>,
+    )
+
+    private val probeGroups: List<ProbeGroup> = listOf(
+        // Libretro 封面/截图/数据库共享多镜像容灾：并发探测 Fastly 与 jsDelivr，取最快可达节点
+        ProbeGroup(
+            sourceIds = listOf(
+                ScraperCatalog.CoverIds.LIBRETRO_BOXARTS,
+                ScraperCatalog.CoverIds.LIBRETRO_SNAPS,
+                ScraperCatalog.MetaIds.LIBRETRO_DB,
+            ),
+            urls = listOf(
+                "https://fastly.jsdelivr.net/",
+                "https://cdn.jsdelivr.net/",
+            ),
         ),
-        ServiceProbeResult(
-            id = "libretro_cdn",
-            nameRes = R.string.conn_svc_libretro_cdn,
-            host = "cdn.jsdelivr.net",
-            probeUrl = "https://cdn.jsdelivr.net/",
+        ProbeGroup(
+            sourceIds = listOf(ScraperCatalog.CoverIds.GAMETDB),
+            urls = listOf("https://www.gametdb.com/"),
         ),
-        ServiceProbeResult(
-            id = "gametdb",
-            nameRes = R.string.conn_svc_gametdb,
-            host = "www.gametdb.com",
-            probeUrl = "https://www.gametdb.com/",
+        ProbeGroup(
+            sourceIds = listOf(ScraperCatalog.CoverIds.HASHEOUS),
+            urls = listOf("https://hasheous.org/"),
         ),
-        ServiceProbeResult(
-            id = "arcadeitalia",
-            nameRes = R.string.conn_svc_arcadeitalia,
-            host = "adb.arcadeitalia.net",
-            probeUrl = "https://adb.arcadeitalia.net/",
+        ProbeGroup(
+            sourceIds = listOf(ScraperCatalog.CoverIds.ARCADEITALIA),
+            urls = listOf("https://adb.arcadeitalia.net/"),
         ),
-        ServiceProbeResult(
-            id = "hasheous",
-            nameRes = R.string.conn_svc_hasheous,
-            host = "hasheous.org",
-            probeUrl = "https://hasheous.org/",
+        ProbeGroup(
+            sourceIds = listOf(ScraperCatalog.CoverIds.STEAMGRIDDB),
+            urls = listOf("https://www.steamgriddb.com/"),
         ),
-        ServiceProbeResult(
-            id = "wikidata",
-            nameRes = R.string.conn_svc_wikidata,
-            host = "www.wikidata.org",
-            probeUrl = "https://www.wikidata.org/w/api.php",
+        ProbeGroup(
+            sourceIds = listOf(ScraperCatalog.CoverIds.SCREENSCRAPER),
+            urls = listOf("https://api.screenscraper.fr/"),
         ),
-        ServiceProbeResult(
-            id = "screenscraper",
-            nameRes = R.string.conn_svc_screenscraper,
-            host = "api.screenscraper.fr",
-            probeUrl = "https://api.screenscraper.fr/",
+        ProbeGroup(
+            sourceIds = listOf(ScraperCatalog.CoverIds.THEGAMESDB),
+            urls = listOf("https://api.thegamesdb.net/"),
         ),
-        ServiceProbeResult(
-            id = "thegamesdb",
-            nameRes = R.string.conn_svc_thegamesdb,
-            host = "api.thegamesdb.net",
-            probeUrl = "https://api.thegamesdb.net/",
+        ProbeGroup(
+            sourceIds = listOf(ScraperCatalog.CoverIds.IGDB),
+            urls = listOf("https://id.twitch.tv/"),
         ),
-        ServiceProbeResult(
-            id = "igdb",
-            nameRes = R.string.conn_svc_igdb,
-            host = "id.twitch.tv",
-            probeUrl = "https://id.twitch.tv/",
-        ),
-        ServiceProbeResult(
-            id = "steamgriddb",
-            nameRes = R.string.conn_svc_steamgriddb,
-            host = "www.steamgriddb.com",
-            probeUrl = "https://www.steamgriddb.com/",
-        ),
-        ServiceProbeResult(
-            id = "github",
-            nameRes = R.string.conn_svc_github,
-            host = "api.github.com",
-            probeUrl = "https://api.github.com/",
+        ProbeGroup(
+            sourceIds = listOf(ScraperCatalog.MetaIds.WIKIDATA),
+            urls = listOf("https://www.wikidata.org/w/api.php"),
         ),
     )
 
-    suspend fun probeAll(
+    fun allSourceIds(): List<String> = probeGroups.flatMap { it.sourceIds }
+
+    /**
+     * 并发探测全部刮削源并在每组返回时实时回调 [onGroupUpdated]。
+     * @return 按去重后端节点统计的 `(reachableCount, unreachableCount)`。
+     */
+    suspend fun probeSources(
         context: Context,
-        onItemUpdated: (ServiceProbeResult) -> Unit,
-    ): List<ServiceProbeResult> = coroutineScope {
-        val items = initialItems()
+        onGroupUpdated: (Map<String, SourceProbeState>) -> Unit,
+    ): Pair<Int, Int> = coroutineScope {
         if (!NetworkStatus.isOnline(context)) {
-            return@coroutineScope items.map { item ->
-                item.copy(status = ServiceProbeStatus.Offline).also(onItemUpdated)
-            }
+            val offlineMap = allSourceIds().associateWith { SourceProbeState(ServiceProbeStatus.Offline) }
+            onGroupUpdated(offlineMap)
+            return@coroutineScope 0 to probeGroups.size
         }
-        items.map { item ->
+
+        val groupResults = probeGroups.map { group ->
             async(Dispatchers.IO) {
-                val res = probeSingle(item)
-                withContext(Dispatchers.Main.immediate) {
-                    onItemUpdated(res)
+                val state = if (group.urls.size == 1) {
+                    probeSingleUrl(group.urls[0])
+                } else {
+                    val sub = group.urls.map { url -> async(Dispatchers.IO) { probeSingleUrl(url) } }.awaitAll()
+                    pickBest(sub)
                 }
-                res
+                val patch = group.sourceIds.associateWith { state }
+                withContext(Dispatchers.Main.immediate) {
+                    onGroupUpdated(patch)
+                }
+                state
             }
         }.awaitAll()
+
+        val reachable = groupResults.count {
+            it.status == ServiceProbeStatus.Reachable || it.status == ServiceProbeStatus.Slow
+        }
+        reachable to (groupResults.size - reachable)
     }
 
-    private fun probeSingle(item: ServiceProbeResult): ServiceProbeResult {
+    private fun pickBest(states: List<SourceProbeState>): SourceProbeState {
+        val ok = states.filter {
+            it.status == ServiceProbeStatus.Reachable || it.status == ServiceProbeStatus.Slow
+        }
+        if (ok.isNotEmpty()) return ok.minBy { it.latencyMs }
+        return states.firstOrNull { it.status == ServiceProbeStatus.Timeout }
+            ?: states.firstOrNull()
+            ?: SourceProbeState(ServiceProbeStatus.Unreachable)
+    }
+
+    private fun probeSingleUrl(urlStr: String): SourceProbeState {
         val startMs = SystemClock.elapsedRealtime()
         var conn: HttpURLConnection? = null
         return try {
-            conn = (URL(item.probeUrl).openConnection() as HttpURLConnection).apply {
+            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 requestMethod = "HEAD"
                 connectTimeout = CONNECT_TIMEOUT_MS
                 readTimeout = READ_TIMEOUT_MS
@@ -147,21 +152,18 @@ object ServiceConnectivityTester {
             }
             val code = conn.responseCode
             val elapsed = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
-            // 1xx..4xx 均说明 DNS + TCP + TLS + HTTP 链路畅通（部分 API 对 HEAD 返回 401/403/404/405 属正常）
             val status = when {
                 code in 100..499 && elapsed <= SLOW_THRESHOLD_MS -> ServiceProbeStatus.Reachable
                 code in 100..499 -> ServiceProbeStatus.Slow
                 else -> ServiceProbeStatus.Unreachable
             }
-            item.copy(status = status, latencyMs = elapsed, httpCode = code)
+            SourceProbeState(status = status, latencyMs = elapsed)
         } catch (_: SocketTimeoutException) {
-            val elapsed = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
-            item.copy(status = ServiceProbeStatus.Timeout, latencyMs = elapsed)
+            SourceProbeState(ServiceProbeStatus.Timeout, (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L))
         } catch (_: IOException) {
-            val elapsed = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
-            item.copy(status = ServiceProbeStatus.Unreachable, latencyMs = elapsed)
+            SourceProbeState(ServiceProbeStatus.Unreachable, (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L))
         } catch (_: Throwable) {
-            item.copy(status = ServiceProbeStatus.Unreachable)
+            SourceProbeState(ServiceProbeStatus.Unreachable)
         } finally {
             runCatching { conn?.disconnect() }
         }

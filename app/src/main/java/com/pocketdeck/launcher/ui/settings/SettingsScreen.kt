@@ -323,7 +323,35 @@ fun SettingsScreen(
     val nameState = remember(nameSpec) { nameSpec?.let { NameDialogState(it) } }
     var credDialogKind by remember { mutableStateOf<CredentialKind?>(null) }
     var showScrapeLogs by remember { mutableStateOf(false) }
-    var showConnectivityTest by remember { mutableStateOf(false) }
+    var sourceProbes by remember { mutableStateOf<Map<String, com.pocketdeck.launcher.data.SourceProbeState>>(emptyMap()) }
+    var probingSources by remember { mutableStateOf(false) }
+
+    fun runConnectivityTest() {
+        if (probingSources) return
+        if (!NetworkStatus.isOnline(context)) {
+            sourceProbes = com.pocketdeck.launcher.data.ServiceConnectivityTester.allSourceIds()
+                .associateWith { com.pocketdeck.launcher.data.SourceProbeState(com.pocketdeck.launcher.data.ServiceProbeStatus.Offline) }
+            Toast.makeText(context, context.getString(R.string.network_offline_action_toast), Toast.LENGTH_SHORT).show()
+            return
+        }
+        probingSources = true
+        sourceProbes = com.pocketdeck.launcher.data.ServiceConnectivityTester.allSourceIds()
+            .associateWith { com.pocketdeck.launcher.data.SourceProbeState(com.pocketdeck.launcher.data.ServiceProbeStatus.Pending) }
+        scope.launch {
+            try {
+                val (ok, fail) = com.pocketdeck.launcher.data.ServiceConnectivityTester.probeSources(context) { patch ->
+                    sourceProbes = sourceProbes + patch
+                }
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.conn_test_summary_fmt, ok, fail),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } finally {
+                probingSources = false
+            }
+        }
+    }
     var bindingCategorySpec by remember { mutableStateOf<BindingCategorySpec?>(null) }
     var launcherPickerPlatform by remember { mutableStateOf<Platform?>(null) }
     var showHiddenDialog by remember { mutableStateOf(false) }
@@ -422,11 +450,11 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(
-        nameSpec, browsing, credDialogKind, showScrapeLogs, showConnectivityTest, bindingCategorySpec,
+        nameSpec, browsing, credDialogKind, showScrapeLogs, bindingCategorySpec,
         launcherPickerPlatform, showHiddenDialog, showFontPicker, editingSystemTab,
         capturingAction, pendingKeyConflict, showResetBindingsConfirm, availableRelease, effectiveCovered,
     ) {
-        if (nameSpec == null && !browsing && credDialogKind == null && !showScrapeLogs && !showConnectivityTest &&
+        if (nameSpec == null && !browsing && credDialogKind == null && !showScrapeLogs &&
             bindingCategorySpec == null && launcherPickerPlatform == null && !showHiddenDialog &&
             !showFontPicker && editingSystemTab == null && capturingAction == null &&
             pendingKeyConflict == null && !showResetBindingsConfirm && availableRelease == null && !effectiveCovered
@@ -439,7 +467,7 @@ fun SettingsScreen(
     val nav = remember { SettingsNavState() }
     var langPicker by remember { mutableStateOf<Int?>(null) }
 
-    val hasInternalOverlay = availableRelease != null || showScrapeLogs || showConnectivityTest || nameSpec != null ||
+    val hasInternalOverlay = availableRelease != null || showScrapeLogs || nameSpec != null ||
         credDialogKind != null || editingSystemTab != null || showHiddenDialog ||
         capturingAction != null || pendingKeyConflict != null || showResetBindingsConfirm ||
         bindingCategorySpec != null || launcherPickerPlatform != null || showFontPicker ||
@@ -454,7 +482,6 @@ fun SettingsScreen(
         when {
             availableRelease != null -> if (updateDownloadProgress == null) availableRelease = null
             showScrapeLogs -> showScrapeLogs = false
-            showConnectivityTest -> showConnectivityTest = false
             nameSpec != null -> nameSpec = null
             credDialogKind != null -> credDialogKind = null
             editingSystemTab != null -> editingSystemTab = null
@@ -526,7 +553,6 @@ fun SettingsScreen(
             nameSpec = null
             credDialogKind = null
             showScrapeLogs = false
-            showConnectivityTest = false
             bindingCategorySpec = null
             launcherPickerPlatform = null
             showHiddenDialog = false
@@ -795,7 +821,7 @@ fun SettingsScreen(
                         menu = ActionMenuState(metaNames[cfg.id] ?: desc.id, items)
                     }
                     idx == actionsStart -> manage.openScrapeTask()
-                    idx == actionsStart + 1 -> showConnectivityTest = true
+                    idx == actionsStart + 1 -> runConnectivityTest()
                     idx == actionsStart + 2 -> clearScrapeCacheWithFeedback()
                     else -> showScrapeLogs = true
                 }
@@ -944,7 +970,7 @@ fun SettingsScreen(
                         else -> false
                     }
                 }
-                if (showScrapeLogs || showConnectivityTest || showFontPicker || bindingCategorySpec != null || launcherPickerPlatform != null) {
+                if (showScrapeLogs || showFontPicker || bindingCategorySpec != null || launcherPickerPlatform != null) {
                     return@onPreviewKeyEvent false
                 }
                 if (credDialogKind != null) {
@@ -1266,7 +1292,9 @@ fun SettingsScreen(
                                             onOpenCred = { credDialogKind = it },
                                             onRowClick = { idx -> nav.focusOnMenu = false; nav.contentItemIndex = idx; triggerItem(SettingsSection.Covers, idx) },
                                             onScrapeMissing = manage.openScrapeTask,
-                                            onTestConnectivity = { showConnectivityTest = true },
+                                            onTestConnectivity = ::runConnectivityTest,
+                                            sourceProbes = sourceProbes,
+                                            probingSources = probingSources,
                                             onClearCoverCache = ::clearScrapeCacheWithFeedback,
                                             onViewLogs = { showScrapeLogs = true },
                                             scrapeProgress = state.scrapeProgress,
@@ -1362,13 +1390,6 @@ fun SettingsScreen(
         }
         if (showScrapeLogs) {
             ScrapeLogsScreen(onBack = { showScrapeLogs = false }, swapAbxy = state.swapAbxy, keyBindings = state.keyBindings)
-        }
-        if (showConnectivityTest) {
-            ServiceConnectivityDialog(
-                swapAbxy = state.swapAbxy,
-                keyBindings = state.keyBindings,
-                onDismiss = { showConnectivityTest = false },
-            )
         }
         availableRelease?.let { rel ->
             Box(
