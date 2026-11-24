@@ -23,7 +23,7 @@
 
 ## ✨ Why PocketDeck?
 
-PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI frameworks, custom `graphicsLayer` + `drawWithCache` zero-GC animations, binary disk index caching with first-tab-first progressive scanning, and a flat minimalist design language—delivering instant cold starts even on 10,000+ ROM libraries, silky 60+ fps scrolling, full controller navigation, and a tiny ~2.8 MB release APK.
+PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI frameworks, custom `graphicsLayer` + `drawWithCache` zero-GC animations, a bundled 398,000+ entry offline Libretro metadata & CJK alias database, SQLite cold-start fast-path caching, and a flat minimalist design language—delivering instant cold starts even on 10,000+ ROM libraries, silky 60+ fps scrolling, full controller navigation, and a compact ~11 MB self-contained release APK.
 
 ### 🖼️ Eight View Modes — Maximized for Small Handheld Screens
 
@@ -53,7 +53,7 @@ PocketDeck is crafted from the ground up with **Jetpack Compose**, zero heavy DI
 Turn any PC, Mac, or tablet browser on your LAN into a full **Web Game Library Console** (`http://<handheld-ip>:8686`) secured with a dynamic 4-digit PIN and brute-force rate limiting:
 
 - **Sunset Arcade UI & Live Theme Sync**: Frosted sidebar, bottom device & storage card, pill filter chips, centered detail modal, and brand-gradient placeholders that automatically mirror your handheld's **Light / Dark mode** and **8 Dual-Tone Gradient Themes** in real time.
-- **100% Handheld-Served Covers & Metadata**: Displays box art and full metadata served directly from the handheld (the browser never connects to external internet domains). Need an update? Trigger scraping on the handheld right from the browser modal, watch live floating scrape logs, or upload custom cover art.
+- **100% Handheld-Served Covers, Metadata & Live SSE Scrape Bar**: Displays box art and full metadata served directly from the handheld (the browser never connects to external internet domains). Trigger batch or per-game scraping right from the browser, monitor live progress via a unified floating SSE scrape task bar, inspect scraping logs, or upload custom cover art.
 - **Visual Tag & Category Editor**: Drag-and-drop reordering, editing `NOW / FAVS / OTHER` aliases & sort orders, binding platforms to custom categories, and syncing directly to the handheld with strict server-side schema & bounds validation.
 - **Complete File & Archive Manager**: Clickable breadcrumbs, multi-select batch Move / Copy / Delete / Compress to ZIP, folder drag-and-drop upload (`webkitdirectory`), archive inspection & extraction (ZIP / 7Z / RAR / TAR), image/audio previews, and inline text/config editing.
 
@@ -71,16 +71,15 @@ Turn any PC, Mac, or tablet browser on your LAN into a full **Web Game Library C
 ### 🎨 Personalization, Scraping, Performance & Emulators
 
 <div align="center">
-  <img src="docs/images/v040-ui-showcase.jpg" alt="PocketDeck v0.4.0 Redesigned Settings, Launcher, Icons & Flat LAN UI" width="90%"/>
+  <img src="docs/images/v040-ui-showcase.jpg" alt="PocketDeck Game Detail, Starfield Look, Service Connectivity Test & Batch Scraping Task" width="90%"/>
 </div>
 
-- **8 Dual-Tone Gradient Themes & 7 Backgrounds**: Curated Sunset Arcade gradient themes (`Sunset`, `Berry`, `Ocean`, `Mint`, `Lemon`, `Sakura`, `Grape`, `Graphite`), paired with live-previewed `Sunset Flow`, `Pixel Drift`, `Retro Grid`, `Cover Glow`, `Aurora`, `Custom Image`, and `Solid` backgrounds in full Light / Dark / Auto mode, plus a `Reduce motion` toggle.
-- **Unified Gaming Icons & 7-Section Settings**: Matching sunset-coral brand icons across the App Launcher, Game Library, and Quick Share; full Lucide-style vector icon set; L1/R1 section switching across `Look · Home · Library · Covers · Emulators · Controls · System`; grouped white cards; and inline visual pickers.
+- **8 Dual-Tone Gradient Themes, 8 Backgrounds & Floating Glass Dock**: Curated Sunset Arcade gradient themes (`Sunset`, `Berry`, `Ocean`, `Mint`, `Lemon`, `Sakura`, `Grape`, `Graphite`), paired with **Starfield** (default parallax starfield + nebulae + shooting stars), `Sunset Flow`, `Pixel Drift`, `Retro Grid`, `Cover Glow`, `Aurora`, `Custom Image`, and `Solid` backgrounds in Light / Dark / Auto mode, plus the default **Floating Glass Dock** (or **Classic Transparent**) navigation bar style and a `Reduce motion` toggle.
+- **Full-Bleed Game Detail & Unified Dialog System**: Split-card full-bleed box art detail view with playtime stats, quick cover switcher, and properties sheet; all dialogs follow standardized responsive widths with smooth animated soft-keyboard avoidance.
+- **Offline-First Scraping, Batch Task Preview & Connectivity Diagnostics**: Bundled Libretro offline database + CJK alias matching with SQLite cold-start skip for already-scraped games; **Batch Scraping Task** dialog previews exact missing cover/metadata counts before starting with instant cancel lock and one-tap log inspection; built-in **Service Connectivity Test** checks live reachability & latency across all 11 external endpoints, backed by `HostCircuitBreaker` domain circuit-breaking and automatic Wi-Fi / cellular offline guards.
 - **Custom Fonts & Tactile Dual-Tone Key Sounds**: Import `.ttf / .otf / .ttc` fonts and enjoy a single Key Sound toggle with **Mechanical Switch** audio on category switches and **Crisp Tick** on navigation/taps.
-- **Massive-Library Cold-Start Architecture**: Binary disk index cache (`Stale-While-Revalidate`) for near-instant cold boots, first-tab-first progressive ROM scanning on uncached drives, and bounded LRU tab caching for 30+ categories.
-- **Multi-Source Cover & Metadata Scraping + Live Logs**: Drag-to-reorder priority across **Libretro Thumbnails / DB**, **Hasheous (CRC32)**, **ArcadeItalia**, **Wikidata**, **ScreenScraper.fr**, **TheGamesDB**, and **IGDB**, with built-in searchable & exportable scraping logs.
 - **50+ Emulators & Custom Launchers**: Built-in support for **RetroArch** (auto or custom core), **PPSSPP**, **DuckStation**, **DraStic**, **melonDS**, **Dolphin**, **AetherSX2 / NetherSX2**, **Citra / Azahar**, **Yuzu / Eden / Citron**, **Cemu**, **Vita3K**, **Flycast**, **mGBA**, **Winlator**, **RPCSX**, and custom Android app intent presets.
-- **Full Gamepad Control**: 60fps D-Pad fast-scroll navigation, `L1/R1` tab switching, `Swap ABXY` (Nintendo ↔ Xbox), custom key remapping with conflict resolution, and Home Launcher (`HOME`) integration.
+- **Full Gamepad Control**: 60fps D-Pad fast-scroll navigation, `L1/R1` tab switching, `A` detail / `START` direct launch / `X` favorite / `SELECT` Apps / `B` back, `Swap ABXY` (Nintendo ↔ Xbox), custom key remapping with conflict resolution, and Home Launcher (`HOME`) integration.
 
 ---
 
@@ -115,7 +114,7 @@ PocketDeck targets **Android 8.0 (API 26)** up to **Android 16 (API 36)** with f
 
 ### 3. Quick Share & Web Manager Usage
 
-1. Press **`B`** (Apps) → **LAN Server / Quick Share**, or open **Game Library → LAN**.
+1. Press **`SELECT`** (Apps) → **LAN Server / Quick Share**, or open **Game Library → LAN**.
 2. Choose your physical network interface (e.g. `Wi-Fi (wlan0)`).
 3. Toggle **Quick Game Share** to discover nearby PocketDeck handhelds and **LocalSend** devices on the same LAN.
 4. Toggle **Web Game Manager**, open the displayed `http://<IP>:<Port>` URL in your PC/Mac browser, and enter the 4-digit dynamic PIN.
