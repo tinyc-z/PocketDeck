@@ -145,9 +145,12 @@ object EmulatorRegistry {
         packages = listOf("org.ppsspp.ppsspp", "org.ppsspp.ppssppgold"),
         intentBuilder = { ctx, pkg, game ->
             // Android 11+ 分区存储下 PPSSPP 无全局路径权限，直接传裸路径 Shortcuts 会报 Failed to read identification bytes；
-            // 优先通过 FileProvider content:// URI + GRANT_READ_URI_PERMISSION 拉起，旧版系统继续走 Shortcuts 路径。
+            // 显式指定 PpssppActivity 以兼容大写扩展名（如 EBOOT.PBP），通过 FileProvider content:// URI 拉起。
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                viewIntent(ctx, pkg, game, preferContentUri = true)
+                viewIntent(ctx, pkg, game, preferContentUri = true).apply {
+                    setClassName(pkg, "org.ppsspp.ppsspp.PpssppActivity")
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                }
             } else {
                 Intent(Intent.ACTION_MAIN).apply {
                     setClassName(pkg, "org.ppsspp.ppsspp.PpssppActivity")
@@ -164,7 +167,10 @@ object EmulatorRegistry {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             } else {
-                viewIntent(ctx, pkg, game, preferContentUri = true)
+                viewIntent(ctx, pkg, game, preferContentUri = true).apply {
+                    setClassName(pkg, "org.ppsspp.ppsspp.PpssppActivity")
+                    addCategory(Intent.CATEGORY_DEFAULT)
+                }
             }
         },
     )
@@ -383,6 +389,10 @@ object EmulatorRegistry {
         id = "lemuroid",
         packages = listOf("com.swordfish.lemuroid"),
         intentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+        fallbackIntentBuilder = { ctx, pkg, _ ->
+            ctx.packageManager.getLaunchIntentForPackage(pkg)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ?: Intent(Intent.ACTION_MAIN).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        },
     )
 
     val J2ME_LOADER = EmulatorDef(

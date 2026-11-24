@@ -54,7 +54,7 @@ object PlatformCatalog {
         p("atomiswave", "AW", "Sammy Atomiswave", PORTRAIT, "Atomiswave", "flycast"),
 
         // Sony
-        p("psx", "PS", "PlayStation", SQUARE, "Sony - PlayStation", "swanstation"),
+        p("psx", "PS", "PlayStation", SQUARE, "Sony - PlayStation", "pcsx_rearmed"),
         p("psp", "PSP", "PlayStation Portable", 0.58f, "Sony - PlayStation Portable", "ppsspp"),
         p("psvita", "VITA", "PlayStation Vita", 0.78f, "Sony - PlayStation Vita", null),
         p("ps2", "PS2", "PlayStation 2", DVD, "Sony - PlayStation 2", "pcsx2"),

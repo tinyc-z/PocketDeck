@@ -45,7 +45,7 @@ object GameLauncher {
         "mastersystem" to listOf("genesis_plus_gx", "picodrive"),
         "gamegear" to listOf("genesis_plus_gx", "picodrive"),
         "segacd" to listOf("genesis_plus_gx", "picodrive"),
-        "psx" to listOf("swanstation", "pcsx_rearmed", "mednafen_psx_hw", "mednafen_psx"),
+        "psx" to listOf("pcsx_rearmed", "swanstation", "mednafen_psx_hw", "mednafen_psx"),
         "n64" to listOf("mupen64plus_next_gles3", "mupen64plus_next_gles2", "parallel_n64"),
         "nds" to listOf("melonds", "melondsds", "desmume"),
         "3ds" to listOf("citra", "citra2018"),
@@ -153,13 +153,16 @@ object GameLauncher {
             if (core != null) RETROARCH_ID to "RetroArch · ${RetroArchCoreCatalog.displayName(core)}" else null
         } else null
 
+        val (nonLemuroidStandalones, lemuroidStandalones) = standalones.partition { it.first != EmulatorRegistry.LEMUROID.id }
         val result = mutableListOf<Pair<String, String>>()
         if (platformId in STANDALONE_PREFERRED_PLATFORMS) {
-            result.addAll(standalones)
+            result.addAll(nonLemuroidStandalones)
             if (raEntry != null) result.add(raEntry)
+            result.addAll(lemuroidStandalones)
         } else {
             if (raEntry != null) result.add(raEntry)
-            result.addAll(standalones)
+            result.addAll(nonLemuroidStandalones)
+            result.addAll(lemuroidStandalones)
         }
         return result
     }
@@ -222,7 +225,9 @@ object GameLauncher {
             return startSafely(context, intent, game.title)
         }
 
-        val resolvedPlatform = platform ?: PlatformCatalog.forFolder(game.platformId)
+        val isPs1Pbp = game.fileName.endsWith(".pbp", ignoreCase = true) &&
+            com.pocketdeck.launcher.data.PbpHeaderParser.parse(File(game.id))?.isPs1Classics == true
+        val resolvedPlatform = if (isPs1Pbp) PlatformCatalog.forFolder("psx") else (platform ?: PlatformCatalog.forFolder(game.platformId))
 
         // 1. 用户指定了任意自定义 App 启动器
         CustomLauncherCodec.decodeCustomApp(preferredEmulatorId)?.let { spec ->
@@ -234,6 +239,12 @@ object GameLauncher {
 
         if (!File(game.id).exists()) {
             return Result.Error("ROM file not found: ${game.fileName}")
+        }
+
+        if (isPs1Pbp &&
+            (preferredEmulatorId == "ppsspp" || CustomLauncherCodec.decodeEmuVariant(preferredEmulatorId)?.first == "ppsspp")
+        ) {
+            return Result.Error("该 PBP 为 PS1 转换游戏，PPSSPP 不支持运行 PS1 游戏，请改用 RetroArch（PCSX ReARMed）或 DuckStation")
         }
 
         // 2. 用户指定了 RetroArch 特定核心
@@ -260,7 +271,8 @@ object GameLauncher {
 
         // 5. 自动模式（preferredEmulatorId == null）：按平台智能优先级（3D/现代机种优先独立模拟器，2D 复古优先 RetroArch）
         val preferStandalone = resolvedPlatform.id in STANDALONE_PREFERRED_PLATFORMS
-        val standalone = EmulatorRegistry.availableForPlatform(context, resolvedPlatform.id).firstOrNull()
+        val standalone = EmulatorRegistry.availableForPlatform(context, resolvedPlatform.id)
+            .firstOrNull { it.first.id != EmulatorRegistry.LEMUROID.id }
         var firstError: Result.Error? = null
         if (preferStandalone && standalone != null) {
             val res = launchStandalone(context, game, standalone.first, standalone.second)

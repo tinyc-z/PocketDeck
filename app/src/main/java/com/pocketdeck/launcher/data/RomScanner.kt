@@ -186,15 +186,16 @@ object RomScanner {
         val parentEntriesCache = HashMap<String, Set<String>>()
         roots.forEach { counts[it.path] = 0 }
 
-        fun addScanned(rootPath: String, plat: Platform, res: PlatformScanResult) {
+        fun addScanned(rootPath: String, defaultPlat: Platform, res: PlatformScanResult) {
             if (res.games.isEmpty()) return
-            val bucket = merged.getOrPut(plat.id) { LinkedHashMap() }
             var added = 0
             for (g in res.games) {
+                val gPlat = if (g.platformId == defaultPlat.id) defaultPlat else PlatformCatalog.forFolder(g.platformId)
+                val bucket = merged.getOrPut(gPlat.id) { LinkedHashMap() }
                 if (bucket.putIfAbsent(g.id, g) == null) added++
+                platforms.putIfAbsent(gPlat.id, gPlat)
             }
             localMeta.putAll(res.localMetadata)
-            platforms.putIfAbsent(plat.id, plat)
             counts[rootPath] = (counts[rootPath] ?: 0) + added
         }
 
@@ -203,7 +204,7 @@ object RomScanner {
             dirSnapshots[dir.path] = snap
             if (previousLibrary != null && previousLibrary.dirSnapshots[dir.path] == snap) {
                 val prefix = dir.path + File.separator
-                val cachedGames = previousLibrary.games[plat.id].orEmpty()
+                val cachedGames = previousLibrary.games.values.flatten()
                     .filter { it.id.startsWith(prefix) && it.id.indexOf(File.separatorChar, prefix.length) < 0 }
                 val cachedMeta = HashMap<String, GameMetadata>(cachedGames.size)
                 for (g in cachedGames) {
@@ -299,7 +300,11 @@ object RomScanner {
             val rootRes = scanPlatform(root, "misc")
             for (g in rootRes.games) {
                 val ext = g.fileName.substringAfterLast('.', "").lowercase()
-                val inferredId = inferPlatformByExt(ext) ?: "misc"
+                val inferredId = if (ext == "pbp" && PbpHeaderParser.parse(File(g.id))?.isPs1Classics == true) {
+                    "psx"
+                } else {
+                    inferPlatformByExt(ext) ?: "misc"
+                }
                 val plat = PlatformCatalog.forFolder(inferredId)
                 val patched = if (g.platformId == plat.id) g else g.copy(platformId = plat.id)
                 val metaMap = rootRes.localMetadata[g.id]?.let { mapOf(patched.id to it) }.orEmpty()
@@ -322,7 +327,7 @@ object RomScanner {
     ): Pair<Long, Int> {
         val entries = dir.list()
         val count = entries?.size ?: 0
-        var hash = 17L
+        var hash = 19L
         fun mix(value: Long) {
             hash = hash * 31L + value
         }
@@ -541,11 +546,24 @@ object RomScanner {
         val outLocalMeta = HashMap<String, GameMetadata>()
 
         fun buildGame(primary: File, displayBase: String, discs: List<String>) {
+            val pbpInfo = if (primary.extension.equals("pbp", ignoreCase = true)) PbpHeaderParser.parse(primary) else null
+            val effectivePlatformId = if (platformId == "psp" && pbpInfo?.isPs1Classics == true) "psx" else platformId
+            val pbpTitle = pbpInfo?.title?.takeIf { it.isNotBlank() }
+            val resolvedTitleBase = if (pbpTitle != null &&
+                (displayBase.equals("EBOOT", ignoreCase = true) || displayBase.equals("PBOOT", ignoreCase = true))
+            ) {
+                pbpTitle
+            } else {
+                displayBase
+            }
             val glEntry = gamelistEntries[primary.name.lowercase()]
                 ?: gamelistEntries[displayBase.lowercase()]
+                ?: pbpTitle?.let { gamelistEntries[it.lowercase()] }
             val cover = glEntry?.coverPath
                 ?: covers[displayBase.lowercase()]
                 ?: covers[primary.nameWithoutExtension.lowercase()]
+                ?: pbpTitle?.let { covers[it.lowercase()] }
+                ?: pbpInfo?.discId?.let { covers[it.lowercase()] }
             val totalSize = if (discs.size > 1) {
                 discs.sumOf { File(it).length() }.takeIf { it > 0L } ?: primary.length()
             } else {
@@ -553,10 +571,10 @@ object RomScanner {
             }
             val game = Game(
                 id = primary.path,
-                platformId = platformId,
-                baseName = displayBase,
+                platformId = effectivePlatformId,
+                baseName = resolvedTitleBase,
                 fileName = primary.name,
-                title = cleanTitle(displayBase),
+                title = cleanTitle(resolvedTitleBase),
                 localCover = cover,
                 fileSize = totalSize,
                 lastModifiedMs = primary.lastModified(),
