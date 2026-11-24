@@ -143,14 +143,30 @@ object EmulatorRegistry {
         displayName = "PPSSPP",
         id = "ppsspp",
         packages = listOf("org.ppsspp.ppsspp", "org.ppsspp.ppssppgold"),
-        intentBuilder = { _, pkg, game ->
-            Intent(Intent.ACTION_MAIN).apply {
-                setClassName(pkg, "org.ppsspp.ppsspp.PpssppActivity")
-                putExtra("org.ppsspp.ppsspp.Shortcuts", game.id)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        intentBuilder = { ctx, pkg, game ->
+            // Android 11+ 分区存储下 PPSSPP 无全局路径权限，直接传裸路径 Shortcuts 会报 Failed to read identification bytes；
+            // 优先通过 FileProvider content:// URI + GRANT_READ_URI_PERMISSION 拉起，旧版系统继续走 Shortcuts 路径。
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                viewIntent(ctx, pkg, game, preferContentUri = true)
+            } else {
+                Intent(Intent.ACTION_MAIN).apply {
+                    setClassName(pkg, "org.ppsspp.ppsspp.PpssppActivity")
+                    putExtra("org.ppsspp.ppsspp.Shortcuts", game.id)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
             }
         },
-        fallbackIntentBuilder = { ctx, pkg, game -> viewIntent(ctx, pkg, game, preferContentUri = true) },
+        fallbackIntentBuilder = { ctx, pkg, game ->
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                Intent(Intent.ACTION_MAIN).apply {
+                    setClassName(pkg, "org.ppsspp.ppsspp.PpssppActivity")
+                    putExtra("org.ppsspp.ppsspp.Shortcuts", game.id)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            } else {
+                viewIntent(ctx, pkg, game, preferContentUri = true)
+            }
+        },
     )
 
     val DRASTIC = EmulatorDef(

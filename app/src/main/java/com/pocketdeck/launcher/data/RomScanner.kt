@@ -48,9 +48,9 @@ object RomScanner {
         "pem", "crt", "cer", "der", "p12", "pfx", "pub", "asc", "sig", "sha1", "sha256", "md5", "sfv",
         "torrent", "m3u8", "pls", "xspf",
         "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "rar", "cbz", "cbr", "lzma", "zst",
-        // 存档、补丁与光盘辅助文件
+        // 存档、补丁与光盘/自制程序辅助文件
         "srm", "sav", "state", "auto", "mcr", "mcd", "vmp", "gci",
-        "ips", "bps", "ups", "xdelta", "ppf", "sub", "sbi", "rtc",
+        "ips", "bps", "ups", "xdelta", "ppf", "sub", "sbi", "rtc", "csz",
     )
     private val IMAGE_EXT = setOf("png", "jpg", "jpeg", "webp")
     private val COVER_DIRS = listOf(
