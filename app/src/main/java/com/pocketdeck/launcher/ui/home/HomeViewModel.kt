@@ -923,6 +923,14 @@ class HomeViewModel(
     fun suggestManualScrapeKeywords(keyword: String, game: Game): List<String> =
         covers.suggestManualKeywords(keyword, _state.value.platformFor(game), limit = 8)
 
+    fun localCoversFor(game: Game): List<String> {
+        val libPaths = repo.fullLibrary.value?.localCovers?.get(game.id).orEmpty()
+        val fallback = game.localCover
+        if (libPaths.isEmpty()) return listOfNotNull(fallback)
+        if (fallback == null || fallback in libPaths) return libPaths
+        return listOf(fallback) + libPaths
+    }
+
     suspend fun manualSearchScrape(
         keyword: String,
         game: Game,
@@ -936,10 +944,29 @@ class HomeViewModel(
             covers = covers,
             onActiveSourcesChanged = onActiveSourcesChanged,
             onPartialResults = onPartialResults,
+            localCoverPaths = localCoversFor(game),
+            localKeywordCoversProvider = {
+                com.pocketdeck.launcher.data.RomScanner.findLocalCoversByKeyword(
+                    library = repo.fullLibrary.value,
+                    roots = repo.configuredRoots(),
+                    platformId = game.platformId,
+                    keyword = keyword,
+                )
+            },
         )
 
     fun applyManualScrape(game: Game, candidate: com.pocketdeck.launcher.data.ManualScrapeCandidate) {
         val latest = latestGame(game)
+        if (candidate.providerId == CoverSource.LOCAL_COVER_PROVIDER && !candidate.coverUrl.isNullOrBlank()) {
+            val chosenPath = candidate.coverUrl
+            covers.forget(latest.id)
+            viewModelScope.launch {
+                val savedPath = repo.saveCustomCoverFromLocalFile(latest, chosenPath)
+                covers.invalidateThumbnail(savedPath)
+            }
+            _state.update { it.copy(manualScrapeGame = null) }
+            return
+        }
         metadataRepo.applyManualScrape(latest.id, candidate, covers)
         // 若此前存在自定义封面，手动刮削应用新封面时清掉旧 customCover，避免旧图优先级更高而遮挡新图
         if (!candidate.coverUrl.isNullOrBlank() && !latest.customCover.isNullOrBlank()) {

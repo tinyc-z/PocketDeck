@@ -549,34 +549,39 @@ class P0RegressionTest {
             )
             val gba = Platform("gba", "GBA", "Game Boy Advance", 1f, "Nintendo - Game Boy Advance")
 
-            // 初始启用默认节点，模拟已解析出 Libretro 在线封面
+            // 初始启用默认节点，模拟自动刮削缓存了 Libretro 在线封面
             val baseNodes = ScraperCatalog.defaultCoverConfigs()
             covers.configure(baseNodes, ScraperCredentials())
             val webUrl = "https://cdn.jsdelivr.net/gh/libretro-thumbnails/Nintendo_-_Game_Boy_Advance@master/Named_Boxarts/Metroid%20Fusion%20(USA).png"
             covers.rememberSuccess(game.id, webUrl)
 
-            // 验证优先级：cachedUrl > localCover（保证手动刮削/在线命中可覆盖 localCover；快滑路径保留 localCover 兜底）
-            val candsWithWeb = covers.candidates(game, gba)
-            assertEquals(listOf<Any>(webUrl), candsWithWeb)
+            // 1. 新优先级：localCover > 自动刮削远程缓存（有本地封面不再加载远程默认封面）
+            assertEquals(listOf<Any>(localFile), covers.candidates(game, gba))
+            assertEquals(listOf<Any>(localFile), covers.fastMemoryCandidates(game))
+
+            // 2. 用户手动选定的远程封面（applyManualCover）优先级高于 localCover（保留 localFile 作离线兜底）
+            covers.applyManualCover(game.id, webUrl, ScraperCatalog.CoverIds.LIBRETRO_BOXARTS)
+            assertEquals(listOf<Any>(webUrl, localFile), covers.candidates(game, gba))
             assertEquals(listOf<Any>(webUrl, localFile), covers.fastMemoryCandidates(game))
 
-            // 验证优先级：customCover > cachedUrl > localCover
+            // 3. 验证优先级：customCover > manualCover > localCover > 自动缓存
             val withCustom = game.copy(customCover = customFile.absolutePath)
             assertEquals(customFile.absolutePath, (covers.candidates(withCustom, gba).first() as File).absolutePath)
 
-            // 配置微调（仅填凭证或新增启用备用节点）：已解析的 Libretro 封面应完整保留
+            // 4. 无本地封面的游戏：配置微调应保留已缓存封面，明确禁用来源节点才清除
+            val gameNoLocal = game.copy(id = "/roms/gba/metroid_remote.gba", localCover = null)
+            covers.rememberSuccess(gameNoLocal.id, webUrl)
             val expandedNodes = baseNodes.map {
                 if (it.id == ScraperCatalog.CoverIds.STEAMGRIDDB) it.copy(enabled = true) else it
             }
             covers.configure(expandedNodes, ScraperCredentials(sgdbKey = "demo_key"))
-            assertEquals("新增备用节点不应清空已有封面", webUrl, covers.fastMemoryCandidates(game).first())
+            assertEquals("新增备用节点不应清空已有封面", webUrl, covers.fastMemoryCandidates(gameNoLocal).first())
 
-            // 明确禁用 Libretro 节点：仅清除来自该被禁用节点的封面
             val disabledLibretro = expandedNodes.map {
                 if (it.id == ScraperCatalog.CoverIds.LIBRETRO_BOXARTS) it.copy(enabled = false) else it
             }
             covers.configure(disabledLibretro, ScraperCredentials(sgdbKey = "demo_key"))
-            assertEquals("禁用原来源节点后应清除对应缓存并回落 localCover", listOf<Any>(localFile), covers.fastMemoryCandidates(game))
+            assertTrue("禁用原来源节点后应清除对应自动缓存", covers.fastMemoryCandidates(gameNoLocal).isEmpty())
             assertTrue(dirs.second.exists())
         } finally {
             scope.cancel()

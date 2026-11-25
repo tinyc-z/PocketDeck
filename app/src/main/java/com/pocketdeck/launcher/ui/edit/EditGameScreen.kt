@@ -125,6 +125,7 @@ fun EditGameScreen(
     onDeleteFile: (() -> Unit)? = null,
     onLocateFile: (() -> Unit)? = null,
     onManualScrape: (() -> Unit)? = null,
+    localCoverPaths: List<String> = emptyList(),
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
     isTopmost: Boolean = true,
@@ -617,7 +618,33 @@ fun EditGameScreen(
                 platform = platform,
                 covers = covers,
                 officialName = officialName,
+                localCoverPaths = localCoverPaths,
                 onPickUrl = { url ->
+                    if (!url.startsWith("http", ignoreCase = true)) {
+                        if (url == game.localCover) {
+                            covers.forget(game.id)
+                            coverPath = null
+                            scrapingDialog = false
+                            return@ScrapeCoverDialog
+                        }
+                        scope.launch {
+                            val saved = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    val src = File(url)
+                                    val bytes = src.takeIf { it.isFile && it.length() in 1L..(16L * 1024 * 1024) }?.readBytes()
+                                        ?: return@runCatching null
+                                    val dir = File(context.filesDir, "covers").apply { mkdirs() }
+                                    val prefix = "${game.id.hashCode().toUInt()}_${System.currentTimeMillis()}"
+                                    com.pocketdeck.launcher.data.ImageImportHelper
+                                        .saveOptimizedCoverBytes(context, bytes, dir, prefix)
+                                        ?.absolutePath
+                                }.getOrNull() ?: url
+                            }
+                            coverPath = saved
+                            scrapingDialog = false
+                        }
+                        return@ScrapeCoverDialog
+                    }
                     if (!NetworkStatus.isOnline(context)) {
                         Toast.makeText(context, context.getString(R.string.offline_action_toast), Toast.LENGTH_SHORT).show()
                         return@ScrapeCoverDialog
@@ -826,6 +853,7 @@ private fun ScrapeCoverDialog(
     platform: Platform?,
     covers: CoverSource,
     officialName: String?,
+    localCoverPaths: List<String> = emptyList(),
     onPickUrl: (String) -> Unit,
     swapAbxy: Boolean = false,
     keyBindings: Map<KeyAction, Int> = emptyMap(),
@@ -842,17 +870,16 @@ private fun ScrapeCoverDialog(
 
     LaunchedEffect(Unit) { focusRequester.requestFocusSafely() }
 
-    LaunchedEffect(game.id, game.title) {
-        if (!NetworkStatus.isOnline(context)) {
-            isOffline = true
-            loading = false
-            candidates = emptyList()
-            return@LaunchedEffect
-        }
-        isOffline = false
+    LaunchedEffect(game.id, game.title, localCoverPaths) {
+        isOffline = !NetworkStatus.isOnline(context)
         loading = true
         failedUrls = emptySet()
-        candidates = covers.scrapeAllForPicker(game, platform, officialName)
+        candidates = covers.scrapeAllForPicker(
+            game = game,
+            platform = platform,
+            officialName = officialName,
+            localCoverPaths = localCoverPaths,
+        )
         loading = false
     }
 
@@ -936,7 +963,7 @@ private fun ScrapeCoverDialog(
                         )
                     }
                 }
-                isOffline -> {
+                isOffline && (candidates.isEmpty() || visibleCandidates.isEmpty()) -> {
                     Box(
                         Modifier
                             .fillMaxWidth()
@@ -972,9 +999,18 @@ private fun ScrapeCoverDialog(
                     ) {
                         itemsIndexed(visibleCandidates, key = { _, item -> item.url }) { idx, item ->
                             val hl = idx == focusIdx
-                            val nodeName = ScraperCatalog.coverDescriptor(item.nodeId)
-                                ?.let { stringResource(it.nameRes) }
-                                ?: item.nodeId
+                            val nodeName = if (item.nodeId == CoverSource.LOCAL_COVER_PROVIDER) {
+                                stringResource(R.string.cover_src_local)
+                            } else {
+                                ScraperCatalog.coverDescriptor(item.nodeId)
+                                    ?.let { stringResource(it.nameRes) }
+                                    ?: item.nodeId
+                            }
+                            val imgModel: Any = if (item.url.startsWith("http", ignoreCase = true)) {
+                                item.url
+                            } else {
+                                File(item.url)
+                            }
                             Column(
                                 Modifier
                                     .width(126.dp)
@@ -990,7 +1026,7 @@ private fun ScrapeCoverDialog(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 AsyncImage(
-                                    model = item.url,
+                                    model = imgModel,
                                     contentDescription = nodeName,
                                     contentScale = ContentScale.Fit,
                                     onError = { failedUrls = failedUrls + item.url },

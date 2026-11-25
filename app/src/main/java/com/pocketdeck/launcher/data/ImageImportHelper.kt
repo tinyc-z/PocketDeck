@@ -41,12 +41,12 @@ object ImageImportHelper {
     }
 
     fun coverMaxEdgeFor(context: Context): Int {
-        val dm = context.resources.displayMetrics
+        val dm = runCatching { context.resources?.displayMetrics }.getOrNull() ?: return 800
         return computeCoverMaxEdge(dm.widthPixels, dm.heightPixels)
     }
 
     fun backgroundMaxEdgeFor(context: Context): Int {
-        val dm = context.resources.displayMetrics
+        val dm = runCatching { context.resources?.displayMetrics }.getOrNull() ?: return 1280
         return computeBackgroundMaxEdge(dm.widthPixels, dm.heightPixels)
     }
 

@@ -173,10 +173,19 @@ internal class LocalPrefsStore(
 
     private fun writeJsonAtomic(file: File, map: Map<String, Any>) {
         file.parentFile?.mkdirs()
+        val payload = encodeJson(map).toByteArray(StandardCharsets.UTF_8)
         val atomic = AtomicFile(file)
         val out = atomic.startWrite()
+        if (out == null) {
+            val tmp = File(file.parentFile, "${file.name}.tmp")
+            tmp.writeBytes(payload)
+            if (file.exists()) file.delete()
+            if (!tmp.renameTo(file)) file.writeBytes(payload)
+            cachedMap = HashMap(map)
+            return
+        }
         try {
-            out.write(encodeJson(map).toByteArray(StandardCharsets.UTF_8))
+            out.write(payload)
             atomic.finishWrite(out)
             cachedMap = HashMap(map)
         } catch (t: Throwable) {

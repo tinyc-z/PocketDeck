@@ -164,6 +164,8 @@ const I18N = {
     msg_no_cands: '未找到匹配的候选封面',
     msg_pick_cand: '点击应用掌机抓取到的候选封面：',
     msg_applying_cover: '掌机正在下载并保存封面…',
+    msg_applying_local_cover: '正在应用本地封面…',
+    badge_local: '本地',
     msg_cover_applied: '封面已应用',
     msg_cover_fail: '应用封面失败',
     msg_cover_uploaded: '自定义封面已上传',
@@ -432,6 +434,8 @@ const I18N = {
     msg_no_cands: '未找到符合的候選封面',
     msg_pick_cand: '點擊套用掌機抓取到的候選封面：',
     msg_applying_cover: '掌機正在下載並儲存封面…',
+    msg_applying_local_cover: '正在套用本地封面…',
+    badge_local: '本地',
     msg_cover_applied: '封面已套用',
     msg_cover_fail: '套用封面失敗',
     msg_cover_uploaded: '自訂封面已上傳',
@@ -700,6 +704,8 @@ const I18N = {
     msg_no_cands: 'No matching candidate covers found',
     msg_pick_cand: 'Click a candidate cover to apply:',
     msg_applying_cover: 'Downloading and saving cover on handheld…',
+    msg_applying_local_cover: 'Applying local cover…',
+    badge_local: 'Local',
     msg_cover_applied: 'Cover applied',
     msg_cover_fail: 'Failed to apply cover',
     msg_cover_uploaded: 'Custom cover uploaded',
@@ -2408,10 +2414,6 @@ function scrapeCoverCandidates(id) {
   const area = el('candArea');
   if (!area) return;
   const sys = g.libretroSystem || (Array.isArray(catPlatforms) ? (catPlatforms.find(p => p.id === g.platformId) || {}).libretroSystem : '') || '';
-  if (!sys) {
-    area.innerHTML = '<div class="sub" style="margin-top:12px;">' + esc(tr('msg_no_cands')) + '</div>';
-    return;
-  }
   const initKw = g.officialName || g.title || '';
   area.innerHTML =
     '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">' +
@@ -2447,6 +2449,13 @@ function pickWebCoverSuggest(id, sys, sug) {
 }
 
 const _webHashCoverCache = Object.create(null);
+function _clearWebHashCoverCacheForGame(id) {
+  const prefix = id + '|';
+  for (const k of Object.keys(_webHashCoverCache)) {
+    if (k === id || k.startsWith(prefix)) delete _webHashCoverCache[k];
+  }
+}
+
 async function runWebCoverSearch(id, sys) {
   const inp = el('webCoverKw');
   const statusEl = el('webCoverStatus');
@@ -2455,26 +2464,28 @@ async function runWebCoverSearch(id, sys) {
   const kw = inp.value.trim();
   if (!kw) return;
   grid.innerHTML = '';
-  const hashPromise = Array.isArray(_webHashCoverCache[id])
-    ? Promise.resolve(_webHashCoverCache[id])
-    : api('/api/games/hash-covers?id=' + encodeURIComponent(id))
+  const cacheKey = id + '|' + kw;
+  const hashPromise = Array.isArray(_webHashCoverCache[cacheKey])
+    ? Promise.resolve(_webHashCoverCache[cacheKey])
+    : api('/api/games/hash-covers?id=' + encodeURIComponent(id) + '&kw=' + encodeURIComponent(kw))
         .then(r => r.ok ? r.json() : null)
         .then(d => {
           const list = (d && d.ok && Array.isArray(d.candidates)) ? d.candidates : [];
-          _webHashCoverCache[id] = list;
+          _webHashCoverCache[cacheKey] = list;
           return list;
         })
         .catch(() => []);
-  if (/[\u4e00-\u9fff]/.test(kw)) {
+  if (sys && /[\u4e00-\u9fff]/.test(kw)) {
     await _ensureWebCjkAliases();
   }
-  const idx = await _ensureWebLibretroIndex(sys, statusEl);
+  const idx = sys ? await _ensureWebLibretroIndex(sys, statusEl) : null;
   const libItems = idx ? _searchWebLibretro(idx, kw, 16) : [];
   const hashRaw = await hashPromise;
   const merged = [];
   const seen = new Set();
-  const normKey = u => {
-    const s = String(u || '').trim();
+  const normKey = item => {
+    if (item && item.isLocal && item.localPath) return 'local|' + String(item.localPath).toLowerCase();
+    const s = String((item && item.primaryUrl) || '').trim();
     const bi = s.indexOf('/Named_');
     if (bi >= 0) {
       try { return 'libretro|' + decodeURIComponent(s.slice(bi)).toLowerCase(); } catch (e) { return 'libretro|' + s.slice(bi).toLowerCase(); }
@@ -2482,7 +2493,7 @@ async function runWebCoverSearch(id, sys) {
     return s.toLowerCase();
   };
   const pushItem = it => {
-    const k = normKey(it.primaryUrl);
+    const k = normKey(it);
     if (!k || seen.has(k)) return;
     seen.add(k);
     merged.push(it);
@@ -2492,26 +2503,52 @@ async function runWebCoverSearch(id, sys) {
       title: h.title || kw,
       primaryUrl: h.url,
       fallbackUrl: h.fallbackUrl || h.url,
-      matchedByHash: h.matchedByHash !== false,
+      matchedByHash: h.matchedByHash !== false && !h.isLocal,
+      isLocal: !!h.isLocal,
+      localPath: h.localPath || '',
       providerId: h.providerId || '',
     });
   }
   for (const c of libItems) pushItem(c);
   if (!merged.length) {
-    if (statusEl) statusEl.textContent = idx ? tr('msg_no_cands') : '无法连接封面目录源（jsDelivr / GitHub），请检查电脑网络。';
+    if (statusEl) statusEl.textContent = (!sys || idx) ? tr('msg_no_cands') : '无法连接封面目录源（jsDelivr / GitHub），请检查电脑网络。';
     if (idx) renderWebCoverSuggest(id, sys);
     return;
   }
-  if (statusEl) statusEl.textContent = '点击应用候选封面（浏览器直连加载，选定后同步到掌机）';
-  grid.innerHTML = merged.map(c =>
-    '<div class="cand-item" style="position:relative;" onclick="applyWebDirectCover(\'' + escJs(id) + '\',\'' + escJs(c.primaryUrl) + '\',\'' + escJs(c.fallbackUrl) + '\',this)">' +
-      (c.matchedByHash
+  if (statusEl) statusEl.textContent = '点击应用候选封面（含本地预扫描封面与在线候选，选定后同步到掌机）';
+  grid.innerHTML = merged.map(c => {
+    const onClickAttr = c.isLocal
+      ? 'applyWebLocalCover(\'' + escJs(id) + '\',\'' + escJs(c.localPath) + '\',this)'
+      : 'applyWebDirectCover(\'' + escJs(id) + '\',\'' + escJs(c.primaryUrl) + '\',\'' + escJs(c.fallbackUrl) + '\',this)';
+    const badgeHtml = c.isLocal
+      ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:#10b981;color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">' + esc(tr('badge_local')) + '</em>'
+      : (c.matchedByHash
         ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:var(--brand);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">Hash</em>'
-        : (c.providerId ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:rgba(15,23,42,.78);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">' + esc(c.providerId) + '</em>' : '')) +
+        : (c.providerId ? '<em style="position:absolute;top:5px;left:5px;z-index:2;background:rgba(15,23,42,.78);color:#fff;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;box-shadow:0 2px 6px rgba(0,0,0,.22);">' + esc(c.providerId) + '</em>' : ''));
+    return '<div class="cand-item" style="position:relative;" onclick="' + onClickAttr + '">' +
+      badgeHtml +
       '<img loading="lazy" src="' + esc(c.primaryUrl) + '" data-fb="' + esc(c.fallbackUrl) + '" onerror="if(!this.dataset.tried&&this.dataset.fb&&this.dataset.fb!==this.src){this.dataset.tried=\'1\';this.src=this.dataset.fb;}"/>' +
       '<span title="' + esc(c.title) + '">' + esc(c.title) + '</span>' +
-    '</div>'
-  ).join('');
+    '</div>';
+  }).join('');
+}
+
+async function applyWebLocalCover(id, localPath, cardEl) {
+  toast(tr('msg_applying_local_cover'));
+  if (cardEl) cardEl.style.opacity = '0.55';
+  const r = await api('/api/games/upload-cover?id=' + encodeURIComponent(id) + '&localPath=' + encodeURIComponent(localPath), {
+    method: 'POST', body: ''
+  });
+  if (r.ok) {
+    const d = await r.json().catch(() => ({}));
+    _clearWebHashCoverCacheForGame(id);
+    toast(tr('msg_cover_applied'));
+    if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
+    openGameDetail(id);
+  } else {
+    if (cardEl) cardEl.style.opacity = '1';
+    toast(tr('msg_cover_fail'));
+  }
 }
 
 async function applyWebDirectCover(id, primaryUrl, fallbackUrl, cardEl) {
@@ -2532,6 +2569,7 @@ async function applyWebDirectCover(id, primaryUrl, fallbackUrl, cardEl) {
   });
   if (r.ok) {
     const d = await r.json().catch(() => ({}));
+    _clearWebHashCoverCacheForGame(id);
     toast(tr('msg_cover_applied'));
     if (d.game) patchSingleGame(d.game, d.stats); else await loadGames(true);
     openGameDetail(id);

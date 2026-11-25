@@ -48,6 +48,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.URI
+import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -504,7 +505,11 @@ class WebManagerServer(
             if (job.forceRefresh) {
                 if (metadataRepo.refreshGame(g, plat)) changed = true
                 val off = metadataRepo.officialNames.value[g.id]
-                val coverUpdated = covers.fetchWebCoverNow(g.copy(customCover = null), plat, off)
+                val coverUpdated = if (g.localCover.isNullOrBlank()) {
+                    covers.fetchWebCoverNow(g.copy(customCover = null), plat, off)
+                } else {
+                    false
+                }
                 if (coverUpdated) {
                     changed = true
                     if (!g.customCover.isNullOrBlank()) {
@@ -524,7 +529,7 @@ class WebManagerServer(
                 metadataRepo.ensureGameMetadata(g, plat)
                 changed = true
                 val off = metadataRepo.officialNames.value[g.id]
-                if (!covers.hasLocalOrCachedCover(g)) {
+                if (g.localCover.isNullOrBlank() && !covers.hasLocalOrCachedCover(g)) {
                     covers.fetchWebCoverNow(g, plat, off)
                 }
             }
@@ -1225,6 +1230,7 @@ class WebManagerServer(
             req.method == "GET" && req.path == "/api/games/item" -> handleGameItem(req, res)
             req.method == "GET" && req.path == "/api/games/hash-covers" -> handleGameHashCovers(req, res)
             req.method == "GET" && req.path == "/api/cover" -> handleCover(req, res)
+            req.method == "GET" && req.path == "/api/local-cover" -> handleLocalCover(req, res)
             req.method == "GET" && req.path == "/api/cover-index" -> handleCoverIndex(req, res)
             req.method == "POST" && req.path == "/api/games/rename" -> handleGameRename(req, res)
             req.method == "POST" && req.path == "/api/games/hide" -> handleGameHide(req, res)
@@ -1681,16 +1687,101 @@ class WebManagerServer(
         res.sendJson(200, root.toString())
     }
 
+    internal suspend fun resolveAllowedLocalCoverFile(rawPath: String): File? {
+        val clean = rawPath.trim()
+        if (clean.isEmpty()) return null
+        val file = File(clean)
+        if (!file.isFile || !file.canRead()) return null
+        if (file.extension.lowercase() !in setOf("png", "jpg", "jpeg", "webp")) return null
+        val roots = repo.configuredRoots()
+        val allowedRoots = ArrayList<File>(roots.size * 4)
+        allowedRoots.addAll(roots)
+        val siblingMediaNames = listOf("imgs", "images", "covers", "boxart", "downloaded_media", "gamelists", "screenshots")
+        for (r in roots) {
+            val parent = r.parentFile ?: continue
+            for (name in siblingMediaNames) {
+                val sub = File(parent, name)
+                if (sub.isDirectory) allowedRoots.add(sub)
+            }
+        }
+        if (resolveAllowedFile(file.absolutePath, allowedRoots) != null) return file
+        val canon = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+        val lib = repo.fullLibrary.value
+        val inScannedLocal = lib?.localCovers?.values?.any { list ->
+            list.any { p -> p == file.absolutePath || runCatching { File(p).canonicalPath }.getOrNull() == canon }
+        } == true || lib?.byId?.values?.any { g ->
+            val lp = g.localCover ?: return@any false
+            lp == file.absolutePath || runCatching { File(lp).canonicalPath }.getOrNull() == canon
+        } == true
+        return if (inScannedLocal) file else null
+    }
+
+    private suspend fun handleLocalCover(req: HttpRequest, res: HttpResponseWriter) {
+        val path = req.query["path"].orEmpty()
+        val file = resolveAllowedLocalCoverFile(path)
+        if (file == null) {
+            res.sendText(404, "No local cover")
+            return
+        }
+        val resolved = covers.readLocalCoverPreviewBytes(file)
+        if (resolved == null) {
+            res.sendText(404, "No local cover")
+            return
+        }
+        val bytes = resolved.second
+        val etag = "\"${file.lastModified()}-${bytes.size}\""
+        val headers = mapOf(
+            "ETag" to etag,
+            "Cache-Control" to "private, max-age=3600",
+        )
+        val ifNoneMatch = req.headers["if-none-match"]?.trim()
+        if (ifNoneMatch != null && (ifNoneMatch == etag || ifNoneMatch == "*" || etag in ifNoneMatch)) {
+            res.sendBytes(304, ByteArray(0), resolved.first, extraHeaders = headers)
+            return
+        }
+        res.sendBytes(200, bytes, resolved.first, extraHeaders = headers)
+    }
+
     private suspend fun handleGameHashCovers(req: HttpRequest, res: HttpResponseWriter) {
         val id = req.query["id"].orEmpty()
-        val game = repo.fullLibrary.value?.byId?.get(id)
+        val kw = req.query["kw"]?.trim().orEmpty()
+        val lib = repo.fullLibrary.value
+        val game = lib?.byId?.get(id)
         if (game == null) {
             res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
             return
         }
-        val plat = repo.fullLibrary.value?.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
-        val hits = metadataRepo.searchByHashForWeb(game, plat, covers)
+        val plat = lib.platform(game.platformId) ?: PlatformCatalog.forFolder(game.platformId)
         val arr = JSONArray()
+        val seenLocalCanon = HashSet<String>()
+        val preScanned = lib.localCovers[game.id].orEmpty()
+        val kwLocal = if (kw.isNotEmpty()) {
+            RomScanner.findLocalCoversByKeyword(lib, repo.configuredRoots(), game.platformId, kw)
+        } else {
+            emptyList()
+        }
+        for (p in (preScanned + listOfNotNull(game.localCover) + kwLocal)) {
+            val f = File(p)
+            if (!f.isFile || !f.canRead()) continue
+            val canon = runCatching { f.canonicalPath }.getOrDefault(f.absolutePath)
+            if (!seenLocalCanon.add(canon)) continue
+            val parent = f.parentFile?.name
+            val label = if (!parent.isNullOrBlank()) "$parent/${f.name}" else f.name
+            val encPath = URLEncoder.encode(f.absolutePath, "UTF-8")
+            arr.put(
+                JSONObject().apply {
+                    put("title", label)
+                    put("providerId", CoverSource.LOCAL_COVER_PROVIDER)
+                    put("url", "/api/local-cover?path=$encPath")
+                    put("fallbackUrl", "")
+                    put("localPath", f.absolutePath)
+                    put("matchedByHash", false)
+                    put("isLocal", true)
+                },
+            )
+        }
+
+        val hits = metadataRepo.searchByHashForWeb(game, plat, covers)
         val seenUrls = HashSet<String>()
         for (h in hits) {
             val u = h.coverUrl?.takeIf { it.isNotBlank() } ?: continue
@@ -2255,6 +2346,24 @@ class WebManagerServer(
             res.sendJson(404, """{"ok":false,"error":"game_not_found"}""")
             return
         }
+        val localPath = req.query["localPath"]?.trim().orEmpty()
+        if (localPath.isNotEmpty()) {
+            val localFile = resolveAllowedLocalCoverFile(localPath)
+            if (localFile == null) {
+                res.sendJson(400, """{"ok":false,"error":"invalid_local_path"}""")
+                return
+            }
+            covers.forget(id)
+            val savedPath = repo.saveCustomCoverFromLocalFile(game, localFile.absolutePath)
+            covers.invalidateThumbnail(savedPath)
+            val fresh = withTimeoutOrNull(500L) {
+                repo.fullLibrary.first { it?.byId?.get(id)?.customCover == savedPath }?.byId?.get(id)
+            } ?: (repo.fullLibrary.value?.byId?.get(id) ?: game).copy(customCover = savedPath)
+            val root = JSONObject().put("ok", true).put("stats", buildGamesStatsJson())
+            root.put("game", gameToJson(fresh))
+            res.sendJson(200, root.toString())
+            return
+        }
         val sourceUrl = req.query["sourceUrl"]?.trim().orEmpty()
         val hasSourceUrl = sourceUrl.isNotEmpty()
         if (hasSourceUrl && !WebFileSecurity.isAllowedCoverSourceUrl(sourceUrl)) {
@@ -2770,6 +2879,14 @@ class WebManagerServer(
         }.isSuccess
         if (ok) {
             repo.notifyFilesChanged()
+            val lowerName = file.name.lowercase()
+            if (lowerName == "gamelist.xml" ||
+                lowerName == "metadata.pegasus.txt" ||
+                lowerName == "metadata.txt" ||
+                file.extension.equals("m3u", ignoreCase = true)
+            ) {
+                repo.refresh()
+            }
             res.sendJson(200, """{"ok":true}""")
         } else {
             res.sendJson(500, """{"ok":false,"error":"write_failed"}""")
@@ -3042,6 +3159,9 @@ class WebManagerServer(
             return
         }
         repo.notifyFilesChanged()
+        if (finalTarget.extension.lowercase() in setOf("png", "jpg", "jpeg", "webp")) {
+            covers.invalidateThumbnail(finalTarget.absolutePath)
+        }
         repo.refresh()
         res.sendJson(
             200,

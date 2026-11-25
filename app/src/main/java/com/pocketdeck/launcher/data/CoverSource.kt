@@ -1176,21 +1176,27 @@ class CoverSource(
         }
     }
 
+    fun isManualCover(gameId: String): Boolean = gameId in manualCoverIds
+
     /**
-     * 快速滚动期间使用的纯内存 O(1) 候选封面查询：仅返回 custom / 已缓存命中的 URL / local，
-     * 不做任何正则表达式、索引查找或联网候选拼装，确保主线程零卡顿。
+     * 快速滚动期间使用的纯内存 O(1) 候选封面查询：仅返回 custom / 手动选定 / 本地预扫描封面 / 已缓存命中的 URL，
+     * 不做任何磁盘 stat()、正则表达式、索引查找或联网候选拼装，确保主线程零卡顿。
      */
     fun fastMemoryCandidates(game: Game): List<Any> {
         val custom = game.customCover
+        if (custom != null) return listOf(preferredThumbOrOriginal(File(custom)))
+        val isManual = game.id in manualCoverIds
+        val local = game.localCover
+        if (!isManual && local != null) {
+            return listOf(preferredThumbOrOriginal(File(local)))
+        }
         val downloaded = lookupWebCacheFile(game.id)
         val cached = cachedUrl(game.id)
-        val local = game.localCover
-        if (custom == null && downloaded == null && cached == null && local == null) return emptyList()
+        if (downloaded == null && cached == null && local == null) return emptyList()
         val out = ArrayList<Any>(3)
-        if (custom != null) out += preferredThumbOrOriginal(File(custom))
         if (downloaded != null) out += downloaded
         else if (cached != null) out += cached
-        if (local != null && local != custom) out += preferredThumbOrOriginal(File(local))
+        if (local != null) out += preferredThumbOrOriginal(File(local))
         return out
     }
 
@@ -1199,27 +1205,56 @@ class CoverSource(
         platform: Platform?,
         officialName: String? = null,
     ): List<Any> {
-        // O(1) 快路径：1. 用户自定义封面 → 2. 已下载离线缓存 → 3. 已解析/手动刮削在线 URL → 4. 本地媒体封面
-        // （让手动刮削写入的 resolvedUrls 优先于原有 localCover，避免旧本地图永远遮挡新选封面）
+        // O(1) 快路径：1. 用户自定义封面 → 2. 手动刮削/选定远程封面 → 3. 预扫描本地封面（直接返回，绝不加载远程）→ 4. 自动刮削缓存
         game.customCover?.let { custom ->
             val f = preferredThumbOrOriginal(File(custom))
             candidateOrigins["${game.id}::$f"] = "custom" to CoverMatchMode.CustomFile
             return listOf(f)
         }
+        if (game.id in manualCoverIds) {
+            lookupWebCacheFile(game.id)?.let { wf ->
+                val (prov, mode) = resolvedOrigins[game.id] ?: ("local" to CoverMatchMode.LocalFile)
+                candidateOrigins["${game.id}::$wf"] = prov to mode
+                val out = ArrayList<Any>(3)
+                out += wf
+                cachedUrl(game.id)?.let { cached ->
+                    val (cProv, cMode) = cachedOrigin(game.id, cached)
+                    candidateOrigins["${game.id}::$cached"] = cProv to cMode
+                    out += cached
+                }
+                game.localCover?.let { local ->
+                    val lf = preferredThumbOrOriginal(File(local))
+                    candidateOrigins["${game.id}::$lf"] = "local" to CoverMatchMode.LocalFile
+                    out += lf
+                }
+                return out
+            }
+            cachedUrl(game.id)?.let { cached ->
+                val (prov, mode) = cachedOrigin(game.id, cached)
+                candidateOrigins["${game.id}::$cached"] = prov to mode
+                val local = game.localCover
+                if (local != null) {
+                    val lf = preferredThumbOrOriginal(File(local))
+                    candidateOrigins["${game.id}::$lf"] = "local" to CoverMatchMode.LocalFile
+                    return listOf(cached, lf)
+                }
+                return listOf(cached)
+            }
+        }
+        game.localCover?.let { local ->
+            val f = preferredThumbOrOriginal(File(local))
+            candidateOrigins["${game.id}::$f"] = "local" to CoverMatchMode.LocalFile
+            return listOf(f)
+        }
         lookupWebCacheFile(game.id)?.let { wf ->
             val (prov, mode) = resolvedOrigins[game.id] ?: ("local" to CoverMatchMode.LocalFile)
             candidateOrigins["${game.id}::$wf"] = prov to mode
-            val out = ArrayList<Any>(3)
+            val out = ArrayList<Any>(2)
             out += wf
             cachedUrl(game.id)?.let { cached ->
                 val (cProv, cMode) = cachedOrigin(game.id, cached)
                 candidateOrigins["${game.id}::$cached"] = cProv to cMode
                 out += cached
-            }
-            game.localCover?.let { local ->
-                val lf = preferredThumbOrOriginal(File(local))
-                candidateOrigins["${game.id}::$lf"] = "local" to CoverMatchMode.LocalFile
-                out += lf
             }
             return out
         }
@@ -1228,11 +1263,6 @@ class CoverSource(
             val (prov, mode) = cachedOrigin(game.id, cached)
             candidateOrigins["${game.id}::$cached"] = prov to mode
             return listOf(cached)
-        }
-        game.localCover?.let { local ->
-            val f = preferredThumbOrOriginal(File(local))
-            candidateOrigins["${game.id}::$f"] = "local" to CoverMatchMode.LocalFile
-            return listOf(f)
         }
 
         val out = ArrayList<Any>(12)
@@ -1338,15 +1368,25 @@ class CoverSource(
         return out
     }
 
-    /** Edit 页面「在线抓取封面」：按优先级向全部已启用节点实时查询并返回验证通过的候选封面。 */
+    /** Edit 页面「抓取/选择封面」：优先纳入全部本地候选图片，再按优先级向已启用节点实时查询在线候选封面。 */
     suspend fun scrapeAllForPicker(
         game: Game,
         platform: Platform?,
         officialName: String? = null,
         includeCachedFirst: Boolean = true,
+        localCoverPaths: List<String> = emptyList(),
     ): List<ScrapedCoverCandidate> = coroutineScope {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@coroutineScope emptyList()
-        if (!NetworkStatus.isOnline(appCtx)) return@coroutineScope emptyList()
+        val localCandidates = withContext(Dispatchers.IO) {
+            localCoverPaths
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && File(it).isFile }
+                .distinct()
+                .map { ScrapedCoverCandidate(it, LOCAL_COVER_PROVIDER) }
+                .toList()
+        }
+        if (!NetworkStatus.isOnline(appCtx)) return@coroutineScope localCandidates
         val enabled = nodeConfigs.filter { it.enabled }
         val cred = credentials
         val system = platform?.libretroSystem
@@ -1415,12 +1455,13 @@ class CoverSource(
             push(it, ScraperCatalog.MetaIds.WIKIDATA)
         }
         // 并行验证候选图片 URL 确实可访问；Libretro 主镜像故障时自动尝试健康备用镜像兜底
-        out.map { item ->
+        val verifiedOnline = out.map { item ->
             async(Dispatchers.IO) {
                 val workingUrl = resolveReachableUrl(item.url)
                 workingUrl?.let { item.copy(url = it) }
             }
         }.awaitAll().filterNotNull().distinctBy { it.url }
+        (localCandidates + verifiedOnline).distinctBy { it.url }
     }
 
     private enum class HeadProbeStatus {
@@ -1774,14 +1815,22 @@ class CoverSource(
     }
 
     fun resolveCoverInfo(game: Game): CoverResolutionInfo? {
-        _coverInfo.value[game.id]?.let { return it }
         game.customCover?.let { return CoverResolutionInfo("custom", CoverMatchMode.CustomFile, it) }
+        val isManual = game.id in manualCoverIds
+        if (isManual) {
+            _coverInfo.value[game.id]?.let { return it }
+            cachedUrl(game.id)?.let { cached ->
+                val (prov, mode) = cachedOrigin(game.id, cached)
+                return CoverResolutionInfo(prov, mode, cached)
+            }
+        }
+        game.localCover?.let { return CoverResolutionInfo(LOCAL_COVER_PROVIDER, CoverMatchMode.LocalFile, it) }
+        _coverInfo.value[game.id]?.let { return it }
         val cached = cachedUrl(game.id)
         if (cached != null) {
             val (prov, mode) = cachedOrigin(game.id, cached)
             return CoverResolutionInfo(prov, mode, cached)
         }
-        game.localCover?.let { return CoverResolutionInfo("local", CoverMatchMode.LocalFile, it) }
         return null
     }
 
@@ -1799,14 +1848,13 @@ class CoverSource(
         return false
     }
 
-    /** 判断掌机本地或已缓存索引中是否存在该游戏的封面（供 Web 列表快速标记）。 */
+    /** 纯内存 O(1) 判断掌机本地或已缓存索引中是否存在该游戏的封面（零磁盘 stat()，供主线程/Web 列表快速标记）。 */
     fun hasLocalOrCachedCover(game: Game): Boolean {
-        if (!game.customCover.isNullOrBlank() && File(game.customCover).isFile) return true
-        if (!game.localCover.isNullOrBlank() && File(game.localCover).isFile) return true
+        if (!game.customCover.isNullOrBlank()) return true
+        if (!game.localCover.isNullOrBlank()) return true
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return true
-        val url = cachedUrl(game.id)
-        if (!url.isNullOrBlank()) return true
-        return webCacheFile(game.id).isFile
+        if (!cachedUrl(game.id).isNullOrBlank()) return true
+        return lookupWebCacheFile(game.id) != null
     }
 
     /** 记录 Web 端「在线选图」同步到本地封面时的原始在线 URL，供下次 Web 列表继续优先直连外链。 */
@@ -1829,20 +1877,25 @@ class CoverSource(
             val origin = resolvedOrigins[game.id]?.first
             return if (origin == WEB_PICKER_PROVIDER) cachedUrl(game.id) else null
         }
+        if (game.id in manualCoverIds) {
+            return cachedUrl(game.id)
+        }
         if (!game.localCover.isNullOrBlank()) return null
         return cachedUrl(game.id)
     }
 
     /**
      * 为 Web 端生成单游戏级封面版本号：
-     * 基于当前生效的封面文件 mtime/size（或在线 URL 哈希 / APK 更新时间），
-     * 保证掌机本地换图或 Web 端改图时仅该游戏缓存立即失效，其余未改动封面继续命中浏览器强缓存。
+     * 严格遵循 customCover → manualCoverIds → localCover → 自动缓存封面 优先级。
      */
     fun coverVersionForWeb(game: Game): String {
         val custom = game.customCover?.let(::File)?.takeIf { it.isFile }
         if (custom != null) return "c-${custom.lastModified()}-${custom.length()}"
-        val local = game.localCover?.let(::File)?.takeIf { it.isFile }
-        if (local != null) return "l-${local.lastModified()}-${local.length()}"
+        val isManual = game.id in manualCoverIds
+        if (!isManual) {
+            val local = game.localCover?.let(::File)?.takeIf { it.isFile }
+            if (local != null) return "l-${local.lastModified()}-${local.length()}"
+        }
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) {
             return "a-${game.lastModifiedMs}"
         }
@@ -1850,7 +1903,9 @@ class CoverSource(
         val wf = webCacheFile(game.id)
         val uPart = if (!url.isNullOrBlank()) url.hashCode().toUInt().toString(16) else "0"
         val wPart = if (wf.isFile) "${wf.lastModified()}-${wf.length()}" else "0"
-        return if (uPart != "0" || wPart != "0") "u-$uPart-$wPart" else "0"
+        if (uPart != "0" || wPart != "0") return "u-$uPart-$wPart"
+        val localFallback = game.localCover?.let(::File)?.takeIf { it.isFile }
+        return if (localFallback != null) "l-${localFallback.lastModified()}-${localFallback.length()}" else "0"
     }
 
     private fun readCoverFileBounded(file: File): Pair<String, ByteArray>? {
@@ -1859,6 +1914,10 @@ class CoverSource(
         if (len !in 1L..(16L * 1024 * 1024)) return null
         val bytes = runCatching { target.readBytes() }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
         return mimeTypeForFile(target, defaultMime = "image/jpeg") to bytes
+    }
+
+    suspend fun readLocalCoverPreviewBytes(file: File): Pair<String, ByteArray>? = withContext(Dispatchers.IO) {
+        readCoverFileBounded(file)
     }
 
     /**
@@ -1870,7 +1929,7 @@ class CoverSource(
             readCoverFileBounded(custom)?.let { return@withContext it }
         }
         val local = game.localCover?.let(::File)?.takeIf { it.isFile && it.canRead() }
-        if (local != null) {
+        if (game.id !in manualCoverIds && local != null) {
             readCoverFileBounded(local)?.let { return@withContext it }
         }
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) {
@@ -1895,7 +1954,20 @@ class CoverSource(
             }
         }
 
-        val url = cachedUrl(game.id) ?: return@withContext null
+        val url = cachedUrl(game.id)
+        if (url != null) {
+            readCoilDiskCache(url)?.let { bytes ->
+                if (writeFileAtomically(cachedFile, bytes)) {
+                    recordWebCacheFile(game.id, cachedFile)
+                    maybeScheduleDiskPrune()
+                }
+                return@withContext (detectImageFormat(bytes)?.second ?: "image/jpeg") to bytes
+            }
+        }
+        if (local != null) {
+            readCoverFileBounded(local)?.let { return@withContext it }
+        }
+        if (url == null) return@withContext null
         readCoilDiskCache(url)?.let { bytes ->
             if (writeFileAtomically(cachedFile, bytes)) {
                 recordWebCacheFile(game.id, cachedFile)
@@ -1936,13 +2008,17 @@ class CoverSource(
         return false
     }
 
-    /** 由 Web 管理端或全量刮削触发抓取并更新该游戏封面（优先复用 Coil 磁盘缓存，未命中再直连下载首个命中项）。 */
+    /** 由 Web 管理端或全量刮削触发抓取并更新该游戏封面（已有本地封面且非强制时直接跳过外网加载）。 */
     suspend fun fetchWebCoverNow(
         game: Game,
         platform: Platform?,
         officialName: String?,
+        forceRemote: Boolean = false,
     ): Boolean = withContext(Dispatchers.IO) {
         if (game.id.startsWith(GameLauncher.APK_PREFIX)) return@withContext false
+        if (!forceRemote && (!game.customCover.isNullOrBlank() || (!game.localCover.isNullOrBlank() && game.id !in manualCoverIds))) {
+            return@withContext false
+        }
         if (saveCoilCachedCoverIfAvailable(game)) return@withContext true
         if (!NetworkStatus.isOnline(appCtx)) return@withContext false
         val enabled = nodeConfigs.filter { it.enabled }
@@ -2764,6 +2840,7 @@ class CoverSource(
             return bytesToHexFast(md.digest(input.toByteArray(Charsets.UTF_8)))
         }
 
+        const val LOCAL_COVER_PROVIDER = "local"
         private const val WEB_PICKER_PROVIDER = "web_picker"
         private const val MANUAL_PROVIDER_PREFIX = "manual:"
         const val MATCHER_VERSION = 3

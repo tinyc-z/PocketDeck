@@ -202,6 +202,7 @@ internal fun HomeOverlays(
             onManualScrape = if (!game.id.startsWith(GameLauncher.APK_PREFIX)) {
                 { vm.openManualScrape(game) }
             } else null,
+            localCoverPaths = vm.localCoversFor(game),
             isTopmost = state.manualScrapeGame == null &&
                 !state.showApps &&
                 !state.showSettings &&

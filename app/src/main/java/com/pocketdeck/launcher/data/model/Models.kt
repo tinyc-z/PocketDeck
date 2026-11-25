@@ -63,6 +63,8 @@ data class Library(
     val localMetadata: Map<String, GameMetadata> = emptyMap(),
     /** 平台目录增量扫描快照：`dirPath -> (lastModified, entryCount)`。 */
     val dirSnapshots: Map<String, Pair<Long, Int>> = emptyMap(),
+    /** 每个游戏预扫描得到的全部本地候选封面路径列表（按优先级去重排序，零滚动 I/O）。 */
+    val localCovers: Map<String, List<String>> = emptyMap(),
 ) {
     val byId: Map<String, Game> by lazy { games.values.flatten().associateBy { it.id } }
     private val platformById by lazy { platforms.associateBy { it.id } }

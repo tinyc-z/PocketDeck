@@ -19,7 +19,7 @@ object RomScanner {
 
     private const val MAX_SUBDIR_DEPTH = 3
     private const val MAX_SNAPSHOT_SUBDIRS = 256
-    private const val SNAPSHOT_HASH_SEED = 37L
+    private const val SNAPSHOT_HASH_SEED = 53L
 
     private val IGNORED_PLATFORM_DIRS = setOf(
         "images", "imgs", "img", "covers", "boxart", "box2dfront", "boxfront", "box3d", "3dboxes",
@@ -69,7 +69,7 @@ object RomScanner {
         "covers", "boxart", "imgs", "images", "downloaded_images", "media/images",
     )
     private val FALLBACK_COVER_DIRS = listOf(
-        "media/miximages", "media/mix", "media/screenshots", "screenshots",
+        "media/miximages", "media/mix", "media/screenshots", "media/screenshot", "screenshots",
     )
     private val COVER_SUFFIXES = listOf(
         "-image", "-thumb", "-boxart", "-cover", "-mix", "-3dbox", "-box2d", "-boxfront", "-screenshot",
@@ -114,6 +114,7 @@ object RomScanner {
     private data class PlatformScanResult(
         val games: List<Game>,
         val localMetadata: Map<String, GameMetadata>,
+        val localCovers: Map<String, List<String>> = emptyMap(),
     )
 
     fun isPotentialRomFile(file: File, platformId: String? = null): Boolean =
@@ -224,6 +225,7 @@ object RomScanner {
         val platforms = LinkedHashMap<String, Platform>()
         val counts = LinkedHashMap<String, Int>()
         val localMeta = HashMap<String, GameMetadata>()
+        val localCovers = HashMap<String, List<String>>()
         val dirSnapshots = HashMap<String, Pair<Long, Int>>()
         val parentEntriesCache = HashMap<String, Map<String, String>>()
         val prevAllGames = previousLibrary?.games?.values?.flatten().orEmpty()
@@ -239,6 +241,7 @@ object RomScanner {
                 platforms.putIfAbsent(gPlat.id, gPlat)
             }
             localMeta.putAll(res.localMetadata)
+            localCovers.putAll(res.localCovers)
             counts[rootPath] = (counts[rootPath] ?: 0) + added
         }
 
@@ -256,10 +259,12 @@ object RomScanner {
                     }
                 }
                 val cachedMeta = HashMap<String, GameMetadata>(cachedGames.size)
+                val cachedCovers = HashMap<String, List<String>>(cachedGames.size)
                 for (g in cachedGames) {
                     previousLibrary.localMetadata[g.id]?.let { cachedMeta[g.id] = it }
+                    previousLibrary.localCovers[g.id]?.let { cachedCovers[g.id] = it }
                 }
-                return PlatformScanResult(cachedGames, cachedMeta)
+                return PlatformScanResult(cachedGames, cachedMeta, cachedCovers)
             }
             val maxDepth = if (allowSubdirs) MAX_SUBDIR_DEPTH else 0
             return scanPlatform(dir, plat.id, maxDepth = maxDepth)
@@ -282,6 +287,7 @@ object RomScanner {
                 rootCounts = LinkedHashMap(counts),
                 localMetadata = HashMap(localMeta),
                 dirSnapshots = HashMap(dirSnapshots),
+                localCovers = HashMap(localCovers),
             )
         }
 
@@ -340,10 +346,12 @@ object RomScanner {
                     val plat = previousLibrary.platforms.firstOrNull { it.id == pid }
                         ?: PlatformCatalog.forFolder(pid)
                     val metaMap = HashMap<String, GameMetadata>(directGames.size)
+                    val coverMap = HashMap<String, List<String>>(directGames.size)
                     for (g in directGames) {
                         previousLibrary.localMetadata[g.id]?.let { metaMap[g.id] = it }
+                        previousLibrary.localCovers[g.id]?.let { coverMap[g.id] = it }
                     }
-                    addScanned(root.path, plat, PlatformScanResult(directGames, metaMap))
+                    addScanned(root.path, plat, PlatformScanResult(directGames, metaMap, coverMap))
                 }
                 continue
             }
@@ -358,7 +366,8 @@ object RomScanner {
                 val plat = PlatformCatalog.forFolder(inferredId)
                 val patched = if (g.platformId == plat.id) g else g.copy(platformId = plat.id)
                 val metaMap = rootRes.localMetadata[g.id]?.let { mapOf(patched.id to it) }.orEmpty()
-                addScanned(root.path, plat, PlatformScanResult(listOf(patched), metaMap))
+                val coverMap = rootRes.localCovers[g.id]?.let { mapOf(patched.id to it) }.orEmpty()
+                addScanned(root.path, plat, PlatformScanResult(listOf(patched), metaMap, coverMap))
             }
         }
 
@@ -651,9 +660,22 @@ object RomScanner {
         return mergeLocalMediaMaps(gamelist, pegasus)
     }
 
+    private fun addCoverCandidate(
+        target: MutableMap<String, MutableList<String>>,
+        key: String,
+        path: String,
+        maxPerKey: Int = 6,
+    ) {
+        if (key.isEmpty()) return
+        val list = target.getOrPut(key) { ArrayList(2) }
+        if (path !in list && list.size < maxPerKey) {
+            list += path
+        }
+    }
+
     private fun collectCoversFromDir(
         d: File?,
-        target: MutableMap<String, String>,
+        target: MutableMap<String, MutableList<String>>,
         relPrefix: String = "",
         depth: Int = 0,
         maxSubdirDepth: Int = 0,
@@ -665,17 +687,17 @@ object RomScanner {
                 if (f.extension.lowercase() !in IMAGE_EXT) continue
                 val key = f.nameWithoutExtension.lowercase()
                 val relKey = if (relPrefix.isEmpty()) key else "$relPrefix/$key"
-                target.putIfAbsent(relKey, f.path)
+                addCoverCandidate(target, relKey, f.path)
                 if (relPrefix.isNotEmpty()) {
-                    target.putIfAbsent(key, f.path)
+                    addCoverCandidate(target, key, f.path)
                 }
                 for (suffix in COVER_SUFFIXES) {
                     if (key.endsWith(suffix)) {
                         val stripped = key.removeSuffix(suffix)
                         val relStripped = if (relPrefix.isEmpty()) stripped else "$relPrefix/$stripped"
-                        target.putIfAbsent(relStripped, f.path)
+                        addCoverCandidate(target, relStripped, f.path)
                         if (relPrefix.isNotEmpty()) {
-                            target.putIfAbsent(stripped, f.path)
+                            addCoverCandidate(target, stripped, f.path)
                         }
                     }
                 }
@@ -688,8 +710,8 @@ object RomScanner {
 
     private fun collectPegasusPerGameMedia(
         mediaDir: File?,
-        boxartOut: MutableMap<String, String>,
-        fallbackOut: MutableMap<String, String>,
+        boxartOut: MutableMap<String, MutableList<String>>,
+        fallbackOut: MutableMap<String, MutableList<String>>,
     ) {
         if (mediaDir == null || !mediaDir.isDirectory) return
         val subDirs = mediaDir.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }.orEmpty()
@@ -705,15 +727,13 @@ object RomScanner {
             for (cand in SINGLE_GAME_BOXART_NAMES) {
                 val hit = byBase[cand]
                 if (hit != null) {
-                    boxartOut.putIfAbsent(lowerName, hit)
-                    break
+                    addCoverCandidate(boxartOut, lowerName, hit)
                 }
             }
             for (cand in SINGLE_GAME_FALLBACK_NAMES) {
                 val hit = byBase[cand]
                 if (hit != null) {
-                    fallbackOut.putIfAbsent(lowerName, hit)
-                    break
+                    addCoverCandidate(fallbackOut, lowerName, hit)
                 }
             }
         }
@@ -721,8 +741,8 @@ object RomScanner {
 
     private fun collectMediaForScope(
         scopeDir: File,
-        boxartOut: MutableMap<String, String>,
-        fallbackOut: MutableMap<String, String>,
+        boxartOut: MutableMap<String, MutableList<String>>,
+        fallbackOut: MutableMap<String, MutableList<String>>,
         allowMirrorSubdirs: Boolean,
     ) {
         val maxMirrorDepth = if (allowMirrorSubdirs) MAX_SUBDIR_DEPTH else 0
@@ -747,6 +767,65 @@ object RomScanner {
         collectCoversFromDir(scopeDir, boxartOut, maxSubdirDepth = 0)
     }
 
+    private fun collectExternalMirrors(
+        container: File,
+        folderName: String,
+        includeMediaFolder: Boolean,
+        mirrorDepth: Int,
+        boxartOut: MutableMap<String, MutableList<String>>,
+        fallbackOut: MutableMap<String, MutableList<String>>,
+    ) {
+        val topMap = buildLowerNameMap(container.list())
+        if (includeMediaFolder && "media" in topMap) {
+            for (sub in listOf("covers", "box2dfront", "boxfront", "boxart", "3dboxes")) {
+                collectCoversFromDir(
+                    resolveRelativeDirIgnoreCase(container, "media/$folderName/$sub", topMap),
+                    boxartOut,
+                    maxSubdirDepth = mirrorDepth,
+                )
+            }
+            for (sub in listOf("miximages", "mix", "screenshots")) {
+                collectCoversFromDir(
+                    resolveRelativeDirIgnoreCase(container, "media/$folderName/$sub", topMap),
+                    fallbackOut,
+                    maxSubdirDepth = mirrorDepth,
+                )
+            }
+        }
+        if ("downloaded_media" in topMap) {
+            for (sub in listOf("covers", "box2dfront", "3dboxes")) {
+                collectCoversFromDir(
+                    resolveRelativeDirIgnoreCase(container, "downloaded_media/$folderName/$sub", topMap),
+                    boxartOut,
+                    maxSubdirDepth = mirrorDepth,
+                )
+            }
+            for (sub in listOf("miximages", "screenshots")) {
+                collectCoversFromDir(
+                    resolveRelativeDirIgnoreCase(container, "downloaded_media/$folderName/$sub", topMap),
+                    fallbackOut,
+                    maxSubdirDepth = mirrorDepth,
+                )
+            }
+        }
+        for (top in listOf("images", "imgs", "boxart", "covers")) {
+            if (top in topMap) {
+                collectCoversFromDir(
+                    resolveRelativeDirIgnoreCase(container, "$top/$folderName", topMap),
+                    boxartOut,
+                    maxSubdirDepth = mirrorDepth,
+                )
+            }
+        }
+        if ("screenshots" in topMap) {
+            collectCoversFromDir(
+                resolveRelativeDirIgnoreCase(container, "screenshots/$folderName", topMap),
+                fallbackOut,
+                maxSubdirDepth = mirrorDepth,
+            )
+        }
+    }
+
     private data class ScannedDirBucket(
         val dir: File,
         val relPrefix: String,
@@ -760,69 +839,17 @@ object RomScanner {
     ): PlatformScanResult {
         if (!dir.isDirectory) return PlatformScanResult(emptyList(), emptyMap())
 
-        val platformBoxart = HashMap<String, String>()
-        val platformFallback = HashMap<String, String>()
+        val platformBoxart = HashMap<String, MutableList<String>>()
+        val platformFallback = HashMap<String, MutableList<String>>()
         collectMediaForScope(dir, platformBoxart, platformFallback, allowMirrorSubdirs = maxDepth > 0)
 
-        fun collectExternalMirrors(container: File, folderName: String, includeMediaFolder: Boolean) {
-            val topMap = buildLowerNameMap(container.list())
-            val mirrorDepth = if (maxDepth > 0) MAX_SUBDIR_DEPTH else 0
-            if (includeMediaFolder && "media" in topMap) {
-                for (sub in listOf("covers", "box2dfront", "boxfront", "boxart", "3dboxes")) {
-                    collectCoversFromDir(
-                        resolveRelativeDirIgnoreCase(container, "media/$folderName/$sub", topMap),
-                        platformBoxart,
-                        maxSubdirDepth = mirrorDepth,
-                    )
-                }
-                for (sub in listOf("miximages", "mix", "screenshots")) {
-                    collectCoversFromDir(
-                        resolveRelativeDirIgnoreCase(container, "media/$folderName/$sub", topMap),
-                        platformFallback,
-                        maxSubdirDepth = mirrorDepth,
-                    )
-                }
-            }
-            if ("downloaded_media" in topMap) {
-                for (sub in listOf("covers", "box2dfront", "3dboxes")) {
-                    collectCoversFromDir(
-                        resolveRelativeDirIgnoreCase(container, "downloaded_media/$folderName/$sub", topMap),
-                        platformBoxart,
-                        maxSubdirDepth = mirrorDepth,
-                    )
-                }
-                for (sub in listOf("miximages", "screenshots")) {
-                    collectCoversFromDir(
-                        resolveRelativeDirIgnoreCase(container, "downloaded_media/$folderName/$sub", topMap),
-                        platformFallback,
-                        maxSubdirDepth = mirrorDepth,
-                    )
-                }
-            }
-            for (top in listOf("images", "imgs", "boxart", "covers")) {
-                if (top in topMap) {
-                    collectCoversFromDir(
-                        resolveRelativeDirIgnoreCase(container, "$top/$folderName", topMap),
-                        platformBoxart,
-                        maxSubdirDepth = mirrorDepth,
-                    )
-                }
-            }
-            if ("screenshots" in topMap) {
-                collectCoversFromDir(
-                    resolveRelativeDirIgnoreCase(container, "screenshots/$folderName", topMap),
-                    platformFallback,
-                    maxSubdirDepth = mirrorDepth,
-                )
-            }
-        }
-
+        val mirrorDepth = if (maxDepth > 0) MAX_SUBDIR_DEPTH else 0
         dir.parentFile?.let { parent ->
             val folderName = dir.name
-            collectExternalMirrors(parent, folderName, includeMediaFolder = true)
+            collectExternalMirrors(parent, folderName, includeMediaFolder = true, mirrorDepth = mirrorDepth, platformBoxart, platformFallback)
             parent.parentFile?.let { grandParent ->
                 if (dir.path != parent.path) {
-                    collectExternalMirrors(grandParent, folderName, includeMediaFolder = false)
+                    collectExternalMirrors(grandParent, folderName, includeMediaFolder = false, mirrorDepth = mirrorDepth, platformBoxart, platformFallback)
                 }
             }
         }
@@ -899,6 +926,7 @@ object RomScanner {
 
         val outGames = ArrayList<Game>()
         val outLocalMeta = HashMap<String, GameMetadata>()
+        val outLocalCovers = HashMap<String, List<String>>()
 
         // 2) 按子目录独立结算轨道隐藏与多盘折叠，防止跨目录同名 Disc 误合并
         for (bucket in dirBuckets) {
@@ -969,26 +997,31 @@ object RomScanner {
             }
             val singleGameSubdir = isSubDir && gameCountInDir == 1
 
-            val subBoxart: Map<String, String>
-            val subFallback: Map<String, String>
+            val subBoxart: Map<String, List<String>>
+            val subFallback: Map<String, List<String>>
             val subMetaEntries: Map<String, LocalMediaEntry>
-            var singleGenericBoxart: String? = null
-            var singleGenericFallback: String? = null
+            val singleGenericBoxarts: List<String>
+            val singleGenericFallbacks: List<String>
             if (isSubDir) {
-                val sb = HashMap<String, String>()
-                val sf = HashMap<String, String>()
+                val sb = HashMap<String, MutableList<String>>()
+                val sf = HashMap<String, MutableList<String>>()
                 collectMediaForScope(subDir, sb, sf, allowMirrorSubdirs = false)
                 subBoxart = sb
                 subFallback = sf
                 subMetaEntries = parseLocalMetadataForDir(subDir, includeParentGamelists = false)
                 if (singleGameSubdir) {
-                    singleGenericBoxart = SINGLE_GAME_BOXART_NAMES.firstNotNullOfOrNull { sb[it] }
-                    singleGenericFallback = SINGLE_GAME_FALLBACK_NAMES.firstNotNullOfOrNull { sb[it] ?: sf[it] }
+                    singleGenericBoxarts = SINGLE_GAME_BOXART_NAMES.flatMap { sb[it].orEmpty() }.distinct()
+                    singleGenericFallbacks = SINGLE_GAME_FALLBACK_NAMES.flatMap { sb[it] ?: sf[it].orEmpty() }.distinct()
+                } else {
+                    singleGenericBoxarts = emptyList()
+                    singleGenericFallbacks = emptyList()
                 }
             } else {
                 subBoxart = emptyMap()
                 subFallback = emptyMap()
                 subMetaEntries = emptyMap()
+                singleGenericBoxarts = emptyList()
+                singleGenericFallbacks = emptyList()
             }
 
             fun buildGame(primary: File, displayBase: String, discs: List<String>) {
@@ -1008,6 +1041,7 @@ object RomScanner {
                 val fileNoExtLower = primary.nameWithoutExtension.lowercase()
                 val baseLower = displayBase.lowercase()
                 val titleLower = resolvedTitleBase.lowercase()
+                val cleanLower = cleanTitle(resolvedTitleBase).lowercase()
                 val pbpLower = pbpTitle?.lowercase()
                 val discIdLower = pbpInfo?.discId?.lowercase()
                 val relFileLower = if (relPrefixLower.isEmpty()) fileLower else "$relPrefixLower/$fileLower"
@@ -1026,32 +1060,41 @@ object RomScanner {
                         ?: pbpLower?.let { map[it] }
                 }
 
-                fun lookupCoverMap(map: Map<String, String>, checkRel: Boolean): String? {
-                    if (map.isEmpty()) return null
+                fun collectFromMap(
+                    map: Map<String, List<String>>,
+                    checkRel: Boolean,
+                    dest: LinkedHashSet<String>,
+                ) {
+                    if (map.isEmpty()) return
                     if (checkRel && relPrefixLower.isNotEmpty()) {
-                        map[relFileLower]?.let { return it }
-                        map[relBaseLower]?.let { return it }
-                        map["$relPrefixLower/$fileNoExtLower"]?.let { return it }
+                        map[relFileLower]?.let { dest.addAll(it) }
+                        map[relBaseLower]?.let { dest.addAll(it) }
+                        map["$relPrefixLower/$fileNoExtLower"]?.let { dest.addAll(it) }
                     }
-                    return map[baseLower]
-                        ?: map[fileLower]
-                        ?: map[fileNoExtLower]
-                        ?: titleLower.takeIf { it != baseLower }?.let { map[it] }
-                        ?: pbpLower?.let { map[it] }
-                        ?: discIdLower?.let { map[it] }
+                    map[baseLower]?.let { dest.addAll(it) }
+                    map[fileLower]?.let { dest.addAll(it) }
+                    map[fileNoExtLower]?.let { dest.addAll(it) }
+                    if (titleLower != baseLower) map[titleLower]?.let { dest.addAll(it) }
+                    if (cleanLower != baseLower && cleanLower != titleLower && cleanLower.length >= 2) {
+                        map[cleanLower]?.let { dest.addAll(it) }
+                    }
+                    pbpLower?.let { map[it]?.let(dest::addAll) }
+                    discIdLower?.let { map[it]?.let(dest::addAll) }
                 }
 
                 val subEntry = lookupMetaEntry(subMetaEntries)
                 val platEntry = lookupMetaEntry(platformMetaEntries)
-                val cover = subEntry?.coverPath
-                    ?: platEntry?.coverPath
-                    ?: lookupCoverMap(subBoxart, checkRel = false)
-                    ?: singleGenericBoxart
-                    ?: lookupCoverMap(platformBoxart, checkRel = true)
-                    ?: lookupCoverMap(subFallback, checkRel = false)
-                    ?: singleGenericFallback
-                    ?: lookupCoverMap(platformFallback, checkRel = true)
+                val allLocalCovers = LinkedHashSet<String>(8)
+                subEntry?.coverPath?.let { allLocalCovers += it }
+                platEntry?.coverPath?.let { allLocalCovers += it }
+                collectFromMap(subBoxart, checkRel = false, allLocalCovers)
+                allLocalCovers.addAll(singleGenericBoxarts)
+                collectFromMap(platformBoxart, checkRel = true, allLocalCovers)
+                collectFromMap(subFallback, checkRel = false, allLocalCovers)
+                allLocalCovers.addAll(singleGenericFallbacks)
+                collectFromMap(platformFallback, checkRel = true, allLocalCovers)
 
+                val cover = allLocalCovers.firstOrNull()
                 val meta = subEntry?.metadata ?: platEntry?.metadata
                 val totalSize = if (discs.size > 1) {
                     discs.sumOf { File(it).length() }.takeIf { it > 0L } ?: primary.length()
@@ -1070,6 +1113,9 @@ object RomScanner {
                     discFiles = discs,
                 )
                 outGames += game
+                if (allLocalCovers.isNotEmpty()) {
+                    outLocalCovers[game.id] = allLocalCovers.take(8)
+                }
                 meta?.takeIf { !it.isEmpty }?.let { outLocalMeta[game.id] = it }
             }
 
@@ -1094,7 +1140,95 @@ object RomScanner {
         return PlatformScanResult(
             games = outGames.sortedBy { it.title.lowercase() },
             localMetadata = outLocalMeta,
+            localCovers = outLocalCovers,
         )
+    }
+
+    /** 按关键词检索当前平台的本地图片候选（供手动刮削与 Web 选图弹窗在后台 IO 线程调用，绝不在滚动期调用）。 */
+    fun findLocalCoversByKeyword(
+        library: Library?,
+        roots: List<File>,
+        platformId: String,
+        keyword: String,
+        limit: Int = 8,
+    ): List<String> {
+        val cleanKw = keyword.trim()
+        if (cleanKw.isEmpty() || limit <= 0) return emptyList()
+        val kwLower = cleanKw.lowercase()
+        val kwCompact = TitleNormalizer.compactKey(cleanKw)
+        val matchesKeyword: (String) -> Boolean = { candidate ->
+            val lower = candidate.lowercase()
+            if (kwLower in lower) {
+                true
+            } else if (kwCompact.length >= 2) {
+                val cCompact = TitleNormalizer.compactKey(candidate)
+                cCompact.isNotEmpty() && kwCompact in cCompact
+            } else {
+                false
+            }
+        }
+
+        val out = LinkedHashSet<String>(limit)
+        val targetPid = platformId.lowercase()
+
+        if (library != null) {
+            for (g in library.games[platformId].orEmpty()) {
+                val paths = library.localCovers[g.id].orEmpty()
+                if (paths.isEmpty() && g.localCover == null) continue
+                val gameMatch = matchesKeyword(g.title) || matchesKeyword(g.baseName) || matchesKeyword(g.fileName)
+                val candidates = if (paths.isNotEmpty()) paths else listOfNotNull(g.localCover)
+                for (p in candidates) {
+                    val f = File(p)
+                    if (!f.isFile) continue
+                    if (gameMatch || matchesKeyword(f.nameWithoutExtension)) {
+                        out += p
+                        if (out.size >= limit) return out.toList()
+                    }
+                }
+            }
+        }
+
+        val boxart = HashMap<String, MutableList<String>>()
+        val fallback = HashMap<String, MutableList<String>>()
+        val visited = HashSet<String>()
+        for (root in roots) {
+            val dirs = root.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }.orEmpty()
+            for (dir in dirs) {
+                if (dir.name.lowercase() in IGNORED_PLATFORM_DIRS) continue
+                val plat = PlatformCatalog.forFolder(dir.name)
+                if (plat.id != targetPid) continue
+                if (!visited.add(canonicalKey(dir))) continue
+                collectMediaForScope(dir, boxart, fallback, allowMirrorSubdirs = true)
+                dir.parentFile?.let { parent ->
+                    collectExternalMirrors(parent, dir.name, includeMediaFolder = true, mirrorDepth = MAX_SUBDIR_DEPTH, boxart, fallback)
+                    parent.parentFile?.let { grandParent ->
+                        if (dir.path != parent.path) {
+                            collectExternalMirrors(grandParent, dir.name, includeMediaFolder = false, mirrorDepth = MAX_SUBDIR_DEPTH, boxart, fallback)
+                        }
+                    }
+                }
+            }
+            if (PlatformCatalog.isKnown(root.name) && PlatformCatalog.forFolder(root.name).id == targetPid) {
+                if (visited.add(canonicalKey(root))) {
+                    collectMediaForScope(root, boxart, fallback, allowMirrorSubdirs = true)
+                }
+            }
+        }
+
+        for (map in listOf(boxart, fallback)) {
+            for ((key, paths) in map) {
+                val keyHit = matchesKeyword(key)
+                for (p in paths) {
+                    val f = File(p)
+                    if (!f.isFile) continue
+                    if (keyHit || matchesKeyword(f.nameWithoutExtension)) {
+                        out += p
+                        if (out.size >= limit) return out.toList()
+                    }
+                }
+            }
+        }
+        return out.toList()
     }
 
     /** 流式解析 ES-DE / EmulationStation 的 `gamelist.xml`（零 DOM 建树），支持相对路径与文件名键。 */

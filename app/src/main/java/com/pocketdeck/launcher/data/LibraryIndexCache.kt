@@ -52,7 +52,7 @@ class LibraryIndexCache(context: Context) {
             DataInputStream(BufferedInputStream(FileInputStream(cacheFile), 32 * 1024)).use { inp ->
                 val magic = inp.readInt()
                 val version = inp.readInt()
-                if (magic != MAGIC || (version != VERSION_V2 && version != VERSION_V3)) return null
+                if (magic != MAGIC || (version != VERSION_V2 && version != VERSION_V3 && version != VERSION_V4)) return null
                 val rootsKey = inp.readUTF()
                 if (expectedRootsKey != null && rootsKey != expectedRootsKey) return null
 
@@ -163,6 +163,20 @@ class LibraryIndexCache(context: Context) {
                     null
                 }
 
+                val localCovers: Map<String, List<String>> = if (version >= VERSION_V4) {
+                    val lcCount = inp.readInt().coerceAtLeast(0)
+                    val lcMap = HashMap<String, List<String>>(lcCount * 2)
+                    repeat(lcCount) {
+                        val gid = inp.readUTF()
+                        val pathCount = inp.readInt().coerceAtLeast(0)
+                        val paths = List(pathCount) { inp.readUTF() }
+                        if (paths.isNotEmpty()) lcMap[gid] = paths
+                    }
+                    lcMap
+                } else {
+                    emptyMap()
+                }
+
                 CachedLibrarySnapshot(
                     library = Library(
                         root = rootsKey,
@@ -171,6 +185,7 @@ class LibraryIndexCache(context: Context) {
                         rootCounts = rootCounts,
                         localMetadata = localMetadata,
                         dirSnapshots = dirSnapshots,
+                        localCovers = localCovers,
                     ),
                     installedApps = installedApps,
                 )
@@ -187,7 +202,7 @@ class LibraryIndexCache(context: Context) {
         runCatching {
             DataOutputStream(BufferedOutputStream(FileOutputStream(tmpFile), 32 * 1024)).use { out ->
                 out.writeInt(MAGIC)
-                out.writeInt(VERSION_V3)
+                out.writeInt(VERSION_V4)
                 out.writeUTF(rootsKey)
 
                 out.writeInt(library.rootCounts.size)
@@ -257,6 +272,15 @@ class LibraryIndexCache(context: Context) {
                 } else {
                     out.writeBoolean(false)
                 }
+
+                out.writeInt(library.localCovers.size)
+                for ((gid, paths) in library.localCovers) {
+                    out.writeUTF(gid)
+                    out.writeInt(paths.size)
+                    for (p in paths) {
+                        out.writeUTF(p)
+                    }
+                }
             }
             if (!tmpFile.renameTo(cacheFile)) {
                 tmpFile.copyTo(cacheFile, overwrite = true)
@@ -307,6 +331,7 @@ class LibraryIndexCache(context: Context) {
         private const val MAGIC = 0x50444958 // "PDIX"
         private const val VERSION_V2 = 2
         private const val VERSION_V3 = 3
+        private const val VERSION_V4 = 4
         private const val MAX_LONG_STRING_BYTES = 16 * 1024 * 1024
     }
 }

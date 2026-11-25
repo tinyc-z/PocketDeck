@@ -1633,7 +1633,7 @@ class MetadataRepository(
         }
     }
 
-    /** 手动关键词搜索刮削：Libretro 索引秒出 + 其余在线节点并发查询，谁先回来就立刻增量回调更新列表。 */
+    /** 手动关键词搜索刮削：本地封面秒出 + Libretro 索引 + 在线节点并发查询，谁先回来就立刻增量回调更新列表。 */
     suspend fun manualSearch(
         keyword: String,
         game: Game,
@@ -1641,6 +1641,8 @@ class MetadataRepository(
         covers: CoverSource,
         onActiveSourcesChanged: (List<String>) -> Unit = {},
         onPartialResults: (List<ManualScrapeCandidate>) -> Unit = {},
+        localCoverPaths: List<String> = emptyList(),
+        localKeywordCoversProvider: (suspend () -> List<String>)? = null,
     ): List<ManualScrapeCandidate> = withContext(Dispatchers.IO) {
         val cleanKeyword = keyword.trim()
         if (cleanKeyword.isEmpty()) return@withContext emptyList()
@@ -1656,6 +1658,7 @@ class MetadataRepository(
 
         fun dedupKey(c: ManualScrapeCandidate): String {
             val u = c.coverUrl?.trim().orEmpty()
+            if (c.providerId == CoverSource.LOCAL_COVER_PROVIDER) return "local|${u.lowercase()}"
             if (u.isEmpty()) return "meta|${c.title.lowercase()}|${c.providerId}"
             val boxIdx = u.indexOf("/Named_")
             return if (boxIdx >= 0) {
@@ -1712,7 +1715,35 @@ class MetadataRepository(
             return added
         }
 
-        fun snapshot(): List<ManualScrapeCandidate> = synchronized(lock) { out.take(15).toList() }
+        fun snapshot(): List<ManualScrapeCandidate> = synchronized(lock) { out.take(20).toList() }
+
+        // 0) 本机预扫描封面 + 关键词匹配的本地封面（离线亦可用）
+        val keywordLocalPaths = runCatching { localKeywordCoversProvider?.invoke().orEmpty() }.getOrDefault(emptyList())
+        val localItems = (localCoverPaths + keywordLocalPaths)
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .mapNotNull { path ->
+                val f = File(path).takeIf { it.isFile } ?: return@mapNotNull null
+                val parent = f.parentFile?.name
+                val label = if (!parent.isNullOrBlank()) "$parent/${f.name}" else f.name
+                ManualScrapeCandidate(
+                    title = label,
+                    providerId = CoverSource.LOCAL_COVER_PROVIDER,
+                    coverUrl = f.absolutePath,
+                    metadata = GameMetadata(),
+                )
+            }
+            .toList()
+        if (synchronized(lock) { addCandidatesLocked(localItems) }) {
+            onPartialResults(snapshot())
+        }
+
+        if (!NetworkStatus.isOnline(appCtx)) {
+            onActiveSourcesChanged(emptyList())
+            return@withContext snapshot()
+        }
 
         // 1) Libretro Boxarts 索引候选（本地内存毫秒级返回，有结果立即推送给界面）
         onActiveSourcesChanged(listOf(ScraperCatalog.CoverIds.LIBRETRO_BOXARTS))
@@ -2009,7 +2040,9 @@ class MetadataRepository(
                 meta = candidate.metadata,
             )
         }
-        covers.applyManualCover(gameId, candidate.coverUrl, candidate.providerId)
+        if (candidate.providerId != CoverSource.LOCAL_COVER_PROVIDER) {
+            covers.applyManualCover(gameId, candidate.coverUrl, candidate.providerId)
+        }
     }
 
     private fun clearPendingBatch() {

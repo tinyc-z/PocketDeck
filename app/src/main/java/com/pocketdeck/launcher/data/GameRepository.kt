@@ -103,6 +103,34 @@ class GameRepository(
         }
     }
 
+    /** 从本地磁盘图片生成自定义封面（若选中的就是当前默认 `localCover` 则清除 `customCover` 恢复默认）。 */
+    suspend fun saveCustomCoverFromLocalFile(
+        game: Game,
+        localFilePath: String,
+    ): String? = withContext(Dispatchers.IO) {
+        val prevCover = game.customCover
+        val existingName = user.value?.renames?.get(game.id)
+        if (localFilePath == game.localCover) {
+            if (!prevCover.isNullOrBlank()) deleteOwnedCustomCover(prevCover)
+            saveGameEdits(game.id, existingName, null)
+            return@withContext null
+        }
+        val src = File(localFilePath)
+        val bytes = runCatching { src.takeIf { it.isFile && it.length() in 1L..(16L * 1024 * 1024) }?.readBytes() }.getOrNull()
+        val dir = File(context.applicationContext.filesDir, "custom_covers").apply { mkdirs() }
+        val prefix = "local_${game.id.hashCode().toUInt()}_${System.currentTimeMillis()}"
+        val savedPath = if (bytes != null) {
+            ImageImportHelper.saveOptimizedCoverBytes(context, bytes, dir, prefix)?.absolutePath
+        } else {
+            null
+        } ?: localFilePath
+        if (!prevCover.isNullOrBlank() && prevCover != savedPath) {
+            deleteOwnedCustomCover(prevCover)
+        }
+        saveGameEdits(game.id, existingName, savedPath)
+        savedPath
+    }
+
     fun launchFileTask(block: suspend CoroutineScope.() -> Unit) {
         scope.launch(Dispatchers.IO, block = block)
     }
@@ -894,9 +922,17 @@ class GameRepository(
 
     private suspend fun refreshIfInRomRoots(targetDir: File) {
         val dstCanon = runCatching { targetDir.canonicalPath }.getOrDefault(targetDir.path)
+        val dstLower = dstCanon.lowercase()
+        val siblingMediaNames = setOf("imgs", "images", "covers", "boxart", "downloaded_media", "gamelists", "screenshots")
         val inRom = configuredRoots().any { root ->
             val rc = runCatching { root.canonicalPath }.getOrDefault(root.path)
-            dstCanon == rc || dstCanon.startsWith("$rc${File.separator}")
+            if (dstCanon == rc || dstCanon.startsWith("$rc${File.separator}")) return@any true
+            val parent = root.parentFile ?: return@any false
+            val pc = runCatching { parent.canonicalPath }.getOrDefault(parent.path)
+            val prefix = "$pc${File.separator}".lowercase()
+            if (!dstLower.startsWith(prefix)) return@any false
+            val firstSeg = dstLower.removePrefix(prefix).substringBefore(File.separatorChar)
+            firstSeg in siblingMediaNames
         }
         if (inRom) refresh()
     }

@@ -1,7 +1,15 @@
 package com.pocketdeck.launcher
 
+import android.content.Context
+import android.content.ContextWrapper
+import com.pocketdeck.launcher.data.LibraryIndexCache
 import com.pocketdeck.launcher.data.RomScanner
+import com.pocketdeck.launcher.data.model.Game
+import com.pocketdeck.launcher.data.model.GameMetadata
+import com.pocketdeck.launcher.data.model.Library
+import com.pocketdeck.launcher.data.model.Platform
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -9,6 +17,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.io.File
 import java.nio.file.Files
 
@@ -308,5 +319,124 @@ class RomScannerSubdirAndLocalCoverTest {
         val incMs = (System.nanoTime() - tSnap0) / 1_000_000.0
         assertEquals(lib, inc)
         println("[BENCH] RomScanner_500FlatGames | coldScan=${"%.2f".format(scanMs)}ms | incrementalReuse=${"%.2f".format(incMs)}ms")
+    }
+
+    private fun fakeCacheContext(name: String): Context {
+        val base = tmp.newFolder(name)
+        val files = File(base, "files").apply { mkdirs() }
+        val cache = File(base, "cache").apply { mkdirs() }
+        lateinit var ctx: Context
+        ctx = object : ContextWrapper(null) {
+            override fun getApplicationContext(): Context = ctx
+            override fun getFilesDir(): File = files
+            override fun getCacheDir(): File = cache
+        }
+        return ctx
+    }
+
+    @Test
+    fun recordsMultipleLocalCoverCandidatesInPriorityOrderAndRoundTripsCacheV4() {
+        val root = tmp.newFolder("roms_multi_covers")
+        val nes = File(root, "nes").apply { mkdirs() }
+        val rom = File(nes, "Contra (USA).nes").apply { writeText("rom") }
+
+        val boxart = File(nes, "media/box2dfront/Contra (USA).png").apply {
+            parentFile?.mkdirs()
+            writeText("boxart")
+        }
+        val screenshot = File(nes, "media/screenshot/Contra (USA).png").apply {
+            parentFile?.mkdirs()
+            writeText("shot")
+        }
+        val mix = File(nes, "Imgs/Contra.jpg").apply {
+            parentFile?.mkdirs()
+            writeText("mix")
+        }
+
+        val lib = RomScanner.scanAll(listOf(root))
+        assertEquals(boxart.path, lib.byId[rom.path]?.localCover)
+        val list = lib.localCovers[rom.path].orEmpty()
+        assertTrue("应记录多张本地候选图", list.size >= 3)
+        assertEquals("主封面应排在首位", boxart.path, list.first())
+        assertTrue("应包含 screenshot 候选", screenshot.path in list)
+        assertTrue("应包含 Imgs 兜底候选", mix.path in list)
+        assertEquals("候选列表不得包含重复路径", list.distinct().size, list.size)
+
+        // 增量复用保持 localCovers 不丢失
+        val inc = RomScanner.scanAll(listOf(root), previousLibrary = lib)
+        assertEquals(lib.localCovers, inc.localCovers)
+
+        // V4 缓存持久化与读回完整保留 localCovers
+        val ctx = fakeCacheContext("cache_v4")
+        val cache = LibraryIndexCache(ctx)
+        cache.save(rootsKey = root.path, library = lib, installedApps = null)
+        val snap = cache.loadUncheckedSnapshot()
+        assertNotNull(snap)
+        assertEquals(lib.localCovers, snap!!.library.localCovers)
+        assertEquals(boxart.path, snap.library.byId[rom.path]?.localCover)
+    }
+
+    @Test
+    fun libraryIndexCacheV3LegacyReadsWithoutLocalCovers() {
+        val ctx = fakeCacheContext("cache_v3_compat")
+        val cacheFile = File(ctx.filesDir, "library_index_v1.bin")
+        val raw = ByteArrayOutputStream()
+        DataOutputStream(BufferedOutputStream(raw)).use { out ->
+            out.writeInt(0x50444958) // MAGIC
+            out.writeInt(3) // VERSION_V3
+            out.writeUTF("/roms") // rootsKey
+            out.writeInt(0) // rootCountSize
+            out.writeInt(1) // platCount
+            out.writeUTF("nes")
+            out.writeUTF("NES")
+            out.writeUTF("Nintendo Entertainment System")
+            out.writeFloat(1.0f)
+            out.writeBoolean(false) // libretroSystem
+            out.writeBoolean(false) // core
+            out.writeInt(1) // bucketCount
+            out.writeUTF("nes")
+            out.writeInt(1) // gCount
+            out.writeUTF("/roms/nes/mario.nes")
+            out.writeUTF("nes")
+            out.writeUTF("Mario") // baseName
+            out.writeUTF("mario.nes") // fileName
+            out.writeUTF("Mario") // title
+            out.writeBoolean(false) // localCover
+            out.writeBoolean(false) // customCover
+            out.writeLong(100L) // fileSize
+            out.writeLong(200L) // lastModifiedMs
+            out.writeInt(0) // discCount
+            out.writeInt(0) // metaCount
+            out.writeInt(0) // snapCount
+            out.writeBoolean(false) // installedApps
+        }
+        cacheFile.writeBytes(raw.toByteArray())
+
+        val snap = LibraryIndexCache(ctx).loadUncheckedSnapshot()
+        assertNotNull("V3 旧版缓存应兼容读取", snap)
+        assertEquals("Mario", snap!!.library.byId["/roms/nes/mario.nes"]?.title)
+        assertTrue("V3 旧版缓存没有 localCovers 应默认为空 map", snap.library.localCovers.isEmpty())
+    }
+
+    @Test
+    fun findLocalCoversByKeywordMatchesGameAndSiblingMediaOnIo() {
+        val root = tmp.newFolder("roms_kw_covers")
+        val nes = File(root, "nes").apply { mkdirs() }
+        val gba = File(root, "gba").apply { mkdirs() }
+        val rom = File(nes, "魂斗罗.nes").apply { writeText("rom") }
+        val covMatch = File(nes, "Imgs/魂斗罗.png").apply { parentFile?.mkdirs(); writeText("c1") }
+        val extraBox = File(nes, "media/box2dfront/Contra Force (USA).png").apply { parentFile?.mkdirs(); writeText("c2") }
+        val ignoredTxt = File(nes, "Imgs/Contra.txt").apply { writeText("not_image") }
+        val otherPlat = File(gba, "Imgs/Contra Advance.png").apply { parentFile?.mkdirs(); writeText("c3") }
+
+        val lib = RomScanner.scanAll(listOf(root))
+        val cnHits = RomScanner.findLocalCoversByKeyword(lib, listOf(root), "nes", "魂斗罗", limit = 8)
+        assertTrue("关键词匹配应命中同游戏扫描封面", covMatch.path in cnHits)
+
+        val enHits = RomScanner.findLocalCoversByKeyword(lib, listOf(root), "nes", "Contra Force", limit = 8)
+        assertTrue("关键词匹配应命中平台图片目录中的未绑定封面", extraBox.path in enHits)
+        assertFalse("非图片文件不得作为本地封面返回", ignoredTxt.path in enHits)
+        assertFalse("其他平台目录的图片不得串台返回", otherPlat.path in enHits)
+        assertNotNull(lib.byId[rom.path])
     }
 }

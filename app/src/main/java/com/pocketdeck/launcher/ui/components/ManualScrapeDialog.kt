@@ -69,11 +69,13 @@ import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import com.pocketdeck.launcher.R
 import com.pocketdeck.launcher.data.CjkAliases
+import com.pocketdeck.launcher.data.CoverSource
 import com.pocketdeck.launcher.data.ManualScrapeCandidate
 import com.pocketdeck.launcher.data.ScrapeMissingSummary
 import com.pocketdeck.launcher.data.ScrapeProgress
 import com.pocketdeck.launcher.data.ScraperCatalog
 import com.pocketdeck.launcher.data.model.Game
+import java.io.File
 import com.pocketdeck.launcher.input.GamepadKeys
 import com.pocketdeck.launcher.input.KeyAction
 import com.pocketdeck.launcher.ui.components.icons.HomeIcons
@@ -781,7 +783,7 @@ fun ManualScrapeDialog(
         val q = (overrideKeyword ?: keyword).trim()
         if (overrideKeyword != null) keyword = overrideKeyword
         dismissKeyboard(targetZone = 2)
-        if (q.isEmpty() || !isOnline) return
+        if (q.isEmpty()) return
         searchJob?.cancel()
         searchJob = scope.launch {
             searching = true
@@ -1227,9 +1229,14 @@ fun ManualScrapeDialog(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     if (!activeUrl.isNullOrBlank()) {
+                                        val imgModel: Any = if (activeUrl.startsWith("http", ignoreCase = true)) {
+                                            activeUrl
+                                        } else {
+                                            File(activeUrl)
+                                        }
                                         key(retryTick, activeUrl) {
                                             AsyncImage(
-                                                model = activeUrl,
+                                                model = imgModel,
                                                 contentDescription = cand.title,
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxSize(),
@@ -1268,8 +1275,14 @@ fun ManualScrapeDialog(
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                     )
+                                    val isLocalCand = cand.providerId == CoverSource.LOCAL_COVER_PROVIDER
+                                    val providerLabel = if (isLocalCand) {
+                                        stringResource(R.string.cover_src_local)
+                                    } else {
+                                        cand.providerId
+                                    }
                                     val metaSummary = listOfNotNull(
-                                        cand.providerId,
+                                        providerLabel,
                                         cand.metadata.releaseDate,
                                         cand.metadata.developer ?: cand.metadata.publisher,
                                         cand.metadata.genre,
@@ -1278,7 +1291,19 @@ fun ManualScrapeDialog(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                                     ) {
-                                        if (cand.matchedByHash) {
+                                        if (isLocalCand) {
+                                            Text(
+                                                text = stringResource(R.string.cover_src_local),
+                                                style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold),
+                                                color = DeckColors.StatusSuccess,
+                                                maxLines = 1,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(DeckColors.StatusSuccess.copy(alpha = 0.14f))
+                                                    .border(0.6.dp, DeckColors.StatusSuccess.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                                            )
+                                        } else if (cand.matchedByHash) {
                                             Text(
                                                 text = "Hash",
                                                 style = DeckType.metaLabel.copy(fontWeight = FontWeight.Bold),
@@ -1345,8 +1370,9 @@ fun ManualScrapeDialog(
         // 点击缩略图弹出与游戏详情统一的全屏高清大图预览浮层
         previewPair?.let { (pIdx, pUrl) ->
             val pCand = results.getOrNull(pIdx)
+            val previewModel: Any = if (pUrl.startsWith("http", ignoreCase = true)) pUrl else File(pUrl)
             FullscreenCoverLightbox(
-                model = pUrl,
+                model = previewModel,
                 title = pCand?.title,
                 swapAbxy = swapAbxy,
                 keyBindings = keyBindings,

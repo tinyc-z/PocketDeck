@@ -183,8 +183,9 @@ fun GameCoverCard(
         } else {
             candidates = baseCandidates
         }
-        knownIdx = remember(game.id, game.customCover, platform?.libretroSystem, officialName, indexVer) {
-            if (game.customCover != null) 0 else covers?.knownIndex(game.id, platform)
+        knownIdx = remember(game.id, game.customCover, game.localCover, platform?.libretroSystem, officialName, indexVer) {
+            if (game.customCover != null || (game.localCover != null && covers?.isManualCover(game.id) != true)) 0
+            else covers?.knownIndex(game.id, platform)
         }
     }
     val apkPackage = remember(game.id) {
